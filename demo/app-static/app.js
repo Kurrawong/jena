@@ -94,6 +94,40 @@ function buildCqlFilter(selected, bbox, polygon) {
     return JSON.stringify({op: 'and', args: clauses});
 }
 
+/**
+ * Parse a CQL2-JSON filter string back into app state.
+ * Returns { selected: {field: [values]}, bbox, polygon }.
+ */
+function parseCqlFilter(cqlString) {
+    const selected = {};
+    let bbox = null;
+    let polygon = null;
+    if (!cqlString) return { selected, bbox, polygon };
+
+    let cql;
+    try { cql = JSON.parse(cqlString); } catch { return { selected, bbox, polygon }; }
+
+    const clauses = (cql.op === 'and') ? cql.args : [cql];
+    for (const clause of clauses) {
+        if (!clause.op || !clause.args) continue;
+        if (clause.op === '=' && clause.args[0]?.property) {
+            const field = clause.args[0].property;
+            selected[field] = [clause.args[1]];
+        } else if (clause.op === 'in' && clause.args[0]?.property) {
+            const field = clause.args[0].property;
+            selected[field] = clause.args[1];
+        } else if (clause.op === 's_intersects') {
+            const geom = clause.args[1];
+            if (geom?.bbox) {
+                bbox = geom.bbox;
+            } else if (geom?.type === 'Polygon' && geom.coordinates) {
+                polygon = geom.coordinates[0];
+            }
+        }
+    }
+    return { selected, bbox, polygon };
+}
+
 // ---------------------------------------------------------------------------
 // N3 store helpers
 // ---------------------------------------------------------------------------
@@ -259,8 +293,6 @@ async function loadConfig() {
     const resp = await fetch(`${CONFIG_PATH}?t=${Date.now()}`);
     if (!resp.ok) throw new Error(`Failed to fetch ${CONFIG_PATH}: ${resp.status}`);
     const text = await resp.text();
-    console.log('[loadConfig] config.ttl (first 2000 chars):', text.substring(0, 2000));
-    console.log('[loadConfig] config.ttl length:', text.length);
     const store = await parseTurtle(text);
     return extractConfig(store);
 }
@@ -411,17 +443,8 @@ function searchApp() {
         pushUrl() {
             const params = new URLSearchParams();
             if (this.q.trim()) params.set('q', this.q.trim());
-            for (const f of this.facetFields) {
-                for (const v of (this.selected[f] || [])) {
-                    params.append(f, v);
-                }
-            }
-            if (this.spatialBbox) {
-                params.set('bbox', this.spatialBbox.join(','));
-            }
-            if (this.spatialPolygon) {
-                params.set('polygon', this.spatialPolygon.map(c => c.join(',')).join(';'));
-            }
+            const cql = buildCqlFilter(this.selected, this.spatialBbox, this.spatialPolygon);
+            if (cql) params.set('filter', cql);
             const qs = params.toString();
             const url = qs ? '?' + qs : window.location.pathname;
             history.pushState(null, '', url);
@@ -430,31 +453,12 @@ function searchApp() {
         loadFromUrl() {
             const params = new URLSearchParams(window.location.search);
             this.q = params.get('q') || '';
+            const { selected, bbox, polygon } = parseCqlFilter(params.get('filter'));
             for (const f of this.facetFields) {
-                this.selected[f] = params.getAll(f);
+                this.selected[f] = selected[f] || [];
             }
-            const bboxStr = params.get('bbox');
-            if (bboxStr) {
-                const parts = bboxStr.split(',').map(Number);
-                if (parts.length === 4 && parts.every(n => !isNaN(n))) {
-                    this.spatialBbox = parts;
-                } else {
-                    this.spatialBbox = null;
-                }
-            } else {
-                this.spatialBbox = null;
-            }
-            const polyStr = params.get('polygon');
-            if (polyStr) {
-                const coords = polyStr.split(';').map(p => p.split(',').map(Number));
-                if (coords.length >= 3 && coords.every(c => c.length === 2 && c.every(n => !isNaN(n)))) {
-                    this.spatialPolygon = coords;
-                } else {
-                    this.spatialPolygon = null;
-                }
-            } else {
-                this.spatialPolygon = null;
-            }
+            this.spatialBbox = bbox;
+            this.spatialPolygon = polygon;
         },
 
         // --- Actions ---
@@ -844,8 +848,8 @@ WHERE {
 
             for (const card of this.cards) {
                 const wktValues = card.properties.asWKT || [];
-                for (const wkt of wktValues) {
-                    const geo = parseWktForLeaflet(wkt);
+                for (const pv of wktValues) {
+                    const geo = parseWktForLeaflet(pv.raw);
                     if (!geo) continue;
 
                     let layer;
@@ -1160,10 +1164,6 @@ function configApp() {
         async init() {
             try {
                 this.config = await loadConfig();
-                console.log('[configApp] shapes:', this.config.shapes.length);
-                for (const s of this.config.shapes) {
-                    console.log(`[configApp] ${s.name}: ${s.fields.length} fields →`, s.fields.map(f => f.name));
-                }
             } catch (e) {
                 this.error = `Failed to load config: ${e.message}`;
             }
