@@ -175,12 +175,21 @@ idx:path rdfs:label ;
 | Type | Lucene fields | Stored as | Use case |
 |------|--------------|-----------|----------|
 | `idx:TextField` | `TextField` | analyzed text | Full-text search |
-| `idx:KeywordField` | `StringField` | exact string | Facets, filters, exact match |
+| `idx:KeywordField` | `StringField` | exact string (expects IRI values) | Facets, filters, exact match. Returns IRIs in `?literal` and `?value` bindings |
 | `idx:IntField` | `IntPoint` | int | Numeric range queries |
 | `idx:LongField` | `LongPoint` | long | Large numeric values |
 | `idx:DoubleField` | `DoublePoint` | double | Floating point values |
 
 When `idx:facetable true` is set on a KeywordField, a `SortedSetDocValuesFacetField` is automatically added. When `idx:sortable true` is set, a `SortedDocValuesField` (for keywords) or `NumericDocValuesField` (for numerics) is added.
+
+### Field IRIs
+
+Each field definition has an associated IRI used in `?field` bindings from `luc:query` and `luc:facet`:
+
+- **Named resource fields**: If the field is defined as a named resource (URI node) in the configuration, its IRI is used directly.
+- **Blank node fields**: Fields defined on blank nodes (e.g., via `sh:property [ ... ]`) get an auto-generated IRI: `urn:jena:lucene:index#field/{fieldName}`.
+
+This IRI is deterministic and stable — it depends only on `idx:fieldName`, not on blank node identity.
 
 ---
 

@@ -565,10 +565,14 @@ WHERE {
                         totalHits = parseInt(row.totalHits.value, 10);
                     }
                 } else if (row.field) {
-                    const f = row.field.value;
+                    // ?field is a URI — extract field name from local name
+                    const f = shortName(row.field.value);
                     if (!facets[f]) facets[f] = [];
+                    // ?value may be a URI (KEYWORD) or literal (TEXT) —
+                    // store the raw value for CQL filter matching
                     facets[f].push({
                         value: row.value.value,
+                        label: row.value.type === 'uri' ? shortName(row.value.value) : row.value.value,
                         count: parseInt(row.count.value, 10),
                     });
                 }
@@ -585,11 +589,11 @@ WHERE {
                 }
                 for (const sv of (this.selected[f] || [])) {
                     if (!values[sv]) {
-                        values[sv] = { value: sv, count: 0 };
+                        values[sv] = { value: sv, label: shortName(sv), count: 0 };
                     }
                 }
                 merged[f] = Object.values(values).sort((a, b) =>
-                    b.count - a.count || a.value.localeCompare(b.value)
+                    b.count - a.count || (a.label || a.value).localeCompare(b.label || b.value)
                 );
             }
             return merged;
@@ -615,10 +619,15 @@ WHERE {
                 if (row.p && row.o) {
                     const pred = shortName(row.p.value);
                     const raw = row.o.value;
-                    const obj = row.o.type === 'uri' ? shortName(raw) : raw;
+                    const isUri = row.o.type === 'uri';
+                    const obj = isUri ? shortName(raw) : raw;
                     if (!card.properties[pred]) card.properties[pred] = [];
-                    if (!card.properties[pred].includes(obj)) {
-                        card.properties[pred].push(obj);
+                    if (!card.properties[pred].some(e => e.display === obj)) {
+                        card.properties[pred].push({
+                            display: obj,
+                            raw: raw,
+                            isUri: isUri,
+                        });
                     }
                 }
             }
@@ -626,12 +635,13 @@ WHERE {
             const cards = Object.values(entities);
             for (const card of cards) {
                 if (card.properties.description) {
-                    card.description = card.properties.description[0];
+                    card.description = card.properties.description[0].display;
                 }
                 for (const [pred, values] of Object.entries(card.properties)) {
                     if (pred === 'description') continue;
                     if (pred === 'asWKT') {
-                        for (const v of values) {
+                        for (const pv of values) {
+                            const v = pv.raw;
                             const geo = parseWktForLeaflet(v);
                             if (geo) {
                                 const tooltip = geo.type === 'point'
@@ -648,11 +658,14 @@ WHERE {
                         continue;
                     }
                     const facetField = this.predicateToFacet[pred] || null;
-                    for (const v of values) {
-                        const active = facetField ? this.isSelected(facetField, v) : false;
+                    for (const pv of values) {
+                        // For facet matching, use the raw value (full IRI for URIs)
+                        const matchValue = facetField ? pv.raw : pv.display;
+                        const active = facetField ? this.isSelected(facetField, matchValue) : false;
                         card.tags.push({
                             pred,
-                            value: v,
+                            value: matchValue,
+                            displayValue: pv.display,
                             facetField,
                             isActive: active,
                             clickable: !!facetField,
@@ -681,7 +694,7 @@ WHERE {
             const filters = [];
             for (const [field, values] of Object.entries(this.selected)) {
                 if (!values || values.length === 0) continue;
-                const quoted = values.map(v => `\u201c${escapeHtml(v)}\u201d`);
+                const quoted = values.map(v => `\u201c${escapeHtml(shortName(v))}\u201d`);
                 if (quoted.length === 1) {
                     filters.push(`${escapeHtml(field)} = ${quoted[0]}`);
                 } else {

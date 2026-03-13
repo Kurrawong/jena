@@ -130,7 +130,7 @@
                           <input type="checkbox"
                                  :checked="isSelected(fieldName, fv.value)"
                                  @change="toggleFacet(fieldName, fv.value)">
-                          <span class="facet-value" x-text="fv.value"></span>
+                          <span class="facet-value" x-text="fv.label || fv.value"></span>
                           <span class="facet-count" x-text="fv.count"></span>
                         </label>
                       </template>
@@ -186,7 +186,7 @@
                 <span class="rtag rtag-type" x-text="card.entityType"></span>
                 <template x-for="tag in card.tags" :key="tag.pred + ':' + tag.value">
                   <span class="rtag" :class="tag.cssClass"
-                        x-text="tag.value"
+                        x-text="tag.displayValue || tag.value"
                         :title="tag.tooltip || ''"
                         :tabindex="(tag.clickable || tag.mapUri) ? 0 : -1"
                         @click="tag.mapUri ? focusMapMarker(tag.mapUri) : (tag.clickable && toggleFacet(tag.facetField, tag.value))"

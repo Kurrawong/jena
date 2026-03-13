@@ -96,7 +96,7 @@
                   <td>
                     <template x-for="fv in (stats.facets[fieldName] || []).slice(0, 10)" :key="fv.value">
                       <span style="display:inline-flex;align-items:center;gap:0.2em;margin-right:0.75em;font-size:0.8rem">
-                        <span x-text="fv.value"></span>
+                        <span x-text="fv.label || fv.value"></span>
                         <span style="font-family:var(--font-mono);font-size:0.65rem;color:var(--text-muted);background:var(--bg-elevated);padding:0.1em 0.35em;border-radius:3px" x-text="fv.count.toLocaleString()"></span>
                       </span>
                     </template>
