@@ -158,16 +158,16 @@ def collect_vocab_iris(
     """Emit rdfs:label triples for all vocabulary IRIs."""
     lines = ["## --- Vocabulary IRIs ---\n"]
     for c in sorted(commodities):
-        lines.append(f'ex:commodity/{to_iri_local(c)} rdfs:label "{escape_ttl(c)}" .')
+        lines.append(f'commodity:{to_iri_local(c)} rdfs:label "{escape_ttl(c)}" .')
     lines.append("")
     for s in sorted(states):
-        lines.append(f'ex:state/{to_iri_local(s)} rdfs:label "{s}" .')
+        lines.append(f'state:{to_iri_local(s)} rdfs:label "{s}" .')
     lines.append("")
     for o in sorted(operators):
-        lines.append(f'ex:operator/{to_iri_local(o)} rdfs:label "{escape_ttl(o)}" .')
+        lines.append(f'operator:{to_iri_local(o)} rdfs:label "{escape_ttl(o)}" .')
     lines.append("")
     for st in sorted(statuses):
-        lines.append(f'ex:status/{to_iri_local(st)} rdfs:label "{escape_ttl(st)}" .')
+        lines.append(f'status:{to_iri_local(st)} rdfs:label "{escape_ttl(st)}" .')
     lines.append("")
     return "\n".join(lines)
 
@@ -177,7 +177,7 @@ def generate_site(rng: random.Random, idx: int, region: Region) -> tuple[str, tu
     name = f"{rng.choice(SITE_NAMES)} {rng.choice(SITE_ADJECTIVES)}"
     commodities = pick_region_commodities(rng, region)
     status = rng.choice(STATUSES)
-    commodity_values = " , ".join(f'ex:commodity/{to_iri_local(c)}' for c in commodities)
+    commodity_values = " , ".join(f'commodity:{to_iri_local(c)}' for c in commodities)
 
     # Geometry: point or polygon
     is_polygon = region.geometry == "mix" and rng.random() < 0.40
@@ -197,8 +197,8 @@ def generate_site(rng: random.Random, idx: int, region: Region) -> tuple[str, tu
         ex:site-{idx:04d} a ex:Site ;
             rdfs:label "{escape_ttl(name)} Mine" ;
             ex:commodity {commodity_values} ;
-            ex:state ex:state/{to_iri_local(region.state)} ;
-            ex:status ex:status/{to_iri_local(status)} ;
+            ex:state state:{to_iri_local(region.state)} ;
+            ex:status status:{to_iri_local(status)} ;
             geo:asWKT {wkt} .
     """)
     return (ttl, (lat, lon), commodities)
@@ -228,7 +228,7 @@ def generate_borehole(
         commodities = pick_region_commodities(rng, region)
         state = region.state
 
-    commodity_values = " , ".join(f'ex:commodity/{to_iri_local(c)}' for c in commodities)
+    commodity_values = " , ".join(f'commodity:{to_iri_local(c)}' for c in commodities)
 
     # Always POINT geometry for boreholes
     epsg = use_epsg4326(rng)
@@ -238,7 +238,7 @@ def generate_borehole(
         ex:bh-{idx:04d} a ex:Borehole ;
             rdfs:label "{label} {drill_type} Drill Hole" ;
             ex:commodity {commodity_values} ;
-            ex:state ex:state/{to_iri_local(state)} ;
+            ex:state state:{to_iri_local(state)} ;
             ex:depth {depth} ;
             geo:asWKT {wkt} .
     """)
@@ -257,15 +257,15 @@ def generate_report(rng: random.Random, idx: int, region: Region) -> str:
         f"{report_type} for the {site_name} {primary.lower()} project "
         f"in {region.state}. Prepared by {operator}."
     )
-    commodity_values = " , ".join(f'ex:commodity/{to_iri_local(c)}' for c in commodities)
+    commodity_values = " , ".join(f'commodity:{to_iri_local(c)}' for c in commodities)
     return textwrap.dedent(f"""\
         ex:report-{idx:04d} a ex:MiningReport ;
             rdfs:label "{escape_ttl(title)}" ;
             dct:description "{escape_ttl(description)}" ;
             ex:commodity {commodity_values} ;
-            ex:state ex:state/{to_iri_local(region.state)} ;
-            ex:operator ex:operator/{to_iri_local(operator)} ;
-            ex:status ex:status/{to_iri_local(status)} ;
+            ex:state state:{to_iri_local(region.state)} ;
+            ex:operator operator:{to_iri_local(operator)} ;
+            ex:status status:{to_iri_local(status)} ;
             ex:year {year} .
     """)
 
@@ -327,7 +327,11 @@ def main():
     print("## Generated synthetic mining data")
     print(f"## {args.count} entities: {n_sites} sites, {n_boreholes} boreholes, {n_reports} reports")
     print()
-    print("@prefix ex:    <http://example.org/mining/> .")
+    print("@prefix ex:         <http://example.org/mining/> .")
+    print("@prefix commodity:  <http://example.org/mining/commodity/> .")
+    print("@prefix state:      <http://example.org/mining/state/> .")
+    print("@prefix operator:   <http://example.org/mining/operator/> .")
+    print("@prefix status:     <http://example.org/mining/status/> .")
     print("@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .")
     print("@prefix dct:   <http://purl.org/dc/terms/> .")
     print("@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .")
