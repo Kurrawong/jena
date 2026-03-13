@@ -359,6 +359,7 @@ function searchApp() {
         _mapLayers: null,
         _mapMarkersByUri: {},
         _highlightTimer: null,
+        _abortController: null,
 
         async init() {
             let config;
@@ -502,7 +503,7 @@ function searchApp() {
 
         // --- SPARQL execution ---
 
-        async runSparql(query) {
+        async runSparql(query, signal) {
             const resp = await fetch(this.endpoint, {
                 method: 'POST',
                 headers: {
@@ -510,6 +511,7 @@ function searchApp() {
                     'Accept': 'application/sparql-results+json',
                 },
                 body: query,
+                signal,
             });
             if (!resp.ok) throw new Error(`SPARQL error: ${resp.status} ${resp.statusText}`);
             return resp.json();
@@ -726,6 +728,11 @@ WHERE {
         // --- Search execution ---
 
         async executeSearch() {
+            // Abort any in-flight search before starting a new one
+            if (this._abortController) this._abortController.abort();
+            this._abortController = new AbortController();
+            const signal = this._abortController.signal;
+
             this.loading = true;
             this.showLoading = true;
             clearTimeout(this._loadingTimer);
@@ -740,7 +747,7 @@ WHERE {
                     + (activeFilters > 0 ? ` + ${activeFilters} filter${activeFilters > 1 ? 's' : ''}` : '');
 
                 let t0 = performance.now();
-                const data = await this.runSparql(searchQuery);
+                const data = await this.runSparql(searchQuery, signal);
                 const searchMs = performance.now() - t0;
                 this.logQuery(`Search: ${searchLabel}`, searchQuery, searchMs);
 
@@ -753,7 +760,7 @@ WHERE {
                     const detailQuery = this.buildDetailQuery(uris);
 
                     t0 = performance.now();
-                    const detailData = await this.runSparql(detailQuery);
+                    const detailData = await this.runSparql(detailQuery, signal);
                     const detailMs = performance.now() - t0;
                     this.logQuery(`Details: ${uris.length} entities`, detailQuery, detailMs);
 
@@ -766,7 +773,11 @@ WHERE {
                 const totalSec = (performance.now() - loadStart) / 1000;
                 this.description = this.buildDescription(hits.length, totalHits, totalSec);
             } catch (e) {
-                if (e.name === 'TypeError' || (e.message && (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')))) {
+                // Aborted requests are expected — silently ignore
+                if (e.name === 'AbortError') return;
+
+                console.error('executeSearch error:', e);
+                if (e.message && (e.message.includes('Failed to fetch') || e.message.includes('NetworkError'))) {
                     this.error = `Cannot connect to Fuseki at ${this.endpoint}. Is the server running?`;
                 } else {
                     this.error = `Query failed: ${e.message}`;
