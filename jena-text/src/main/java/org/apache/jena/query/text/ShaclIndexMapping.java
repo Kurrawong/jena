@@ -39,7 +39,7 @@ public class ShaclIndexMapping {
         TEXT, KEYWORD, INT, LONG, DOUBLE, LATLON
     }
 
-    private static final String FIELD_IRI_PREFIX = "urn:jena:lucene:index#field/";
+    private static final String FIELD_IRI_PREFIX = "urn:jena:lucene:field#";
 
     public static class FieldDef {
         private final String fieldName;

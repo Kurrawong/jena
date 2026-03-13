@@ -167,7 +167,7 @@ public class TestTextFacetPF {
                 while (rs.hasNext()) {
                     QuerySolution sol = rs.next();
                     assertTrue("?f should be a URI", sol.get("f").isURIResource());
-                    assertEquals("urn:jena:lucene:index#field/category",
+                    assertEquals("urn:jena:lucene:field#category",
                         sol.getResource("f").getURI());
                 }
             }
@@ -192,8 +192,8 @@ public class TestTextFacetPF {
                 while (rs.hasNext()) {
                     QuerySolution sol = rs.next();
                     String fieldUri = sol.getResource("f").getURI();
-                    if (fieldUri.endsWith("/category")) foundCategory = true;
-                    if (fieldUri.endsWith("/author")) foundAuthor = true;
+                    if (fieldUri.endsWith("#category")) foundCategory = true;
+                    if (fieldUri.endsWith("#author")) foundAuthor = true;
                 }
                 assertTrue("Should have category facets", foundCategory);
                 assertTrue("Should have author facets", foundAuthor);
@@ -217,7 +217,7 @@ public class TestTextFacetPF {
                 int count = 0;
                 while (rs.hasNext()) {
                     QuerySolution sol = rs.next();
-                    assertTrue(sol.getResource("f").getURI().endsWith("/author"));
+                    assertTrue(sol.getResource("f").getURI().endsWith("#author"));
                     count++;
                 }
                 assertTrue("Should have filtered author facets", count > 0);

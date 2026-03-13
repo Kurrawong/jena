@@ -294,7 +294,7 @@ public class TestTextQueryPFFilters {
                     assertNotNull("?field should be bound for single-field search", sol.get("field"));
                     assertTrue("?field should be a URI", sol.get("field").isURIResource());
                     assertEquals("Field IRI should end with field name",
-                        "urn:jena:lucene:index#field/title", sol.getResource("field").getURI());
+                        "urn:jena:lucene:field#title", sol.getResource("field").getURI());
                     count++;
                 }
                 assertTrue("Should find results", count > 0);

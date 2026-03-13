@@ -187,7 +187,7 @@ When `idx:facetable true` is set on a KeywordField, a `SortedSetDocValuesFacetFi
 Each field definition has an associated IRI used in `?field` bindings from `luc:query` and `luc:facet`:
 
 - **Named resource fields**: If the field is defined as a named resource (URI node) in the configuration, its IRI is used directly.
-- **Blank node fields**: Fields defined on blank nodes (e.g., via `sh:property [ ... ]`) get an auto-generated IRI: `urn:jena:lucene:index#field/{fieldName}`.
+- **Blank node fields**: Fields defined on blank nodes (e.g., via `sh:property [ ... ]`) get an auto-generated IRI: `urn:jena:lucene:field#{fieldName}`.
 
 This IRI is deterministic and stable — it depends only on `idx:fieldName`, not on blank node identity.
 

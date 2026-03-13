@@ -182,7 +182,7 @@ public class TestShaclIndexMapping {
         FieldDef titleField = mapping.findField("title");
         assertNotNull(titleField.getFieldIRI());
         assertTrue(titleField.getFieldIRI().isURI());
-        assertEquals("urn:jena:lucene:index#field/title", titleField.getFieldIRI().getURI());
+        assertEquals("urn:jena:lucene:field#title", titleField.getFieldIRI().getURI());
     }
 
     @Test

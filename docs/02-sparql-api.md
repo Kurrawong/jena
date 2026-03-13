@@ -105,7 +105,7 @@ Field names correspond to `idx:fieldName` values in the SHACL index configuratio
 
 The `?totalHits` binding returns the total number of documents matching the query and filters, regardless of the `limit` parameter. This is useful for displaying "Showing X of Y results" in search UIs. The value is computed efficiently using `IndexSearcher.count()` and is only evaluated when the variable is present in the subject.
 
-The `?field` binding returns the IRI of the Lucene field that was searched. For fields defined as named resources in the configuration, the resource's own IRI is used. For fields defined on blank nodes, an auto-generated IRI of the form `urn:jena:lucene:index#field/{fieldName}` is used. For single-field queries, this is always bound. For multi-field queries, it is unbound.
+The `?field` binding returns the IRI of the Lucene field that was searched. For fields defined as named resources in the configuration, the resource's own IRI is used. For fields defined on blank nodes, an auto-generated IRI of the form `urn:jena:lucene:field#{fieldName}` is used. For single-field queries, this is always bound. For multi-field queries, it is unbound.
 
 ### Examples
 
@@ -181,7 +181,7 @@ Filters use CQL2-JSON syntax:
 
 | Variable | Required | Type | Description |
 |----------|----------|------|-------------|
-| ?field | Yes | URI | Field IRI identifying the facet field (auto-generated `urn:jena:lucene:index#field/{fieldName}` for blank node fields) |
+| ?field | Yes | URI | Field IRI identifying the facet field (auto-generated `urn:jena:lucene:field#{fieldName}` for blank node fields) |
 | ?value | No | Node | Facet value. KEYWORD fields return IRIs, TEXT fields return string literals |
 | ?count | No | xsd:long | Number of matching documents |
 
