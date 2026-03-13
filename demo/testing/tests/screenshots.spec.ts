@@ -12,6 +12,7 @@ interface GroupEntry {
 interface TestEntry {
   label: string;
   params: string;
+  minResults?: number;
 }
 type Entry = GroupEntry | TestEntry;
 
@@ -109,12 +110,19 @@ for (const group of groups) {
           screenshotFile,
         });
 
-        // Basic assertion: screenshot was taken (file exists implicitly)
-        // and page did not show a connection error
+        // Assert: no connection/query errors
         const errorEl = page.locator(".notice-error");
         if (await errorEl.isVisible()) {
           const errorText = await errorEl.innerText();
           expect(errorText, "Page showed an error").toBeFalsy();
+        }
+
+        // Assert: minimum result count when specified
+        if (tc.minResults != null) {
+          expect(
+            resultCount,
+            `Expected at least ${tc.minResults} results for "${tc.label}" but got ${resultCount}`
+          ).toBeGreaterThanOrEqual(tc.minResults);
         }
       });
     }

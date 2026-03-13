@@ -37,70 +37,70 @@
   {
     "group": "Single Facet",
     "label": "commodity = Gold",
-    "params": "?commodity=Gold",
+    "params": "?commodity=http%3A%2F%2Fexample.org%2Fmining%2Fcommodity%2FGold",
     "resultCount": 176,
     "screenshotFile": "single-facet-commodity-gold.png"
   },
   {
     "group": "Single Facet",
     "label": "state = NSW",
-    "params": "?state=NSW",
+    "params": "?state=http%3A%2F%2Fexample.org%2Fmining%2Fstate%2FNSW",
     "resultCount": 89,
     "screenshotFile": "single-facet-state-nsw.png"
   },
   {
     "group": "Single Facet",
     "label": "status = Historical",
-    "params": "?status=Historical",
+    "params": "?status=http%3A%2F%2Fexample.org%2Fmining%2Fstatus%2FHistorical",
     "resultCount": 81,
     "screenshotFile": "single-facet-status-historical.png"
   },
   {
     "group": "Single Facet",
     "label": "operator = BHP",
-    "params": "?operator=BHP",
+    "params": "?operator=http%3A%2F%2Fexample.org%2Fmining%2Foperator%2FBHP",
     "resultCount": 24,
     "screenshotFile": "single-facet-operator-bhp.png"
   },
   {
     "group": "Multi-Value Facet",
     "label": "commodity = Lead OR Copper",
-    "params": "?commodity=Lead&commodity=Copper",
+    "params": "?commodity=http%3A%2F%2Fexample.org%2Fmining%2Fcommodity%2FLead&commodity=http%3A%2F%2Fexample.org%2Fmining%2Fcommodity%2FCopper",
     "resultCount": 124,
     "screenshotFile": "multi-value-facet-commodity-lead-or-copper.png"
   },
   {
     "group": "Multi-Value Facet",
     "label": "state = WA OR QLD",
-    "params": "?state=WA&state=QLD",
+    "params": "?state=http%3A%2F%2Fexample.org%2Fmining%2Fstate%2FWA&state=http%3A%2F%2Fexample.org%2Fmining%2Fstate%2FQLD",
     "resultCount": 327,
     "screenshotFile": "multi-value-facet-state-wa-or-qld.png"
   },
   {
     "group": "Cross-Field Filters",
     "label": "Gold in WA",
-    "params": "?commodity=Gold&state=WA",
+    "params": "?commodity=http%3A%2F%2Fexample.org%2Fmining%2Fcommodity%2FGold&state=http%3A%2F%2Fexample.org%2Fmining%2Fstate%2FWA",
     "resultCount": 75,
     "screenshotFile": "cross-field-filters-gold-in-wa.png"
   },
   {
     "group": "Cross-Field Filters",
     "label": "Copper in QLD + Active",
-    "params": "?commodity=Copper&state=QLD&status=Active",
+    "params": "?commodity=http%3A%2F%2Fexample.org%2Fmining%2Fcommodity%2FCopper&state=http%3A%2F%2Fexample.org%2Fmining%2Fstate%2FQLD&status=http%3A%2F%2Fexample.org%2Fmining%2Fstatus%2FActive",
     "resultCount": 3,
     "screenshotFile": "cross-field-filters-copper-in-qld-active.png"
   },
   {
     "group": "Cross-Field Filters",
     "label": "Reports by Newmont",
-    "params": "?entityType=Mining+Report&operator=Newmont",
+    "params": "?entityType=Mining+Report&operator=http%3A%2F%2Fexample.org%2Fmining%2Foperator%2FNewmont",
     "resultCount": 22,
     "screenshotFile": "cross-field-filters-reports-by-newmont.png"
   },
   {
     "group": "FTS + Filters",
     "label": "\"copper\" in QLD",
-    "params": "?q=copper&state=QLD",
+    "params": "?q=copper&state=http%3A%2F%2Fexample.org%2Fmining%2Fstate%2FQLD",
     "resultCount": 15,
     "screenshotFile": "fts-filters-copper-in-qld.png"
   },
@@ -114,7 +114,7 @@
   {
     "group": "FTS + Filters",
     "label": "\"exploration\" in WA",
-    "params": "?q=exploration&state=WA",
+    "params": "?q=exploration&state=http%3A%2F%2Fexample.org%2Fmining%2Fstate%2FWA",
     "resultCount": 10,
     "screenshotFile": "fts-filters-exploration-in-wa.png"
   },
@@ -219,7 +219,7 @@
   {
     "group": "Spatial + Facets",
     "label": "Gold + Aus bbox",
-    "params": "?commodity=Gold&bbox=112,-44,154,-10",
+    "params": "?commodity=http%3A%2F%2Fexample.org%2Fmining%2Fcommodity%2FGold&bbox=112,-44,154,-10",
     "resultCount": 96,
     "screenshotFile": "spatial-facets-gold-aus-bbox.png"
   },
@@ -233,7 +233,7 @@
   {
     "group": "Spatial + FTS + Facets",
     "label": "\"mine\" in WA + state=WA bbox",
-    "params": "?q=mine&state=WA&bbox=112,-35,129,-14",
+    "params": "?q=mine&state=http%3A%2F%2Fexample.org%2Fmining%2Fstate%2FWA&bbox=112,-35,129,-14",
     "resultCount": 38,
     "screenshotFile": "spatial-fts-facets-mine-in-wa-state-wa-bbox.png"
   }

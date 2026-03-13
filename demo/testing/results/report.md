@@ -1,6 +1,6 @@
 # Screenshot Test Report
 
-Generated: 2026-03-13 04:11:32 UTC
+Generated: 2026-03-13 20:49:23 UTC
 
 ## Summary
 
@@ -69,28 +69,28 @@ Generated: 2026-03-13 04:11:32 UTC
 
 ### commodity = Gold
 
-- Query: `?commodity=Gold`
+- Query: `?commodity=http%3A%2F%2Fexample.org%2Fmining%2Fcommodity%2FGold`
 - Results: **176 results**
 
 ![commodity = Gold](screenshots/single-facet-commodity-gold.png)
 
 ### state = NSW
 
-- Query: `?state=NSW`
+- Query: `?state=http%3A%2F%2Fexample.org%2Fmining%2Fstate%2FNSW`
 - Results: **89 results**
 
 ![state = NSW](screenshots/single-facet-state-nsw.png)
 
 ### status = Historical
 
-- Query: `?status=Historical`
+- Query: `?status=http%3A%2F%2Fexample.org%2Fmining%2Fstatus%2FHistorical`
 - Results: **81 results**
 
 ![status = Historical](screenshots/single-facet-status-historical.png)
 
 ### operator = BHP
 
-- Query: `?operator=BHP`
+- Query: `?operator=http%3A%2F%2Fexample.org%2Fmining%2Foperator%2FBHP`
 - Results: **24 results**
 
 ![operator = BHP](screenshots/single-facet-operator-bhp.png)
@@ -103,14 +103,14 @@ Generated: 2026-03-13 04:11:32 UTC
 
 ### commodity = Lead OR Copper
 
-- Query: `?commodity=Lead&commodity=Copper`
+- Query: `?commodity=http%3A%2F%2Fexample.org%2Fmining%2Fcommodity%2FLead&commodity=http%3A%2F%2Fexample.org%2Fmining%2Fcommodity%2FCopper`
 - Results: **124 results**
 
 ![commodity = Lead OR Copper](screenshots/multi-value-facet-commodity-lead-or-copper.png)
 
 ### state = WA OR QLD
 
-- Query: `?state=WA&state=QLD`
+- Query: `?state=http%3A%2F%2Fexample.org%2Fmining%2Fstate%2FWA&state=http%3A%2F%2Fexample.org%2Fmining%2Fstate%2FQLD`
 - Results: **327 results**
 
 ![state = WA OR QLD](screenshots/multi-value-facet-state-wa-or-qld.png)
@@ -123,21 +123,21 @@ Generated: 2026-03-13 04:11:32 UTC
 
 ### Gold in WA
 
-- Query: `?commodity=Gold&state=WA`
+- Query: `?commodity=http%3A%2F%2Fexample.org%2Fmining%2Fcommodity%2FGold&state=http%3A%2F%2Fexample.org%2Fmining%2Fstate%2FWA`
 - Results: **75 results**
 
 ![Gold in WA](screenshots/cross-field-filters-gold-in-wa.png)
 
 ### Copper in QLD + Active
 
-- Query: `?commodity=Copper&state=QLD&status=Active`
+- Query: `?commodity=http%3A%2F%2Fexample.org%2Fmining%2Fcommodity%2FCopper&state=http%3A%2F%2Fexample.org%2Fmining%2Fstate%2FQLD&status=http%3A%2F%2Fexample.org%2Fmining%2Fstatus%2FActive`
 - Results: **3 results**
 
 ![Copper in QLD + Active](screenshots/cross-field-filters-copper-in-qld-active.png)
 
 ### Reports by Newmont
 
-- Query: `?entityType=Mining+Report&operator=Newmont`
+- Query: `?entityType=Mining+Report&operator=http%3A%2F%2Fexample.org%2Fmining%2Foperator%2FNewmont`
 - Results: **22 results**
 
 ![Reports by Newmont](screenshots/cross-field-filters-reports-by-newmont.png)
@@ -150,7 +150,7 @@ Generated: 2026-03-13 04:11:32 UTC
 
 ### "copper" in QLD
 
-- Query: `?q=copper&state=QLD`
+- Query: `?q=copper&state=http%3A%2F%2Fexample.org%2Fmining%2Fstate%2FQLD`
 - Results: **15 results**
 
 !["copper" in QLD](screenshots/fts-filters-copper-in-qld.png)
@@ -164,7 +164,7 @@ Generated: 2026-03-13 04:11:32 UTC
 
 ### "exploration" in WA
 
-- Query: `?q=exploration&state=WA`
+- Query: `?q=exploration&state=http%3A%2F%2Fexample.org%2Fmining%2Fstate%2FWA`
 - Results: **10 results**
 
 !["exploration" in WA](screenshots/fts-filters-exploration-in-wa.png)
@@ -299,7 +299,7 @@ Generated: 2026-03-13 04:11:32 UTC
 
 ### Gold + Aus bbox
 
-- Query: `?commodity=Gold&bbox=112,-44,154,-10`
+- Query: `?commodity=http%3A%2F%2Fexample.org%2Fmining%2Fcommodity%2FGold&bbox=112,-44,154,-10`
 - Results: **96 results**
 
 ![Gold + Aus bbox](screenshots/spatial-facets-gold-aus-bbox.png)
@@ -319,7 +319,7 @@ Generated: 2026-03-13 04:11:32 UTC
 
 ### "mine" in WA + state=WA bbox
 
-- Query: `?q=mine&state=WA&bbox=112,-35,129,-14`
+- Query: `?q=mine&state=http%3A%2F%2Fexample.org%2Fmining%2Fstate%2FWA&bbox=112,-35,129,-14`
 - Results: **38 results**
 
 !["mine" in WA + state=WA bbox](screenshots/spatial-fts-facets-mine-in-wa-state-wa-bbox.png)
