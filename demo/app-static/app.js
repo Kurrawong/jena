@@ -882,7 +882,7 @@ WHERE {
 
             this.mapMarkerCount = mapped;
             if (bounds.length > 0) {
-                this._map.fitBounds(bounds, { padding: [30, 30], maxZoom: 10 });
+                this._map.fitBounds(bounds, { padding: [30, 30], maxZoom: 10, animate: false });
             }
         },
 
