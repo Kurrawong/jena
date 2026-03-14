@@ -55,6 +55,14 @@ function timeStamp() {
     return new Date().toLocaleTimeString('en-GB', { hour12: false });
 }
 
+function resolveFieldName(fieldUri, fieldIRIs) {
+    const fragment = shortName(fieldUri);
+    for (const [name, iri] of Object.entries(fieldIRIs || {})) {
+        if (shortName(iri) === fragment) return name;
+    }
+    return fragment;
+}
+
 function renderJsonTree(obj, indent) {
     indent = indent || 0;
     if (obj === null) return '<span class="jt-null">null</span>';
@@ -656,13 +664,7 @@ function searchApp() {
         },
 
         _resolveFieldName(fieldUri) {
-            // Match on fragment/local name — base URI differs between browser and Java
-            const fragment = shortName(fieldUri);
-            for (const [name, iri] of Object.entries(this.fieldIRIs)) {
-                if (shortName(iri) === fragment) return name;
-            }
-            // Fallback: fragment itself may be the field name (auto-generated IRIs)
-            return fragment;
+            return resolveFieldName(fieldUri, this.fieldIRIs);
         },
 
         // --- SPARQL execution ---
@@ -1380,7 +1382,7 @@ WHERE {
                         totalHits = parseInt(row.totalHits.value, 10);
                     }
                     if (row.field) {
-                        const f = row.field.value;
+                        const f = resolveFieldName(row.field.value, config.fieldIRIs);
                         if (!facets[f]) facets[f] = [];
                         facets[f].push({
                             value: row.value.value,
