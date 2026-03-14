@@ -93,7 +93,7 @@
   {
     "group": "Cross-Field Filters",
     "label": "Reports by Newmont",
-    "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"Mining Report\"]},{\"op\":\"=\",\"args\":[{\"property\":\"operator\"},\"http://example.org/mining/operator/Newmont\"]}]}",
+    "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]},{\"op\":\"=\",\"args\":[{\"property\":\"operator\"},\"http://example.org/mining/operator/Newmont\"]}]}",
     "resultCount": 22,
     "screenshotFile": "cross-field-filters-reports-by-newmont.png"
   },
@@ -107,7 +107,7 @@
   {
     "group": "FTS + Filters",
     "label": "\"gold\" reports only",
-    "params": "?q=gold&filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"Mining Report\"]}",
+    "params": "?q=gold&filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}",
     "resultCount": 52,
     "screenshotFile": "fts-filters-gold-reports-only.png"
   },
@@ -121,21 +121,21 @@
   {
     "group": "Entity Types",
     "label": "Sites only",
-    "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"Site\"]}",
+    "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Site\"]}",
     "resultCount": 107,
     "screenshotFile": "entity-types-sites-only.png"
   },
   {
     "group": "Entity Types",
     "label": "Boreholes only",
-    "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"Borehole\"]}",
+    "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}",
     "resultCount": 207,
     "screenshotFile": "entity-types-boreholes-only.png"
   },
   {
     "group": "Entity Types",
     "label": "Reports only",
-    "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"Mining Report\"]}",
+    "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}",
     "resultCount": 208,
     "screenshotFile": "entity-types-reports-only.png"
   },
@@ -205,14 +205,14 @@
   {
     "group": "Spatial + Facets",
     "label": "Sites in QLD bbox",
-    "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"Site\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"location\"},{\"bbox\":[138,-29,154,-10]}]}]}",
+    "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Site\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"location\"},{\"bbox\":[138,-29,154,-10]}]}]}",
     "resultCount": 24,
     "screenshotFile": "spatial-facets-sites-in-qld-bbox.png"
   },
   {
     "group": "Spatial + Facets",
     "label": "Boreholes in WA bbox",
-    "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"Borehole\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"location\"},{\"bbox\":[112,-35,129,-14]}]}]}",
+    "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"location\"},{\"bbox\":[112,-35,129,-14]}]}]}",
     "resultCount": 81,
     "screenshotFile": "spatial-facets-boreholes-in-wa-bbox.png"
   },
@@ -226,7 +226,7 @@
   {
     "group": "Spatial + FTS + Facets",
     "label": "\"mine\" sites in QLD bbox",
-    "params": "?q=mine&filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"Site\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"location\"},{\"bbox\":[138,-29,154,-10]}]}]}",
+    "params": "?q=mine&filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Site\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"location\"},{\"bbox\":[138,-29,154,-10]}]}]}",
     "resultCount": 24,
     "screenshotFile": "spatial-fts-facets-mine-sites-in-qld-bbox.png"
   },

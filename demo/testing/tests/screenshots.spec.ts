@@ -71,7 +71,20 @@ for (const group of groups) {
   test.describe(group.name, () => {
     for (const tc of group.tests) {
       test(tc.label, async ({ page }) => {
-        const url = "index.html" + (tc.params || "");
+        // Build URL with properly encoded filter param
+        let url = "index.html";
+        const raw = tc.params || "";
+        if (raw) {
+          const parts = raw.replace(/^\?/, "").split("&");
+          const encoded = parts.map((part) => {
+            const eq = part.indexOf("=");
+            if (eq < 0) return part;
+            const key = part.substring(0, eq);
+            const val = part.substring(eq + 1);
+            return key + "=" + encodeURIComponent(val);
+          });
+          url += "?" + encoded.join("&");
+        }
         await page.goto(url, { waitUntil: "domcontentloaded" });
 
         // Wait for search results or empty notice (search complete)

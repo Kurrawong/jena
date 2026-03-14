@@ -1,6 +1,6 @@
 # Screenshot Test Report
 
-Generated: 2026-03-13 22:16:28 UTC
+Generated: 2026-03-14 00:28:14 UTC
 
 ## Summary
 
@@ -137,7 +137,7 @@ Generated: 2026-03-13 22:16:28 UTC
 
 ### Reports by Newmont
 
-- Query: `?filter={"op":"and","args":[{"op":"=","args":[{"property":"entityType"},"Mining Report"]},{"op":"=","args":[{"property":"operator"},"http://example.org/mining/operator/Newmont"]}]}`
+- Query: `?filter={"op":"and","args":[{"op":"=","args":[{"property":"entityType"},"http://example.org/mining/MiningReport"]},{"op":"=","args":[{"property":"operator"},"http://example.org/mining/operator/Newmont"]}]}`
 - Results: **22 results**
 
 ![Reports by Newmont](screenshots/cross-field-filters-reports-by-newmont.png)
@@ -157,7 +157,7 @@ Generated: 2026-03-13 22:16:28 UTC
 
 ### "gold" reports only
 
-- Query: `?q=gold&filter={"op":"=","args":[{"property":"entityType"},"Mining Report"]}`
+- Query: `?q=gold&filter={"op":"=","args":[{"property":"entityType"},"http://example.org/mining/MiningReport"]}`
 - Results: **52 results**
 
 !["gold" reports only](screenshots/fts-filters-gold-reports-only.png)
@@ -177,21 +177,21 @@ Generated: 2026-03-13 22:16:28 UTC
 
 ### Sites only
 
-- Query: `?filter={"op":"=","args":[{"property":"entityType"},"Site"]}`
+- Query: `?filter={"op":"=","args":[{"property":"entityType"},"http://example.org/mining/Site"]}`
 - Results: **107 results**
 
 ![Sites only](screenshots/entity-types-sites-only.png)
 
 ### Boreholes only
 
-- Query: `?filter={"op":"=","args":[{"property":"entityType"},"Borehole"]}`
+- Query: `?filter={"op":"=","args":[{"property":"entityType"},"http://example.org/mining/Borehole"]}`
 - Results: **207 results**
 
 ![Boreholes only](screenshots/entity-types-boreholes-only.png)
 
 ### Reports only
 
-- Query: `?filter={"op":"=","args":[{"property":"entityType"},"Mining Report"]}`
+- Query: `?filter={"op":"=","args":[{"property":"entityType"},"http://example.org/mining/MiningReport"]}`
 - Results: **208 results**
 
 ![Reports only](screenshots/entity-types-reports-only.png)
@@ -285,14 +285,14 @@ Generated: 2026-03-13 22:16:28 UTC
 
 ### Sites in QLD bbox
 
-- Query: `?filter={"op":"and","args":[{"op":"=","args":[{"property":"entityType"},"Site"]},{"op":"s_intersects","args":[{"property":"location"},{"bbox":[138,-29,154,-10]}]}]}`
+- Query: `?filter={"op":"and","args":[{"op":"=","args":[{"property":"entityType"},"http://example.org/mining/Site"]},{"op":"s_intersects","args":[{"property":"location"},{"bbox":[138,-29,154,-10]}]}]}`
 - Results: **24 results**
 
 ![Sites in QLD bbox](screenshots/spatial-facets-sites-in-qld-bbox.png)
 
 ### Boreholes in WA bbox
 
-- Query: `?filter={"op":"and","args":[{"op":"=","args":[{"property":"entityType"},"Borehole"]},{"op":"s_intersects","args":[{"property":"location"},{"bbox":[112,-35,129,-14]}]}]}`
+- Query: `?filter={"op":"and","args":[{"op":"=","args":[{"property":"entityType"},"http://example.org/mining/Borehole"]},{"op":"s_intersects","args":[{"property":"location"},{"bbox":[112,-35,129,-14]}]}]}`
 - Results: **81 results**
 
 ![Boreholes in WA bbox](screenshots/spatial-facets-boreholes-in-wa-bbox.png)
@@ -312,7 +312,7 @@ Generated: 2026-03-13 22:16:28 UTC
 
 ### "mine" sites in QLD bbox
 
-- Query: `?q=mine&filter={"op":"and","args":[{"op":"=","args":[{"property":"entityType"},"Site"]},{"op":"s_intersects","args":[{"property":"location"},{"bbox":[138,-29,154,-10]}]}]}`
+- Query: `?q=mine&filter={"op":"and","args":[{"op":"=","args":[{"property":"entityType"},"http://example.org/mining/Site"]},{"op":"s_intersects","args":[{"property":"location"},{"bbox":[138,-29,154,-10]}]}]}`
 - Results: **24 results**
 
 !["mine" sites in QLD bbox](screenshots/spatial-fts-facets-mine-sites-in-qld-bbox.png)

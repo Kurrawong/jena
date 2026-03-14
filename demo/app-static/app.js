@@ -55,6 +55,32 @@ function timeStamp() {
     return new Date().toLocaleTimeString('en-GB', { hour12: false });
 }
 
+function renderJsonTree(obj, indent) {
+    indent = indent || 0;
+    if (obj === null) return '<span class="jt-null">null</span>';
+    if (typeof obj === 'boolean') return `<span class="jt-bool">${obj}</span>`;
+    if (typeof obj === 'number') return `<span class="jt-num">${obj}</span>`;
+    if (typeof obj === 'string') return `<span class="jt-str">"${escapeHtml(obj)}"</span>`;
+    if (Array.isArray(obj)) {
+        if (obj.length === 0) return '<span class="jt-brace">[]</span>';
+        const items = obj.map((v, i) => {
+            const comma = i < obj.length - 1 ? ',' : '';
+            return `<div class="jt-item">${renderJsonTree(v, indent + 1)}${comma}</div>`;
+        }).join('');
+        return `<details open><summary class="jt-brace">[<span class="jt-count">${obj.length}</span>]</summary><div class="jt-indent">${items}</div><span class="jt-brace">]</span></details>`;
+    }
+    if (typeof obj === 'object') {
+        const keys = Object.keys(obj);
+        if (keys.length === 0) return '<span class="jt-brace">{}</span>';
+        const items = keys.map((k, i) => {
+            const comma = i < keys.length - 1 ? ',' : '';
+            return `<div class="jt-item"><span class="jt-key">"${escapeHtml(k)}"</span>: ${renderJsonTree(obj[k], indent + 1)}${comma}</div>`;
+        }).join('');
+        return `<details open><summary class="jt-brace">{<span class="jt-count">${keys.length}</span>}</summary><div class="jt-indent">${items}</div><span class="jt-brace">}</span></details>`;
+    }
+    return escapeHtml(String(obj));
+}
+
 /**
  * Convert selected facet filters + optional spatial bbox to CQL2-JSON string.
  * Input: {field: [val1, val2], ...}, bbox: [swLon, swLat, neLon, neLat] | null
@@ -219,6 +245,7 @@ function extractConfig(store) {
 
     const shapes = [];
     const facetFields = [];
+    const fieldIRIs = {};
     const predicateToFacet = {};
     const seenFacets = new Set();
 
@@ -243,8 +270,11 @@ function extractConfig(store) {
             const sortable = getLiteral(store, propNode, IDX + 'sortable') === 'true';
             const pathStr = pathNode ? pathToString(store, pathNode) : '?';
 
+            const fieldIRI = propNode.termType === 'NamedNode' ? propNode.value : null;
+
             shape.fields.push({
                 name: fieldName,
+                iri: fieldIRI,
                 path: pathStr,
                 fieldType: shortName(fieldType.value),
                 facetable,
@@ -256,6 +286,7 @@ function extractConfig(store) {
             if (facetable && !seenFacets.has(fieldName)) {
                 seenFacets.add(fieldName);
                 facetFields.push(fieldName);
+                if (fieldIRI) fieldIRIs[fieldName] = fieldIRI;
             }
 
             if (facetable && pathNode) {
@@ -285,6 +316,7 @@ function extractConfig(store) {
         maxFacetHits,
         shapes,
         facetFields,
+        fieldIRIs,
         predicateToFacet,
     };
 }
@@ -364,6 +396,7 @@ function searchApp() {
         facetLimits: FACET_LIMITS,
         selected: {},
         facetFields: [],
+        fieldIRIs: {},
         predicateToFacet: {},
         facets: {},
         facetExpanded: {},
@@ -392,6 +425,24 @@ function searchApp() {
         _mapMarkersByUri: {},
         _highlightTimer: null,
         _abortController: null,
+        editorOpen: false,
+        editorQuery: '',
+        editorResults: '',
+        editorRunning: false,
+        editorError: null,
+        editorEndpoint: '',
+        editorView: 'table',
+        editorData: null,
+        cqlOpen: false,
+        cqlJson: null,
+        cqlRaw: '',
+        cqlView: 'object',
+        _cqlRight: 0,
+        _cqlTop: 60,
+        _cqlWidth: 0,
+        _editorRight: 0,
+        _editorTop: 60,
+        _editorWidth: 0,
 
         async init() {
             let config;
@@ -404,6 +455,7 @@ function searchApp() {
 
             this.endpoint = config.endpoint;
             this.facetFields = config.facetFields;
+            this.fieldIRIs = config.fieldIRIs;
             this.predicateToFacet = config.predicateToFacet;
 
             this.loadFromUrl();
@@ -429,13 +481,111 @@ function searchApp() {
 
         // --- Query log ---
 
-        logQuery(label, query, durationMs) {
+        logQuery(label, query, durationMs, isSparql) {
             const dur = durationMs != null ? ` (${(durationMs / 1000).toFixed(2)}s)` : '';
+            const trimmed = query.trim();
+            const sparql = isSparql !== false && trimmed.toUpperCase().startsWith('PREFIX');
+            let isCql = false;
+            if (!sparql) {
+                try { const p = JSON.parse(trimmed); isCql = p && typeof p.op === 'string'; } catch {}
+            }
             this.queryLog.unshift({
                 time: timeStamp(),
                 label: label + dur,
-                query: query.trim(),
+                query: trimmed,
+                isSparql: sparql,
+                isCql,
             });
+        },
+
+        // --- SPARQL editor ---
+
+        openEditor(query) {
+            this.editorQuery = query;
+            this.editorEndpoint = this.endpoint;
+            this.editorResults = '';
+            this.editorData = null;
+            this.editorError = null;
+            this._editorWidth = Math.max(320, window.innerWidth * 0.5);
+            this._editorRight = 0;
+            this._editorTop = 60;
+            this.editorOpen = true;
+            this.$nextTick(() => this.runEditorQuery());
+        },
+
+        closeEditor() {
+            this.editorOpen = false;
+        },
+
+        async runEditorQuery() {
+            this.editorRunning = true;
+            this.editorError = null;
+            this.editorResults = '';
+            this.editorData = null;
+            try {
+                const resp = await fetch(this.editorEndpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/sparql-query',
+                        'Accept': 'application/sparql-results+json',
+                    },
+                    body: this.editorQuery,
+                });
+                if (!resp.ok) {
+                    this.editorError = `HTTP ${resp.status}: ${resp.statusText}`;
+                    return;
+                }
+                const text = await resp.text();
+                try {
+                    this.editorData = JSON.parse(text);
+                    this.editorResults = JSON.stringify(this.editorData, null, 2);
+                } catch {
+                    this.editorData = null;
+                    this.editorResults = text;
+                }
+            } catch (e) {
+                this.editorError = e.message;
+            } finally {
+                this.editorRunning = false;
+            }
+        },
+
+        editorHasTable() {
+            return this.editorData?.head?.vars && this.editorData?.results?.bindings;
+        },
+
+        editorTableVars() {
+            return this.editorData?.head?.vars || [];
+        },
+
+        editorTableRows() {
+            return (this.editorData?.results?.bindings || []).map(row => {
+                return this.editorTableVars().map(v => {
+                    const cell = row[v];
+                    if (!cell) return '';
+                    if (cell.type === 'uri') return shortName(cell.value);
+                    return cell.value;
+                });
+            });
+        },
+
+        // --- CQL viewer ---
+
+        openCql(jsonString) {
+            this.cqlRaw = jsonString;
+            try {
+                this.cqlJson = JSON.parse(jsonString);
+            } catch {
+                this.cqlJson = null;
+            }
+            this._cqlWidth = Math.max(320, window.innerWidth * 0.4);
+            this._cqlRight = 0;
+            this._cqlTop = 60;
+            this.cqlOpen = true;
+        },
+
+        closeCql() {
+            this.cqlOpen = false;
         },
 
         // --- URL management ---
@@ -505,6 +655,16 @@ function searchApp() {
             return all.slice(0, 5);
         },
 
+        _resolveFieldName(fieldUri) {
+            // Match on fragment/local name — base URI differs between browser and Java
+            const fragment = shortName(fieldUri);
+            for (const [name, iri] of Object.entries(this.fieldIRIs)) {
+                if (shortName(iri) === fragment) return name;
+            }
+            // Fallback: fragment itself may be the field name (auto-generated IRIs)
+            return fragment;
+        },
+
         // --- SPARQL execution ---
 
         async runSparql(query, signal) {
@@ -542,15 +702,14 @@ WHERE {
         buildDetailQuery(uris) {
             const values = uris.map(u => `<${u}>`).join(' ');
             return `${SPARQL_PREFIXES}
-SELECT ?entity ?label ?type ?p ?o
+SELECT ?entity ?label ?p ?o ?oLabel
 WHERE {
     VALUES ?entity { ${values} }
     ?entity rdfs:label ?label .
-    ?entity rdf:type ?type .
-    FILTER(?type != rdfs:Resource)
     OPTIONAL {
       ?entity ?p ?o .
-      FILTER(?p != rdf:type && ?p != rdfs:label && !isBlank(?o))
+      FILTER(?p != rdfs:label && !isBlank(?o) && ?o != rdfs:Resource)
+      OPTIONAL { ?o rdfs:label ?oLabel }
     }
 }`;
         },
@@ -571,8 +730,9 @@ WHERE {
                         totalHits = parseInt(row.totalHits.value, 10);
                     }
                 } else if (row.field) {
-                    // ?field is a URI — extract field name from local name
-                    const f = shortName(row.field.value);
+                    // ?field is a URI — resolve to field name via IRI map or shortName fallback
+                    const fieldUri = row.field.value;
+                    const f = this._resolveFieldName(fieldUri);
                     if (!facets[f]) facets[f] = [];
                     // ?value may be a URI (KEYWORD) or literal (TEXT) —
                     // store the raw value for CQL filter matching
@@ -610,11 +770,9 @@ WHERE {
             for (const row of (data.results?.bindings || [])) {
                 const uri = row.entity.value;
                 if (!entities[uri]) {
-                    const typeUri = row.type?.value || '';
                     entities[uri] = {
                         uri,
                         label: row.label.value,
-                        entityType: shortName(typeUri),
                         score: scores[uri] || 0,
                         description: null,
                         properties: {},
@@ -626,14 +784,11 @@ WHERE {
                     const pred = shortName(row.p.value);
                     const raw = row.o.value;
                     const isUri = row.o.type === 'uri';
-                    const obj = isUri ? shortName(raw) : raw;
+                    const label = row.oLabel?.value;
+                    const display = label || (isUri ? shortName(raw) : raw);
                     if (!card.properties[pred]) card.properties[pred] = [];
-                    if (!card.properties[pred].some(e => e.display === obj)) {
-                        card.properties[pred].push({
-                            display: obj,
-                            raw: raw,
-                            isUri: isUri,
-                        });
+                    if (!card.properties[pred].some(e => e.raw === raw)) {
+                        card.properties[pred].push({ display, raw, isUri });
                     }
                 }
             }
@@ -647,8 +802,7 @@ WHERE {
                     if (pred === 'description') continue;
                     if (pred === 'asWKT') {
                         for (const pv of values) {
-                            const v = pv.raw;
-                            const geo = parseWktForLeaflet(v);
+                            const geo = parseWktForLeaflet(pv.raw);
                             if (geo) {
                                 const tooltip = geo.type === 'point'
                                     ? `${geo.lat.toFixed(4)}, ${geo.lon.toFixed(4)}`
@@ -665,8 +819,15 @@ WHERE {
                     }
                     const facetField = this.predicateToFacet[pred] || null;
                     for (const pv of values) {
-                        // For facet matching, use the raw value (full IRI for URIs)
-                        const matchValue = facetField ? pv.raw : pv.display;
+                        // Find the matching facet value — match by label or raw IRI
+                        let matchValue = pv.display;
+                        if (facetField) {
+                            const facetValues = this.facets[facetField] || [];
+                            const match = facetValues.find(fv =>
+                                fv.value === pv.raw || fv.value === pv.display ||
+                                fv.label === pv.display);
+                            if (match) matchValue = match.value;
+                        }
                         const active = facetField ? this.isSelected(facetField, matchValue) : false;
                         card.tags.push({
                             pred,
@@ -749,6 +910,11 @@ WHERE {
                     .filter(([, v]) => v && v.length > 0).length;
                 const searchLabel = (this.q.trim() || '*')
                     + (activeFilters > 0 ? ` + ${activeFilters} filter${activeFilters > 1 ? 's' : ''}` : '');
+
+                const cqlFilter = buildCqlFilter(this.selected, this.spatialBbox, this.spatialPolygon);
+                if (cqlFilter) {
+                    this.logQuery('CQL Filter', JSON.stringify(JSON.parse(cqlFilter), null, 2));
+                }
 
                 let t0 = performance.now();
                 const data = await this.runSparql(searchQuery, signal);
@@ -868,8 +1034,7 @@ WHERE {
                     }
 
                     if (layer) {
-                        const popup = `<strong>${escapeHtml(card.label)}</strong>`
-                            + `<br><span class="map-popup-type">${escapeHtml(card.entityType)}</span>`;
+                        const popup = `<strong>${escapeHtml(card.label)}</strong>`;
                         layer.bindPopup(popup);
                         const uri = card.uri;
                         layer.on('click', () => this.highlightCard(uri));
@@ -993,7 +1158,7 @@ WHERE {
             const [swLon, swLat, neLon, neLat] = this.spatialBbox;
             this._bboxOverlay = L.rectangle(
                 [[swLat, swLon], [neLat, neLon]],
-                { color: '#4db8a4', weight: 2, fillOpacity: 0.08, dashArray: '6 4' }
+                { color: '#4db8a4', weight: 2, fillOpacity: 0.08, dashArray: '6 4', interactive: false }
             ).addTo(this._map);
         },
 
@@ -1122,6 +1287,7 @@ WHERE {
             const latlngs = this.spatialPolygon.map(c => [c[1], c[0]]);
             this._polyOverlay = L.polygon(latlngs, {
                 color: '#4db8a4', weight: 2, fillOpacity: 0.08, dashArray: '6 4',
+                interactive: false,
             }).addTo(this._map);
         },
 
@@ -1159,11 +1325,15 @@ WHERE {
 function configApp() {
     return {
         config: null,
+        configRaw: '',
+        configView: 'parsed',
         error: null,
 
         async init() {
             try {
                 this.config = await loadConfig();
+                const resp = await fetch(`${CONFIG_PATH}?t=${Date.now()}`);
+                this.configRaw = await resp.text();
             } catch (e) {
                 this.error = `Failed to load config: ${e.message}`;
             }

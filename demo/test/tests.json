@@ -19,17 +19,17 @@
   { "group": "Cross-Field Filters" },
   { "label": "Gold in WA", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"commodity\"},\"http://example.org/mining/commodity/Gold\"]},{\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"http://example.org/mining/state/WA\"]}]}", "minResults": 3 },
   { "label": "Copper in QLD + Active", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"commodity\"},\"http://example.org/mining/commodity/Copper\"]},{\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"http://example.org/mining/state/QLD\"]},{\"op\":\"=\",\"args\":[{\"property\":\"status\"},\"http://example.org/mining/status/Active\"]}]}", "minResults": 1 },
-  { "label": "Reports by Newmont", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"Mining Report\"]},{\"op\":\"=\",\"args\":[{\"property\":\"operator\"},\"http://example.org/mining/operator/Newmont\"]}]}", "minResults": 1 },
+  { "label": "Reports by Newmont", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]},{\"op\":\"=\",\"args\":[{\"property\":\"operator\"},\"http://example.org/mining/operator/Newmont\"]}]}", "minResults": 1 },
 
   { "group": "FTS + Filters" },
   { "label": "\"copper\" in QLD", "params": "?q=copper&filter={\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"http://example.org/mining/state/QLD\"]}", "minResults": 1 },
-  { "label": "\"gold\" reports only", "params": "?q=gold&filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"Mining Report\"]}", "minResults": 1 },
+  { "label": "\"gold\" reports only", "params": "?q=gold&filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}", "minResults": 1 },
   { "label": "\"exploration\" in WA", "params": "?q=exploration&filter={\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"http://example.org/mining/state/WA\"]}", "minResults": 1 },
 
   { "group": "Entity Types" },
-  { "label": "Sites only", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"Site\"]}", "minResults": 5 },
-  { "label": "Boreholes only", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"Borehole\"]}", "minResults": 5 },
-  { "label": "Reports only", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"Mining Report\"]}", "minResults": 5 },
+  { "label": "Sites only", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Site\"]}", "minResults": 5 },
+  { "label": "Boreholes only", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}", "minResults": 5 },
+  { "label": "Reports only", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}", "minResults": 5 },
 
   { "group": "Sequence Path (Author)" },
   { "label": "Author: Dr Sarah Jones", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"authorName\"},\"Dr Sarah Jones\"]}", "minResults": 1 },
@@ -47,11 +47,11 @@
   { "label": "\"mine\" in WA bbox", "params": "?q=mine&filter={\"op\":\"s_intersects\",\"args\":[{\"property\":\"location\"},{\"bbox\":[112,-35,129,-14]}]}", "minResults": 1 },
 
   { "group": "Spatial + Facets" },
-  { "label": "Sites in QLD bbox", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"Site\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"location\"},{\"bbox\":[138,-29,154,-10]}]}]}", "minResults": 1 },
-  { "label": "Boreholes in WA bbox", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"Borehole\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"location\"},{\"bbox\":[112,-35,129,-14]}]}]}", "minResults": 1 },
+  { "label": "Sites in QLD bbox", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Site\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"location\"},{\"bbox\":[138,-29,154,-10]}]}]}", "minResults": 1 },
+  { "label": "Boreholes in WA bbox", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"location\"},{\"bbox\":[112,-35,129,-14]}]}]}", "minResults": 1 },
   { "label": "Gold + Aus bbox", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"commodity\"},\"http://example.org/mining/commodity/Gold\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"location\"},{\"bbox\":[112,-44,154,-10]}]}]}", "minResults": 3 },
 
   { "group": "Spatial + FTS + Facets" },
-  { "label": "\"mine\" sites in QLD bbox", "params": "?q=mine&filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"Site\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"location\"},{\"bbox\":[138,-29,154,-10]}]}]}", "minResults": 1 },
+  { "label": "\"mine\" sites in QLD bbox", "params": "?q=mine&filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Site\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"location\"},{\"bbox\":[138,-29,154,-10]}]}]}", "minResults": 1 },
   { "label": "\"mine\" in WA + state=WA bbox", "params": "?q=mine&filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"http://example.org/mining/state/WA\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"location\"},{\"bbox\":[112,-35,129,-14]}]}]}", "minResults": 1 }
 ]
