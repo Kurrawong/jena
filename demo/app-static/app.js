@@ -818,6 +818,8 @@ WHERE {
                         continue;
                     }
                     const facetField = this.predicateToFacet[pred] || null;
+                    // Skip non-facetable literal values (e.g., depth, year, score)
+                    if (!facetField && !values.some(v => v.isUri)) continue;
                     for (const pv of values) {
                         // Find the matching facet value — match by label or raw IRI
                         let matchValue = pv.display;
