@@ -1354,6 +1354,7 @@ function statsApp() {
         stats: null,
         error: null,
         loading: true,
+        nameMode: 'short',
 
         async init() {
             try {
@@ -1414,6 +1415,7 @@ WHERE {
                     facetableFields: facetFields.length,
                     facets,
                     facetFields,
+                    fieldIRIs: config.fieldIRIs,
                     statsQueryMs: statsMs,
                     countQueryMs: countMs,
                     totalMs,
