@@ -1386,6 +1386,7 @@ WHERE {
                         if (!facets[f]) facets[f] = [];
                         facets[f].push({
                             value: row.value.value,
+                            label: row.value.type === 'uri' ? shortName(row.value.value) : row.value.value,
                             count: parseInt(row.count.value, 10),
                         });
                     }
