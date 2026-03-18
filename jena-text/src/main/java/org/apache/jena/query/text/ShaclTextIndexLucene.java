@@ -110,6 +110,20 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * Resolve field spec strings to validated Lucene field names.
      * "default" resolves to all defaultSearch fields; explicit names are validated.
      */
+    /**
+     * Resolve facet field identifiers (which may be IRIs or field names) to
+     * Lucene field names. Unknown identifiers are passed through unchanged.
+     */
+    public List<String> resolveFacetFieldNames(List<String> fields) {
+        if (fields == null) return null;
+        List<String> resolved = new ArrayList<>(fields.size());
+        for (String f : fields) {
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findField(f);
+            resolved.add(fd != null ? fd.getFieldName() : f);
+        }
+        return resolved;
+    }
+
     public List<String> resolveSearchFields(List<String> fieldNames) {
         if (fieldNames == null || fieldNames.isEmpty()
                 || (fieldNames.size() == 1 && "default".equals(fieldNames.get(0)))) {
@@ -120,13 +134,16 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
             return defaults;
         }
+        List<String> resolved = new ArrayList<>(fieldNames.size());
         for (String name : fieldNames) {
-            if (shaclMapping.findField(name) == null) {
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findField(name);
+            if (fd == null) {
                 throw new TextIndexException("Unknown search field: '" + name + "'. "
                     + "Available fields: " + shaclMapping.getAllFieldNames());
             }
+            resolved.add(fd.getFieldName());
         }
-        return fieldNames;
+        return resolved;
     }
 
     /**
@@ -427,6 +444,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
     public Map<String, List<FacetValue>> getFacetCounts(String queryString, List<String> searchFields,
             List<String> facetFieldsToQuery, int maxValues, int minCount) {
+        facetFieldsToQuery = resolveFacetFieldNames(facetFieldsToQuery);
         Map<String, List<FacetValue>> result = new HashMap<>();
 
         if (facetFieldsToQuery == null || facetFieldsToQuery.isEmpty()) {
@@ -486,6 +504,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             String queryString, List<String> searchFields, List<String> facetFieldsToQuery,
             Map<String, List<String>> filters, int maxValues, int minCount) {
 
+        facetFieldsToQuery = resolveFacetFieldNames(facetFieldsToQuery);
         log.debug("getFacetCountsWithFilters: query='{}' filters={}", queryString, filters);
         Map<String, List<FacetValue>> result = new HashMap<>();
 
@@ -802,6 +821,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             String queryString, List<String> searchFields, List<String> facetFieldsToQuery,
             CqlExpression cqlFilter, int maxValues, int minCount) {
 
+        facetFieldsToQuery = resolveFacetFieldNames(facetFieldsToQuery);
         Map<String, List<FacetValue>> result = new HashMap<>();
 
         if (facetFieldsToQuery == null || facetFieldsToQuery.isEmpty()) {

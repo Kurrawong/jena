@@ -206,16 +206,45 @@ public class ShaclIndexMapping {
         return classLookup.getOrDefault(cls, Collections.emptyList());
     }
 
-    /** Find a FieldDef by field name across all profiles. Returns null if not found. */
-    public FieldDef findField(String fieldName) {
+    /**
+     * Find a FieldDef by field name or field IRI across all profiles.
+     * Accepts a plain field name (e.g., "commodity") or a field IRI
+     * (e.g., "http://example.org/config#field-commodity"). IRIs are
+     * matched by comparing the local name (fragment or last path segment)
+     * of both the query and each field's IRI.
+     * Returns null if not found.
+     */
+    public FieldDef findField(String nameOrIRI) {
+        // Try exact field name match first
         for (IndexProfile profile : profiles) {
             for (FieldDef field : profile.getFields()) {
-                if (field.getFieldName().equals(fieldName)) {
+                if (field.getFieldName().equals(nameOrIRI)) {
                     return field;
                 }
             }
         }
+        // Try IRI match — compare local names
+        if (nameOrIRI.contains("#") || nameOrIRI.contains("/")) {
+            String queryLocal = localName(nameOrIRI);
+            for (IndexProfile profile : profiles) {
+                for (FieldDef field : profile.getFields()) {
+                    String fieldLocal = localName(field.getFieldIRI().getURI());
+                    if (fieldLocal.equals(queryLocal)) {
+                        return field;
+                    }
+                }
+            }
+        }
         return null;
+    }
+
+    /** Extract the local name (fragment or last path segment) from a URI string. */
+    private static String localName(String uri) {
+        int h = uri.lastIndexOf('#');
+        if (h >= 0) return uri.substring(h + 1);
+        int s = uri.lastIndexOf('/');
+        if (s >= 0) return uri.substring(s + 1);
+        return uri;
     }
 
     /** Return all field names marked as defaultSearch across all profiles. */

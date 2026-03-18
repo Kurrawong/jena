@@ -101,26 +101,29 @@ function renderJsonTree(obj, indent) {
  *   polygon: [[lon, lat], ...] | null  (closed ring, CRS84 order)
  * Returns null if no filters are active.
  */
-function buildCqlFilter(selected, bbox, polygon) {
+function buildCqlFilter(selected, bbox, polygon, fieldIRIs) {
     const clauses = [];
     for (const [field, values] of Object.entries(selected)) {
         if (!values || values.length === 0) continue;
+        const prop = (fieldIRIs && fieldIRIs[field]) || field;
         if (values.length === 1) {
-            clauses.push({op: '=', args: [{property: field}, values[0]]});
+            clauses.push({op: '=', args: [{property: prop}, values[0]]});
         } else {
-            clauses.push({op: 'in', args: [{property: field}, values]});
+            clauses.push({op: 'in', args: [{property: prop}, values]});
         }
     }
     if (bbox && bbox.length === 4) {
+        const locProp = (fieldIRIs && fieldIRIs['location']) || 'location';
         clauses.push({
             op: 's_intersects',
-            args: [{property: 'location'}, {bbox: bbox}],
+            args: [{property: locProp}, {bbox: bbox}],
         });
     }
     if (polygon && polygon.length >= 4) {
+        const locProp = (fieldIRIs && fieldIRIs['location']) || 'location';
         clauses.push({
             op: 's_intersects',
-            args: [{property: 'location'}, {type: 'Polygon', coordinates: [polygon]}],
+            args: [{property: locProp}, {type: 'Polygon', coordinates: [polygon]}],
         });
     }
     if (clauses.length === 0) return null;
@@ -132,11 +135,22 @@ function buildCqlFilter(selected, bbox, polygon) {
  * Parse a CQL2-JSON filter string back into app state.
  * Returns { selected: {field: [values]}, bbox, polygon }.
  */
-function parseCqlFilter(cqlString) {
+function parseCqlFilter(cqlString, fieldIRIs) {
     const selected = {};
     let bbox = null;
     let polygon = null;
     if (!cqlString) return { selected, bbox, polygon };
+
+    // Build reverse map: IRI → field name
+    const iriToName = {};
+    if (fieldIRIs) {
+        for (const [name, iri] of Object.entries(fieldIRIs)) {
+            iriToName[iri] = name;
+            // Also map by local name for cross-base matching
+            iriToName[shortName(iri)] = name;
+        }
+    }
+    const resolve = (prop) => iriToName[prop] || iriToName[shortName(prop)] || prop;
 
     let cql;
     try { cql = JSON.parse(cqlString); } catch { return { selected, bbox, polygon }; }
@@ -145,10 +159,10 @@ function parseCqlFilter(cqlString) {
     for (const clause of clauses) {
         if (!clause.op || !clause.args) continue;
         if (clause.op === '=' && clause.args[0]?.property) {
-            const field = clause.args[0].property;
+            const field = resolve(clause.args[0].property);
             selected[field] = [clause.args[1]];
         } else if (clause.op === 'in' && clause.args[0]?.property) {
-            const field = clause.args[0].property;
+            const field = resolve(clause.args[0].property);
             selected[field] = clause.args[1];
         } else if (clause.op === 's_intersects') {
             const geom = clause.args[1];
@@ -601,7 +615,7 @@ function searchApp() {
         pushUrl() {
             const params = new URLSearchParams();
             if (this.q.trim()) params.set('q', this.q.trim());
-            const cql = buildCqlFilter(this.selected, this.spatialBbox, this.spatialPolygon);
+            const cql = buildCqlFilter(this.selected, this.spatialBbox, this.spatialPolygon, this.fieldIRIs);
             if (cql) params.set('filter', cql);
             const qs = params.toString();
             const url = qs ? '?' + qs : window.location.pathname;
@@ -611,7 +625,7 @@ function searchApp() {
         loadFromUrl() {
             const params = new URLSearchParams(window.location.search);
             this.q = params.get('q') || '';
-            const { selected, bbox, polygon } = parseCqlFilter(params.get('filter'));
+            const { selected, bbox, polygon } = parseCqlFilter(params.get('filter'), this.fieldIRIs);
             for (const f of this.facetFields) {
                 this.selected[f] = selected[f] || [];
             }
@@ -688,9 +702,10 @@ function searchApp() {
         buildSearchQuery() {
             const term = this.q.trim() || '*';
             const escaped = escapeSparql(term);
-            const cqlFilter = buildCqlFilter(this.selected, this.spatialBbox, this.spatialPolygon);
+            const cqlFilter = buildCqlFilter(this.selected, this.spatialBbox, this.spatialPolygon, this.fieldIRIs);
             const filterArg = cqlFilter ? ` '${cqlFilter}'` : '';
-            const facetFieldsJson = JSON.stringify(this.facetFields);
+            const facetIRIs = this.facetFields.map(f => this.fieldIRIs[f] || f);
+            const facetFieldsJson = JSON.stringify(facetIRIs);
 
             return `${SPARQL_PREFIXES}
 SELECT ?entity ?score ?totalHits ?field ?value ?count
@@ -915,7 +930,7 @@ WHERE {
                 const searchLabel = (this.q.trim() || '*')
                     + (activeFilters > 0 ? ` + ${activeFilters} filter${activeFilters > 1 ? 's' : ''}` : '');
 
-                const cqlFilter = buildCqlFilter(this.selected, this.spatialBbox, this.spatialPolygon);
+                const cqlFilter = buildCqlFilter(this.selected, this.spatialBbox, this.spatialPolygon, this.fieldIRIs);
                 if (cqlFilter) {
                     this.logQuery('CQL Filter', JSON.stringify(JSON.parse(cqlFilter), null, 2));
                 }
@@ -1361,10 +1376,12 @@ function statsApp() {
                 const config = await loadConfig();
                 const endpoint = config.endpoint;
                 const facetFields = config.facetFields;
+                const fieldIRIs = config.fieldIRIs;
                 const t0 = performance.now();
 
                 // 1. Total entities + facet counts in one query
-                const facetFieldsJson = JSON.stringify(facetFields);
+                const facetIRIs = facetFields.map(f => fieldIRIs[f] || f);
+                const facetFieldsJson = JSON.stringify(facetIRIs);
                 const statsQuery = `${SPARQL_PREFIXES}
 SELECT ?entity ?score ?totalHits ?field ?value ?count
 WHERE {

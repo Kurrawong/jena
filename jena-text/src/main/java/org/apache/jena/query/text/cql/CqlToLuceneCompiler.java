@@ -346,15 +346,8 @@ public class CqlToLuceneCompiler {
         };
     }
 
-    private FieldDef findField(String fieldName) {
-        for (ShaclIndexMapping.IndexProfile profile : mapping.getProfiles()) {
-            for (FieldDef fd : profile.getFields()) {
-                if (fd.getFieldName().equals(fieldName)) {
-                    return fd;
-                }
-            }
-        }
-        return null;
+    private FieldDef findField(String nameOrIRI) {
+        return mapping.findField(nameOrIRI);
     }
 
     private static int toInt(Object v) {
