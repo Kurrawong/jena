@@ -74,29 +74,31 @@ Each shape in the list defines a Lucene document profile:
     ] .
 ```
 
-Alternatively, fields can be defined as **named resources** and referenced from shapes. This is the recommended pattern — named resources preserve their IRI in query results, enable field reuse across shapes, and support complex paths:
+Alternatively, fields can be defined as **named resources** with absolute IRIs and referenced from shapes. This is the recommended pattern — named resources are used as field identifiers in SPARQL queries (`luc:query` field specs, `luc:facet` facet field arrays, CQL2-JSON filter properties, and sort specs), enable field reuse across shapes, and support complex paths:
 
 ```turtle
-## Named field resources — IRIs used in ?field bindings
-<#field-title>
+@prefix field: <urn:jena:lucene:field#> .
+
+## Named field resources — IRIs used as field identifiers in SPARQL
+field:title
     idx:fieldName "title" ;
     idx:fieldType idx:TextField ;
     idx:defaultSearch true ;
     sh:path rdfs:label .
 
-<#field-category>
+field:category
     idx:fieldName "category" ;
     idx:fieldType idx:KeywordField ;
     idx:facetable true ;
     sh:path ex:category .
 
-<#field-authorName>
+field:authorName
     idx:fieldName "authorName" ;
     idx:fieldType idx:KeywordField ;
     idx:facetable true ;
     sh:path ( ex:writtenBy ex:name ) .  ## sequence path
 
-<#field-referencedBy>
+field:referencedBy
     idx:fieldName "referencedBy" ;
     idx:fieldType idx:KeywordField ;
     idx:multiValued true ;
@@ -104,17 +106,19 @@ Alternatively, fields can be defined as **named resources** and referenced from 
 
 <#BookShape>
     sh:targetClass ex:Book ;
-    sh:property <#field-title> ;
-    sh:property <#field-category> ;
-    sh:property <#field-authorName> ;
-    sh:property <#field-referencedBy> .
+    sh:property field:title ;
+    sh:property field:category ;
+    sh:property field:authorName ;
+    sh:property field:referencedBy .
 
 ## Same fields reused on a different shape
 <#ArticleShape>
     sh:targetClass ex:Article ;
-    sh:property <#field-title> ;
-    sh:property <#field-category> .
+    sh:property field:title ;
+    sh:property field:category .
 ```
+
+> **Important:** Field resource IRIs must be absolute. Relative IRIs (e.g., `<#field-title>` via `PREFIX : <#>`) resolve to environment-dependent values that differ between Docker, local development, and the browser. Use an absolute prefix like `<urn:jena:lucene:field#>` or any other stable IRI scheme.
 
 ### Path expressions
 
@@ -177,9 +181,9 @@ When `idx:facetable true` is set on a KeywordField, a `SortedSetDocValuesFacetFi
 
 ### Field IRIs
 
-Each field definition has an associated IRI used in `?field` bindings from `luc:query` and `luc:facet`:
+Each field definition has an associated IRI that serves as its external identity. This IRI is used in SPARQL queries — as the `fieldSpec` in `luc:query`, in the `facetFields` JSON array for `luc:facet`, as the `property` value in CQL2-JSON filters, and as the `field` value in sort specs. The `idx:fieldName` property is the internal Lucene field name and is not accepted in these contexts.
 
-- **Named resource fields**: If the field is defined as a named resource (URI node) in the configuration, its IRI is used directly.
+- **Named resource fields**: If the field is defined as a named resource (URI node) in the configuration, its IRI is used directly. Use an absolute IRI prefix to ensure portability.
 - **Blank node fields**: Fields defined on blank nodes (e.g., via `sh:property [ ... ]`) get an auto-generated IRI: `urn:jena:lucene:field#{fieldName}`.
 
 This IRI is deterministic and stable — it depends only on `idx:fieldName`, not on blank node identity.

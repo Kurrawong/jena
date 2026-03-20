@@ -1,6 +1,7 @@
 ## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
 
 PREFIX :        <#>
+PREFIX field:   <urn:jena:lucene:field#>
 PREFIX fuseki:  <http://jena.apache.org/fuseki#>
 PREFIX rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
@@ -39,75 +40,75 @@ PREFIX ex:      <http://example.org/mining/>
     text:maxFacetHits 50000 ;
     idx:fusekiBase "http://localhost:3031" .
 
-## --- Field definitions (named resources = field IRIs) ---
+## --- Field definitions (named resources — IRIs used in SPARQL bindings) ---
 
-:field-entityType
+field:entityType
     idx:fieldName "entityType" ;
     idx:fieldType idx:KeywordField ;
     idx:facetable true ;
     sh:path rdf:type .
 
-:field-title
+field:title
     idx:fieldName "title" ;
     idx:fieldType idx:TextField ;
     idx:defaultSearch true ;
     sh:path rdfs:label .
 
-:field-description
+field:description
     idx:fieldName "description" ;
     idx:fieldType idx:TextField ;
     sh:path <http://purl.org/dc/terms/description> .
 
-:field-commodity
+field:commodity
     idx:fieldName "commodity" ;
     idx:fieldType idx:KeywordField ;
     idx:facetable true ;
     idx:multiValued true ;
     sh:path ex:commodity .
 
-:field-state
+field:state
     idx:fieldName "state" ;
     idx:fieldType idx:KeywordField ;
     idx:facetable true ;
     sh:path ex:state .
 
-:field-operator
+field:operator
     idx:fieldName "operator" ;
     idx:fieldType idx:KeywordField ;
     idx:facetable true ;
     sh:path ex:operator .
 
-:field-status
+field:status
     idx:fieldName "status" ;
     idx:fieldType idx:KeywordField ;
     idx:facetable true ;
     sh:path ex:status .
 
-:field-year
+field:year
     idx:fieldName "year" ;
     idx:fieldType idx:IntField ;
     idx:sortable true ;
     sh:path ex:year .
 
-:field-authorName
+field:authorName
     idx:fieldName "authorName" ;
     idx:fieldType idx:KeywordField ;
     idx:facetable true ;
     sh:path ( ex:authoredBy ex:name ) .
 
-:field-authoredByUri
+field:authoredByUri
     idx:fieldName "authoredByUri" ;
     idx:fieldType idx:KeywordField ;
     idx:multiValued true ;
     sh:path [ sh:inversePath ex:authored ] .
 
-:field-depth
+field:depth
     idx:fieldName "depth" ;
     idx:fieldType idx:IntField ;
     idx:sortable true ;
     sh:path ex:depth .
 
-:field-location
+field:location
     idx:fieldName "location" ;
     idx:fieldType idx:LatLonField ;
     sh:path <http://www.opengis.net/ont/geosparql#asWKT> .
@@ -116,31 +117,31 @@ PREFIX ex:      <http://example.org/mining/>
 
 :MiningReportShape
     sh:targetClass ex:MiningReport ;
-    sh:property :field-entityType ;
-    sh:property :field-title ;
-    sh:property :field-description ;
-    sh:property :field-commodity ;
-    sh:property :field-state ;
-    sh:property :field-operator ;
-    sh:property :field-status ;
-    sh:property :field-year ;
-    sh:property :field-authorName ;
-    sh:property :field-authoredByUri .
+    sh:property field:entityType ;
+    sh:property field:title ;
+    sh:property field:description ;
+    sh:property field:commodity ;
+    sh:property field:state ;
+    sh:property field:operator ;
+    sh:property field:status ;
+    sh:property field:year ;
+    sh:property field:authorName ;
+    sh:property field:authoredByUri .
 
 :BoreholeShape
     sh:targetClass ex:Borehole ;
-    sh:property :field-entityType ;
-    sh:property :field-title ;
-    sh:property :field-commodity ;
-    sh:property :field-state ;
-    sh:property :field-depth ;
-    sh:property :field-location .
+    sh:property field:entityType ;
+    sh:property field:title ;
+    sh:property field:commodity ;
+    sh:property field:state ;
+    sh:property field:depth ;
+    sh:property field:location .
 
 :SiteShape
     sh:targetClass ex:Site ;
-    sh:property :field-entityType ;
-    sh:property :field-title ;
-    sh:property :field-commodity ;
-    sh:property :field-state ;
-    sh:property :field-status ;
-    sh:property :field-location .
+    sh:property field:entityType ;
+    sh:property field:title ;
+    sh:property field:commodity ;
+    sh:property field:state ;
+    sh:property field:status ;
+    sh:property field:location .

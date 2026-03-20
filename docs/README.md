@@ -135,12 +135,13 @@ PREFIX luc: <urn:jena:lucene:index#>
 # Search
 (?s ?sc) luc:query ("machine learning") .
 
-# Facet counts
-(?f ?v ?c) luc:facet ("default" "machine learning" '["category"]' 10) .
+# Facet counts (field IRIs in the JSON array)
+(?f ?v ?c) luc:facet ("default" "machine learning"
+    '["urn:jena:lucene:field#category"]' 10) .
 
-# Search with CQL2-JSON filter
+# Search with CQL2-JSON filter (field IRI as property)
 (?s ?sc) luc:query ("default" "learning"
-    '{"op":"=","args":[{"property":"category"},"Technology"]}' 20) .
+    '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}' 20) .
 ```
 
 ## Build & Test

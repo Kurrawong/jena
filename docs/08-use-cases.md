@@ -33,11 +33,11 @@ flowchart LR
 
 # Search narrowed to a publisher (CQL2-JSON filter)
 (?s ?score) luc:query ("default" "climate change"
-    '{"op":"=","args":[{"property":"publisher"},"CSIRO"]}') .
+    '{"op":"=","args":[{"property":"urn:jena:lucene:field#publisher"},"CSIRO"]}') .
 
 # Multiple filters (AND across fields)
 (?s ?score) luc:query ("default" "climate"
-    '{"op":"and","args":[{"op":"=","args":[{"property":"publisher"},"CSIRO"]},{"op":"=","args":[{"property":"category"},"Environment"]}]}') .
+    '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#publisher"},"CSIRO"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Environment"]}]}') .
 ```
 
 **Where this applies:**
@@ -67,10 +67,10 @@ flowchart LR
 
 ```sparql
 # Counts for category and publisher, top 10 values each
-(?field ?value ?count) luc:facet ("climate change" '["category", "publisher"]' 10) .
+(?field ?value ?count) luc:facet ("climate change" '["urn:jena:lucene:field#category", "urn:jena:lucene:field#publisher"]' 10) .
 
 # With minCount — only values with 5+ results
-(?field ?value ?count) luc:facet ("climate change" '["category"]' 10 5) .
+(?field ?value ?count) luc:facet ("climate change" '["urn:jena:lucene:field#category"]' 10 5) .
 ```
 
 **Where this applies:**
@@ -111,14 +111,14 @@ SELECT ?s ?score WHERE {
 
 # Query 2 — facets
 SELECT ?field ?value ?count WHERE {
-    (?field ?value ?count) luc:facet ("climate change" '["category", "publisher"]' 10) .
+    (?field ?value ?count) luc:facet ("climate change" '["urn:jena:lucene:field#category", "urn:jena:lucene:field#publisher"]' 10) .
 }
 
 # Alternative: single query via UNION (N+M rows, no cartesian product)
 SELECT ?s ?score ?field ?value ?count WHERE {
     { (?s ?score) luc:query ("climate change") . }
     UNION
-    { (?field ?value ?count) luc:facet ("climate change" '["category", "publisher"]' 10) . }
+    { (?field ?value ?count) luc:facet ("climate change" '["urn:jena:lucene:field#category", "urn:jena:lucene:field#publisher"]' 10) . }
 }
 ```
 
@@ -226,14 +226,16 @@ flowchart LR
 ```
 
 ```turtle
+PREFIX field: <urn:jena:lucene:field#>
+
 ## Sequence path — index author name on the book
-<#field-authorName>
+field:authorName
     idx:fieldName "authorName" ;
     idx:fieldType idx:KeywordField ;
     sh:path ( ex:writtenBy ex:name ) .
 
 ## Inverse path — index who references this entity
-<#field-referencedBy>
+field:referencedBy
     idx:fieldName "referencedBy" ;
     idx:fieldType idx:KeywordField ;
     sh:path [ sh:inversePath ex:references ] .
@@ -253,7 +255,7 @@ Filter search results and facet counts by geographic region using CQL2-JSON spat
 
 ```sparql
 (?s ?score) luc:query ("default" "gold mine"
-    '{"op":"s_intersects","args":[{"property":"location"},{"bbox":[115,-35,120,-30]}]}'
+    '{"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[115,-35,120,-30]}]}'
     20)
 ```
 

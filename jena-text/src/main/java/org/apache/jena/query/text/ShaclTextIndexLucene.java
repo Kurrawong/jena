@@ -111,22 +111,22 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * "default" resolves to all defaultSearch fields; explicit names are validated.
      */
     /**
-     * Resolve facet field identifiers (which may be IRIs or field names) to
-     * Lucene field names. Unknown identifiers are passed through unchanged.
+     * Resolve facet field IRIs to Lucene field names.
+     * Unknown identifiers are passed through unchanged.
      */
-    public List<String> resolveFacetFieldNames(List<String> fields) {
-        if (fields == null) return null;
-        List<String> resolved = new ArrayList<>(fields.size());
-        for (String f : fields) {
-            ShaclIndexMapping.FieldDef fd = shaclMapping.findField(f);
-            resolved.add(fd != null ? fd.getFieldName() : f);
+    public List<String> resolveFacetFieldNames(List<String> fieldIRIs) {
+        if (fieldIRIs == null) return null;
+        List<String> resolved = new ArrayList<>(fieldIRIs.size());
+        for (String iri : fieldIRIs) {
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findField(iri);
+            resolved.add(fd != null ? fd.getFieldName() : iri);
         }
         return resolved;
     }
 
-    public List<String> resolveSearchFields(List<String> fieldNames) {
-        if (fieldNames == null || fieldNames.isEmpty()
-                || (fieldNames.size() == 1 && "default".equals(fieldNames.get(0)))) {
+    public List<String> resolveSearchFields(List<String> fieldIRIs) {
+        if (fieldIRIs == null || fieldIRIs.isEmpty()
+                || (fieldIRIs.size() == 1 && "default".equals(fieldIRIs.get(0)))) {
             List<String> defaults = shaclMapping.getDefaultSearchFieldNames();
             if (defaults.isEmpty()) {
                 log.warn("No defaultSearch fields configured; falling back to primary field");
@@ -134,11 +134,11 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
             return defaults;
         }
-        List<String> resolved = new ArrayList<>(fieldNames.size());
-        for (String name : fieldNames) {
-            ShaclIndexMapping.FieldDef fd = shaclMapping.findField(name);
+        List<String> resolved = new ArrayList<>(fieldIRIs.size());
+        for (String iri : fieldIRIs) {
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findField(iri);
             if (fd == null) {
-                throw new TextIndexException("Unknown search field: '" + name + "'. "
+                throw new TextIndexException("Unknown search field: '" + iri + "'. "
                     + "Available fields: " + shaclMapping.getAllFieldNames());
             }
             resolved.add(fd.getFieldName());
@@ -587,7 +587,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         for (String fieldName : resolvedFields) {
             String storedValue = doc.get(fieldName);
             if (storedValue == null) continue;
-            ShaclIndexMapping.FieldDef fd = shaclMapping.findField(fieldName);
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
             if (fd == null) continue;
             return switch (fd.getFieldType()) {
                 case KEYWORD -> looksLikeUri(storedValue)
@@ -609,7 +609,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
     private Node resolveFieldNode(List<String> resolvedFields) {
         if (resolvedFields.size() != 1) return null;
-        ShaclIndexMapping.FieldDef fd = shaclMapping.findField(resolvedFields.get(0));
+        ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(resolvedFields.get(0));
         return fd != null ? fd.getFieldIRI() : null;
     }
 
@@ -933,7 +933,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             SortSpec spec = sortSpecs.get(i);
             SortField.Type sortType = SortField.Type.STRING; // default
 
+            // Resolve field identifier (IRI) to Lucene field name
             ShaclIndexMapping.FieldDef fd = shaclMapping.findField(spec.field());
+            String luceneFieldName = fd != null ? fd.getFieldName() : spec.field();
             if (fd != null) {
                 sortType = switch (fd.getFieldType()) {
                     case KEYWORD -> SortField.Type.STRING;
@@ -947,7 +949,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 };
             }
 
-            fields[i] = new SortField(spec.field(), sortType, spec.descending());
+            fields[i] = new SortField(luceneFieldName, sortType, spec.descending());
         }
         return new Sort(fields);
     }

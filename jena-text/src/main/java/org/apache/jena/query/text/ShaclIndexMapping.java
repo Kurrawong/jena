@@ -207,44 +207,35 @@ public class ShaclIndexMapping {
     }
 
     /**
-     * Find a FieldDef by field name or field IRI across all profiles.
-     * Accepts a plain field name (e.g., "commodity") or a field IRI
-     * (e.g., "http://example.org/config#field-commodity"). IRIs are
-     * matched by comparing the local name (fragment or last path segment)
-     * of both the query and each field's IRI.
+     * Find a FieldDef by field IRI across all profiles.
+     * Matches the exact IRI string against each field's IRI.
      * Returns null if not found.
      */
-    public FieldDef findField(String nameOrIRI) {
-        // Try exact field name match first
+    public FieldDef findField(String fieldIRI) {
         for (IndexProfile profile : profiles) {
             for (FieldDef field : profile.getFields()) {
-                if (field.getFieldName().equals(nameOrIRI)) {
+                if (field.getFieldIRI().getURI().equals(fieldIRI)) {
                     return field;
-                }
-            }
-        }
-        // Try IRI match — compare local names
-        if (nameOrIRI.contains("#") || nameOrIRI.contains("/")) {
-            String queryLocal = localName(nameOrIRI);
-            for (IndexProfile profile : profiles) {
-                for (FieldDef field : profile.getFields()) {
-                    String fieldLocal = localName(field.getFieldIRI().getURI());
-                    if (fieldLocal.equals(queryLocal)) {
-                        return field;
-                    }
                 }
             }
         }
         return null;
     }
 
-    /** Extract the local name (fragment or last path segment) from a URI string. */
-    private static String localName(String uri) {
-        int h = uri.lastIndexOf('#');
-        if (h >= 0) return uri.substring(h + 1);
-        int s = uri.lastIndexOf('/');
-        if (s >= 0) return uri.substring(s + 1);
-        return uri;
+    /**
+     * Find a FieldDef by Lucene field name across all profiles.
+     * This is for internal use where the Lucene field name is known.
+     * Returns null if not found.
+     */
+    public FieldDef findFieldByName(String fieldName) {
+        for (IndexProfile profile : profiles) {
+            for (FieldDef field : profile.getFields()) {
+                if (field.getFieldName().equals(fieldName)) {
+                    return field;
+                }
+            }
+        }
+        return null;
     }
 
     /** Return all field names marked as defaultSearch across all profiles. */

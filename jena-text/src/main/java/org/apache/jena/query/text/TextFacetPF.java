@@ -207,7 +207,7 @@ public class TextFacetPF extends PropertyFunctionBase {
 
         for (Map.Entry<String, List<FacetValue>> entry : facetCounts.entrySet()) {
             String field = entry.getKey();
-            ShaclIndexMapping.FieldDef fd = mapping.findField(field);
+            ShaclIndexMapping.FieldDef fd = mapping.findFieldByName(field);
             for (FacetValue fv : entry.getValue()) {
                 BindingBuilder builder = Binding.builder(binding);
                 if (fieldVar != null) {
