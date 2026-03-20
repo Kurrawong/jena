@@ -112,29 +112,51 @@ Each shape in the list defines a Lucene document profile:
     ] .
 ```
 
-Alternatively, fields can be provided as an RDF list via `idx:field`:
+Alternatively, fields can be defined as **named resources** and referenced from shapes. This is the recommended pattern — named resources preserve their IRI in query results, enable field reuse across shapes, and support complex paths:
 
 ```turtle
-<#BookShape>
-    sh:targetClass ex:Book ;
-    idx:field ( <#TitleField> <#CategoryField> ) .
-
-<#TitleField>
+## Named field resources — IRIs used in ?field bindings
+<#field-title>
     idx:fieldName "title" ;
     idx:fieldType idx:TextField ;
     idx:defaultSearch true ;
     sh:path rdfs:label .
 
-<#CategoryField>
+<#field-category>
     idx:fieldName "category" ;
     idx:fieldType idx:KeywordField ;
     idx:facetable true ;
     sh:path ex:category .
+
+<#field-authorName>
+    idx:fieldName "authorName" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true ;
+    sh:path ( ex:writtenBy ex:name ) .  ## sequence path
+
+<#field-referencedBy>
+    idx:fieldName "referencedBy" ;
+    idx:fieldType idx:KeywordField ;
+    idx:multiValued true ;
+    sh:path [ sh:inversePath ex:references ] .  ## inverse path
+
+<#BookShape>
+    sh:targetClass ex:Book ;
+    sh:property <#field-title> ;
+    sh:property <#field-category> ;
+    sh:property <#field-authorName> ;
+    sh:property <#field-referencedBy> .
+
+## Same fields reused on a different shape
+<#ArticleShape>
+    sh:targetClass ex:Article ;
+    sh:property <#field-title> ;
+    sh:property <#field-category> .
 ```
 
 ### Path expressions
 
-Two forms are supported:
+Multiple path forms are supported:
 
 ```turtle
 # Direct predicate
@@ -143,9 +165,17 @@ sh:path rdfs:label ;
 # Alternative paths (field indexes multiple predicates)
 sh:path [ sh:alternativePath (rdfs:label skos:prefLabel dct:title) ] ;
 
+# Sequence path (traverse relationships — indexes the value at the end of the path)
+sh:path ( ex:authoredBy ex:name ) ;
+
+# Inverse path (follow a predicate in reverse)
+sh:path [ sh:inversePath ex:authored ] ;
+
 # Convenience shorthand (same as sh:path for single predicates)
 idx:path rdfs:label ;
 ```
+
+Sequence and inverse paths enable cross-entity indexing without forward chaining. For example, a sequence path `( ex:authoredBy ex:name )` on a report shape indexes the author's name directly on the report's Lucene document, without materialising an `ex:authorName` triple in the graph.
 
 ### Shape properties
 
@@ -174,11 +204,12 @@ idx:path rdfs:label ;
 
 | Type | Lucene fields | Stored as | Use case |
 |------|--------------|-----------|----------|
-| `idx:TextField` | `TextField` | analyzed text | Full-text search |
-| `idx:KeywordField` | `StringField` | exact string (expects IRI values) | Facets, filters, exact match. Returns IRIs in `?literal` and `?value` bindings |
-| `idx:IntField` | `IntPoint` | int | Numeric range queries |
-| `idx:LongField` | `LongPoint` | long | Large numeric values |
-| `idx:DoubleField` | `DoublePoint` | double | Floating point values |
+| `idx:TextField` | `TextField` | analyzed text | Full-text search. Returns string literals in bindings |
+| `idx:KeywordField` | `StringField` | exact string | Facets, filters, exact match. Returns IRIs in `?literal` and `?value` bindings when the stored value looks like a URI |
+| `idx:IntField` | `IntPoint` | int | Numeric range queries. Returns `xsd:integer` typed literals |
+| `idx:LongField` | `LongPoint` | long | Large numeric values. Returns `xsd:long` typed literals |
+| `idx:DoubleField` | `DoublePoint` | double | Floating point values. Returns `xsd:double` typed literals |
+| `idx:LatLonField` | `LatLonShape` | WKT geometry | Spatial filtering via CQL2-JSON `s_intersects`. See [Spatial Filtering](09-spatial.md) |
 
 When `idx:facetable true` is set on a KeywordField, a `SortedSetDocValuesFacetField` is automatically added. When `idx:sortable true` is set, a `SortedDocValuesField` (for keywords) or `NumericDocValuesField` (for numerics) is added.
 

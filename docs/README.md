@@ -8,13 +8,14 @@ This documentation covers the faceted search and entity-per-document indexing fe
 
 | Feature | Status | SPARQL | Description |
 |---------|--------|--------|-------------|
-| Entity-per-document indexing | Done | — | SHACL shapes define entity types with typed fields (TEXT, KEYWORD, INT, LONG, DOUBLE) |
-| Text search with filters | Done | `luc:query` | Full-text search with JSON structured filters (AND/OR) |
+| Entity-per-document indexing | Done | — | SHACL shapes define entity types with typed fields (TEXT, KEYWORD, INT, LONG, DOUBLE, LATLON) |
+| Text search with filters | Done | `luc:query` | Full-text search with CQL2-JSON structured filters |
 | Facet counts | Done | `luc:facet` | Field value counts with maxValues, minCount controls |
 | Shared execution | Done | — | `luc:query` + `luc:facet` share a single Lucene search when co-occurring |
 | Automatic index maintenance | Done | — | Change listener rebuilds entity docs on triple add/delete |
-| Inverse and sequence paths | Proposed | — | `sh:inversePath` and multi-hop `sh:sequencePath` for richer indexing |
-| Spatial filtering | Proposed | `luc:query`/`luc:facet` | Bounding-box filter via LatLonPoint |
+| Inverse and sequence paths | Done | — | `sh:inversePath` and multi-hop sequence paths for cross-entity indexing |
+| Spatial filtering | Done | `luc:query`/`luc:facet` | Bounding-box and polygon filter via LatLonShape. See [Spatial Filtering](09-spatial.md) |
+| Field IRIs | Done | `luc:query`/`luc:facet` | Named field resources preserve their IRI; `?field` bindings return IRIs |
 | DrillSideways | Proposed | `luc:facet` | Filtered dimension still shows all values (standard faceted UI pattern) |
 | Hierarchical facets | Proposed | `luc:facet` | Taxonomy drill-down (Science > Physics > Quantum) |
 | Range facets | Proposed | `luc:facetRange` | Bucket counts over numeric ranges (year bands, price tiers) |
@@ -98,12 +99,13 @@ timeline
     title Feature Roadmap
     section Done
         Entity-per-document indexing   : SHACL shapes, typed fields, change listener
-        luc꞉query with filters         : Full-text search with JSON structured filters
+        luc꞉query with CQL2-JSON      : Full-text search with CQL2-JSON filters
         luc꞉facet counts               : Field value counts with maxValues, minCount
         Shared execution               : Single Lucene search shared across PFs
+        Inverse and sequence paths     : sh꞉inversePath and multi-hop sequence paths
+        Spatial filtering              : LatLonShape with bbox and polygon filters
+        Field IRIs                     : Named field resources, IRI bindings in query results
     section Proposed
-        Inverse and sequence paths     : sh꞉inversePath and multi-hop sh꞉sequencePath
-        Spatial filtering              : Bounding-box filter via LatLonPoint
         DrillSideways                  : Standard faceted UI counting (opt-in on luc꞉facet)
         Hierarchical facets            : Taxonomy drill-down paths
         Range facets                   : Numeric bucket counts via luc꞉facetRange
@@ -126,6 +128,7 @@ All proposed extensions are additive — no breaking changes to existing query o
 | [Design Decisions](06-design-decisions.md) | Developers / Reviewers | Why things are the way they are |
 | [Known Limitations & Future Work](07-future-work.md) | All | What's deferred, what needs attention |
 | [Use Cases](08-use-cases.md) | All / Business | Search portal example showing how features combine |
+| [Spatial Filtering](09-spatial.md) | Users / Developers | LatLonShape indexing, CQL2-JSON spatial queries |
 
 ## Quick Start
 
