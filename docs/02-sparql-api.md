@@ -1,66 +1,14 @@
 # SPARQL API Reference
 
-## Namespace Overview
+All property functions use the `luc:` namespace (`urn:jena:lucene:index#`).
 
-| Prefix | Namespace | Mode | Description |
-|--------|-----------|------|-------------|
-| `text:` | `http://jena.apache.org/text#` | Classic | Upstream Jena `text:query` — no filters, no facets |
-| `luc:` | `urn:jena:lucene:index#` | SHACL | `luc:query` (with filters) and `luc:facet` (facet counts) |
-
-Classic mode (`text:entityMap`) uses `text:query` only — this is the unmodified upstream Jena text search.
-
-SHACL mode (`text:shapes`) uses `luc:query` and `luc:facet` — these are new property functions with filter and faceting support.
+> **Note:** The upstream Jena `text:query` property function is unchanged and still available for classic mode (`text:entityMap`). See the [Apache Jena documentation](https://jena.apache.org/documentation/query/text-query.html) for its syntax. This reference covers only the SHACL mode property functions.
 
 ---
 
-## text:query — Text Search (Classic Mode)
+## luc:query — Text Search with Filters
 
-The upstream Jena text search property function. Works with `text:entityMap` configuration.
-
-### Syntax
-
-```
-(?s ?score ?literal ?graph ?prop) text:query (property* queryString limit?)
-```
-
-### Arguments (positional, left to right)
-
-| Position | Type | Required | Description |
-|----------|------|----------|-------------|
-| property | URI(s) | No | RDF predicate(s) to search. If omitted, searches the default field |
-| queryString | String literal | Yes | Lucene query string |
-| limit | Integer | No | Max results. Negative = no limit |
-
-### Return bindings
-
-| Variable | Required | Type | Description |
-|----------|----------|------|-------------|
-| ?s | Yes | URI | Matched entity |
-| ?score | No | float | Lucene relevance score |
-| ?literal | No | Literal | The matched text value |
-| ?graph | No | URI | Named graph of the match |
-| ?prop | No | URI | Which predicate matched |
-
-### Examples
-
-```sparql
-PREFIX text: <http://jena.apache.org/text#>
-
-# Simple search
-(?s ?score) text:query ("machine learning") .
-
-# Search a specific property
-(?s ?score) text:query (rdfs:label "machine learning") .
-
-# Search with limit
-(?s ?score) text:query ("machine learning" 20) .
-```
-
----
-
-## luc:query — Text Search with Filters (SHACL Mode)
-
-Extended search property function for SHACL-mode datasets. Supports field-scoped queries, JSON filter arguments, sort pushdown, and faceted navigation.
+Supports field-scoped queries, CQL2-JSON filter arguments, sort pushdown, and faceted navigation.
 
 ### Syntax
 
@@ -158,8 +106,7 @@ Filters use CQL2-JSON syntax:
 
 ---
 
-## luc:facet — Facet Counts (SHACL Mode)
-
+## luc:facet — Facet Counts
 ### Syntax
 
 ```
@@ -279,7 +226,7 @@ This optimisation is transparent. It reduces Lucene index access but does not ch
 
 ## Lucene Query Syntax
 
-The query string argument in both `luc:query` and `text:query` uses the standard Lucene query parser. Key syntax:
+The query string argument in `luc:query` uses the standard Lucene query parser. Key syntax:
 
 | Syntax | Meaning | Example |
 |--------|---------|---------|
@@ -324,7 +271,7 @@ This produces a `cdt:Map` value that serializes as `{"category": ["Technology", 
 
 ## Java API
 
-For programmatic access via `ShaclTextIndexLucene` (SHACL mode):
+For programmatic access via `ShaclTextIndexLucene`:
 
 ```java
 // Open facets (all documents)
@@ -367,4 +314,4 @@ if (textIndex.isFacetingEnabled()) {
 }
 ```
 
-`isFacetingEnabled()` returns `true` when the index has facetable fields configured (SHACL mode with `idx:facetable true` fields).
+`isFacetingEnabled()` returns `true` when the index has facetable fields configured (`idx:facetable true` on one or more fields).

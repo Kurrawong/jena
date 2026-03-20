@@ -2,6 +2,8 @@
 
 All configuration is done via Jena Assembler TTL files. The text index is configured as part of a `text:TextDataset`.
 
+> **Note:** The upstream Jena classic mode (`text:entityMap` / `text:query`) is unchanged and still available. See the [Apache Jena documentation](https://jena.apache.org/documentation/query/text-query.html) for its configuration. This reference covers only the SHACL-based entity-per-document configuration.
+
 ## Dataset wrapper
 
 ```turtle
@@ -20,49 +22,9 @@ All configuration is done via Jena Assembler TTL files. The text index is config
 
 ---
 
-## Classic Mode (text:entityMap)
+## Index Configuration
 
-The original triple-per-document model. Each RDF triple matching the entity map becomes a separate Lucene document. Uses `text:query` for search. No faceting support.
-
-```turtle
-<#index> a text:TextIndexLucene ;
-    text:directory <file:/path/to/lucene> ;   # or "mem" for in-memory
-    text:entityMap <#entMap> ;
-    text:storeValues true ;
-    .
-
-<#entMap> a text:EntityMap ;
-    text:entityField "uri" ;
-    text:defaultField "text" ;
-    text:langField "lang" ;
-    text:uidField "uid" ;
-    text:map (
-        [ text:field "text" ;     text:predicate rdfs:label ]
-        [ text:field "category" ; text:predicate ex:category ]
-        [ text:field "author" ;   text:predicate ex:author ]
-    ) .
-```
-
-### Properties
-
-| Property | Type | Default | Description |
-|----------|------|---------|-------------|
-| `text:directory` | URI or `"mem"` | required | Lucene index location |
-| `text:entityMap` | Resource | required* | Entity map definition |
-| `text:storeValues` | boolean | false | Store literal values for retrieval |
-| `text:analyzer` | Resource | StandardAnalyzer | Default analyzer |
-| `text:queryAnalyzer` | Resource | same as analyzer | Analyzer for queries |
-| `text:multilingualSupport` | boolean | false | Enable multilingual indexing |
-| `text:ignoreIndexErrors` | boolean | false | Continue on indexing errors |
-| `text:cacheQueries` | boolean | true | Enable query caching |
-
-*Mutually exclusive with `text:shapes`.
-
----
-
-## SHACL Mode (text:shapes)
-
-Entity-per-document model. Each entity (identified by `rdf:type` matching `sh:targetClass`) gets one Lucene document containing all its fields. Uses `luc:query` for search with filters and `luc:facet` for facet counts.
+Each entity (identified by `rdf:type` matching `sh:targetClass`) gets one Lucene document containing all its fields. Uses `luc:query` for search with filters and `luc:facet` for facet counts.
 
 ```turtle
 @prefix text:  <http://jena.apache.org/text#> .
@@ -77,7 +39,7 @@ Entity-per-document model. Each entity (identified by `rdf:type` matching `sh:ta
     .
 ```
 
-### SHACL-mode properties
+### Index properties
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
@@ -85,7 +47,7 @@ Entity-per-document model. Each entity (identified by `rdf:type` matching `sh:ta
 | `text:maxFacetHits` | integer | 0 | Max docs for facet collection. 0 = unlimited |
 | `text:storeValues` | boolean | false | Store literal values for retrieval |
 
-*Mutually exclusive with `text:entityMap`.
+*Mutually exclusive with `text:entityMap` (classic mode).
 
 ### Shape definition
 

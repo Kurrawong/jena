@@ -2,46 +2,17 @@
 
 ## Overview
 
-The `jena-text` module provides full-text search over RDF data using Apache Lucene. This fork adds **native faceted search** — the ability to get categorised counts alongside text search results, the same pattern used by e-commerce sites, library catalogues, and data portals.
+The `jena-text` module provides full-text search over RDF data using Apache Lucene. This fork adds **entity-per-document indexing with native faceted search** — the ability to get categorised counts alongside text search results, the same pattern used by e-commerce sites, library catalogues, and data portals.
 
-Two indexing modes are available:
+SHACL shapes define entity types with typed fields. Each entity matching a shape's `sh:targetClass` gets one Lucene document containing all its fields. Search uses `luc:query` (with CQL2-JSON filters) and `luc:facet` (for facet counts).
 
-| Mode | Config property | SPARQL prefix | Document model | Best for |
-|------|----------------|---------------|---------------|----------|
-| **Classic** | `text:entityMap` | `text:` | One Lucene doc per RDF triple | Backward compatible, simple text search |
-| **SHACL** | `text:shapes` | `luc:` | One Lucene doc per entity | Faceted navigation, numeric fields, filtering |
-
-Classic mode uses `text:query` (upstream Jena, unchanged). SHACL mode uses `luc:query` and `luc:facet` for search with filters and facet counts.
+> **Note:** The upstream Jena `text:query` / `text:entityMap` (classic mode) is unchanged and still available. This documentation covers only the SHACL mode added by this fork.
 
 ---
 
 ## Getting Started
 
 ### 1. Define your index configuration
-
-**Classic mode** — standard Jena text search:
-
-```turtle
-@prefix text: <http://jena.apache.org/text#> .
-@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-
-<#index> a text:TextIndexLucene ;
-    text:directory "mem" ;
-    text:entityMap <#entMap> ;
-    text:storeValues true ;
-    .
-
-<#entMap> a text:EntityMap ;
-    text:entityField "uri" ;
-    text:defaultField "text" ;
-    text:map (
-        [ text:field "text" ; text:predicate rdfs:label ]
-        [ text:field "category" ; text:predicate <http://example.org/category> ]
-        [ text:field "author" ; text:predicate <http://example.org/author> ]
-    ) .
-```
-
-**SHACL mode** — entity-per-document with faceting and typed fields:
 
 ```turtle
 @prefix text:  <http://jena.apache.org/text#> .
@@ -124,18 +95,6 @@ INSERT DATA {
 
 ### 3. Search
 
-**Classic mode — `text:query`:**
-
-```sparql
-PREFIX text: <http://jena.apache.org/text#>
-
-SELECT ?s ?score WHERE {
-    (?s ?score) text:query ("machine learning") .
-}
-```
-
-**SHACL mode — `luc:query`:**
-
 ```sparql
 PREFIX luc: <urn:jena:lucene:index#>
 
@@ -144,7 +103,7 @@ SELECT ?s ?score WHERE {
 }
 ```
 
-### 4. Get facet counts (SHACL mode only)
+### 4. Get facet counts
 
 ```sparql
 PREFIX luc: <urn:jena:lucene:index#>
@@ -174,8 +133,7 @@ The `facetFields` array accepts both field names and field IRIs:
 '["http://example.org/config#field-category", "http://example.org/config#field-author"]'
 ```
 
-### 5. Search with facet filtering (SHACL mode only)
-
+### 5. Search with facet filtering
 Filters use CQL2-JSON syntax:
 
 ```sparql
@@ -274,7 +232,7 @@ The `property` value accepts both field names (`"category"`) and field IRIs (`"h
 |--------|-------|--------|
 | `maxValues` | `luc:facet` arg | Max facet values per field. `0` = return all values |
 | `minCount` | `luc:facet` arg | Exclude values with count below this threshold |
-| `text:maxFacetHits` | Assembler config (SHACL only) | Limit internal Lucene search for facet collection. `0` = unlimited |
+| `text:maxFacetHits` | Assembler config | Limit internal Lucene search for facet collection. `0` = unlimited |
 | `text:storeValues` | Assembler config | Store literal values for retrieval in results |
 
 ---
@@ -476,20 +434,3 @@ Using `/ds/query` or `/ds/update` with unnamed endpoints will fail. Either:
 - Use `maxValues` and `minCount` arguments in `luc:facet` to reduce result size
 - See [Architecture — Performance Characteristics](04-architecture.md#performance-characteristics) for tuning guidance
 
----
-
-## Classic vs SHACL Mode
-
-| Aspect | Classic (`text:entityMap`) | SHACL (`text:shapes`) |
-|--------|--------------------------|----------------------|
-| SPARQL prefix | `text:query` | `luc:query`, `luc:facet` |
-| Document model | One Lucene doc per triple | One Lucene doc per entity |
-| Faceting | Not supported | Native facet counts via `luc:facet` |
-| Filters | Not supported | JSON filter arg on `luc:query` |
-| Field types | Text only | Text, Keyword, Int, Long, Double, LatLon |
-| Numeric fields | No | Yes |
-| Spatial filtering | No | Yes (bbox, polygon via CQL2-JSON) |
-| Path expressions | No | Yes (sequence, inverse, alternative) |
-| Per-field config | Limited (analyzer only) | Full (stored, indexed, facetable, sortable, multiValued) |
-| Existing data | Works with existing indexes | Requires reindex |
-| Backward compat | Full (upstream Jena) | New feature |

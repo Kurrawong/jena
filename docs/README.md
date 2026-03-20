@@ -30,8 +30,7 @@ All proposed extensions are additive — no breaking changes to existing query o
 ```mermaid
 graph TB
     subgraph SPARQL["SPARQL Interface"]
-        TQ["text:query<br/><i>upstream, unchanged</i>"]
-        LQ["luc:query<br/><i>search + JSON filters</i>"]
+        LQ["luc:query<br/><i>search + CQL2-JSON filters</i>"]
         LF["luc:facet<br/><i>field value counts</i>"]
     end
 
@@ -52,8 +51,7 @@ graph TB
     end
 
     subgraph Config["Assembler Config (TTL)"]
-        EM["text:entityMap<br/><i>classic mode</i>"]
-        TS["text:shapes<br/><i>SHACL mode</i>"]
+        TS["text:shapes<br/><i>SHACL entity-per-document</i>"]
     end
 
     subgraph Store["RDF Store"]
@@ -67,18 +65,12 @@ graph TB
     SE --> TIL
     TIL --> FC
 
-    TQ --> TIL
-
     DS -- "triple change" --> STDP
     STDP --> SIM
     STDP -- "rebuild entity doc" --> TIL
     SIM -- "field types, profiles" --> TIL
 
     TS -- "parsed by ShaclIndexAssembler" --> SIM
-    EM -- "parsed by TextIndexLuceneAssembler" --> TIL
-
-    style TQ fill:#e0e0e0,stroke:#888,color:#333
-    style EM fill:#e0e0e0,stroke:#888,color:#333
     style LQ fill:#1a6dd4,stroke:#0d4a94,color:#fff
     style LF fill:#1a6dd4,stroke:#0d4a94,color:#fff
     style SQP fill:#1a6dd4,stroke:#0d4a94,color:#fff
@@ -90,7 +82,7 @@ graph TB
     style FC fill:#1a6dd4,stroke:#0d4a94,color:#fff
 ```
 
-Grey = upstream (unchanged) / Blue = new code in this fork. See [Architecture](04-architecture.md) for detailed query flow and indexing flow diagrams.
+See [Architecture](04-architecture.md) for detailed query flow and indexing flow diagrams. The upstream Jena `text:query` / `text:entityMap` (classic mode) is unchanged and still available but not shown here.
 
 ### Roadmap
 
@@ -133,24 +125,22 @@ All proposed extensions are additive — no breaking changes to existing query o
 ## Quick Start
 
 ```turtle
-# Classic mode — upstream Jena text search (text:query)
-text:entityMap <#entMap> ;
-
-# SHACL mode — entity-per-document with faceting (luc:query, luc:facet)
+# Entity-per-document indexing with SHACL shapes
 text:shapes ( <#BookShape> ) ;
 ```
 
 ```sparql
-# Classic: text search
-PREFIX text: <http://jena.apache.org/text#>
-(?s ?sc) text:query ("machine learning") .
-
-# SHACL: search with filters
 PREFIX luc: <urn:jena:lucene:index#>
+
+# Search
 (?s ?sc) luc:query ("machine learning") .
 
-# SHACL: facet counts (separate query)
-(?f ?v ?c) luc:facet ("machine learning" '["category"]' 10) .
+# Facet counts
+(?f ?v ?c) luc:facet ("default" "machine learning" '["category"]' 10) .
+
+# Search with CQL2-JSON filter
+(?s ?sc) luc:query ("default" "learning"
+    '{"op":"=","args":[{"property":"category"},"Technology"]}' 20) .
 ```
 
 ## Build & Test
