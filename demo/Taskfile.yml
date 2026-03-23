@@ -180,10 +180,11 @@ tasks:
   # ── Loader / Reindexer ──────────────────────────────────
 
   loader-build:
-    desc: Build the loader/reindexer Docker image for linux/amd64
+    desc: Build the loader/reindexer Docker image (extends fuseki-ai)
+    deps: [image-build]
     dir: ..
     cmds:
-      - docker buildx build --platform linux/amd64 -f demo/loader/Dockerfile -t fuseki-loader:{{.IMAGE_TAG}} --load .
+      - docker buildx build --platform linux/amd64 -f demo/loader/Dockerfile --build-arg BASE_IMAGE={{.IMAGE_NAME}} --build-arg BASE_TAG={{.IMAGE_TAG}} -t fuseki-loader:{{.IMAGE_TAG}} --load .
 
   loader-ghcr-push:
     desc: Build and push loader image to GitHub CR

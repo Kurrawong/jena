@@ -38,7 +38,7 @@ jobs:
       - name: Extract version from pom.xml
         id: version
         run: |
-          VERSION=$(mvn -q -Dexec.executable=echo -Dexec.args='${project.version}' --non-recursive exec:exec 2>/dev/null || echo "6.1.0-SNAPSHOT")
+          VERSION=$(grep -m1 '<version>' pom.xml | sed 's/.*<version>\(.*\)<\/version>.*/\1/')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build and push fuseki-ai image
@@ -61,8 +61,9 @@ jobs:
           file: demo/loader/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            BASE_IMAGE=${{ env.FUSEKI_IMAGE }}
+            BASE_TAG=${{ steps.version.outputs.version }}
           tags: |
             ${{ env.LOADER_IMAGE }}:${{ steps.version.outputs.version }}
             ${{ env.LOADER_IMAGE }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
