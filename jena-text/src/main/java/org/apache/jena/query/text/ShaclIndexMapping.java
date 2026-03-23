@@ -24,6 +24,7 @@ package org.apache.jena.query.text;
 import java.util.*;
 
 import org.apache.jena.graph.Node;
+import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.sparql.path.P_Link;
 import org.apache.jena.sparql.path.Path;
 import org.apache.lucene.analysis.Analyzer;
@@ -38,6 +39,8 @@ public class ShaclIndexMapping {
         TEXT, KEYWORD, INT, LONG, DOUBLE, LATLON
     }
 
+    private static final String FIELD_IRI_PREFIX = "urn:jena:lucene:field#";
+
     public static class FieldDef {
         private final String fieldName;
         private final FieldType fieldType;
@@ -50,19 +53,28 @@ public class ShaclIndexMapping {
         private final boolean defaultSearch;
         private final Set<Node> predicates;
         private final Path path;
+        private final Node fieldIRI;
 
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
                         boolean stored, boolean indexed, boolean facetable,
                         boolean sortable, boolean multiValued, boolean defaultSearch,
                         Set<Node> predicates) {
             this(fieldName, fieldType, analyzer, stored, indexed, facetable,
-                 sortable, multiValued, defaultSearch, predicates, null);
+                 sortable, multiValued, defaultSearch, predicates, null, null);
         }
 
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
                         boolean stored, boolean indexed, boolean facetable,
                         boolean sortable, boolean multiValued, boolean defaultSearch,
                         Set<Node> predicates, Path path) {
+            this(fieldName, fieldType, analyzer, stored, indexed, facetable,
+                 sortable, multiValued, defaultSearch, predicates, path, null);
+        }
+
+        public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
+                        boolean stored, boolean indexed, boolean facetable,
+                        boolean sortable, boolean multiValued, boolean defaultSearch,
+                        Set<Node> predicates, Path path, Node fieldIRI) {
             this.fieldName = Objects.requireNonNull(fieldName);
             this.fieldType = fieldType != null ? fieldType : FieldType.TEXT;
             this.analyzer = analyzer;
@@ -74,6 +86,8 @@ public class ShaclIndexMapping {
             this.defaultSearch = defaultSearch;
             this.predicates = predicates != null ? Collections.unmodifiableSet(new LinkedHashSet<>(predicates)) : Collections.emptySet();
             this.path = path;
+            this.fieldIRI = fieldIRI != null ? fieldIRI
+                : NodeFactory.createURI(FIELD_IRI_PREFIX + fieldName);
         }
 
         public String getFieldName()       { return fieldName; }
@@ -86,6 +100,7 @@ public class ShaclIndexMapping {
         public boolean isMultiValued()      { return multiValued; }
         public boolean isDefaultSearch()    { return defaultSearch; }
         public Set<Node> getPredicates()    { return predicates; }
+        public Node getFieldIRI()            { return fieldIRI; }
 
         /** The structured path for this field. Null for simple predicate fields (backward compat). */
         public Path getPath()              { return path; }
@@ -150,6 +165,7 @@ public class ShaclIndexMapping {
 
     public ShaclIndexMapping(List<IndexProfile> profiles) {
         this.profiles = Collections.unmodifiableList(new ArrayList<>(profiles));
+        validateFieldNameUniqueness();
 
         // Build predicate → (profile, field) lookup
         Map<Node, List<ProfileField>> predMap = new HashMap<>();
@@ -190,8 +206,28 @@ public class ShaclIndexMapping {
         return classLookup.getOrDefault(cls, Collections.emptyList());
     }
 
-    /** Find a FieldDef by field name across all profiles. Returns null if not found. */
-    public FieldDef findField(String fieldName) {
+    /**
+     * Find a FieldDef by field IRI across all profiles.
+     * Matches the exact IRI string against each field's IRI.
+     * Returns null if not found.
+     */
+    public FieldDef findField(String fieldIRI) {
+        for (IndexProfile profile : profiles) {
+            for (FieldDef field : profile.getFields()) {
+                if (field.getFieldIRI().getURI().equals(fieldIRI)) {
+                    return field;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Find a FieldDef by Lucene field name across all profiles.
+     * This is for internal use where the Lucene field name is known.
+     * Returns null if not found.
+     */
+    public FieldDef findFieldByName(String fieldName) {
         for (IndexProfile profile : profiles) {
             for (FieldDef field : profile.getFields()) {
                 if (field.getFieldName().equals(fieldName)) {
@@ -200,6 +236,50 @@ public class ShaclIndexMapping {
             }
         }
         return null;
+    }
+
+    /** Return all field names marked as defaultSearch across all profiles. */
+    public List<String> getDefaultSearchFieldNames() {
+        List<String> result = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (IndexProfile profile : profiles) {
+            for (FieldDef field : profile.getFields()) {
+                if (field.isDefaultSearch() && seen.add(field.getFieldName())) {
+                    result.add(field.getFieldName());
+                }
+            }
+        }
+        return result;
+    }
+
+    /** Return all field names across all profiles. */
+    public Set<String> getAllFieldNames() {
+        Set<String> result = new LinkedHashSet<>();
+        for (IndexProfile profile : profiles) {
+            for (FieldDef field : profile.getFields()) {
+                result.add(field.getFieldName());
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Validate that field names are consistent across profiles.
+     * The same field name may appear in multiple profiles (e.g. "title" in both
+     * BookShape and ArticleShape), but must have the same FieldType when shared.
+     */
+    private void validateFieldNameUniqueness() {
+        Map<String, FieldType> seen = new HashMap<>();
+        for (IndexProfile profile : profiles) {
+            for (FieldDef field : profile.getFields()) {
+                FieldType prev = seen.put(field.getFieldName(), field.getFieldType());
+                if (prev != null && prev != field.getFieldType()) {
+                    throw new TextIndexException(
+                        "Field name '" + field.getFieldName() +
+                        "' has conflicting types: " + prev + " vs " + field.getFieldType());
+                }
+            }
+        }
     }
 
     /** Return all field names marked as facetable across all profiles. */

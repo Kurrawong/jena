@@ -30,6 +30,14 @@ tasks:
       - echo "Serving at http://localhost:8001"
       - cmd: python3 -m http.server 8001 --directory project-overview
 
+  test:
+    desc: Run Playwright screenshot tests and generate report
+    dir: testing
+    cmds:
+      - npx playwright test
+      - npx tsx lib/report.ts
+      - echo "Report written to testing/results/report.md"
+
   # ── Mining ───────────────────────────────────────────────
 
   serve:
@@ -46,6 +54,11 @@ tasks:
           -H "Content-Type: text/turtle" \
           --data-binary @test/data/mining.ttl
       - echo "Loaded test/data/mining.ttl"
+      - |
+        curl -s -X POST "{{.SERVER_URL}}/mining/data?default" \
+          -H "Content-Type: text/turtle" \
+          --data-binary @test/data/generated.ttl
+      - echo "Loaded test/data/generated.ttl"
 
   query:
     desc: Run all test queries against the mining server
@@ -59,6 +72,7 @@ tasks:
           - queries/05-combined.rq
           - queries/06-sequence-path-facet.rq
           - queries/07-filter-by-author.rq
+          - queries/08-spatial-bbox.rq
         cmd: |
           echo "=== {{.ITEM}} ==="
           curl -s -X POST "{{.SERVER_URL}}/mining/query" \
@@ -71,7 +85,8 @@ tasks:
     desc: Serve the static demo app with mining config
     cmds:
       - ln -sfn ../test/config.ttl app-static/config.ttl
-      - echo "Serving at http://localhost:8000 (mining → localhost:3030)"
+      - ln -sfn ../test/tests.json app-static/tests.json
+      - echo "Serving at http://localhost:8000 (mining → {{.SERVER_URL}})"
       - cmd: python3 -m http.server 8000 --directory app-static
 
   clean:
@@ -84,10 +99,10 @@ tasks:
   # ── Docker (Fuseki server image) ─────────────────────────
 
   image-build:
-    desc: "Build Docker image (optionally: task image-build IMAGE_NAME=myapp IMAGE_TAG=latest)"
+    desc: "Build Docker image for linux/amd64 (optionally: task image-build IMAGE_NAME=myapp IMAGE_TAG=latest)"
     dir: ..
     cmds:
-      - docker build -f demo/test/Dockerfile -t {{.IMAGE_NAME}}:{{.IMAGE_TAG}} .
+      - docker buildx build --platform linux/amd64 -f demo/test/Dockerfile -t {{.IMAGE_NAME}}:{{.IMAGE_TAG}} --load .
 
   image-push:
     desc: "Build and push image to ACR (usage: task image-push ACR_NAME=gswadevacr)"
@@ -110,7 +125,6 @@ tasks:
 
   docker-start:
     desc: Start Fuseki in Docker (detached)
-    deps: [image-build]
     dir: test
     env:
       IMAGE_NAME: '{{.IMAGE_NAME}}'
@@ -146,7 +160,6 @@ tasks:
 
   docker-serve:
     desc: Start Fuseki in Docker (foreground with logs)
-    deps: [image-build]
     dir: test
     env:
       IMAGE_NAME: '{{.IMAGE_NAME}}'
@@ -167,13 +180,10 @@ tasks:
   # ── Loader / Reindexer ──────────────────────────────────
 
   loader-build:
-    desc: Build the loader/reindexer Docker image
-    deps: [build]
-    dir: loader
+    desc: Build the loader/reindexer Docker image for linux/amd64
+    dir: ..
     cmds:
-      - cp ../{{.FUSEKI_JAR}} jena-fuseki-server.jar
-      - docker build -t fuseki-loader:{{.IMAGE_TAG}} .
-      - rm -f jena-fuseki-server.jar
+      - docker buildx build --platform linux/amd64 -f demo/loader/Dockerfile -t fuseki-loader:{{.IMAGE_TAG}} --load .
 
   loader-ghcr-push:
     desc: Build and push loader image to GitHub CR

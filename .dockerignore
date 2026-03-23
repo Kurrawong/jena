@@ -15,7 +15,7 @@
 **/Lucene
 **/coverage
 **/*.log
-demo/project-overview
-demo/app-static
-demo/drillhole
-demo/loader
+demo/
+!demo/test/config.ttl
+!demo/test/data/
+docs/

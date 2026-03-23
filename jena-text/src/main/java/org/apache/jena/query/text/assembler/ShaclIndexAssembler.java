@@ -179,9 +179,12 @@ public class ShaclIndexAssembler {
         // Extract leaf predicates for change listener compatibility
         Set<Node> predicates = extractLeafPredicates(path);
 
+        // Use the field resource's URI as the field IRI if it's a named resource
+        Node fieldIRI = fieldRes.isURIResource() ? fieldRes.asNode() : null;
+
         log.debug("Parsed field: {} type={} path={} facetable={}", fieldName, fieldType, path, facetable);
         return new FieldDef(fieldName, fieldType, analyzer, stored, indexed,
-                           facetable, sortable, multiValued, defaultSearch, predicates, path);
+                           facetable, sortable, multiValued, defaultSearch, predicates, path, fieldIRI);
     }
 
     /**
@@ -372,6 +375,7 @@ public class ShaclIndexAssembler {
         if (IndexVocab.IntField.getURI().equals(uri)) return FieldType.INT;
         if (IndexVocab.LongField.getURI().equals(uri)) return FieldType.LONG;
         if (IndexVocab.DoubleField.getURI().equals(uri)) return FieldType.DOUBLE;
+        if (IndexVocab.LatLonField.getURI().equals(uri)) return FieldType.LATLON;
         throw new TextIndexException("Unknown idx:fieldType: " + uri);
     }
 
