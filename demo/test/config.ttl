@@ -37,8 +37,7 @@ PREFIX ex:      <http://example.org/mining/>
     text:directory <file:Lucene> ;
     text:shapes ( :MiningReportShape :BoreholeShape :SiteShape ) ;
     text:storeValues true ;
-    text:maxFacetHits 50000 ;
-    idx:fusekiBase "http://localhost:3030" .
+    text:maxFacetHits 50000 .
 
 ## --- Field definitions (named resources — IRIs used in SPARQL bindings) ---
 
@@ -142,6 +141,7 @@ field:location
     sh:property field:entityType ;
     sh:property field:title ;
     sh:property field:identifier ;
+    sh:property field:description ;
     sh:property field:commodity ;
     sh:property field:state ;
     sh:property field:depth ;
@@ -152,6 +152,7 @@ field:location
     sh:property field:entityType ;
     sh:property field:title ;
     sh:property field:identifier ;
+    sh:property field:description ;
     sh:property field:commodity ;
     sh:property field:state ;
     sh:property field:status ;

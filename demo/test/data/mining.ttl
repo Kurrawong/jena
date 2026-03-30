@@ -173,21 +173,25 @@ ex:bh-pil-001 a ex:Borehole ;
 ## and ex:authored (on authors). This enables sequence and inverse path indexing.
 
 ex:author-jones a ex:Author ;
+    rdfs:label "Dr Sarah Jones" ;
     ex:name "Dr Sarah Jones" ;
     ex:affiliation "CSIRO Mineral Resources" ;
     ex:authored ex:report-mia-2023, ex:report-od-2024 .
 
 ex:author-chen a ex:Author ;
+    rdfs:label "Prof Wei Chen" ;
     ex:name "Prof Wei Chen" ;
     ex:affiliation "Geoscience Australia" ;
     ex:authored ex:report-mia-2021, ex:report-bh-1985 .
 
 ex:author-williams a ex:Author ;
+    rdfs:label "James Williams" ;
     ex:name "James Williams" ;
     ex:affiliation "Rio Tinto Technical Services" ;
     ex:authored ex:report-pil-2024, ex:report-pil-exploration .
 
 ex:author-patel a ex:Author ;
+    rdfs:label "Dr Priya Patel" ;
     ex:name "Dr Priya Patel" ;
     ex:affiliation "Newmont Geology" ;
     ex:authored ex:report-bod-2022, ex:report-cad-2023 .
