@@ -108,6 +108,14 @@ field:depth
     idx:sortable true ;
     sh:path ex:depth .
 
+field:identifier
+    idx:fieldName "identifier" ;
+    idx:fieldType idx:TextField ;
+    idx:defaultSearch true ;
+    idx:analyzer [ a text:EdgeNGramAnalyzer ] ;
+    idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] ;
+    sh:path ex:identifier .
+
 field:location
     idx:fieldName "location" ;
     idx:fieldType idx:LatLonField ;
@@ -119,6 +127,7 @@ field:location
     sh:targetClass ex:MiningReport ;
     sh:property field:entityType ;
     sh:property field:title ;
+    sh:property field:identifier ;
     sh:property field:description ;
     sh:property field:commodity ;
     sh:property field:state ;
@@ -132,6 +141,7 @@ field:location
     sh:targetClass ex:Borehole ;
     sh:property field:entityType ;
     sh:property field:title ;
+    sh:property field:identifier ;
     sh:property field:commodity ;
     sh:property field:state ;
     sh:property field:depth ;
@@ -141,6 +151,7 @@ field:location
     sh:targetClass ex:Site ;
     sh:property field:entityType ;
     sh:property field:title ;
+    sh:property field:identifier ;
     sh:property field:commodity ;
     sh:property field:state ;
     sh:property field:status ;
