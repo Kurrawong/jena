@@ -37,7 +37,7 @@ import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.ResourceFactory;
 import org.apache.jena.vocabulary.RDF;
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.LowerCaseFilter;
+import org.apache.lucene.analysis.core.LowerCaseFilter;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.Tokenizer;
 import org.apache.lucene.analysis.core.KeywordTokenizer;
@@ -201,6 +201,87 @@ public class TestPerFieldQueryAnalyzer {
     public void testNoMatchForWrongPrefix() {
         Set<String> results = queryIdentifier("XYZ");
         assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testNormalFieldStillWorksAlongsidePrefixField() {
+        // The "label" field uses the standard analyzer (no queryAnalyzer override).
+        // Searching it should still work via the default search field.
+        String queryStr =
+            "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT ?s WHERE {\n" +
+            "  (?s ?score) luc:query ('urn:jena:lucene:field#label' 'Pilbara') .\n" +
+            "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            try (QueryExecution qexec = QueryExecutionFactory.create(queryStr, dataset)) {
+                ResultSet rs = qexec.execSelect();
+                Set<String> results = new HashSet<>();
+                while (rs.hasNext()) {
+                    results.add(rs.next().getResource("s").getURI());
+                }
+                assertEquals("Only s1 has 'Pilbara' in label", 1, results.size());
+                assertTrue(results.contains(NS + "s1"));
+            }
+        } finally {
+            dataset.end();
+        }
+    }
+
+    @Test
+    public void testPrefixSearchDoesNotMatchLabelField() {
+        // "GSWA" is only in the identifier field. Searching the label field
+        // should not return results for that term.
+        String queryStr =
+            "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT ?s WHERE {\n" +
+            "  (?s ?score) luc:query ('urn:jena:lucene:field#label' 'GSWA') .\n" +
+            "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            try (QueryExecution qexec = QueryExecutionFactory.create(queryStr, dataset)) {
+                ResultSet rs = qexec.execSelect();
+                assertFalse("GSWA should not match label field", rs.hasNext());
+            }
+        } finally {
+            dataset.end();
+        }
+    }
+
+    @Test
+    public void testFieldDefWithoutQueryAnalyzerUsesIndexAnalyzer() {
+        // When queryAnalyzer is null, getQueryAnalyzer() returns null —
+        // the system falls back to using the index analyzer for queries.
+        FieldDef noOverride = new FieldDef("test", FieldType.TEXT,
+            edgeNgramIndexAnalyzer(),
+            true, true, false, false, false, false,
+            Collections.singleton(LABEL_PRED));
+        assertNull("queryAnalyzer should be null when not set", noOverride.getQueryAnalyzer());
+        assertNotNull("index analyzer should be present", noOverride.getAnalyzer());
+    }
+
+    @Test
+    public void testEntityDefinitionQueryAnalyzerWiring() {
+        // Verify that deriveEntityDefinition correctly wires queryAnalyzer
+        // from FieldDef into EntityDefinition
+        FieldDef idField = new FieldDef("identifier", FieldType.TEXT,
+            edgeNgramIndexAnalyzer(), lowercaseKeywordAnalyzer(),
+            true, true, false, false, false, true,
+            Collections.singleton(IDENTIFIER_PRED), null, null);
+
+        IndexProfile profile = new IndexProfile(
+            NodeFactory.createURI(NS + "TestShape"),
+            Collections.singleton(SPECIMEN_CLASS),
+            "uri", "docType",
+            Collections.singletonList(idField));
+
+        ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
+        EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
+
+        assertNotNull("EntityDefinition should have query analyzer for identifier",
+            defn.getQueryAnalyzer("identifier"));
     }
 
     private Set<String> queryIdentifier(String prefix) {

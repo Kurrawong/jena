@@ -156,6 +156,9 @@ public class TextIndexLucene implements TextIndex {
             indexDefault = Util.usingIndexAnalyzers() ? new IndexingMultilingualAnalyzer(defaultAnalyzer) : queryDefault;
         }
         this.indexAnalyzer = new PerFieldAnalyzerWrapper(indexDefault, analyzerPerField) ;
+        if (null != config.getQueryAnalyzer() && !queryAnalyzerPerField.isEmpty()) {
+            log.warn("Global text:queryAnalyzer is set — per-field idx:queryAnalyzer overrides will be ignored");
+        }
         this.queryAnalyzer = (null != config.getQueryAnalyzer()) ? config.getQueryAnalyzer() : new PerFieldAnalyzerWrapper(queryDefault, queryAnalyzerPerField) ;
         this.queryParserType = config.getQueryParser() ;
         log.debug("TextIndexLucene defaultAnalyzer: {}, indexAnalyzer: {}, queryAnalyzer: {}, queryParserType: {}", defaultAnalyzer, indexAnalyzer, queryAnalyzer, queryParserType);
