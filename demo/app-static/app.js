@@ -6,7 +6,7 @@
 
 const CONFIG_PATH = 'config.ttl';
 const APP_CONFIG = window.APP_CONFIG || {};
-const FUSEKI_BASE = APP_CONFIG.fusekiBase || 'http://localhost:3030';
+const FUSEKI_BASE = APP_CONFIG.fusekiBase || 'http://localhost:3035';
 const RESULT_LIMITS = [10, 100, 1000, 5000, 9999];
 const DEFAULT_LIMIT = 10;
 const FACET_LIMITS = [10, 25, 50, 100, 500];
@@ -303,10 +303,11 @@ function extractConfig(store) {
                 sortable,
             });
 
+            if (fieldIRI) fieldIRIs[fieldName] = fieldIRI;
+
             if (facetable && !seenFacets.has(fieldName)) {
                 seenFacets.add(fieldName);
                 facetFields.push(fieldName);
-                if (fieldIRI) fieldIRIs[fieldName] = fieldIRI;
             }
 
             if (facetable && pathNode) {
