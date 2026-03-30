@@ -220,6 +220,22 @@ public class TestShaclBulkIndexer {
     }
 
     @Test
+    public void testBulkIndexMaxEntitiesPerProfile() {
+        Model model = baseDataset.getDefaultModel();
+        addBook(model, "book1", "Machine Learning Guide", "Technology", "Smith");
+        addBook(model, "book2", "Deep Learning Guide", "Technology", "Jones");
+        addArticle(model, "art1", "Machine Learning in Industry", "AI");
+        addArticle(model, "art2", "Quantum Computing Review", "Physics");
+
+        DatasetGraph dsg = baseDataset.asDatasetGraph();
+        ShaclBulkIndexer indexer = new ShaclBulkIndexer(dsg, textIndex, mapping);
+        indexer.setMaxEntitiesPerProfile(1);
+        indexer.index();
+
+        assertEquals("Should index at most 1 entity per profile", 2, indexer.getEntityCount());
+    }
+
+    @Test
     public void testBulkIndexEmptyDataset() {
         DatasetGraph dsg = baseDataset.asDatasetGraph();
         ShaclBulkIndexer indexer = new ShaclBulkIndexer(dsg, textIndex, mapping);
