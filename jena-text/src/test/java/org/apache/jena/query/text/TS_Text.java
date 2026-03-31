@@ -102,6 +102,9 @@ import org.junit.runners.Suite.SuiteClasses;
     // Spatial filtering
     , TestSpatialFiltering.class
 
+    // Multi-valued field support
+    , TestShaclLucQueryRawValueOnMultiValuedField.class
+
     // Demo data validation
     , TestDemoDataParsing.class
     , TestDemoMiningScenarios.class
