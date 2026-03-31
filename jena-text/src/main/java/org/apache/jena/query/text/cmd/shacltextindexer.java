@@ -43,6 +43,7 @@ import arq.cmdline.CmdARQ;
 public class shacltextindexer extends CmdARQ {
 
     private static Logger log = LoggerFactory.getLogger(shacltextindexer.class);
+    private static final String ENV_INDEX_FIRST_N = "SHACL_INDEX_FIRST_N";
 
     public static final ArgDecl assemblerDescDecl = new ArgDecl(ArgDecl.HasValue, "desc", "dataset");
 
@@ -125,6 +126,15 @@ public class shacltextindexer extends CmdARQ {
 
             ShaclBulkIndexer indexer = new ShaclBulkIndexer(
                 dataset, textIndex, shaclMapping);
+            String firstN = System.getenv(ENV_INDEX_FIRST_N);
+            if (firstN != null && !firstN.isBlank()) {
+                long maxEntitiesPerProfile = Long.parseLong(firstN.trim());
+                if (maxEntitiesPerProfile > 0) {
+                    indexer.setMaxEntitiesPerProfile(maxEntitiesPerProfile);
+                    log.info("Dev mode: indexing first {} entities per SHACL profile from ${}",
+                        maxEntitiesPerProfile, ENV_INDEX_FIRST_N);
+                }
+            }
             indexer.index();
 
             textIndex.close();

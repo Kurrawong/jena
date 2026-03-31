@@ -220,6 +220,44 @@ public class TestShaclBulkIndexer {
     }
 
     @Test
+    public void testBulkIndexMaxEntitiesPerProfile() {
+        Model model = baseDataset.getDefaultModel();
+        addBook(model, "book1", "Machine Learning Guide", "Technology", "Smith");
+        addBook(model, "book2", "Deep Learning Guide", "Technology", "Jones");
+        addArticle(model, "art1", "Machine Learning in Industry", "AI");
+        addArticle(model, "art2", "Quantum Computing Review", "Physics");
+
+        DatasetGraph dsg = baseDataset.asDatasetGraph();
+        ShaclBulkIndexer indexer = new ShaclBulkIndexer(dsg, textIndex, mapping);
+        indexer.setMaxEntitiesPerProfile(1);
+        indexer.index();
+
+        assertEquals("Should index at most 1 entity per profile", 2, indexer.getEntityCount());
+    }
+
+    @Test
+    public void testBulkIndexNoLimitIncludesNamedGraphEntities() {
+        Model defaultModel = baseDataset.getDefaultModel();
+        addBook(defaultModel, "book1", "Machine Learning Guide", "Technology", "Smith");
+
+        Model namedModel = baseDataset.getNamedModel(NS + "graph1");
+        addArticle(namedModel, "art1", "Machine Learning in Industry", "AI");
+
+        DatasetGraph dsg = baseDataset.asDatasetGraph();
+        ShaclBulkIndexer indexer = new ShaclBulkIndexer(dsg, textIndex, mapping);
+        indexer.index();
+
+        assertEquals("No limit should index entities from default and named graphs", 2, indexer.getEntityCount());
+
+        List<TextHit> hits = textIndex.query(TITLE_PRED, "machine", null, null);
+        Set<String> uris = new HashSet<>();
+        for (TextHit hit : hits) uris.add(hit.getNode().getURI());
+
+        assertTrue("Should find default-graph book", uris.contains(NS + "book1"));
+        assertTrue("Should find named-graph article", uris.contains(NS + "art1"));
+    }
+
+    @Test
     public void testBulkIndexEmptyDataset() {
         DatasetGraph dsg = baseDataset.asDatasetGraph();
         ShaclBulkIndexer indexer = new ShaclBulkIndexer(dsg, textIndex, mapping);

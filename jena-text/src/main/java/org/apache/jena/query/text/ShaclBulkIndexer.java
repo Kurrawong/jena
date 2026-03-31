@@ -22,6 +22,7 @@
 package org.apache.jena.query.text;
 
 import java.util.*;
+import java.text.NumberFormat;
 
 import org.apache.jena.graph.Graph;
 import org.apache.jena.graph.Node;
@@ -52,6 +53,7 @@ import org.slf4j.LoggerFactory;
  */
 public class ShaclBulkIndexer {
     private static final Logger log = LoggerFactory.getLogger(ShaclBulkIndexer.class);
+    private static final NumberFormat COUNT_FORMAT = NumberFormat.getIntegerInstance(Locale.US);
 
     private static final Node RDF_TYPE = RDF.type.asNode();
 
@@ -61,7 +63,9 @@ public class ShaclBulkIndexer {
 
     private long entityCount = 0;
     private long batchSize = 10000;
+    private long progressInterval = 10000;
     private long commitInterval = 100000;
+    private long maxEntitiesPerProfile = 0;
 
     public ShaclBulkIndexer(DatasetGraph baseDataset, TextIndex textIndex, ShaclIndexMapping mapping) {
         this.baseDataset = baseDataset;
@@ -78,6 +82,14 @@ public class ShaclBulkIndexer {
 
     public void setCommitInterval(long commitInterval) {
         this.commitInterval = commitInterval;
+    }
+
+    public void setProgressInterval(long progressInterval) {
+        this.progressInterval = progressInterval;
+    }
+
+    public void setMaxEntitiesPerProfile(long maxEntitiesPerProfile) {
+        this.maxEntitiesPerProfile = maxEntitiesPerProfile;
     }
 
     public long getEntityCount() {
@@ -104,40 +116,47 @@ public class ShaclBulkIndexer {
                 long profileCount = 0;
 
                 // Discover entities from default graph
+                long remaining = remainingForProfile(profileCount);
                 profileCount += indexEntities(defaultGraph, defaultGraph,
-                    targetClass, profile, indexed);
+                    targetClass, profile, indexed, remaining);
 
                 // Discover entities from named graphs via quad-level iteration
-                Iterator<Quad> quadIter = baseDataset.find(
-                    Node.ANY, Node.ANY, RDF_TYPE, targetClass);
-                Graph unionGraph = baseDataset.getUnionGraph();
-                while (quadIter.hasNext()) {
-                    Quad quad = quadIter.next();
-                    Node subject = quad.getSubject();
-                    String entityUri = TextQueryFuncs.subjectToString(subject);
+                if (remainingForProfile(profileCount) != 0) {
+                    Iterator<Quad> quadIter = baseDataset.find(
+                        Node.ANY, Node.ANY, RDF_TYPE, targetClass);
+                    Graph unionGraph = baseDataset.getUnionGraph();
+                    while (quadIter.hasNext()) {
+                        if (maxEntitiesPerProfile > 0 && profileCount >= maxEntitiesPerProfile) {
+                            break;
+                        }
+                        Quad quad = quadIter.next();
+                        Node subject = quad.getSubject();
+                        String entityUri = TextQueryFuncs.subjectToString(subject);
 
-                    String dedupKey = entityUri + "|" + profile.getShapeNode().toString();
-                    if (!indexed.add(dedupKey)) {
-                        continue;
-                    }
+                        String dedupKey = entityUri + "|" + profile.getShapeNode().toString();
+                        if (!indexed.add(dedupKey)) {
+                            continue;
+                        }
 
-                    Entity entity = buildEntity(unionGraph, subject, entityUri, profile);
-                    textIndex.updateEntityForProfile(entity, profile);
-                    entityCount++;
-                    profileCount++;
+                        Entity entity = buildEntity(unionGraph, subject, entityUri, profile);
+                        textIndex.updateEntityForProfile(entity, profile);
+                        entityCount++;
+                        profileCount++;
 
-                    if (commitInterval > 0 && entityCount % commitInterval == 0) {
-                        textIndex.commit();
-                        log.info("  Committed at {} entities", entityCount);
+                        maybeLogProgress();
+                        if (commitInterval > 0 && entityCount % commitInterval == 0) {
+                            textIndex.commit();
+                            log.info("  Committed at {} entities", formatCount(entityCount));
+                        }
                     }
                 }
 
-                log.info("  Indexed {} entities for class {}", profileCount, targetClass);
+                log.info("  Indexed {} entities for class {}", formatCount(profileCount), targetClass);
             }
         }
 
         textIndex.commit();
-        log.info("Bulk indexing complete: {} entities indexed", entityCount);
+        log.info("Bulk indexing complete: {} entities indexed", formatCount(entityCount));
     }
 
     /**
@@ -145,11 +164,14 @@ public class ShaclBulkIndexer {
      */
     private long indexEntities(Graph discoveryGraph, Graph lookupGraph,
                                Node targetClass, IndexProfile profile,
-                               Set<String> indexed) {
+                               Set<String> indexed, long maxForThisPass) {
         long count = 0;
         ExtendedIterator<Triple> typeTriples = discoveryGraph.find(Node.ANY, RDF_TYPE, targetClass);
         try {
             while (typeTriples.hasNext()) {
+                if (maxForThisPass > 0 && count >= maxForThisPass) {
+                    break;
+                }
                 Triple t = typeTriples.next();
                 Node subject = t.getSubject();
                 String entityUri = TextQueryFuncs.subjectToString(subject);
@@ -164,15 +186,33 @@ public class ShaclBulkIndexer {
                 entityCount++;
                 count++;
 
+                maybeLogProgress();
                 if (commitInterval > 0 && entityCount % commitInterval == 0) {
                     textIndex.commit();
-                    log.info("  Committed at {} entities", entityCount);
+                    log.info("  Committed at {} entities", formatCount(entityCount));
                 }
             }
         } finally {
             typeTriples.close();
         }
         return count;
+    }
+
+    private long remainingForProfile(long profileCount) {
+        if (maxEntitiesPerProfile <= 0) {
+            return Long.MAX_VALUE;
+        }
+        return Math.max(0, maxEntitiesPerProfile - profileCount);
+    }
+
+    private void maybeLogProgress() {
+        if (progressInterval > 0 && entityCount % progressInterval == 0) {
+            log.info("  Indexed {} entities so far", formatCount(entityCount));
+        }
+    }
+
+    private static String formatCount(long count) {
+        return COUNT_FORMAT.format(count);
     }
 
     /**
