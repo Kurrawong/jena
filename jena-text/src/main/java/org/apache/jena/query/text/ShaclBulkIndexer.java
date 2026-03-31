@@ -200,7 +200,7 @@ public class ShaclBulkIndexer {
 
     private long remainingForProfile(long profileCount) {
         if (maxEntitiesPerProfile <= 0) {
-            return 0;
+            return Long.MAX_VALUE;
         }
         return Math.max(0, maxEntitiesPerProfile - profileCount);
     }

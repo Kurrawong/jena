@@ -236,6 +236,28 @@ public class TestShaclBulkIndexer {
     }
 
     @Test
+    public void testBulkIndexNoLimitIncludesNamedGraphEntities() {
+        Model defaultModel = baseDataset.getDefaultModel();
+        addBook(defaultModel, "book1", "Machine Learning Guide", "Technology", "Smith");
+
+        Model namedModel = baseDataset.getNamedModel(NS + "graph1");
+        addArticle(namedModel, "art1", "Machine Learning in Industry", "AI");
+
+        DatasetGraph dsg = baseDataset.asDatasetGraph();
+        ShaclBulkIndexer indexer = new ShaclBulkIndexer(dsg, textIndex, mapping);
+        indexer.index();
+
+        assertEquals("No limit should index entities from default and named graphs", 2, indexer.getEntityCount());
+
+        List<TextHit> hits = textIndex.query(TITLE_PRED, "machine", null, null);
+        Set<String> uris = new HashSet<>();
+        for (TextHit hit : hits) uris.add(hit.getNode().getURI());
+
+        assertTrue("Should find default-graph book", uris.contains(NS + "book1"));
+        assertTrue("Should find named-graph article", uris.contains(NS + "art1"));
+    }
+
+    @Test
     public void testBulkIndexEmptyDataset() {
         DatasetGraph dsg = baseDataset.asDatasetGraph();
         ShaclBulkIndexer indexer = new ShaclBulkIndexer(dsg, textIndex, mapping);
