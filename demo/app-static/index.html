@@ -458,13 +458,8 @@
           if (tc.group) return '<div class="dropdown-group">' + tc.group + '</div>';
           let href = 'index.html';
           if (tc.params) {
-            const parts = tc.params.replace(/^\?/, '').split('&');
-            const encoded = parts.map(p => {
-              const eq = p.indexOf('=');
-              if (eq < 0) return p;
-              return p.substring(0, eq) + '=' + encodeURIComponent(p.substring(eq + 1));
-            });
-            href += '?' + encoded.join('&');
+            const qs = new URLSearchParams(tc.params.replace(/^\?/, ''));
+            href += '?' + qs.toString();
           }
           return '<a class="dropdown-item" href="' + href + '">' + tc.label + '</a>';
         }).join('');

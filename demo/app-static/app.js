@@ -303,10 +303,11 @@ function extractConfig(store) {
                 sortable,
             });
 
+            if (fieldIRI) fieldIRIs[fieldName] = fieldIRI;
+
             if (facetable && !seenFacets.has(fieldName)) {
                 seenFacets.add(fieldName);
                 facetFields.push(fieldName);
-                if (fieldIRI) fieldIRIs[fieldName] = fieldIRI;
             }
 
             if (facetable && pathNode) {

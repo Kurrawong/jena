@@ -47,7 +47,7 @@ import org.apache.lucene.util.BytesRef;
  * <p>
  * Expressions referencing indexed fields are pushed down to Lucene;
  * non-indexed fields or unsupported operations become residual CQL
- * for post-processing. Spatial ops are always residual.
+ * for post-processing.
  */
 public class CqlToLuceneCompiler {
 
