@@ -253,13 +253,13 @@ public class TestCqlToLuceneCompiler {
     }
 
     @Test
-    public void testSpatialPolygonByFieldNamePushesDown() {
+    public void testSpatialPolygonByFieldNameIsResidual() {
         String polygon = "{\"type\":\"Polygon\",\"coordinates\":[[[118.2,-22.3],[118.3,-22.3],[118.3,-22.2],[118.2,-22.2],[118.2,-22.3]]]}";
         CqlExpression spatial = new CqlExpression.CqlSpatial("s_intersects", "location", polygon);
         CqlToLuceneCompiler.CompileResult r = compiler.compile(spatial);
 
-        assertNotNull(r.pushed());
-        assertNull(r.residual());
+        assertNull(r.pushed());
+        assertNotNull(r.residual());
     }
 
     @Test

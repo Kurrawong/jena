@@ -347,8 +347,7 @@ public class CqlToLuceneCompiler {
     }
 
     private FieldDef findField(String fieldIRI) {
-        FieldDef field = mapping.findField(fieldIRI);
-        return field != null ? field : mapping.findFieldByName(fieldIRI);
+        return mapping.findField(fieldIRI);
     }
 
     private static int toInt(Object v) {
