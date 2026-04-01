@@ -49,11 +49,13 @@ Field IRIs correspond to the named resource IRIs in the SHACL index configuratio
 | ?match | No | IRI or literal | Stored value for the matched field. KEYWORD fields return an IRI, TEXT fields return a string literal, numeric fields return typed literals |
 | ?totalHits | No | xsd:integer | Total matching documents (same value on every row) |
 | ?graph | No | IRI | Named graph of the match |
-| ?field | No | IRI | Field IRI identifying the matched field (bound for single-field queries, unbound for multi-field) |
+| ?field | No | IRI | Field IRI identifying the matched field (see below) |
 
 The `?totalHits` binding returns the total number of documents matching the query and filters, regardless of the `limit` parameter. This is useful for displaying "Showing X of Y results" in search UIs. The value is computed efficiently using `IndexSearcher.count()` and is only evaluated when the variable is present in the subject.
 
-The `?field` binding returns the IRI of the Lucene field that was searched. For fields defined as named resources in the configuration, the resource's own IRI is used. For fields defined on blank nodes, an auto-generated IRI of the form `urn:jena:lucene:field#{fieldName}` is used. For single-field queries, this is always bound. For multi-field queries, it is unbound.
+The `?field` binding returns the IRI of the Lucene field that was searched. For single-field queries (JSON array with one IRI), this is always bound to that field's IRI. For multi-field queries (`"default"` or array with multiple IRIs), this is currently unbound — Lucene returns hits at the document level without identifying which field matched. This is a known limitation; see [#48](https://github.com/aiworkerjohns/jena/issues/48).
+
+> **Note:** All fields must be defined as named resources (with IRIs) in the SHACL index configuration. Blank node field definitions are not supported.
 
 ### Examples
 
@@ -129,7 +131,7 @@ Filters use CQL2-JSON syntax. The `property` value is a field IRI:
 
 | Variable | Required | Type | Description |
 |----------|----------|------|-------------|
-| ?field | Yes | IRI | Field IRI identifying the facet field (auto-generated `urn:jena:lucene:field#{fieldName}` for blank node fields) |
+| ?field | Yes | IRI | Field IRI identifying the facet field |
 | ?value | No | IRI or literal | Facet value. KEYWORD fields return IRIs, TEXT fields return string literals |
 | ?count | No | xsd:integer | Number of matching documents |
 
