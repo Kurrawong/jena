@@ -114,7 +114,7 @@ public class TestShaclLucQueryRawValueOnMultiValuedField {
     public void testLucQueryReturnsMatchedRawValueForMultiValuedField() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s ?matchRaw WHERE {\n" +
-            "  (?s ?score ?matchRaw) luc:query (\"" + FIELD_IRI_PREFIX + "identifier\" \"94130\" 10)\n" +
+            "  (?s ?score ?matchRaw) luc:query ('[\"" + FIELD_IRI_PREFIX + "identifier\"]' \"94130\" 10)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);

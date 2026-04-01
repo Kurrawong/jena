@@ -230,10 +230,10 @@ public class TestTextQueryPFFilters {
 
     @Test
     public void testLucQueryByFieldIRI() {
-        // Search only the "title" field via its IRI
+        // Search only the "title" field via its IRI (JSON array)
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s ?score WHERE {\n" +
-            "  (?s ?score) luc:query (\"" + FIELD_IRI_PREFIX + "title\" \"learning\" 10)\n" +
+            "  (?s ?score) luc:query ('[\"" + FIELD_IRI_PREFIX + "title\"]' \"learning\" 10)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -282,7 +282,7 @@ public class TestTextQueryPFFilters {
         // Search a single field and check that ?field is bound to the field IRI
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s ?score ?lit ?totalHits ?g ?field WHERE {\n" +
-            "  (?s ?score ?lit ?totalHits ?g ?field) luc:query (\"" + FIELD_IRI_PREFIX + "title\" \"learning\" 10)\n" +
+            "  (?s ?score ?lit ?totalHits ?g ?field) luc:query ('[\"" + FIELD_IRI_PREFIX + "title\"]' \"learning\" 10)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -310,7 +310,7 @@ public class TestTextQueryPFFilters {
         // ?lit should be populated with the stored value from the matched field
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s ?score ?lit WHERE {\n" +
-            "  (?s ?score ?lit) luc:query (\"" + FIELD_IRI_PREFIX + "title\" \"machine\" 10)\n" +
+            "  (?s ?score ?lit) luc:query ('[\"" + FIELD_IRI_PREFIX + "title\"]' \"machine\" 10)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -365,7 +365,7 @@ public class TestTextQueryPFFilters {
         // Search specific field (by IRI) with CQL filter
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s ?score WHERE {\n" +
-            "  (?s ?score) luc:query (\"" + FIELD_IRI_PREFIX + "title\" \"learning\" " +
+            "  (?s ?score) luc:query ('[\"" + FIELD_IRI_PREFIX + "title\"]' \"learning\" " +
             "    '{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#category\"},\"http://example.org/category/technology\"]}' 20)\n" +
             "}";
 
