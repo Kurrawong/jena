@@ -128,21 +128,71 @@ public class ShaclIndexMapping {
         }
     }
 
+    /**
+     * Defines a hierarchical facet dimension composed of ordered field levels.
+     * Each level is a {@link FieldDef} whose values form path components in a Lucene taxonomy.
+     * <p>
+     * Example: a hierarchy of (type, subtype) where type="Water Bore" and subtype="BH123456"
+     * produces a Lucene {@code FacetField("type_hierarchy", "Water Bore", "BH123456")}.
+     */
+    public static class HierarchyDef {
+        private final String dimensionName;
+        private final List<FieldDef> levels;
+
+        public HierarchyDef(String dimensionName, List<FieldDef> levels) {
+            this.dimensionName = Objects.requireNonNull(dimensionName);
+            if (levels == null || levels.size() < 2) {
+                throw new IllegalArgumentException("Hierarchy must have at least 2 levels");
+            }
+            this.levels = Collections.unmodifiableList(new ArrayList<>(levels));
+        }
+
+        public String getDimensionName()   { return dimensionName; }
+        public List<FieldDef> getLevels()   { return levels; }
+        public int getDepth()              { return levels.size(); }
+
+        /** Get the FieldDef for a specific level (0-based). */
+        public FieldDef getLevel(int index) { return levels.get(index); }
+
+        /** Check if a FieldDef is part of this hierarchy. */
+        public boolean containsField(FieldDef field) {
+            return levels.contains(field);
+        }
+
+        /** Get the level index of a field, or -1 if not in this hierarchy. */
+        public int getLevelIndex(FieldDef field) {
+            return levels.indexOf(field);
+        }
+
+        @Override
+        public String toString() {
+            return "HierarchyDef(" + dimensionName + ", levels=" + levels + ")";
+        }
+    }
+
     public static class IndexProfile {
         private final Node shapeNode;
         private final Set<Node> targetClasses;
         private final String docIdField;
         private final String discriminatorField;
         private final List<FieldDef> fields;
+        private final List<HierarchyDef> hierarchies;
 
         public IndexProfile(Node shapeNode, Set<Node> targetClasses,
                             String docIdField, String discriminatorField,
                             List<FieldDef> fields) {
+            this(shapeNode, targetClasses, docIdField, discriminatorField, fields, Collections.emptyList());
+        }
+
+        public IndexProfile(Node shapeNode, Set<Node> targetClasses,
+                            String docIdField, String discriminatorField,
+                            List<FieldDef> fields, List<HierarchyDef> hierarchies) {
             this.shapeNode = shapeNode;
             this.targetClasses = targetClasses != null ? Collections.unmodifiableSet(new LinkedHashSet<>(targetClasses)) : Collections.emptySet();
             this.docIdField = docIdField != null ? docIdField : "uri";
             this.discriminatorField = discriminatorField != null ? discriminatorField : "docType";
             this.fields = fields != null ? Collections.unmodifiableList(new ArrayList<>(fields)) : Collections.emptyList();
+            this.hierarchies = hierarchies != null ? Collections.unmodifiableList(new ArrayList<>(hierarchies)) : Collections.emptyList();
         }
 
         public Node getShapeNode()          { return shapeNode; }
@@ -150,6 +200,7 @@ public class ShaclIndexMapping {
         public String getDocIdField()       { return docIdField; }
         public String getDiscriminatorField() { return discriminatorField; }
         public List<FieldDef> getFields()   { return fields; }
+        public List<HierarchyDef> getHierarchies() { return hierarchies; }
 
         @Override
         public String toString() {
@@ -306,5 +357,64 @@ public class ShaclIndexMapping {
             }
         }
         return result;
+    }
+
+    /** Return all hierarchy definitions across all profiles. */
+    public List<HierarchyDef> getAllHierarchies() {
+        List<HierarchyDef> result = new ArrayList<>();
+        for (IndexProfile profile : profiles) {
+            result.addAll(profile.getHierarchies());
+        }
+        return result;
+    }
+
+    /** Find a HierarchyDef by dimension name. */
+    public HierarchyDef findHierarchy(String dimensionName) {
+        for (IndexProfile profile : profiles) {
+            for (HierarchyDef h : profile.getHierarchies()) {
+                if (h.getDimensionName().equals(dimensionName)) {
+                    return h;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Find the HierarchyDef that contains a given field (by field IRI).
+     * Returns null if the field is not part of any hierarchy.
+     */
+    public HierarchyDef findHierarchyForField(String fieldIRI) {
+        FieldDef fd = findField(fieldIRI);
+        if (fd == null) return null;
+        for (IndexProfile profile : profiles) {
+            for (HierarchyDef h : profile.getHierarchies()) {
+                if (h.containsField(fd)) {
+                    return h;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Return all hierarchy dimension names across all profiles. */
+    public List<String> getHierarchyDimensionNames() {
+        List<String> result = new ArrayList<>();
+        for (IndexProfile profile : profiles) {
+            for (HierarchyDef h : profile.getHierarchies()) {
+                result.add(h.getDimensionName());
+            }
+        }
+        return result;
+    }
+
+    /** Check if any hierarchies are defined. */
+    public boolean hasHierarchies() {
+        for (IndexProfile profile : profiles) {
+            if (!profile.getHierarchies().isEmpty()) {
+                return true;
+            }
+        }
+        return false;
     }
 }

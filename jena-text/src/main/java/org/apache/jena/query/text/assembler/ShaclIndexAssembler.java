@@ -140,7 +140,68 @@ public class ShaclIndexAssembler {
             throw new TextIndexException("Shape " + shape + " has no fields (idx:field or sh:property)");
         }
 
-        return new IndexProfile(shapeNode, targetClasses, docIdField, discriminatorField, fields);
+        // Parse hierarchical facet definitions: idx:facetHierarchy
+        List<HierarchyDef> hierarchies = parseHierarchies(shape, fields);
+
+        return new IndexProfile(shapeNode, targetClasses, docIdField, discriminatorField, fields, hierarchies);
+    }
+
+    /**
+     * Parse {@code idx:facetHierarchy} declarations on a shape.
+     * Each hierarchy is an RDF list of field resource IRIs that define the ordered levels.
+     * The dimension name is derived from the field names joined by "_".
+     */
+    private static List<HierarchyDef> parseHierarchies(Resource shape, List<FieldDef> fields) {
+        List<HierarchyDef> hierarchies = new ArrayList<>();
+
+        StmtIterator hierIter = shape.listProperties(IndexVocab.pFacetHierarchy);
+        while (hierIter.hasNext()) {
+            RDFNode hierNode = hierIter.next().getObject();
+            if (!hierNode.isResource()) {
+                throw new TextIndexException("idx:facetHierarchy must be an RDF list on " + shape);
+            }
+
+            RDFList hierList = hierNode.asResource().as(RDFList.class);
+            List<RDFNode> levelNodes = hierList.asJavaList();
+            if (levelNodes.size() < 2) {
+                throw new TextIndexException(
+                    "idx:facetHierarchy on " + shape + " must have at least 2 levels, got " + levelNodes.size());
+            }
+
+            List<FieldDef> levels = new ArrayList<>();
+            StringBuilder dimNameBuilder = new StringBuilder();
+            for (RDFNode levelNode : levelNodes) {
+                if (!levelNode.isURIResource()) {
+                    throw new TextIndexException(
+                        "idx:facetHierarchy level must be a URI resource, got " + levelNode);
+                }
+                String levelIRI = levelNode.asResource().getURI();
+                FieldDef fd = findFieldByIRI(fields, levelIRI);
+                if (fd == null) {
+                    throw new TextIndexException(
+                        "idx:facetHierarchy references unknown field IRI: " + levelIRI
+                        + ". All hierarchy levels must be declared as fields.");
+                }
+                levels.add(fd);
+                if (dimNameBuilder.length() > 0) dimNameBuilder.append("_");
+                dimNameBuilder.append(fd.getFieldName());
+            }
+
+            String dimensionName = dimNameBuilder.toString();
+            hierarchies.add(new HierarchyDef(dimensionName, levels));
+            log.debug("Parsed hierarchy: {} levels={}", dimensionName, levels);
+        }
+
+        return hierarchies;
+    }
+
+    private static FieldDef findFieldByIRI(List<FieldDef> fields, String iri) {
+        for (FieldDef fd : fields) {
+            if (fd.getFieldIRI().getURI().equals(iri)) {
+                return fd;
+            }
+        }
+        return null;
     }
 
     private static FieldDef parseFieldDef(Assembler a, Resource fieldRes) {

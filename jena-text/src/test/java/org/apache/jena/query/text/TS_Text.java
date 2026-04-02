@@ -108,6 +108,10 @@ import org.junit.runners.Suite.SuiteClasses;
     // luc:match property function
     , TestTextMatchPF.class
 
+    // Hierarchical facets
+    , TestHierarchicalFacets.class
+    , TestHierarchicalFacetsSparql.class
+
     // Demo data validation
     , TestDemoDataParsing.class
     , TestDemoMiningScenarios.class

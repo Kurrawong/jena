@@ -67,4 +67,7 @@ public class IndexVocab {
     public static final Property pMultiValued   = Vocab.property(NS, "multiValued");
     public static final Property pDefaultSearch = Vocab.property(NS, "defaultSearch");
     public static final Property pPath          = Vocab.property(NS, "path");
+
+    // Hierarchical facet properties
+    public static final Property pFacetHierarchy = Vocab.property(NS, "facetHierarchy");
 }
