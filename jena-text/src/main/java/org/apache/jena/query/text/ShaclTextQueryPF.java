@@ -46,7 +46,6 @@ import org.apache.jena.sparql.engine.ExecutionContext;
 import org.apache.jena.sparql.engine.QueryIterator;
 import org.apache.jena.sparql.engine.binding.Binding;
 import org.apache.jena.sparql.engine.binding.BindingBuilder;
-import org.apache.jena.sparql.engine.binding.BindingFactory;
 import org.apache.jena.sparql.engine.iterator.QueryIterPlainWrapper;
 import org.apache.jena.sparql.engine.iterator.QueryIterSlice;
 import org.apache.jena.sparql.pfunction.PropFuncArg;
@@ -61,9 +60,10 @@ import org.slf4j.LoggerFactory;
  * <p>
  * Argument format:
  * <pre>
- * (?entity ?score ?match ?totalHits ?graph ?field) luc:query (fieldSpec queryString cqlFilter? sortSpec? limit? highlight?)
+ * (?hit ?entity ?score ?match ?totalHits ?graph) luc:query (fieldSpec queryString cqlFilter? sortSpec? limit?)
  * </pre>
  * <p>
+ * {@code ?hit} is a query-scoped blank node identifier for joining with {@code luc:match}.
  * The first string literal is the field specification: {@code "default"} searches all
  * defaultSearch fields, and a JSON array of field IRIs like
  * {@code '["urn:jena:lucene:field#title","urn:jena:lucene:field#description"]'} searches specific fields.
@@ -83,7 +83,8 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         if (argSubject.isList()) {
             int size = argSubject.getArgListSize();
             if (size == 0 || size > 6) {
-                throw new QueryBuildException("Subject has " + size + " elements, must be 1-6: " + argSubject);
+                throw new QueryBuildException("Subject has " + size + " elements, must be 1-6 " +
+                    "(?hit ?entity ?score ?match ?totalHits ?graph): " + argSubject);
             }
         }
 
@@ -141,40 +142,39 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         argSubject = Substitute.substitute(argSubject, binding);
         argObject = Substitute.substitute(argObject, binding);
 
-        Node s = null, score = null, literal = null, totalHitsNode = null, graph = null, field = null;
+        // Subject shape: (?hit ?entity ?score ?match ?totalHits ?graph)
+        Node hit = null, entity = null, score = null, match = null, totalHitsNode = null, graph = null;
 
         if (argSubject.isList()) {
-            s = argSubject.getArg(0);
+            hit = argSubject.getArg(0);
             if (argSubject.getArgListSize() > 1) {
-                score = argSubject.getArg(1);
-                if (!score.isVariable())
-                    throw new QueryExecException("Hit score is not a variable: " + argSubject);
+                entity = argSubject.getArg(1);
             }
             if (argSubject.getArgListSize() > 2) {
-                literal = argSubject.getArg(2);
-                if (!literal.isVariable())
-                    throw new QueryExecException("Hit literal is not a variable: " + argSubject);
+                score = argSubject.getArg(2);
+                if (!score.isVariable())
+                    throw new QueryExecException("Score is not a variable: " + argSubject);
             }
             if (argSubject.getArgListSize() > 3) {
-                totalHitsNode = argSubject.getArg(3);
+                match = argSubject.getArg(3);
+                if (!match.isVariable())
+                    throw new QueryExecException("Match is not a variable: " + argSubject);
+            }
+            if (argSubject.getArgListSize() > 4) {
+                totalHitsNode = argSubject.getArg(4);
                 if (!totalHitsNode.isVariable())
                     throw new QueryExecException("Total hits is not a variable: " + argSubject);
             }
-            if (argSubject.getArgListSize() > 4) {
-                graph = argSubject.getArg(4);
-                if (!graph.isVariable())
-                    throw new QueryExecException("Hit graph is not a variable: " + argSubject);
-            }
             if (argSubject.getArgListSize() > 5) {
-                field = argSubject.getArg(5);
-                if (!field.isVariable())
-                    throw new QueryExecException("Hit field is not a variable: " + argSubject);
+                graph = argSubject.getArg(5);
+                if (!graph.isVariable())
+                    throw new QueryExecException("Graph is not a variable: " + argSubject);
             }
         } else {
-            s = argSubject.getArg();
+            hit = argSubject.getArg();
         }
 
-        if (s.isLiteral())
+        if (hit != null && hit.isLiteral())
             return IterLib.noResults(execCxt);
 
         QueryArgs args = parseArgs(argObject);
@@ -191,57 +191,62 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
             return IterLib.result(binding, execCxt);
         }
 
-        // Use SearchExecution for shared state with luc:facet
+        // Use SearchExecution for shared state with luc:facet and luc:match
         SearchExecution se = SearchExecution.getOrCreate(
             execCxt, args.searchFields, args.queryString,
             args.cqlFilter, args.sortSpecs, textIndex, null, null);
 
         int limit = args.limit > 0 ? args.limit : 10000;
-        List<TextHit> allHits = se.getHits(limit, args.highlight);
+        List<SearchHit> allHits = se.getSearchHits(limit);
 
-        Collection<TextHit> hits;
-        if (Var.isVar(s)) {
-            hits = allHits;
-        } else {
-            String subjStr = TextQueryFuncs.subjectToString(s);
+        Collection<SearchHit> hits;
+        if (entity != null && !Var.isVar(entity)) {
+            String entityStr = TextQueryFuncs.subjectToString(entity);
             hits = new ArrayList<>();
-            for (TextHit hit : allHits) {
-                if (subjStr.equals(TextQueryFuncs.subjectToString(hit.getNode()))) {
-                    hits.add(hit);
+            for (SearchHit sh : allHits) {
+                if (entityStr.equals(TextQueryFuncs.subjectToString(sh.getEntityNode()))) {
+                    hits.add(sh);
                 }
             }
+        } else {
+            hits = allHits;
         }
 
         long totalHits = totalHitsNode != null ? se.getTotalHits() : -1;
-        QueryIterator qIter = resultsToQueryIterator(binding, s, score, literal, totalHitsNode, totalHits, graph, field, hits, execCxt);
+        QueryIterator qIter = resultsToQueryIterator(binding, hit, entity, score, match,
+            totalHitsNode, totalHits, graph, hits, execCxt);
         if (args.limit >= 0)
             qIter = new QueryIterSlice(qIter, 0, args.limit, execCxt);
         return qIter;
     }
 
-    private QueryIterator resultsToQueryIterator(Binding binding, Node subj, Node score, Node literal,
-                                                  Node totalHitsNode, long totalHits,
-                                                  Node graph, Node field, Collection<TextHit> results,
-                                                  ExecutionContext execCxt) {
-        Var sVar = Var.isVar(subj) ? Var.alloc(subj) : null;
-        Var scoreVar = (score == null) ? null : Var.alloc(score);
-        Var literalVar = (literal == null) ? null : Var.alloc(literal);
+    private QueryIterator resultsToQueryIterator(Binding binding,
+                                                  Node hitNode, Node entityNode, Node scoreNode, Node matchNode,
+                                                  Node totalHitsNode, long totalHits, Node graphNode,
+                                                  Collection<SearchHit> results, ExecutionContext execCxt) {
+        Var hitVar = Var.isVar(hitNode) ? Var.alloc(hitNode) : null;
+        Var entityVar = (entityNode != null && Var.isVar(entityNode)) ? Var.alloc(entityNode) : null;
+        Var scoreVar = (scoreNode == null) ? null : Var.alloc(scoreNode);
+        Var matchVar = (matchNode == null) ? null : Var.alloc(matchNode);
         Var totalHitsVar = (totalHitsNode == null) ? null : Var.alloc(totalHitsNode);
         Node totalHitsValue = totalHitsVar != null
             ? NodeFactory.createLiteralDT(String.valueOf(totalHits), XSDDatatype.XSDinteger) : null;
-        Var graphVar = (graph == null) ? null : Var.alloc(graph);
-        Var fieldVar = (field == null) ? null : Var.alloc(field);
+        Var graphVar = (graphNode == null) ? null : Var.alloc(graphNode);
 
-        Function<TextHit, Binding> converter = (TextHit hit) -> {
-            if (score == null && literal == null && totalHitsVar == null)
-                return sVar != null ? BindingFactory.binding(binding, sVar, hit.getNode()) : BindingFactory.binding(binding);
+        Function<SearchHit, Binding> converter = (SearchHit sh) -> {
             BindingBuilder bmap = Binding.builder(binding);
-            if (sVar != null) bmap.add(sVar, hit.getNode());
-            if (scoreVar != null) bmap.add(scoreVar, NodeFactoryExtra.floatToNode(hit.getScore()));
-            if (literalVar != null && hit.getLiteral() != null) bmap.add(literalVar, hit.getLiteral());
+            if (hitVar != null) bmap.add(hitVar, sh.getHitId());
+            if (entityVar != null) bmap.add(entityVar, sh.getEntityNode());
+            if (scoreVar != null) bmap.add(scoreVar, NodeFactoryExtra.floatToNode(sh.getScore()));
+            if (matchVar != null) {
+                // Bind ?match to the first field match value if available
+                List<FieldMatch> fieldMatches = sh.getFieldMatches();
+                if (!fieldMatches.isEmpty() && fieldMatches.get(0).getValue() != null) {
+                    bmap.add(matchVar, fieldMatches.get(0).getValue());
+                }
+            }
             if (totalHitsVar != null) bmap.add(totalHitsVar, totalHitsValue);
-            if (graphVar != null && hit.getGraph() != null) bmap.add(graphVar, hit.getGraph());
-            if (fieldVar != null && hit.getProp() != null) bmap.add(fieldVar, hit.getProp());
+            if (graphVar != null && sh.getGraph() != null) bmap.add(graphVar, sh.getGraph());
             return bmap.build();
         };
 

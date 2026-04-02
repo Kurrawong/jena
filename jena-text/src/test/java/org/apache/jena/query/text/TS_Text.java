@@ -105,6 +105,9 @@ import org.junit.runners.Suite.SuiteClasses;
     // Multi-valued field support
     , TestShaclLucQueryRawValueOnMultiValuedField.class
 
+    // luc:match property function
+    , TestTextMatchPF.class
+
     // Demo data validation
     , TestDemoDataParsing.class
     , TestDemoMiningScenarios.class

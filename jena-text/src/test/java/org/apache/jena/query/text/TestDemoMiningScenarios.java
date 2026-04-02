@@ -669,7 +669,7 @@ public class TestDemoMiningScenarios {
     public void testCombinedQueryAndFacet() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?entity ?score ?f ?v ?c WHERE {\n" +
-            "  { (?entity ?score) luc:query (\"default\" \"iron ore\" 20) }\n" +
+            "  { (?hit ?entity ?score) luc:query (\"default\" \"iron ore\" 20) }\n" +
             "  UNION\n" +
             "  { (?f ?v ?c) luc:facet (\"default\" \"iron ore\" '[\"" + FP + "state\"]' 10) }\n" +
             "}";
@@ -734,7 +734,7 @@ public class TestDemoMiningScenarios {
         StringBuilder sb = new StringBuilder();
         sb.append("PREFIX luc: <urn:jena:lucene:index#>\n");
         sb.append("SELECT ?s WHERE {\n");
-        sb.append("  (?s ?score) luc:query (\"default\" \"").append(queryText).append("\"");
+        sb.append("  (?hit ?s ?score) luc:query (\"default\" \"").append(queryText).append("\"");
         if (filter != null) {
             sb.append(" '").append(filter).append("'");
         }
