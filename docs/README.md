@@ -11,7 +11,8 @@ This documentation covers the faceted search and entity-per-document indexing fe
 | Entity-per-document indexing | Done | — | SHACL shapes define entity types with typed fields (TEXT, KEYWORD, INT, LONG, DOUBLE, LATLON) |
 | Text search with filters | Done | `luc:query` | Full-text search with CQL2-JSON structured filters |
 | Facet counts | Done | `luc:facet` | Field value counts with maxValues, minCount controls |
-| Shared execution | Done | — | `luc:query` + `luc:facet` share a single Lucene search when co-occurring |
+| Per-hit field match details | Done | `luc:match` | Join with `luc:query` via `?hit` to get which fields matched and their values |
+| Shared execution | Done | — | `luc:query` + `luc:facet` + `luc:match` share a single Lucene search when co-occurring |
 | Automatic index maintenance | Done | — | Change listener rebuilds entity docs on triple add/delete |
 | Inverse and sequence paths | Done | — | `sh:inversePath` and multi-hop sequence paths for cross-entity indexing |
 | Spatial filtering | Done | `luc:query`/`luc:facet` | Bounding-box and polygon filter via LatLonShape. See [Spatial Filtering](09-spatial.md) |
@@ -25,7 +26,7 @@ This documentation covers the faceted search and entity-per-document indexing fe
 
 All proposed extensions are additive — no breaking changes to existing query or response models.
 
-Public API rule: external field references are always IRIs in `luc:query`, `luc:facet`, CQL filter `property` entries, sort specs, and returned `?field` bindings. Internal Lucene field names from `idx:fieldName` remain implementation details, except for the special `"default"` fieldSpec shorthand and ordinary Lucene query strings supplied as search text.
+Public API rule: external field references are always IRIs in `luc:query`, `luc:facet`, `luc:match`, CQL filter `property` entries, sort specs, and returned `?field` bindings. Internal Lucene field names from `idx:fieldName` remain implementation details, except for the special `"default"` fieldSpec shorthand and ordinary Lucene query strings supplied as search text.
 
 ### Component Architecture (current implementation)
 

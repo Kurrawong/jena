@@ -102,7 +102,7 @@ INSERT DATA {
 PREFIX luc: <urn:jena:lucene:index#>
 
 SELECT ?s ?score WHERE {
-    (?s ?score) luc:query ("machine learning") .
+    (?hit ?s ?score) luc:query ("machine learning") .
 }
 ```
 
@@ -138,7 +138,7 @@ PREFIX luc: <urn:jena:lucene:index#>
 
 # Only return results where category is "Technology"
 SELECT ?s ?score WHERE {
-    (?s ?score) luc:query ("default" "learning"
+    (?hit ?s ?score) luc:query ("default" "learning"
         '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}'
         20) .
 }
@@ -353,7 +353,7 @@ curl -s -X POST "http://localhost:3030/ds" \
     -H "Accept: application/json" \
     -d 'PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?s ?score WHERE {
-  (?s ?score) luc:query ("learning") .
+  (?hit ?s ?score) luc:query ("learning") .
 } ORDER BY DESC(?score)'
 
 # Facets
@@ -371,7 +371,7 @@ curl -s -X POST "http://localhost:3030/ds" \
     -H "Accept: application/json" \
     -d 'PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?s ?score WHERE {
-  (?s ?score) luc:query ("default" "learning" '\''{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}'\'' 20)
+  (?hit ?s ?score) luc:query ("default" "learning" '\''{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}'\'' 20)
 } ORDER BY DESC(?score)'
 ```
 

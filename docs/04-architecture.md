@@ -99,7 +99,7 @@ sequenceDiagram
     SE->>L: Execute query (first access, lazy)
     L-->>SE: Hits + reader snapshot
     SE-->>QP: Hit URIs + scores
-    QP-->>S: (?s ?score) bindings
+    QP-->>S: (?hit ?s ?score) bindings
 
     S->>FP: luc:facet ("default" "learning" '["urn:jena:lucene:field#category"]')
     FP->>SE: getOrCreate(same key) — reuses existing
