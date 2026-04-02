@@ -13,7 +13,7 @@ Supports field-scoped queries, CQL2-JSON filter arguments, sort pushdown, and fa
 ### Syntax
 
 ```
-(?entity ?score ?match ?totalHits ?graph ?field) luc:query (fieldSpec queryString filter? sort? limit? highlight?)
+(?hit ?entity ?score ?match ?totalHits ?graph) luc:query (fieldSpec queryString filter? sort? limit? highlight?)
 ```
 
 ### Arguments (positional, left to right)
@@ -44,16 +44,18 @@ Field IRIs correspond to the named resource IRIs in the SHACL index configuratio
 
 | Variable | Required | Type | Description |
 |----------|----------|------|-------------|
-| ?entity | Yes | IRI | Matched entity |
+| ?hit | Yes | Blank node | Query-scoped hit identifier for joining with `luc:match` |
+| ?entity | No | IRI | Matched entity |
 | ?score | No | float | Lucene relevance score |
-| ?match | No | IRI or literal | Stored value for the matched field. KEYWORD fields return an IRI, TEXT fields return a string literal, numeric fields return typed literals |
+| ?match | No | IRI or literal | Stored value for the first matched field. KEYWORD fields return an IRI, TEXT fields return a string literal, numeric fields return typed literals |
 | ?totalHits | No | xsd:integer | Total matching documents (same value on every row) |
 | ?graph | No | IRI | Named graph of the match |
-| ?field | No | IRI | Field IRI identifying the matched field (see below) |
+
+The `?hit` binding is a blank node (e.g. `_:hit0`, `_:hit1`) scoped to the query execution. It serves as a join key with `luc:match` to retrieve per-field match details. Each hit gets a unique blank node.
 
 The `?totalHits` binding returns the total number of documents matching the query and filters, regardless of the `limit` parameter. This is useful for displaying "Showing X of Y results" in search UIs. The value is computed efficiently using `IndexSearcher.count()` and is only evaluated when the variable is present in the subject.
 
-The `?field` binding returns the IRI of the Lucene field that was searched. For single-field queries (JSON array with one IRI), this is always bound to that field's IRI. For multi-field queries (`"default"` or array with multiple IRIs), this is currently unbound — Lucene returns hits at the document level without identifying which field matched. This is a known limitation; see [#48](https://github.com/aiworkerjohns/jena/issues/48).
+The `?match` binding returns the stored value from the first matched field. For full per-field match details (which fields matched, their values), use `luc:match`.
 
 > **Note:** All fields must be defined as named resources (with IRIs) in the SHACL index configuration. Blank node field definitions are not supported.
 
@@ -64,34 +66,35 @@ PREFIX luc: <urn:jena:lucene:index#>
 PREFIX field: <urn:jena:lucene:field#>
 
 # Simple search (all default fields)
-(?entity ?score) luc:query ("machine learning") .
+(?hit ?entity ?score) luc:query ("machine learning") .
 
 # Search with explicit "default"
-(?entity ?score) luc:query ("default" "machine learning") .
+(?hit ?entity ?score) luc:query ("default" "machine learning") .
 
 # Search a specific field (JSON array with one IRI)
-(?entity ?score) luc:query ('["urn:jena:lucene:field#title"]' "machine learning") .
+(?hit ?entity ?score) luc:query ('["urn:jena:lucene:field#title"]' "machine learning") .
 
 # Search multiple fields (JSON array of IRIs)
-(?entity ?score) luc:query ('["urn:jena:lucene:field#title", "urn:jena:lucene:field#description"]' "machine learning") .
+(?hit ?entity ?score) luc:query ('["urn:jena:lucene:field#title", "urn:jena:lucene:field#description"]' "machine learning") .
 
 # Search with limit
-(?entity ?score) luc:query ('["urn:jena:lucene:field#title"]' "machine learning" 20) .
+(?hit ?entity ?score) luc:query ('["urn:jena:lucene:field#title"]' "machine learning" 20) .
 
 # Search with total hit count
-(?entity ?score ?match ?totalHits) luc:query ("machine learning" 20) .
-
-# Search with field binding
-(?entity ?score ?match ?totalHits ?g ?field) luc:query ('["urn:jena:lucene:field#title"]' "machine learning" 20) .
+(?hit ?entity ?score ?match ?totalHits) luc:query ("machine learning" 20) .
 
 # Search with CQL filter (only Technology books)
-(?entity ?score) luc:query ("default" "learning" '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}' 20) .
+(?hit ?entity ?score) luc:query ("default" "learning" '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}' 20) .
 
 # Search with filter and total hit count
-(?entity ?score ?_match ?totalHits) luc:query ("default" "learning" '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}' 20) .
+(?hit ?entity ?score ?_match ?totalHits) luc:query ("default" "learning" '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}' 20) .
 
 # Search with sort (by field IRI)
-(?entity ?score) luc:query ("default" "learning" '{"field":"urn:jena:lucene:field#year","order":"desc"}' 10) .
+(?hit ?entity ?score) luc:query ("default" "learning" '{"field":"urn:jena:lucene:field#year","order":"desc"}' 10) .
+
+# Search with per-field match details (join with luc:match)
+(?hit ?entity ?score) luc:query ('["urn:jena:lucene:field#title"]' "machine learning") .
+(?hit ?field ?value) luc:match () .
 ```
 
 ### Filter JSON format (CQL2-JSON)
@@ -106,6 +109,64 @@ Filters use CQL2-JSON syntax. The `property` value is a field IRI:
 - `"and"` / `"or"` — boolean combinators
 - `"s_intersects"` — spatial intersection (LATLON fields)
 - Numeric comparisons (`">"`, `"<"`, `">="`, `"<="`) for INT/LONG/DOUBLE fields
+
+---
+
+## luc:match — Per-Hit Field Match Details
+
+Returns per-field match information for each hit from a preceding `luc:query`. Joins with `luc:query` via the shared `?hit` blank node.
+
+### Syntax
+
+```
+(?hit ?field ?value) luc:match ()
+```
+
+The object is always an empty list `()`.
+
+### Return bindings
+
+| Variable | Required | Type | Description |
+|----------|----------|------|-------------|
+| ?hit | Yes | Blank node | Join key — must match `?hit` from `luc:query` |
+| ?field | No | IRI | Field IRI identifying which field matched (e.g. `urn:jena:lucene:field#title`) |
+| ?value | No | IRI or literal | Stored value for the matched field. KEYWORD fields return IRIs, TEXT fields return string literals, numeric fields return typed literals |
+
+`luc:match` produces one row per matched field per hit. If a document matched on two fields (e.g. both `title` and `description`), two rows are returned for that hit.
+
+### How it works
+
+`luc:match` uses Lucene's `NamedMatches` API to determine which fields contributed to each hit. During the initial `luc:query` search, each per-field sub-query is wrapped with `NamedMatches.wrapQuery(fieldIri, fieldQuery)`. After search, `Weight.matches()` is called per hit to extract field-level match details without re-scoring.
+
+### Requirements
+
+- `luc:match` must appear in the same SPARQL query as a `luc:query` — it reads from `luc:query`'s shared `SearchExecution` state
+- Without a preceding `luc:query`, `luc:match` returns no results
+- The `?hit` variable must be shared between `luc:query` and `luc:match` for the join to work
+
+### Examples
+
+```sparql
+PREFIX luc: <urn:jena:lucene:index#>
+
+# Get field match details for each hit
+SELECT ?entity ?field ?value WHERE {
+    (?hit ?entity ?score) luc:query ('["urn:jena:lucene:field#title"]' "learning") .
+    (?hit ?field ?value) luc:match () .
+}
+
+# Multi-field search with field attribution
+SELECT ?entity ?score ?field ?value WHERE {
+    (?hit ?entity ?score) luc:query ('["urn:jena:lucene:field#title", "urn:jena:lucene:field#description"]' "machine learning") .
+    (?hit ?field ?value) luc:match () .
+}
+
+# OPTIONAL match — hits still returned even without field details
+SELECT ?entity ?score ?field ?value WHERE {
+    (?hit ?entity ?score) luc:query ("default" "learning") .
+    OPTIONAL { (?hit ?field ?value) luc:match () . }
+}
+```
 
 ---
 
@@ -174,7 +235,7 @@ PREFIX luc: <urn:jena:lucene:index#>
 
 # Query 1: search results
 SELECT ?entity ?score WHERE {
-    (?entity ?score) luc:query ("learning") .
+    (?hit ?entity ?score) luc:query ("learning") .
 }
 
 # Query 2: facet counts
@@ -194,7 +255,7 @@ If a single SPARQL request is preferred, use `UNION` to return both result sets 
 PREFIX luc: <urn:jena:lucene:index#>
 
 SELECT ?entity ?score ?totalHits ?field ?value ?count WHERE {
-    { (?entity ?score ?_match ?totalHits) luc:query ("default" "learning" 10) . }
+    { (?hit ?entity ?score ?_match ?totalHits) luc:query ("default" "learning" 10) . }
     UNION
     { (?field ?value ?count) luc:facet ("default" "learning"
         '["urn:jena:lucene:field#category"]' 10) . }
@@ -210,7 +271,7 @@ Placing both PFs in the same basic graph pattern produces a cartesian product:
 ```sparql
 # WARNING: produces N × M rows
 SELECT ?entity ?score ?field ?value ?count WHERE {
-    (?entity ?score) luc:query ("learning") .
+    (?hit ?entity ?score) luc:query ("learning") .
     (?field ?value ?count) luc:facet ("default" "learning"
         '["urn:jena:lucene:field#category"]' 10) .
 }
@@ -222,7 +283,7 @@ With 100 hits and 10 facet values, this returns 1,000 rows — every hit paired 
 
 ## Shared Execution
 
-When `luc:query` and `luc:facet` appear in the same SPARQL query (whether in a BGP, UNION, or subquery) with matching parameters, they share a single Lucene execution internally. One Lucene query, one index reader snapshot, consistent results.
+When `luc:query`, `luc:facet`, and `luc:match` appear in the same SPARQL query (whether in a BGP, UNION, or subquery) with matching parameters, they share a single Lucene execution internally. One Lucene query, one index reader snapshot, consistent results.
 
 The match is based on normalised keys — search field IRIs are sorted, CQL filter maps are sorted by field. If parameters differ, each PF executes independently.
 
