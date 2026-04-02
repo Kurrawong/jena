@@ -142,11 +142,12 @@ public class TestHierarchicalFacetsSparql {
     }
 
     @Test
-    public void testHierarchyFacetsViaSparql() {
-        // Request facets for the hierarchy dimension via luc:facet
+    public void testHierarchyTopLevelViaSparql() {
+        // Request facets on a hierarchy level field IRI — auto-resolves to the dimension.
+        // Requesting the type field (level 0) returns top-level hierarchy values.
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n"
             + "SELECT ?field ?value ?count WHERE {\n"
-            + "  (?field ?value ?count) luc:facet (\"default\" \"*\" '[\"type_subtype\"]' 10)\n"
+            + "  (?field ?value ?count) luc:facet (\"default\" \"*\" '[\"urn:jena:lucene:field#type\"]' 10)\n"
             + "}";
 
         dataset.begin(ReadWrite.READ);
@@ -161,6 +162,37 @@ public class TestHierarchicalFacetsSparql {
             }
             assertEquals("Water count", Long.valueOf(2), facets.get("Water"));
             assertEquals("Mineral count", Long.valueOf(3), facets.get("Mineral"));
+        } finally {
+            dataset.end();
+        }
+    }
+
+    @Test
+    public void testDrillDownViaCqlFilter() {
+        // Drill into "Water" children via CQL = filter on type field.
+        // Requesting facets on subtype (child level) with type=Water filter
+        // auto-detects hierarchy membership and returns subtype children under Water.
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n"
+            + "SELECT ?field ?value ?count WHERE {\n"
+            + "  (?field ?value ?count) luc:facet (\"default\" \"*\""
+            + " '[\"urn:jena:lucene:field#subtype\"]'"
+            + " '{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#type\"},\"Water\"]}'"
+            + " 10)\n"
+            + "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            ResultSet rs = QueryExecutionFactory.create(sparql, dataset).execSelect();
+            Map<String, Long> facets = new HashMap<>();
+            while (rs.hasNext()) {
+                QuerySolution qs = rs.next();
+                String value = qs.getLiteral("value").getString();
+                long count = qs.getLiteral("count").getLong();
+                facets.put(value, count);
+            }
+            assertEquals("Shallow count under Water", Long.valueOf(1), facets.get("Shallow"));
+            assertEquals("Deep count under Water", Long.valueOf(1), facets.get("Deep"));
+            assertFalse("Should not have Gold under Water", facets.containsKey("Gold"));
         } finally {
             dataset.end();
         }

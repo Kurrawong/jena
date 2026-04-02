@@ -268,7 +268,7 @@ function extractConfig(store) {
     const fieldIRIs = {};
     const predicateToFacet = {};
     const seenFacets = new Set();
-    const hierarchyDimensions = new Set();
+    const hierarchyDimensions = new Map();
 
     for (const shapeNode of shapeNodes) {
         const targetClass = getObject(store, shapeNode, SH + 'targetClass');
@@ -333,15 +333,19 @@ function extractConfig(store) {
         const hierNodes = getObjects(store, shapeNode, IDX + 'facetHierarchy');
         for (const hierNode of hierNodes) {
             const levelNodes = walkList(store, hierNode);
-            const levelNames = levelNodes
-                .map(n => n.termType === 'NamedNode' ? getLiteral(store, n, IDX + 'fieldName') : null)
-                .filter(Boolean);
-            if (levelNames.length >= 2) {
-                const dimName = levelNames.join('_');
+            const levels = levelNodes
+                .filter(n => n.termType === 'NamedNode')
+                .map(n => ({
+                    name: getLiteral(store, n, IDX + 'fieldName'),
+                    iri: n.value,
+                }))
+                .filter(l => l.name);
+            if (levels.length >= 2) {
+                const dimName = levels.map(l => l.name).join('_');
                 if (!seenFacets.has(dimName)) {
                     seenFacets.add(dimName);
                     facetFields.push(dimName);
-                    hierarchyDimensions.add(dimName);
+                    hierarchyDimensions.set(dimName, levels);
                 }
             }
         }
@@ -440,7 +444,7 @@ function searchApp() {
         facetFields: [],
         fieldIRIs: {},
         predicateToFacet: {},
-        hierarchyDimensions: new Set(),
+        hierarchyDimensions: new Map(),
         hierarchyChildren: {},  // dim → { parentValue: [{value, label, count}] }
         hierarchyOpen: {},      // dim → { parentValue: true/false }
         hierarchyLoading: {},   // dim → { parentValue: true/false }
@@ -504,7 +508,7 @@ function searchApp() {
             this.facetFields = config.facetFields;
             this.fieldIRIs = config.fieldIRIs;
             this.predicateToFacet = config.predicateToFacet;
-            this.hierarchyDimensions = config.hierarchyDimensions || new Set();
+            this.hierarchyDimensions = config.hierarchyDimensions || new Map();
 
             this.loadFromUrl();
             await this.executeSearch();
@@ -775,16 +779,37 @@ function searchApp() {
                 this.hierarchyLoading[dim][parentValue] = true;
 
                 try {
-                    const drillSpec = `${dim}/${parentValue}`;
+                    const levels = this.hierarchyDimensions.get(dim);
+                    if (!levels || levels.length < 2) return;
+
+                    // Request facets on the child level's IRI, with a CQL = filter on the parent level
+                    const parentLevelIRI = levels[0].iri;
+                    const childLevelIRI = levels[1].iri;
+
                     const term = this.identifier.trim() || this.q.trim() || '*';
                     const searchField = this.identifier.trim() ? this.identifierFieldSpec() : 'default';
                     const escaped = escapeSparql(term);
-                    const cqlFilter = buildCqlFilter(this.selected, this.spatialBbox, this.spatialPolygon, this.fieldIRIs);
-                    const filterArg = cqlFilter ? ` '${cqlFilter}'` : '';
+
+                    // Build CQL filter: combine existing filters with hierarchy parent = value
+                    const hierFilter = JSON.stringify({
+                        op: '=',
+                        args: [{ property: parentLevelIRI }, parentValue],
+                    });
+                    const existingCql = buildCqlFilter(this.selected, this.spatialBbox, this.spatialPolygon, this.fieldIRIs);
+                    let combinedFilter;
+                    if (existingCql) {
+                        const existing = JSON.parse(existingCql);
+                        combinedFilter = JSON.stringify({
+                            op: 'and',
+                            args: [existing, JSON.parse(hierFilter)],
+                        });
+                    } else {
+                        combinedFilter = hierFilter;
+                    }
 
                     const query = `${SPARQL_PREFIXES}
 SELECT ?field ?value ?count WHERE {
-    (?field ?value ?count) luc:facet ('${searchField}' '${escaped}' '${JSON.stringify([drillSpec])}'${filterArg} ${this.maxFacetValues})
+    (?field ?value ?count) luc:facet ('${searchField}' '${escaped}' '${JSON.stringify([childLevelIRI])}' '${combinedFilter}' ${this.maxFacetValues})
 }`;
                     const data = await this.runSparql(query);
                     const children = [];
@@ -812,6 +837,13 @@ SELECT ?field ?value ?count WHERE {
 
         _resolveFieldName(fieldUri) {
             return resolveFieldName(fieldUri, this.fieldIRIs);
+        },
+
+        _resolveHierarchyDim(fieldName) {
+            for (const [dim, levels] of this.hierarchyDimensions) {
+                if (levels.some(l => l.name === fieldName)) return dim;
+            }
+            return null;
         },
 
         identifierFieldSpec() {
@@ -843,7 +875,12 @@ SELECT ?field ?value ?count WHERE {
             const escaped = escapeSparql(term);
             const cqlFilter = buildCqlFilter(this.selected, this.spatialBbox, this.spatialPolygon, this.fieldIRIs);
             const filterArg = cqlFilter ? ` '${cqlFilter}'` : '';
-            const facetIRIs = this.facetFields.map(f => this.fieldIRIs[f] || f);
+            const facetIRIs = this.facetFields.map(f => {
+                // For hierarchy dimensions, use the first level's field IRI
+                const hier = this.hierarchyDimensions.get(f);
+                if (hier) return hier[0].iri;
+                return this.fieldIRIs[f] || f;
+            });
             const facetFieldsJson = JSON.stringify(facetIRIs);
 
             return `${SPARQL_PREFIXES}
@@ -901,7 +938,9 @@ WHERE {
                 } else if (row.field) {
                     // ?field is a URI — resolve to field name via IRI map or shortName fallback
                     const fieldUri = row.field.value;
-                    const f = this._resolveFieldName(fieldUri);
+                    let f = this._resolveFieldName(fieldUri);
+                    // Check if this field is a hierarchy level — map to dimension name
+                    f = this._resolveHierarchyDim(f) || f;
                     if (!facets[f]) facets[f] = [];
                     // ?value may be a URI (KEYWORD) or literal (TEXT) —
                     // store the raw value for CQL filter matching

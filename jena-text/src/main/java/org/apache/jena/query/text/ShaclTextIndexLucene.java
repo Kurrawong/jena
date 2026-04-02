@@ -214,8 +214,16 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         }
         List<String> resolved = new ArrayList<>(fieldIRIs.size());
         for (String iri : fieldIRIs) {
-            ShaclIndexMapping.FieldDef fd = shaclMapping.findField(iri);
-            resolved.add(fd != null ? fd.getFieldName() : iri);
+            // Check if this field IRI belongs to a hierarchy — if so, resolve to the dimension name
+            ShaclIndexMapping.HierarchyDef hier = shaclMapping.findHierarchyForField(iri);
+            if (hier != null) {
+                if (!resolved.contains(hier.getDimensionName())) {
+                    resolved.add(hier.getDimensionName());
+                }
+            } else {
+                ShaclIndexMapping.FieldDef fd = shaclMapping.findField(iri);
+                resolved.add(fd != null ? fd.getFieldName() : iri);
+            }
         }
         return resolved;
     }
@@ -846,12 +854,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * Collect facet results from a Facets object into the result map.
      * Handles both flat fields and hierarchical dimensions with optional drill-down.
      * <p>
-     * Drill-down can be specified two ways:
-     * <ol>
-     *   <li>Via the {@code drillDown} map (Java API)</li>
-     *   <li>Inline in the field spec using {@code /} separator, e.g. {@code "state_commodity/WA"}
-     *       drills into the "WA" child of the "state_commodity" hierarchy (SPARQL API)</li>
-     * </ol>
+     * Drill-down paths are provided via the {@code drillDown} map, keyed by dimension name.
+     * When a CQL {@code =} filter references a hierarchy level field, the filter value
+     * is extracted as a drill-down path component by {@link #extractHierarchyDrillDown}.
      */
     private void collectFacetResults(Facets facets, List<String> facetFieldsToQuery,
             int maxValues, int minCount, Map<String, String[]> drillDown,
@@ -859,19 +864,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         for (String fieldSpec : facetFieldsToQuery) {
             List<FacetValue> fieldFacets = new ArrayList<>();
             try {
-                // Parse inline drill-down: "dim/value" where value may be a URI
                 String dim = fieldSpec;
                 String[] drillPath = (drillDown != null) ? drillDown.get(fieldSpec) : null;
-                if (drillPath == null && fieldSpec.contains("/")) {
-                    int slashIdx = fieldSpec.indexOf('/');
-                    String maybeDim = fieldSpec.substring(0, slashIdx);
-                    // Only parse as drill-down if the dimension part isn't a URI scheme
-                    if (!maybeDim.contains(":")) {
-                        dim = maybeDim;
-                        // Keep the entire remainder as one path component (value may contain '/')
-                        drillPath = new String[]{ fieldSpec.substring(slashIdx + 1) };
-                    }
-                }
 
                 FacetResult facetResult;
                 if (drillPath != null && drillPath.length > 0) {
@@ -893,8 +887,113 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             } catch (IllegalArgumentException e) {
                 log.debug("No facet data for field '{}': {}", fieldSpec, e.getMessage());
             }
-            result.put(fieldSpec, fieldFacets);
+
+            // For hierarchy results, use the child level field name as the key
+            // so that generateBindings() maps to the correct field IRI.
+            String resultKey = fieldSpec;
+            if (shaclMapping != null) {
+                ShaclIndexMapping.HierarchyDef hier = shaclMapping.findHierarchy(fieldSpec);
+                if (hier != null) {
+                    String[] drillPath = (drillDown != null) ? drillDown.get(fieldSpec) : null;
+                    int childLevel = (drillPath != null) ? drillPath.length : 0;
+                    if (childLevel < hier.getDepth()) {
+                        resultKey = hier.getLevel(childLevel).getFieldName();
+                    }
+                }
+            }
+            result.put(resultKey, fieldFacets);
         }
+    }
+
+    /**
+     * Extract hierarchy drill-down paths from a CQL filter expression.
+     * <p>
+     * Scans for {@code =} comparisons on fields that belong to a hierarchy. For each such
+     * comparison, the filter value becomes a drill-down path component on the hierarchy dimension.
+     * This allows regular CQL filters to transparently trigger hierarchical facet drill-down.
+     *
+     * @param cqlFilter the CQL filter expression (may be null)
+     * @param facetFieldsToQuery resolved facet field names (to identify which dimensions are requested)
+     * @return a map of dimension name → drill-down path components, or null if no hierarchy filters found
+     */
+    Map<String, String[]> extractHierarchyDrillDown(CqlExpression cqlFilter, List<String> facetFieldsToQuery) {
+        if (cqlFilter == null || shaclMapping == null || !shaclMapping.hasHierarchies()) {
+            return null;
+        }
+
+        // Collect all = comparisons from the CQL expression
+        List<CqlExpression.CqlComparison> comparisons = new ArrayList<>();
+        collectEqualComparisons(cqlFilter, comparisons);
+        if (comparisons.isEmpty()) return null;
+
+        // For each requested facet dimension, check if any CQL = filters reference parent levels
+        Map<String, String[]> drillDown = null;
+        Set<String> requestedDims = new HashSet<>(facetFieldsToQuery);
+
+        for (CqlExpression.CqlComparison cmp : comparisons) {
+            if (!"=".equals(cmp.op())) continue;
+
+            ShaclIndexMapping.HierarchyDef hier = shaclMapping.findHierarchyForField(cmp.property());
+            if (hier == null) continue;
+
+            String dimName = hier.getDimensionName();
+            if (!requestedDims.contains(dimName)) continue;
+
+            // This = filter is on a hierarchy level field, and the hierarchy dimension is being faceted.
+            // Build the drill-down path: values for all levels up to and including this one.
+            ShaclIndexMapping.FieldDef filterField = shaclMapping.findField(cmp.property());
+            int levelIdx = hier.getLevelIndex(filterField);
+            if (levelIdx < 0) continue;
+
+            // Build path from level 0 to levelIdx using values from CQL = filters
+            String[] path = new String[levelIdx + 1];
+            boolean complete = true;
+            for (int i = 0; i <= levelIdx; i++) {
+                ShaclIndexMapping.FieldDef levelField = hier.getLevel(i);
+                String levelValue = findEqualValue(comparisons, levelField);
+                if (levelValue == null) {
+                    complete = false;
+                    break;
+                }
+                path[i] = levelValue;
+            }
+
+            if (complete) {
+                if (drillDown == null) drillDown = new HashMap<>();
+                drillDown.put(dimName, path);
+            }
+        }
+
+        return drillDown;
+    }
+
+    /** Recursively collect all CqlComparison nodes with op "=" from a CQL expression tree. */
+    private void collectEqualComparisons(CqlExpression expr, List<CqlExpression.CqlComparison> result) {
+        switch (expr) {
+            case CqlExpression.CqlComparison cmp -> {
+                if ("=".equals(cmp.op())) result.add(cmp);
+            }
+            case CqlExpression.CqlAnd and -> {
+                for (CqlExpression child : and.args()) collectEqualComparisons(child, result);
+            }
+            case CqlExpression.CqlOr or -> {
+                for (CqlExpression child : or.args()) collectEqualComparisons(child, result);
+            }
+            case CqlExpression.CqlNot not -> collectEqualComparisons(not.arg(), result);
+            default -> {} // Other expression types don't contain = comparisons
+        }
+    }
+
+    /** Find the value of a CQL = comparison for a specific field. */
+    private String findEqualValue(List<CqlExpression.CqlComparison> comparisons,
+                                  ShaclIndexMapping.FieldDef field) {
+        for (CqlExpression.CqlComparison cmp : comparisons) {
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findField(cmp.property());
+            if (fd != null && fd.equals(field)) {
+                return String.valueOf(cmp.value());
+            }
+        }
+        return null;
     }
 
     public Map<String, List<FacetValue>> getFacetCountsWithFilters(
@@ -1326,7 +1425,10 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
             Facets facets = createCombinedFacets(indexReader, fc);
 
-            collectFacetResults(facets, facetFieldsToQuery, maxValues, minCount, null, result);
+            // Extract hierarchy drill-down paths from CQL = filters
+            Map<String, String[]> drillDown = extractHierarchyDrillDown(cqlFilter, facetFieldsToQuery);
+
+            collectFacetResults(facets, facetFieldsToQuery, maxValues, minCount, drillDown, result);
         } catch (IOException ex) {
             throw new TextIndexException("getFacetCountsWithCql", ex);
         } catch (ParseException ex) {
