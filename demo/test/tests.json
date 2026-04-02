@@ -61,5 +61,11 @@
 
   { "group": "Spatial + FTS + Facets" },
   { "label": "\"mine\" sites in QLD bbox", "params": "?q=mine&filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Site\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"bbox\":[138,-29,154,-10]}]}]}", "minResults": 1 },
-  { "label": "\"mine\" in WA + state=WA bbox", "params": "?q=mine&filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"http://example.org/mining/state/WA\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"bbox\":[112,-35,129,-14]}]}]}", "minResults": 1 }
+  { "label": "\"mine\" in WA + state=WA bbox", "params": "?q=mine&filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"http://example.org/mining/state/WA\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"bbox\":[112,-35,129,-14]}]}]}", "minResults": 1 },
+
+  { "group": "Hierarchical Facets" },
+  { "label": "All entities (hierarchy visible)", "params": "", "minResults": 100 },
+  { "label": "\"copper\" (hierarchy with FTS)", "params": "?q=copper", "minResults": 5 },
+  { "label": "Gold in WA (hierarchy + filters)", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"commodity\"},\"http://example.org/mining/commodity/Gold\"]},{\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"http://example.org/mining/state/WA\"]}]}", "minResults": 3 },
+  { "label": "Sites only (hierarchy + entity type)", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Site\"]}", "minResults": 5 }
 ]

@@ -1,0 +1,11 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# Hierarchical facet counts using the state → commodity hierarchy.
+# Top-level shows counts per state; drill-down would show commodities within a state.
+
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?field ?value ?count
+WHERE {
+    (?field ?value ?count) luc:facet ("default" "*" '["state_commodity"]' 10)
+}
+ORDER BY ?field DESC(?count)

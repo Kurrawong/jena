@@ -328,6 +328,22 @@ function extractConfig(store) {
             }
         }
 
+        // Parse idx:facetHierarchy — RDF lists of field IRIs defining hierarchy levels
+        const hierNodes = getObjects(store, shapeNode, IDX + 'facetHierarchy');
+        for (const hierNode of hierNodes) {
+            const levelNodes = walkList(store, hierNode);
+            const levelNames = levelNodes
+                .map(n => n.termType === 'NamedNode' ? getLiteral(store, n, IDX + 'fieldName') : null)
+                .filter(Boolean);
+            if (levelNames.length >= 2) {
+                const dimName = levelNames.join('_');
+                if (!seenFacets.has(dimName)) {
+                    seenFacets.add(dimName);
+                    facetFields.push(dimName);
+                }
+            }
+        }
+
         shapes.push(shape);
     }
 

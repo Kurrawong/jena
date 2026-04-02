@@ -136,7 +136,8 @@ field:location
     sh:property field:status ;
     sh:property field:year ;
     sh:property field:authorName ;
-    sh:property field:authoredByUri .
+    sh:property field:authoredByUri ;
+    idx:facetHierarchy ( field:state field:commodity ) .
 
 :BoreholeShape
     sh:targetClass ex:Borehole ;
@@ -147,7 +148,8 @@ field:location
     sh:property field:commodity ;
     sh:property field:state ;
     sh:property field:depth ;
-    sh:property field:location .
+    sh:property field:location ;
+    idx:facetHierarchy ( field:state field:commodity ) .
 
 :SiteShape
     sh:targetClass ex:Site ;
@@ -158,4 +160,5 @@ field:location
     sh:property field:commodity ;
     sh:property field:state ;
     sh:property field:status ;
-    sh:property field:location .
+    sh:property field:location ;
+    idx:facetHierarchy ( field:state field:commodity ) .

@@ -206,9 +206,11 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      */
     public List<String> resolveFacetFieldNames(List<String> fieldIRIs) {
         if (fieldIRIs == null) return null;
-        // Wildcard: "*" expands to all facetable fields
+        // Wildcard: "*" expands to all facetable fields + hierarchy dimensions
         if (fieldIRIs.size() == 1 && "*".equals(fieldIRIs.get(0))) {
-            return new ArrayList<>(facetFields);
+            List<String> all = new ArrayList<>(facetFields);
+            all.addAll(hierarchyDimensions);
+            return all;
         }
         List<String> resolved = new ArrayList<>(fieldIRIs.size());
         for (String iri : fieldIRIs) {
