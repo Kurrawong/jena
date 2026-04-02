@@ -750,7 +750,7 @@ function searchApp() {
             return `${SPARQL_PREFIXES}
 SELECT ?entity ?score ?totalHits ?field ?value ?count
 WHERE {
-    { (?entity ?score ?_lit ?totalHits) luc:query ('${searchField}' '${escaped}'${filterArg} ${this.limit}) }
+    { (?hit ?entity ?score ?_lit ?totalHits) luc:query ('${searchField}' '${escaped}'${filterArg} ${this.limit}) }
     UNION
     { (?field ?value ?count) luc:facet ('${searchField}' '${escaped}' '${facetFieldsJson}'${filterArg} ${this.maxFacetValues}) }
 }`;
@@ -762,7 +762,7 @@ WHERE {
             return `${SPARQL_PREFIXES}
 SELECT DISTINCT ?identifier
 WHERE {
-    (?entity ?score) luc:query ('${fieldSpec}' '${escaped}' 8) .
+    (?hit ?entity ?score) luc:query ('${fieldSpec}' '${escaped}' 8) .
     ?entity ex:identifier ?identifier .
 }
 ORDER BY LCASE(STR(?identifier))
@@ -1474,7 +1474,7 @@ function statsApp() {
                 const statsQuery = `${SPARQL_PREFIXES}
 SELECT ?entity ?score ?totalHits ?field ?value ?count
 WHERE {
-    { (?entity ?score ?_lit ?totalHits) luc:query ('default' '*' 0) }
+    { (?hit ?entity ?score ?_lit ?totalHits) luc:query ('default' '*' 0) }
     UNION
     { (?field ?value ?count) luc:facet ('default' '*' '${facetFieldsJson}' 0) }
 }`;
