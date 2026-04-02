@@ -113,23 +113,23 @@
   },
   {
     "group": "Hierarchical Facets",
-    "label": "\"copper\" (hierarchy with FTS)",
-    "params": "?q=copper",
+    "label": "Drill-down: WA commodities",
+    "params": "?drillDown=state_commodity:http://example.org/mining/state/WA",
+    "resultCount": 524,
+    "screenshotFile": "hierarchical-facets-drill-down-wa-commodities.png"
+  },
+  {
+    "group": "Hierarchical Facets",
+    "label": "Drill-down: QLD commodities",
+    "params": "?q=copper&drillDown=state_commodity:http://example.org/mining/state/QLD",
     "resultCount": 20,
-    "screenshotFile": "hierarchical-facets-copper-hierarchy-with-fts.png"
+    "screenshotFile": "hierarchical-facets-drill-down-qld-commodities.png"
   },
   {
     "group": "Hierarchical Facets",
-    "label": "Gold in WA (hierarchy + filters)",
-    "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"commodity\"},\"http://example.org/mining/commodity/Gold\"]},{\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"http://example.org/mining/state/WA\"]}]}",
-    "resultCount": 79,
-    "screenshotFile": "hierarchical-facets-gold-in-wa-hierarchy-filters.png"
-  },
-  {
-    "group": "Hierarchical Facets",
-    "label": "Sites only (hierarchy + entity type)",
-    "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Site\"]}",
-    "resultCount": 108,
-    "screenshotFile": "hierarchical-facets-sites-only-hierarchy-entity-type.png"
+    "label": "Drill-down: Gold in WA + filters",
+    "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"http://example.org/mining/state/WA\"]}&drillDown=state_commodity:http://example.org/mining/state/WA",
+    "resultCount": 193,
+    "screenshotFile": "hierarchical-facets-drill-down-gold-in-wa-filters.png"
   }
 ]

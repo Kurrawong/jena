@@ -268,6 +268,7 @@ function extractConfig(store) {
     const fieldIRIs = {};
     const predicateToFacet = {};
     const seenFacets = new Set();
+    const hierarchyDimensions = new Set();
 
     for (const shapeNode of shapeNodes) {
         const targetClass = getObject(store, shapeNode, SH + 'targetClass');
@@ -340,6 +341,7 @@ function extractConfig(store) {
                 if (!seenFacets.has(dimName)) {
                     seenFacets.add(dimName);
                     facetFields.push(dimName);
+                    hierarchyDimensions.add(dimName);
                 }
             }
         }
@@ -355,6 +357,7 @@ function extractConfig(store) {
         facetFields,
         fieldIRIs,
         predicateToFacet,
+        hierarchyDimensions,
     };
 }
 
@@ -437,6 +440,10 @@ function searchApp() {
         facetFields: [],
         fieldIRIs: {},
         predicateToFacet: {},
+        hierarchyDimensions: new Set(),
+        hierarchyChildren: {},  // dim → { parentValue: [{value, label, count}] }
+        hierarchyOpen: {},      // dim → { parentValue: true/false }
+        hierarchyLoading: {},   // dim → { parentValue: true/false }
         facets: {},
         facetExpanded: {},
         cards: [],
@@ -497,9 +504,23 @@ function searchApp() {
             this.facetFields = config.facetFields;
             this.fieldIRIs = config.fieldIRIs;
             this.predicateToFacet = config.predicateToFacet;
+            this.hierarchyDimensions = config.hierarchyDimensions || new Set();
 
             this.loadFromUrl();
             await this.executeSearch();
+
+            // Auto-expand hierarchy drill-down if specified in URL
+            const drillParam = new URLSearchParams(window.location.search).get('drillDown');
+            if (drillParam) {
+                const sep = drillParam.indexOf(':');
+                if (sep > 0) {
+                    const dim = drillParam.substring(0, sep);
+                    const value = drillParam.substring(sep + 1);
+                    if (this.hierarchyDimensions.has(dim)) {
+                        await this.toggleHierarchy(dim, value);
+                    }
+                }
+            }
 
             window.addEventListener('popstate', async () => {
                 this.loadFromUrl();
@@ -727,6 +748,68 @@ function searchApp() {
             return all.slice(0, 5);
         },
 
+        isHierarchy(fieldName) {
+            return this.hierarchyDimensions.has(fieldName);
+        },
+
+        isHierarchyOpen(dim, parentValue) {
+            return !!(this.hierarchyOpen[dim] && this.hierarchyOpen[dim][parentValue]);
+        },
+
+        isHierarchyLoading(dim, parentValue) {
+            return !!(this.hierarchyLoading[dim] && this.hierarchyLoading[dim][parentValue]);
+        },
+
+        getHierarchyChildren(dim, parentValue) {
+            return (this.hierarchyChildren[dim] && this.hierarchyChildren[dim][parentValue]) || [];
+        },
+
+        async toggleHierarchy(dim, parentValue) {
+            if (!this.hierarchyOpen[dim]) this.hierarchyOpen[dim] = {};
+            const isOpen = this.hierarchyOpen[dim][parentValue];
+            this.hierarchyOpen[dim][parentValue] = !isOpen;
+
+            // Fetch children on first open
+            if (!isOpen && !this.getHierarchyChildren(dim, parentValue).length) {
+                if (!this.hierarchyLoading[dim]) this.hierarchyLoading[dim] = {};
+                this.hierarchyLoading[dim][parentValue] = true;
+
+                try {
+                    const drillSpec = `${dim}/${parentValue}`;
+                    const term = this.identifier.trim() || this.q.trim() || '*';
+                    const searchField = this.identifier.trim() ? this.identifierFieldSpec() : 'default';
+                    const escaped = escapeSparql(term);
+                    const cqlFilter = buildCqlFilter(this.selected, this.spatialBbox, this.spatialPolygon, this.fieldIRIs);
+                    const filterArg = cqlFilter ? ` '${cqlFilter}'` : '';
+
+                    const query = `${SPARQL_PREFIXES}
+SELECT ?field ?value ?count WHERE {
+    (?field ?value ?count) luc:facet ('${searchField}' '${escaped}' '${JSON.stringify([drillSpec])}'${filterArg} ${this.maxFacetValues})
+}`;
+                    const data = await this.runSparql(query);
+                    const children = [];
+                    for (const row of (data.results?.bindings || [])) {
+                        if (row.value && row.count) {
+                            const childVal = row.value.value;
+                            const childIsUri = row.value.type === 'uri' || /^https?:\/\//.test(childVal);
+                            children.push({
+                                value: childVal,
+                                label: childIsUri ? shortName(childVal) : childVal,
+                                count: parseInt(row.count.value, 10),
+                            });
+                        }
+                    }
+                    children.sort((a, b) => b.count - a.count);
+                    if (!this.hierarchyChildren[dim]) this.hierarchyChildren[dim] = {};
+                    this.hierarchyChildren[dim][parentValue] = children;
+                } catch (e) {
+                    console.error('Hierarchy drill-down failed:', e);
+                } finally {
+                    this.hierarchyLoading[dim][parentValue] = false;
+                }
+            }
+        },
+
         _resolveFieldName(fieldUri) {
             return resolveFieldName(fieldUri, this.fieldIRIs);
         },
@@ -822,9 +905,11 @@ WHERE {
                     if (!facets[f]) facets[f] = [];
                     // ?value may be a URI (KEYWORD) or literal (TEXT) —
                     // store the raw value for CQL filter matching
+                    const rawVal = row.value.value;
+                    const isUri = row.value.type === 'uri' || /^https?:\/\//.test(rawVal);
                     facets[f].push({
-                        value: row.value.value,
-                        label: row.value.type === 'uri' ? shortName(row.value.value) : row.value.value,
+                        value: rawVal,
+                        label: isUri ? shortName(rawVal) : rawVal,
                         count: parseInt(row.count.value, 10),
                     });
                 }
@@ -1020,6 +1105,10 @@ WHERE {
             if (this._abortController) this._abortController.abort();
             this._abortController = new AbortController();
             const signal = this._abortController.signal;
+
+            // Clear cached hierarchy drill-down (counts change with search/filters)
+            this.hierarchyChildren = {};
+            this.hierarchyOpen = {};
 
             this.loading = true;
             this.showLoading = true;

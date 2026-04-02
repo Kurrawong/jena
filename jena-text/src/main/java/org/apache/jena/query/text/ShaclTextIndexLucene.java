@@ -845,24 +845,43 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     /**
      * Collect facet results from a Facets object into the result map.
      * Handles both flat fields and hierarchical dimensions with optional drill-down.
+     * <p>
+     * Drill-down can be specified two ways:
+     * <ol>
+     *   <li>Via the {@code drillDown} map (Java API)</li>
+     *   <li>Inline in the field spec using {@code /} separator, e.g. {@code "state_commodity/WA"}
+     *       drills into the "WA" child of the "state_commodity" hierarchy (SPARQL API)</li>
+     * </ol>
      */
     private void collectFacetResults(Facets facets, List<String> facetFieldsToQuery,
             int maxValues, int minCount, Map<String, String[]> drillDown,
             Map<String, List<FacetValue>> result) throws IOException {
-        for (String field : facetFieldsToQuery) {
+        for (String fieldSpec : facetFieldsToQuery) {
             List<FacetValue> fieldFacets = new ArrayList<>();
             try {
-                String[] drillPath = (drillDown != null) ? drillDown.get(field) : null;
+                // Parse inline drill-down: "dim/value" where value may be a URI
+                String dim = fieldSpec;
+                String[] drillPath = (drillDown != null) ? drillDown.get(fieldSpec) : null;
+                if (drillPath == null && fieldSpec.contains("/")) {
+                    int slashIdx = fieldSpec.indexOf('/');
+                    String maybeDim = fieldSpec.substring(0, slashIdx);
+                    // Only parse as drill-down if the dimension part isn't a URI scheme
+                    if (!maybeDim.contains(":")) {
+                        dim = maybeDim;
+                        // Keep the entire remainder as one path component (value may contain '/')
+                        drillPath = new String[]{ fieldSpec.substring(slashIdx + 1) };
+                    }
+                }
+
                 FacetResult facetResult;
                 if (drillPath != null && drillPath.length > 0) {
-                    // Hierarchical drill-down: get children at the specified path
                     facetResult = (maxValues <= 0)
-                        ? facets.getAllChildren(field, drillPath)
-                        : facets.getTopChildren(maxValues, field, drillPath);
+                        ? facets.getAllChildren(dim, drillPath)
+                        : facets.getTopChildren(maxValues, dim, drillPath);
                 } else {
                     facetResult = (maxValues <= 0)
-                        ? facets.getAllChildren(field)
-                        : facets.getTopChildren(maxValues, field);
+                        ? facets.getAllChildren(dim)
+                        : facets.getTopChildren(maxValues, dim);
                 }
                 if (facetResult != null && facetResult.labelValues != null) {
                     for (LabelAndValue lv : facetResult.labelValues) {
@@ -872,9 +891,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     }
                 }
             } catch (IllegalArgumentException e) {
-                log.debug("No facet data for field '{}': {}", field, e.getMessage());
+                log.debug("No facet data for field '{}': {}", fieldSpec, e.getMessage());
             }
-            result.put(field, fieldFacets);
+            result.put(fieldSpec, fieldFacets);
         }
     }
 

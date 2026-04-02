@@ -64,8 +64,8 @@
   { "label": "\"mine\" in WA + state=WA bbox", "params": "?q=mine&filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"http://example.org/mining/state/WA\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"bbox\":[112,-35,129,-14]}]}]}", "minResults": 1 },
 
   { "group": "Hierarchical Facets" },
-  { "label": "All entities (hierarchy visible)", "params": "", "minResults": 100 },
-  { "label": "\"copper\" (hierarchy with FTS)", "params": "?q=copper", "minResults": 5 },
-  { "label": "Gold in WA (hierarchy + filters)", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"commodity\"},\"http://example.org/mining/commodity/Gold\"]},{\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"http://example.org/mining/state/WA\"]}]}", "minResults": 3 },
-  { "label": "Sites only (hierarchy + entity type)", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Site\"]}", "minResults": 5 }
+  { "label": "All entities (hierarchy visible)", "params": "", "minResults": 100, "scrollToText": "state_commodity" },
+  { "label": "Drill-down: WA commodities", "params": "?drillDown=state_commodity:http://example.org/mining/state/WA", "minResults": 100, "scrollToText": "state_commodity" },
+  { "label": "Drill-down: QLD commodities", "params": "?q=copper&drillDown=state_commodity:http://example.org/mining/state/QLD", "minResults": 5, "scrollToText": "state_commodity" },
+  { "label": "Drill-down: Gold in WA + filters", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"http://example.org/mining/state/WA\"]}&drillDown=state_commodity:http://example.org/mining/state/WA", "minResults": 5, "scrollToText": "state_commodity" }
 ]

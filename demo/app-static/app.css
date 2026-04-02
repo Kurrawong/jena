@@ -718,6 +718,35 @@ code {
   color: var(--amber);
 }
 
+/* ── Hierarchy facets ── */
+.hierarchy-row {
+  cursor: pointer;
+  user-select: none;
+}
+.hierarchy-chevron {
+  display: inline-block;
+  width: 1em;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.hierarchy-children {
+  padding-left: 1.1em;
+  border-left: 1px solid var(--border-subtle);
+  margin-left: 0.35em;
+}
+.hierarchy-child {
+  font-size: 0.75rem;
+  opacity: 0.9;
+}
+.hierarchy-loading,
+.hierarchy-empty {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  padding: 0.2em 0;
+  font-style: italic;
+}
+
 /* ── Results Area ── */
 .results-header {
   margin-bottom: 1.25rem;

@@ -1,6 +1,6 @@
 # Screenshot Test Report
 
-Generated: 2026-04-02 10:12:06 UTC
+Generated: 2026-04-02 10:48:43 UTC
 
 ## Summary
 
@@ -159,25 +159,25 @@ Generated: 2026-04-02 10:12:06 UTC
 
 ![All entities (hierarchy visible)](screenshots/hierarchical-facets-all-entities-hierarchy-visible.png)
 
-### "copper" (hierarchy with FTS)
+### Drill-down: WA commodities
 
-- Query: `?q=copper`
+- Query: `?drillDown=state_commodity:http://example.org/mining/state/WA`
+- Results: **524 results**
+
+![Drill-down: WA commodities](screenshots/hierarchical-facets-drill-down-wa-commodities.png)
+
+### Drill-down: QLD commodities
+
+- Query: `?q=copper&drillDown=state_commodity:http://example.org/mining/state/QLD`
 - Results: **20 results**
 
-!["copper" (hierarchy with FTS)](screenshots/hierarchical-facets-copper-hierarchy-with-fts.png)
+![Drill-down: QLD commodities](screenshots/hierarchical-facets-drill-down-qld-commodities.png)
 
-### Gold in WA (hierarchy + filters)
+### Drill-down: Gold in WA + filters
 
-- Query: `?filter={"op":"and","args":[{"op":"=","args":[{"property":"commodity"},"http://example.org/mining/commodity/Gold"]},{"op":"=","args":[{"property":"state"},"http://example.org/mining/state/WA"]}]}`
-- Results: **79 results**
+- Query: `?filter={"op":"=","args":[{"property":"state"},"http://example.org/mining/state/WA"]}&drillDown=state_commodity:http://example.org/mining/state/WA`
+- Results: **193 results**
 
-![Gold in WA (hierarchy + filters)](screenshots/hierarchical-facets-gold-in-wa-hierarchy-filters.png)
-
-### Sites only (hierarchy + entity type)
-
-- Query: `?filter={"op":"=","args":[{"property":"entityType"},"http://example.org/mining/Site"]}`
-- Results: **108 results**
-
-![Sites only (hierarchy + entity type)](screenshots/hierarchical-facets-sites-only-hierarchy-entity-type.png)
+![Drill-down: Gold in WA + filters](screenshots/hierarchical-facets-drill-down-gold-in-wa-filters.png)
 
 ---

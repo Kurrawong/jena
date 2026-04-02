@@ -13,6 +13,7 @@ interface TestEntry {
   label: string;
   params: string;
   minResults?: number;
+  scrollToText?: string;
 }
 type Entry = GroupEntry | TestEntry;
 
@@ -104,6 +105,15 @@ for (const group of groups) {
           const m = text.match(/([\d,]+)\s+results?/);
           if (m) {
             resultCount = parseInt(m[1].replace(/,/g, ""), 10);
+          }
+        }
+
+        // Scroll to a specific sidebar element if requested
+        if (tc.scrollToText) {
+          const target = page.locator(`text="${tc.scrollToText}"`).first();
+          if (await target.isVisible({ timeout: 3_000 }).catch(() => false)) {
+            await target.scrollIntoViewIfNeeded();
+            await page.waitForTimeout(500);
           }
         }
 
