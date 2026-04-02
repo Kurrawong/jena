@@ -28,6 +28,8 @@ import org.apache.jena.graph.Node;
 import org.apache.jena.query.text.ShaclIndexMapping.*;
 import org.apache.jena.query.text.changes.TextQuadAction;
 import org.apache.jena.sparql.core.DatasetGraph;
+import org.apache.jena.sparql.core.Quad;
+import org.apache.jena.sparql.graph.GraphUnionRead;
 import org.apache.jena.sparql.path.P_Link;
 import org.apache.jena.sparql.path.Path;
 import org.apache.jena.sparql.path.eval.PathEval;
@@ -120,12 +122,11 @@ public class ShaclTextDocProducer implements TextDocProducer {
         String entityUri = TextQueryFuncs.subjectToString(subject);
         log.trace("rebuildEntityDocuments: {}", entityUri);
 
-        // Get rdf:type values for the entity
+        // Get rdf:type values for the entity across all graphs (default + named)
         Set<Node> types = new HashSet<>();
-        Iterator<Node> typeIter = baseDataset.getDefaultGraph().find(subject, RDF_TYPE, Node.ANY)
-            .mapWith(t -> t.getObject());
+        Iterator<Quad> typeIter = baseDataset.find(Node.ANY, subject, RDF_TYPE, Node.ANY);
         while (typeIter.hasNext()) {
-            types.add(typeIter.next());
+            types.add(typeIter.next().getObject());
         }
 
         // Find matching profiles
@@ -153,7 +154,7 @@ public class ShaclTextDocProducer implements TextDocProducer {
      */
     private Entity buildEntity(Node subject, String entityUri, IndexProfile profile) {
         Entity entity = new Entity(entityUri, null);
-        Graph graph = baseDataset.getDefaultGraph();
+        Graph graph = allGraphsView();
 
         for (FieldDef fieldDef : profile.getFields()) {
             Path path = fieldDef.getPath();
@@ -185,6 +186,17 @@ public class ShaclTextDocProducer implements TextDocProducer {
         }
 
         return entity;
+    }
+
+    /**
+     * Return a read-only graph view that spans the default graph and all named graphs.
+     * This ensures the change listener finds data regardless of which graph it was added to.
+     */
+    private Graph allGraphsView() {
+        List<Node> graphNames = new ArrayList<>();
+        graphNames.add(Quad.defaultGraphIRI);
+        baseDataset.listGraphNodes().forEachRemaining(graphNames::add);
+        return new GraphUnionRead(baseDataset, graphNames);
     }
 
     private Object nodeToValue(Node obj, FieldType fieldType) {

@@ -268,17 +268,11 @@ public class TextFacetPF extends PropertyFunctionBase {
         List<Node> list = argObject.getArgList();
         int idx = 0;
 
-        // 1. First literal = field spec
+        // 1. First literal = field spec: "default" or JSON array of field IRIs
         if (idx < list.size() && list.get(idx).isLiteral()) {
             String lex = list.get(idx).getLiteralLexicalForm();
-            if (lex.startsWith("[")) {
-                // Could be field spec array or facet fields array — check context
-                // If no query string has been seen, treat first array-like literal as field spec
-                // only if it's followed by another literal (the query string)
-                // For simplicity: first non-JSON, non-integer literal = field spec
-                // JSON arrays are handled below as facet fields
-            } else if (!lex.startsWith("{") && !isInteger(lex)) {
-                searchFields.add(lex);
+            if ("default".equals(lex)) {
+                searchFields.add("default");
                 idx++;
             }
         }

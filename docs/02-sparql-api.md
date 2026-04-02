@@ -13,7 +13,7 @@ Supports field-scoped queries, CQL2-JSON filter arguments, sort pushdown, and fa
 ### Syntax
 
 ```
-(?s ?score ?literal ?totalHits ?graph ?field) luc:query (fieldSpec queryString filter? sort? limit? highlight?)
+(?entity ?score ?match ?totalHits ?graph ?field) luc:query (fieldSpec queryString filter? sort? limit? highlight?)
 ```
 
 ### Arguments (positional, left to right)
@@ -29,12 +29,12 @@ Supports field-scoped queries, CQL2-JSON filter arguments, sort pushdown, and fa
 
 ### Field specification
 
-The `fieldSpec` argument controls which Lucene fields are searched. Field IRIs are required — the `idx:fieldName` (Lucene field name) is internal and not accepted here.
+The `fieldSpec` argument controls which Lucene fields are searched. It accepts either `"default"` or a JSON array of field IRIs.
 
 | Value | Meaning |
 |-------|---------|
 | `"default"` | Search all fields marked `idx:defaultSearch true` in the index configuration |
-| `"urn:jena:lucene:field#title"` | Search only the field with this IRI |
+| `'["urn:jena:lucene:field#title"]'` | Search a single specific field (JSON array with one IRI) |
 | `'["urn:jena:lucene:field#title","urn:jena:lucene:field#description"]'` | Search multiple specific fields (JSON array of IRIs) |
 | *(omitted)* | Same as `"default"` |
 
@@ -44,16 +44,18 @@ Field IRIs correspond to the named resource IRIs in the SHACL index configuratio
 
 | Variable | Required | Type | Description |
 |----------|----------|------|-------------|
-| ?s | Yes | URI | Matched entity |
+| ?entity | Yes | IRI | Matched entity |
 | ?score | No | float | Lucene relevance score |
-| ?literal | No | Node | Stored value for the matched field. KEYWORD fields return an IRI, TEXT fields return a string literal, numeric fields return typed literals |
-| ?totalHits | No | xsd:long | Total matching documents (same value on every row) |
-| ?graph | No | URI | Named graph of the match |
-| ?field | No | URI | Field IRI identifying the matched field (bound for single-field queries, unbound for multi-field) |
+| ?match | No | IRI or literal | Stored value for the matched field. KEYWORD fields return an IRI, TEXT fields return a string literal, numeric fields return typed literals |
+| ?totalHits | No | xsd:integer | Total matching documents (same value on every row) |
+| ?graph | No | IRI | Named graph of the match |
+| ?field | No | IRI | Field IRI identifying the matched field (see below) |
 
 The `?totalHits` binding returns the total number of documents matching the query and filters, regardless of the `limit` parameter. This is useful for displaying "Showing X of Y results" in search UIs. The value is computed efficiently using `IndexSearcher.count()` and is only evaluated when the variable is present in the subject.
 
-The `?field` binding returns the IRI of the Lucene field that was searched. For fields defined as named resources in the configuration, the resource's own IRI is used. For fields defined on blank nodes, an auto-generated IRI of the form `urn:jena:lucene:field#{fieldName}` is used. For single-field queries, this is always bound. For multi-field queries, it is unbound.
+The `?field` binding returns the IRI of the Lucene field that was searched. For single-field queries (JSON array with one IRI), this is always bound to that field's IRI. For multi-field queries (`"default"` or array with multiple IRIs), this is currently unbound — Lucene returns hits at the document level without identifying which field matched. This is a known limitation; see [#48](https://github.com/aiworkerjohns/jena/issues/48).
+
+> **Note:** All fields must be defined as named resources (with IRIs) in the SHACL index configuration. Blank node field definitions are not supported.
 
 ### Examples
 
@@ -62,34 +64,34 @@ PREFIX luc: <urn:jena:lucene:index#>
 PREFIX field: <urn:jena:lucene:field#>
 
 # Simple search (all default fields)
-(?s ?score) luc:query ("machine learning") .
+(?entity ?score) luc:query ("machine learning") .
 
 # Search with explicit "default"
-(?s ?score) luc:query ("default" "machine learning") .
+(?entity ?score) luc:query ("default" "machine learning") .
 
-# Search a specific field (by IRI)
-(?s ?score) luc:query ("urn:jena:lucene:field#title" "machine learning") .
+# Search a specific field (JSON array with one IRI)
+(?entity ?score) luc:query ('["urn:jena:lucene:field#title"]' "machine learning") .
 
 # Search multiple fields (JSON array of IRIs)
-(?s ?score) luc:query ('["urn:jena:lucene:field#title", "urn:jena:lucene:field#description"]' "machine learning") .
+(?entity ?score) luc:query ('["urn:jena:lucene:field#title", "urn:jena:lucene:field#description"]' "machine learning") .
 
 # Search with limit
-(?s ?score) luc:query ("urn:jena:lucene:field#title" "machine learning" 20) .
+(?entity ?score) luc:query ('["urn:jena:lucene:field#title"]' "machine learning" 20) .
 
 # Search with total hit count
-(?s ?score ?literal ?totalHits) luc:query ("machine learning" 20) .
+(?entity ?score ?match ?totalHits) luc:query ("machine learning" 20) .
 
 # Search with field binding
-(?s ?score ?lit ?totalHits ?g ?field) luc:query ("urn:jena:lucene:field#title" "machine learning" 20) .
+(?entity ?score ?match ?totalHits ?g ?field) luc:query ('["urn:jena:lucene:field#title"]' "machine learning" 20) .
 
 # Search with CQL filter (only Technology books)
-(?s ?score) luc:query ("default" "learning" '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}' 20) .
+(?entity ?score) luc:query ("default" "learning" '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}' 20) .
 
 # Search with filter and total hit count
-(?s ?score ?_lit ?totalHits) luc:query ("default" "learning" '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}' 20) .
+(?entity ?score ?_match ?totalHits) luc:query ("default" "learning" '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}' 20) .
 
 # Search with sort (by field IRI)
-(?s ?score) luc:query ("default" "learning" '{"field":"urn:jena:lucene:field#year","order":"desc"}' 10) .
+(?entity ?score) luc:query ("default" "learning" '{"field":"urn:jena:lucene:field#year","order":"desc"}' 10) .
 ```
 
 ### Filter JSON format (CQL2-JSON)
@@ -129,9 +131,9 @@ Filters use CQL2-JSON syntax. The `property` value is a field IRI:
 
 | Variable | Required | Type | Description |
 |----------|----------|------|-------------|
-| ?field | Yes | URI | Field IRI identifying the facet field (auto-generated `urn:jena:lucene:field#{fieldName}` for blank node fields) |
-| ?value | No | Node | Facet value. KEYWORD fields return IRIs, TEXT fields return string literals |
-| ?count | No | xsd:long | Number of matching documents |
+| ?field | Yes | IRI | Field IRI identifying the facet field |
+| ?value | No | IRI or literal | Facet value. KEYWORD fields return IRIs, TEXT fields return string literals |
+| ?count | No | xsd:integer | Number of matching documents |
 
 ### Examples
 
@@ -171,8 +173,8 @@ Use one query for hits, another for facets. Each returns a clean result shape wi
 PREFIX luc: <urn:jena:lucene:index#>
 
 # Query 1: search results
-SELECT ?s ?score WHERE {
-    (?s ?score) luc:query ("learning") .
+SELECT ?entity ?score WHERE {
+    (?entity ?score) luc:query ("learning") .
 }
 
 # Query 2: facet counts
@@ -191,15 +193,15 @@ If a single SPARQL request is preferred, use `UNION` to return both result sets 
 ```sparql
 PREFIX luc: <urn:jena:lucene:index#>
 
-SELECT ?s ?score ?totalHits ?field ?value ?count WHERE {
-    { (?s ?score ?_lit ?totalHits) luc:query ("default" "learning" 10) . }
+SELECT ?entity ?score ?totalHits ?field ?value ?count WHERE {
+    { (?entity ?score ?_match ?totalHits) luc:query ("default" "learning" 10) . }
     UNION
     { (?field ?value ?count) luc:facet ("default" "learning"
         '["urn:jena:lucene:field#category"]' 10) . }
 }
 ```
 
-This returns N + M rows (not N × M). Hit rows have `?field`, `?value`, `?count` unbound; facet rows have `?s`, `?score`, `?totalHits` unbound. The consumer splits results by checking which columns are present. `?totalHits` appears on every hit row with the same value — read it from the first row. Both PFs share a single Lucene execution via `SearchExecution` (see below).
+This returns N + M rows (not N × M). Hit rows have `?field`, `?value`, `?count` unbound; facet rows have `?entity`, `?score`, `?totalHits` unbound. The consumer splits results by checking which columns are present. `?totalHits` appears on every hit row with the same value — read it from the first row. Both PFs share a single Lucene execution via `SearchExecution` (see below).
 
 ### Avoid: Combined BGP (cartesian product)
 
@@ -207,8 +209,8 @@ Placing both PFs in the same basic graph pattern produces a cartesian product:
 
 ```sparql
 # WARNING: produces N × M rows
-SELECT ?s ?score ?field ?value ?count WHERE {
-    (?s ?score) luc:query ("learning") .
+SELECT ?entity ?score ?field ?value ?count WHERE {
+    (?entity ?score) luc:query ("learning") .
     (?field ?value ?count) luc:facet ("default" "learning"
         '["urn:jena:lucene:field#category"]' 10) .
 }

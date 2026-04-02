@@ -61,12 +61,12 @@ import org.slf4j.LoggerFactory;
  * <p>
  * Argument format:
  * <pre>
- * (?s ?score ?literal ?totalHits ?graph ?field) luc:query (fieldSpec queryString cqlFilter? sortSpec? limit? highlight?)
+ * (?entity ?score ?match ?totalHits ?graph ?field) luc:query (fieldSpec queryString cqlFilter? sortSpec? limit? highlight?)
  * </pre>
  * <p>
  * The first string literal is the field specification: {@code "default"} searches all
- * defaultSearch fields, a bare field name searches that field, and a JSON array
- * like {@code '["title","description"]'} searches multiple fields.
+ * defaultSearch fields, and a JSON array of field IRIs like
+ * {@code '["urn:jena:lucene:field#title","urn:jena:lucene:field#description"]'} searches specific fields.
  */
 public class ShaclTextQueryPF extends PropertyFunctionBase {
     private static final Logger log = LoggerFactory.getLogger(ShaclTextQueryPF.class);
@@ -228,7 +228,7 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         Var literalVar = (literal == null) ? null : Var.alloc(literal);
         Var totalHitsVar = (totalHitsNode == null) ? null : Var.alloc(totalHitsNode);
         Node totalHitsValue = totalHitsVar != null
-            ? NodeFactory.createLiteralDT(String.valueOf(totalHits), XSDDatatype.XSDlong) : null;
+            ? NodeFactory.createLiteralDT(String.valueOf(totalHits), XSDDatatype.XSDinteger) : null;
         Var graphVar = (graph == null) ? null : Var.alloc(graph);
         Var fieldVar = (field == null) ? null : Var.alloc(field);
 
@@ -287,19 +287,18 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
 
         int idx = 0;
 
-        // First literal = field spec
+        // First literal = field spec: "default" or JSON array of field IRIs
         if (idx < list.size() && list.get(idx).isLiteral()) {
             String lex = list.get(idx).getLiteralLexicalForm();
             if (lex.startsWith("[")) {
-                // JSON array of field names
+                // JSON array of field IRIs
                 JsonArray arr = JSON.parseAny(lex).getAsArray();
                 for (int i = 0; i < arr.size(); i++) {
                     searchFields.add(arr.get(i).getAsString().value());
                 }
                 idx++;
-            } else if (!lex.startsWith("{") && !isJsonLike(lex)) {
-                // Bare field name or "default"
-                searchFields.add(lex);
+            } else if ("default".equals(lex)) {
+                searchFields.add("default");
                 idx++;
             }
         }
