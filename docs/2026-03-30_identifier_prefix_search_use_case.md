@@ -88,7 +88,7 @@ Example prefix query:
 PREFIX luc: <urn:jena:lucene:index#>
 
 SELECT ?s ?score WHERE {
-    (?s ?score) luc:query ("urn:jena:lucene:field#identifier" "BH12") .
+    (?hit ?s ?score) luc:query ("urn:jena:lucene:field#identifier" "BH12") .
 }
 ```
 

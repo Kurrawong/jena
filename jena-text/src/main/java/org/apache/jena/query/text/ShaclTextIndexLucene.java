@@ -48,12 +48,15 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.ReaderUtil;
 import org.apache.lucene.index.StoredFields;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.queryparser.classic.MultiFieldQueryParser;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.*;
+import org.apache.lucene.search.NamedMatches;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.util.BytesRef;
@@ -170,6 +173,194 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         MultiFieldQueryParser mqp = new MultiFieldQueryParser(fieldArray, getQueryAnalyzer());
         mqp.setAllowLeadingWildcard(true);
         return mqp.parse(queryString);
+    }
+
+    /**
+     * Build a query with NamedMatches wrapping for field attribution.
+     * For multi-field queries, each field gets a named sub-query so
+     * we can later determine which field(s) matched each hit.
+     */
+    protected Query buildNamedQuery(String queryString, List<String> resolvedFields) throws ParseException {
+        if ("*".equals(queryString)) {
+            return new MatchAllDocsQuery();
+        }
+        if (resolvedFields.size() == 1) {
+            String fieldName = resolvedFields.get(0);
+            QueryParser qp = new QueryParser(fieldName, getQueryAnalyzer());
+            qp.setAllowLeadingWildcard(true);
+            Query fieldQuery = qp.parse(queryString);
+            // Wrap with field IRI as the name
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
+            String name = fd != null ? fd.getFieldIRI().getURI() : fieldName;
+            return NamedMatches.wrapQuery(name, fieldQuery);
+        }
+        BooleanQuery.Builder bq = new BooleanQuery.Builder();
+        for (String fieldName : resolvedFields) {
+            QueryParser qp = new QueryParser(fieldName, getQueryAnalyzer());
+            qp.setAllowLeadingWildcard(true);
+            Query fieldQuery = qp.parse(queryString);
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
+            String name = fd != null ? fd.getFieldIRI().getURI() : fieldName;
+            Query named = NamedMatches.wrapQuery(name, fieldQuery);
+            bq.add(named, BooleanClause.Occur.SHOULD);
+        }
+        return bq.build();
+    }
+
+    /**
+     * Execute a search and return SearchHit objects with stable hit IDs.
+     * The returned hits carry Lucene doc IDs for later field match extraction.
+     */
+    public List<SearchHit> searchWithHitIds(List<String> resolvedFields, String qs,
+            CqlExpression cqlFilter, List<SortSpec> sortSpecs,
+            String graphURI, String lang, int limit) {
+        try (IndexReader indexReader = DirectoryReader.open(getDirectory())) {
+            IndexSearcher searcher = new IndexSearcher(indexReader);
+
+            Query textQuery;
+            if (qs == null || qs.isEmpty()) {
+                textQuery = new MatchAllDocsQuery();
+            } else {
+                textQuery = buildNamedQuery(qs, resolvedFields);
+            }
+
+            Query finalQuery;
+            if (cqlFilter != null) {
+                BooleanQuery.Builder combined = new BooleanQuery.Builder();
+                combined.add(textQuery, BooleanClause.Occur.MUST);
+                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping);
+                CqlToLuceneCompiler.CompileResult result = compiler.compile(cqlFilter);
+                if (result.pushed() != null) {
+                    combined.add(result.pushed(), BooleanClause.Occur.MUST);
+                }
+                if (result.residual() != null) {
+                    log.warn("CQL filter has residual expressions ignored: {}",
+                        result.residual().toCanonical());
+                }
+                finalQuery = combined.build();
+            } else {
+                finalQuery = textQuery;
+            }
+
+            int maxHits = limit > 0 ? limit : MAX_N;
+            Sort luceneSort = buildLuceneSort(sortSpecs);
+
+            TopDocs topDocs;
+            if (luceneSort != null) {
+                topDocs = searcher.search(finalQuery, maxHits, luceneSort);
+            } else {
+                topDocs = searcher.search(finalQuery, maxHits);
+            }
+
+            String entityField = getDocDef().getEntityField();
+            StoredFields storedFields = searcher.storedFields();
+            List<SearchHit> results = new ArrayList<>();
+            int idx = 0;
+            for (ScoreDoc sd : topDocs.scoreDocs) {
+                Document doc = storedFields.document(sd.doc);
+                String uri = doc.get(entityField);
+                if (uri != null) {
+                    Node entityNode = TextQueryFuncs.stringToNode(uri);
+                    results.add(new SearchHit(idx++, entityNode, sd.score, null, sd.doc));
+                }
+            }
+
+            // Compute field matches using NamedMatches
+            if (!results.isEmpty() && !(textQuery instanceof MatchAllDocsQuery)) {
+                computeFieldMatches(searcher, textQuery, resolvedFields, results);
+            }
+
+            return results;
+        } catch (IOException ex) {
+            throw new TextIndexException("searchWithHitIds", ex);
+        } catch (ParseException ex) {
+            throw new TextIndexParseException(qs, ex.getMessage());
+        }
+    }
+
+    /**
+     * Compute field-level matches for each hit using Lucene's Matches/NamedMatches API.
+     */
+    private void computeFieldMatches(IndexSearcher searcher, Query textQuery,
+            List<String> resolvedFields, List<SearchHit> hits) throws IOException {
+        Query rewritten = searcher.rewrite(textQuery);
+        Weight weight = searcher.createWeight(rewritten, ScoreMode.COMPLETE, 1.0f);
+        List<LeafReaderContext> leaves = searcher.getIndexReader().leaves();
+
+        for (SearchHit hit : hits) {
+            int docId = hit.getLuceneDocId();
+            // Find the leaf context for this doc
+            int leafIdx = ReaderUtil.subIndex(docId, leaves);
+            LeafReaderContext leaf = leaves.get(leafIdx);
+            int segmentDocId = docId - leaf.docBase;
+
+            Matches matches = weight.matches(leaf, segmentDocId);
+            if (matches == null) continue;
+
+            // Extract named matches → field IRIs
+            Collection<NamedMatches> namedMatchList = NamedMatches.findNamedMatches(matches);
+            List<FieldMatch> fieldMatches = new ArrayList<>();
+
+            StoredFields storedFields = searcher.storedFields();
+            Document doc = storedFields.document(docId);
+
+            for (NamedMatches nm : namedMatchList) {
+                String name = nm.getName(); // This is the field IRI string
+                Node fieldIRI = NodeFactory.createURI(name);
+
+                ShaclIndexMapping.FieldDef fd = shaclMapping.findField(name);
+                Node valueNode = null;
+                if (fd != null) {
+                    String[] storedValues = doc.getValues(fd.getFieldName());
+                    if (storedValues != null && storedValues.length > 0) {
+                        String selected = selectStoredValue(fd.getFieldName(), storedValues, textQuery);
+                        valueNode = fieldValueToNode(fd, selected);
+                    }
+                }
+
+                fieldMatches.add(new FieldMatch(fieldIRI, valueNode, null));
+            }
+
+            // If no named matches found, fall back to field-level match check
+            if (fieldMatches.isEmpty()) {
+                for (String fieldName : resolvedFields) {
+                    MatchesIterator mi = matches.getMatches(fieldName);
+                    if (mi != null && mi.next()) {
+                        ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
+                        Node fieldIRI = fd != null ? fd.getFieldIRI()
+                            : NodeFactory.createLiteralString(fieldName);
+                        Node valueNode = null;
+                        if (fd != null) {
+                            String[] storedValues = doc.getValues(fieldName);
+                            if (storedValues != null && storedValues.length > 0) {
+                                String selected = selectStoredValue(fieldName, storedValues, textQuery);
+                                valueNode = fieldValueToNode(fd, selected);
+                            }
+                        }
+                        fieldMatches.add(new FieldMatch(fieldIRI, valueNode, null));
+                    }
+                }
+            }
+
+            hit.setFieldMatches(fieldMatches);
+        }
+    }
+
+    /**
+     * Convert a stored field value to an appropriate RDF node based on field type.
+     */
+    private Node fieldValueToNode(ShaclIndexMapping.FieldDef fd, String value) {
+        if (value == null || fd == null) return null;
+        return switch (fd.getFieldType()) {
+            case KEYWORD -> looksLikeUri(value)
+                ? NodeFactory.createURI(value)
+                : NodeFactory.createLiteralString(value);
+            case TEXT    -> NodeFactory.createLiteralString(value);
+            case INT     -> NodeFactory.createLiteralDT(value, XSDDatatype.XSDinteger);
+            case LONG    -> NodeFactory.createLiteralDT(value, XSDDatatype.XSDlong);
+            case DOUBLE  -> NodeFactory.createLiteralDT(value, XSDDatatype.XSDdouble);
+            case LATLON  -> null;
+        };
     }
 
     // ---- Document building ----

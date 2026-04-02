@@ -7,6 +7,6 @@ PREFIX luc: <urn:jena:lucene:index#>
 
 SELECT ?entity ?score
 WHERE {
-    (?entity ?score) luc:query ("default" "copper" '{"op":"=","args":[{"property":"state"},"QLD"]}')
+    (?hit ?entity ?score) luc:query ("default" "copper" '{"op":"=","args":[{"property":"state"},"QLD"]}')
 }
 ORDER BY DESC(?score)

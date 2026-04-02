@@ -67,7 +67,7 @@ Use the `s_intersects` operator in the CQL2-JSON filter argument of `luc:query`:
 PREFIX luc: <urn:jena:lucene:index#>
 
 SELECT ?entity ?score WHERE {
-    (?entity ?score) luc:query ("default" "*"
+    (?hit ?entity ?score) luc:query ("default" "*"
         '{"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[112,-44,154,-10]}]}'
         20)
 }
@@ -79,7 +79,7 @@ The `bbox` array follows the CQL2 convention: `[swLon, swLat, neLon, neLat]`.
 
 ```sparql
 SELECT ?entity ?score WHERE {
-    (?entity ?score) luc:query ("default" "gold mine"
+    (?hit ?entity ?score) luc:query ("default" "gold mine"
         '{"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[115,-35,120,-30]}]}'
         20)
 }
@@ -93,7 +93,7 @@ Spatial filters can be combined with property filters using `and`:
 
 ```sparql
 SELECT ?entity ?score WHERE {
-    (?entity ?score) luc:query ("default" "*"
+    (?hit ?entity ?score) luc:query ("default" "*"
         '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#state"},"WA"]},{"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[115,-35,120,-30]}]}]}'
         20)
 }

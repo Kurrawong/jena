@@ -52,9 +52,11 @@ public class SearchExecution {
 
     // Lazy results
     private List<TextHit> hits;
+    private List<SearchHit> searchHits;
     private Map<String, List<FacetValue>> facetCounts;
     private long totalHits = -1;
     private boolean hitsComputed = false;
+    private boolean searchHitsComputed = false;
     private boolean facetCountsComputed = false;
 
     public SearchExecution(List<String> searchFields, String queryString,
@@ -143,6 +145,25 @@ public class SearchExecution {
             hitsComputed = true;
         }
         return hits;
+    }
+
+    /**
+     * Get search hits with stable hit IDs and field match data.
+     * Uses NamedMatches for field-level match attribution.
+     */
+    public synchronized List<SearchHit> getSearchHits(int limit) {
+        if (!searchHitsComputed) {
+            try {
+                List<String> resolved = textIndex.resolveSearchFields(searchFields);
+                searchHits = textIndex.searchWithHitIds(resolved, queryString, filter,
+                    sortSpecs, graphURI, lang, limit);
+            } catch (Exception e) {
+                log.error("Error computing search hits: {}", e.getMessage());
+                searchHits = Collections.emptyList();
+            }
+            searchHitsComputed = true;
+        }
+        return searchHits;
     }
 
     /**

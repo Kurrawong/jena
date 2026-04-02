@@ -85,7 +85,7 @@
 For the public SPARQL/API contract, field references are always IRIs. The internal Lucene field name from `idx:fieldName` is not exposed to users. The only plain strings that remain in the external syntax are the Lucene query string itself and the special `"default"` fieldSpec shorthand.
 
 ```sparql
-(?s ?sc) luc:query ("default" "learning"
+(?hit ?s ?sc) luc:query ("default" "learning"
     '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}') .
 (?f ?v ?c) luc:facet ("default" "learning"
     '["urn:jena:lucene:field#category", "urn:jena:lucene:field#author"]') .

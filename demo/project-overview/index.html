@@ -611,7 +611,7 @@ body {
 <span class="comment">-- Search with filters</span>
 <span class="kw">SELECT</span> <span class="var">?entity</span> <span class="var">?score</span> <span class="var">?totalHits</span>
 <span class="kw">WHERE</span> {
-    (<span class="var">?entity</span> <span class="var">?score</span> <span class="var">?_lit</span> <span class="var">?totalHits</span>)
+    (<span class="var">?hit</span> <span class="var">?entity</span> <span class="var">?score</span> <span class="var">?_lit</span> <span class="var">?totalHits</span>)
         <span class="fn">luc:query</span> (<span class="str">'default'</span> <span class="str">'gold'</span>
             <span class="str">'{"op":"=","args":[{"property":"element"},"Au"]}'</span> 10)
 }</pre>
@@ -771,7 +771,7 @@ body {
 
 <span class="kw">SELECT</span> <span class="var">?entity</span> <span class="var">?score</span> <span class="var">?totalHits</span>
 <span class="kw">WHERE</span> {
-    (<span class="var">?entity</span> <span class="var">?score</span> <span class="var">?_lit</span> <span class="var">?totalHits</span>)
+    (<span class="var">?hit</span> <span class="var">?entity</span> <span class="var">?score</span> <span class="var">?_lit</span> <span class="var">?totalHits</span>)
         <span class="fn">luc:query</span> (<span class="str">'default'</span> <span class="str">'Maitland'</span>
             <span class="str">'{"op":"=","args":[{"property":"element"},"Au"]}'</span> 10)
 }</pre>
@@ -820,7 +820,7 @@ body {
 
 <span class="kw">SELECT</span> <span class="var">?entity</span> <span class="var">?score</span> <span class="var">?totalHits</span> <span class="var">?label</span>
 <span class="kw">WHERE</span> {
-    (<span class="var">?entity</span> <span class="var">?score</span> <span class="var">?_lit</span> <span class="var">?totalHits</span>)
+    (<span class="var">?hit</span> <span class="var">?entity</span> <span class="var">?score</span> <span class="var">?_lit</span> <span class="var">?totalHits</span>)
         <span class="fn">luc:query</span> (<span class="str">'default'</span> <span class="str">'Maitland'</span> 5) .
     <span class="var">?entity</span> <span class="fn">rdfs:label</span> <span class="var">?label</span> .
 }</pre>
@@ -840,7 +840,7 @@ body {
 
 <span class="kw">SELECT</span> <span class="var">?entity</span> <span class="var">?score</span> <span class="var">?label</span>
 <span class="kw">WHERE</span> {
-    (<span class="var">?entity</span> <span class="var">?score</span>)
+    (<span class="var">?hit</span> <span class="var">?entity</span> <span class="var">?score</span>)
         <span class="fn">luc:query</span> (<span class="str">'default'</span> <span class="str">'*'</span>
             <span class="str">'{"op":"and","args":[{"op":"=","args":[{"property":"element"},"Au"]},{"op":"=","args":[{"property":"procedure"},"XRF"]}]}'</span> 10) .
     <span class="var">?entity</span> <span class="fn">rdfs:label</span> <span class="var">?label</span> .
@@ -958,7 +958,7 @@ body {
 <span class="kw">SELECT</span> <span class="var">?entity</span> <span class="var">?score</span> <span class="var">?totalHits</span>
        <span class="var">?field</span> <span class="var">?value</span> <span class="var">?count</span>
 <span class="kw">WHERE</span> {
-  { (<span class="var">?entity</span> <span class="var">?score</span> <span class="var">?_lit</span> <span class="var">?totalHits</span>)
+  { (<span class="var">?hit</span> <span class="var">?entity</span> <span class="var">?score</span> <span class="var">?_lit</span> <span class="var">?totalHits</span>)
         <span class="fn">luc:query</span> (<span class="str">'default'</span> <span class="str">'gold'</span> 10) }
   <span class="kw">UNION</span>
   { (<span class="var">?field</span> <span class="var">?value</span> <span class="var">?count</span>)
@@ -1032,7 +1032,7 @@ body {
 
 <span class="kw">SELECT</span> <span class="var">?entity</span> <span class="var">?score</span> <span class="var">?totalHits</span> <span class="var">?field</span> <span class="var">?value</span> <span class="var">?count</span>
 <span class="kw">WHERE</span> {
-    { (<span class="var">?entity</span> <span class="var">?score</span> <span class="var">?_lit</span> <span class="var">?totalHits</span>) <span class="fn">luc:query</span> (<span class="str">'default'</span> <span class="str">'Maitland'</span> 5) }
+    { (<span class="var">?hit</span> <span class="var">?entity</span> <span class="var">?score</span> <span class="var">?_lit</span> <span class="var">?totalHits</span>) <span class="fn">luc:query</span> (<span class="str">'default'</span> <span class="str">'Maitland'</span> 5) }
     <span class="kw">UNION</span>
     { (<span class="var">?field</span> <span class="var">?value</span> <span class="var">?count</span>) <span class="fn">luc:facet</span> (<span class="str">'default'</span> <span class="str">'Maitland'</span> <span class="str">'["element","procedure","lab"]'</span> 10) }
 }</pre>
@@ -1097,7 +1097,7 @@ body {
 
 <span class="kw">SELECT</span> <span class="var">?entity</span> <span class="var">?score</span> <span class="var">?label</span>
 <span class="kw">WHERE</span> {
-    (<span class="var">?entity</span> <span class="var">?score</span>) <span class="fn">luc:query</span>
+    (<span class="var">?hit</span> <span class="var">?entity</span> <span class="var">?score</span>) <span class="fn">luc:query</span>
         (<span class="str">'default'</span> <span class="str">'*'</span> <span class="str">'{"op":"and","args":[{"op":"=","args":[{"property":"element"},"Au"]},{"op":"=","args":[{"property":"lab"},"ALS"]}]}'</span> 5) .
     <span class="var">?entity</span> <span class="fn">rdfs:label</span> <span class="var">?label</span> .
 }
@@ -1466,7 +1466,7 @@ async function runLiveSearch() {
   btn.disabled = true;
   el.innerHTML = '<span class="spinner"></span> Querying...';
   try {
-    const q = `PREFIX luc: <urn:jena:lucene:index#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nSELECT ?entity ?score ?totalHits ?label\nWHERE {\n    (?entity ?score ?_lit ?totalHits) luc:query ('default' 'Maitland' 5) .\n    ?entity rdfs:label ?label .\n}`;
+    const q = `PREFIX luc: <urn:jena:lucene:index#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nSELECT ?entity ?score ?totalHits ?label\nWHERE {\n    (?hit ?entity ?score ?_lit ?totalHits) luc:query ('default' 'Maitland' 5) .\n    ?entity rdfs:label ?label .\n}`;
     const { data, ms } = await sparql(FUSEKI_ENDPOINT, q);
     el.innerHTML = resultToText(data, ms);
   } catch (e) { el.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`; }
@@ -1479,7 +1479,7 @@ async function runLiveFilteredSearch() {
   btn.disabled = true;
   el.innerHTML = '<span class="spinner"></span> Querying...';
   try {
-    const q = `PREFIX luc: <urn:jena:lucene:index#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nSELECT ?entity ?score ?label\nWHERE {\n    (?entity ?score) luc:query ('default' '*' '{"op":"and","args":[{"op":"=","args":[{"property":"element"},"Au"]},{"op":"=","args":[{"property":"procedure"},"XRF"]}]}' 10) .\n    ?entity rdfs:label ?label .\n}`;
+    const q = `PREFIX luc: <urn:jena:lucene:index#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nSELECT ?entity ?score ?label\nWHERE {\n    (?hit ?entity ?score) luc:query ('default' '*' '{"op":"and","args":[{"op":"=","args":[{"property":"element"},"Au"]},{"op":"=","args":[{"property":"procedure"},"XRF"]}]}' 10) .\n    ?entity rdfs:label ?label .\n}`;
     const { data, ms } = await sparql(FUSEKI_ENDPOINT, q);
     el.innerHTML = resultToText(data, ms);
   } catch (e) { el.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`; }
@@ -1520,7 +1520,7 @@ async function runLiveCombined() {
   searchEl.innerHTML = '<span class="spinner"></span> Querying...';
   facetEl.innerHTML = '<span class="spinner"></span>';
   try {
-    const q = `PREFIX luc: <urn:jena:lucene:index#>\nSELECT ?entity ?score ?totalHits ?field ?value ?count\nWHERE {\n    { (?entity ?score ?_lit ?totalHits) luc:query ('default' 'Maitland' 5) }\n    UNION\n    { (?field ?value ?count) luc:facet ('default' 'Maitland' '["element","procedure","lab"]' 10) }\n}`;
+    const q = `PREFIX luc: <urn:jena:lucene:index#>\nSELECT ?entity ?score ?totalHits ?field ?value ?count\nWHERE {\n    { (?hit ?entity ?score ?_lit ?totalHits) luc:query ('default' 'Maitland' 5) }\n    UNION\n    { (?field ?value ?count) luc:facet ('default' 'Maitland' '["element","procedure","lab"]' 10) }\n}`;
     const { data, ms } = await sparql(FUSEKI_ENDPOINT, q);
     const rows = data.results.bindings;
     const hits = rows.filter(r => r.entity);
@@ -1554,7 +1554,7 @@ async function runLivePaths() {
   btn.disabled = true;
   el.innerHTML = '<span class="spinner"></span> Querying...';
   try {
-    const q = `PREFIX luc: <urn:jena:lucene:index#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nSELECT ?entity ?score ?label\nWHERE {\n    (?entity ?score) luc:query ('default' '*' '{"op":"and","args":[{"op":"=","args":[{"property":"element"},"Au"]},{"op":"=","args":[{"property":"lab"},"ALS"]}]}' 5) .\n    ?entity rdfs:label ?label .\n}\nORDER BY DESC(?score)`;
+    const q = `PREFIX luc: <urn:jena:lucene:index#>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\nSELECT ?entity ?score ?label\nWHERE {\n    (?hit ?entity ?score) luc:query ('default' '*' '{"op":"and","args":[{"op":"=","args":[{"property":"element"},"Au"]},{"op":"=","args":[{"property":"lab"},"ALS"]}]}' 5) .\n    ?entity rdfs:label ?label .\n}\nORDER BY DESC(?score)`;
     const { data, ms } = await sparql(FUSEKI_ENDPOINT, q);
     el.innerHTML = resultToText(data, ms);
   } catch (e) { el.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`; }

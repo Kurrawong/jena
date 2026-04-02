@@ -8,7 +8,7 @@ PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
 SELECT ?entity ?score ?label
 WHERE {
-    (?entity ?score) luc:query ("default" "*" '{"op":"=","args":[{"property":"authorName"},"Dr Sarah Jones"]}') .
+    (?hit ?entity ?score) luc:query ("default" "*" '{"op":"=","args":[{"property":"authorName"},"Dr Sarah Jones"]}') .
     ?entity rdfs:label ?label .
 }
 ORDER BY DESC(?score)

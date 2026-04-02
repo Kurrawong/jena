@@ -29,14 +29,14 @@ flowchart LR
 
 ```sparql
 # Simple search
-(?s ?score) luc:query ("climate change") .
+(?hit ?s ?score) luc:query ("climate change") .
 
 # Search narrowed to a publisher (CQL2-JSON filter)
-(?s ?score) luc:query ("default" "climate change"
+(?hit ?s ?score) luc:query ("default" "climate change"
     '{"op":"=","args":[{"property":"urn:jena:lucene:field#publisher"},"CSIRO"]}') .
 
 # Multiple filters (AND across fields)
-(?s ?score) luc:query ("default" "climate"
+(?hit ?s ?score) luc:query ("default" "climate"
     '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#publisher"},"CSIRO"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Environment"]}]}') .
 ```
 
@@ -106,7 +106,7 @@ flowchart TB
 # Recommended: separate queries, clean result shapes
 # Query 1 — hits
 SELECT ?s ?score WHERE {
-    (?s ?score) luc:query ("climate change") .
+    (?hit ?s ?score) luc:query ("climate change") .
 }
 
 # Query 2 — facets
@@ -116,7 +116,7 @@ SELECT ?field ?value ?count WHERE {
 
 # Alternative: single query via UNION (N+M rows, no cartesian product)
 SELECT ?s ?score ?field ?value ?count WHERE {
-    { (?s ?score) luc:query ("climate change") . }
+    { (?hit ?s ?score) luc:query ("climate change") . }
     UNION
     { (?field ?value ?count) luc:facet ("climate change" '["urn:jena:lucene:field#category", "urn:jena:lucene:field#publisher"]' 10) . }
 }
@@ -254,7 +254,7 @@ field:referencedBy
 Filter search results and facet counts by geographic region using CQL2-JSON spatial operators. Supports bounding box and polygon geometries via Lucene `LatLonShape`.
 
 ```sparql
-(?s ?score) luc:query ("default" "gold mine"
+(?hit ?s ?score) luc:query ("default" "gold mine"
     '{"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[115,-35,120,-30]}]}'
     20)
 ```
@@ -309,7 +309,7 @@ Example query:
 PREFIX luc: <urn:jena:lucene:index#>
 
 SELECT ?s ?score WHERE {
-    (?s ?score) luc:query ("urn:jena:lucene:field#identifier" "BH12") .
+    (?hit ?s ?score) luc:query ("urn:jena:lucene:field#identifier" "BH12") .
 }
 ```
 

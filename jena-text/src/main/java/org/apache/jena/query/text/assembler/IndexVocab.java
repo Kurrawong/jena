@@ -36,6 +36,7 @@ public class IndexVocab {
     // Property function URIs
     public static final String pfQuery = NS + "query";
     public static final String pfFacet = NS + "facet";
+    public static final String pfMatch = NS + "match";
 
     // Types
     public static final Resource IndexProfile   = Vocab.resource(NS, "IndexProfile");
