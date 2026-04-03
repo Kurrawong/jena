@@ -220,6 +220,55 @@ PREFIX luc: <urn:jena:lucene:index#>
 (?f ?v ?c) luc:facet ("default" "learning" '["urn:jena:lucene:field#author"]' 0 2) .
 ```
 
+### Hierarchy Drill-Down
+
+When hierarchical facets are configured (see [Configuration — Hierarchical Facets](03-configuration.md#hierarchical-facets)), drill-down is triggered by combining a CQL `=` filter on a parent level field with a `facetFields` request on the child level field.
+
+**Top-level counts** — request facets on a hierarchy level field IRI. It auto-resolves to the dimension:
+
+```sparql
+PREFIX luc: <urn:jena:lucene:index#>
+
+# Get top-level state counts (returns state values with counts)
+SELECT ?field ?value ?count WHERE {
+    (?field ?value ?count) luc:facet ("default" "*"
+        '["urn:jena:lucene:field#state"]' 10) .
+}
+```
+
+**Drill-down into children** — filter on the parent level and request facets on the child level:
+
+```sparql
+PREFIX luc: <urn:jena:lucene:index#>
+
+# Get commodity counts within WA (drill-down)
+SELECT ?field ?value ?count WHERE {
+    (?field ?value ?count) luc:facet ("default" "*"
+        '["urn:jena:lucene:field#commodity"]'
+        '{"op":"=","args":[{"property":"urn:jena:lucene:field#state"},"http://example.org/mining/state/WA"]}'
+        10) .
+}
+```
+
+The system auto-detects that `field#state` and `field#commodity` belong to the same hierarchy. The CQL `=` filter on `field#state` becomes a taxonomy drill-down path, and the facet results return child-level (commodity) values scoped to that parent.
+
+**Combined with other filters** — hierarchy drill-down works alongside regular CQL filters:
+
+```sparql
+PREFIX luc: <urn:jena:lucene:index#>
+
+# Commodity counts within WA, restricted to Active status
+SELECT ?field ?value ?count WHERE {
+    (?field ?value ?count) luc:facet ("default" "*"
+        '["urn:jena:lucene:field#commodity"]'
+        '{"op":"and","args":[
+            {"op":"=","args":[{"property":"urn:jena:lucene:field#state"},"http://example.org/mining/state/WA"]},
+            {"op":"=","args":[{"property":"urn:jena:lucene:field#status"},"http://example.org/mining/status/Active"]}
+        ]}'
+        10) .
+}
+```
+
 ---
 
 ## Combining Search and Facets

@@ -224,6 +224,70 @@ See [SPARQL API Reference](02-sparql-api.md) for the full CQL2-JSON syntax.
 
 ---
 
+## Hierarchical Facets
+
+Hierarchical facets enable tree-structured drill-down navigation — for example, selecting a state to reveal commodity breakdowns within it.
+
+### Configuration
+
+Add `idx:facetHierarchy` to a shape with an ordered list of field resources (parent → child):
+
+```turtle
+field:state
+    idx:fieldName "state" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true ;
+    sh:path ex:state .
+
+field:commodity
+    idx:fieldName "commodity" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true ;
+    sh:path ex:commodity .
+
+<#SiteShape>
+    sh:targetClass ex:Site ;
+    sh:property field:state ;
+    sh:property field:commodity ;
+    idx:facetHierarchy ( field:state field:commodity ) .
+```
+
+### Workflow
+
+**Step 1: Get top-level facets** — request facets on the parent level field IRI:
+
+```sparql
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?field ?value ?count WHERE {
+    (?field ?value ?count) luc:facet ("default" "*"
+        '["urn:jena:lucene:field#state"]' 10) .
+}
+```
+
+Returns: `WA: 15`, `QLD: 12`, `NSW: 8`, ...
+
+**Step 2: Drill down** — filter on the parent value and request facets on the child field:
+
+```sparql
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?field ?value ?count WHERE {
+    (?field ?value ?count) luc:facet ("default" "*"
+        '["urn:jena:lucene:field#commodity"]'
+        '{"op":"=","args":[{"property":"urn:jena:lucene:field#state"},"http://example.org/mining/state/WA"]}'
+        10) .
+}
+```
+
+Returns: `Gold: 8`, `Iron: 4`, `Copper: 3`, ... (scoped to WA)
+
+The CQL `=` filter on a hierarchy parent field is automatically detected and converted to a Lucene taxonomy drill-down. No special syntax is needed — regular CQL filters "just work" with hierarchies.
+
+See [Configuration — Hierarchical Facets](03-configuration.md#hierarchical-facets) for full configuration details and [SPARQL API — Hierarchy Drill-Down](02-sparql-api.md#hierarchy-drill-down) for more query examples.
+
+---
+
 ## Key Options
 
 | Option | Where | Effect |
