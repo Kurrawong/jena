@@ -111,4 +111,23 @@ public class TestSearchExecution {
 
         assertEquals("AND with different arg order should produce same key", key1, key2);
     }
+
+    @Test
+    public void testFacetRequestKeyIncludesRangesAndThresholds() {
+        FacetRequest request1 = new FacetRequest(
+            List.of("category"),
+            List.of(new FacetRequest.RangeFacetSpec("urn:jena:lucene:field#year", List.of("2020", "2022", "2024"))));
+        FacetRequest request2 = new FacetRequest(
+            List.of("category"),
+            List.of(new FacetRequest.RangeFacetSpec("urn:jena:lucene:field#year", List.of("2020", "2023", "2024"))));
+
+        FacetRequestKey key1 = FacetRequestKey.of(request1, 10, 0);
+        FacetRequestKey key2 = FacetRequestKey.of(request2, 10, 0);
+        FacetRequestKey key3 = FacetRequestKey.of(request1, 5, 0);
+        FacetRequestKey key4 = FacetRequestKey.of(request1, 10, 1);
+
+        assertNotEquals(key1, key2);
+        assertNotEquals(key1, key3);
+        assertNotEquals(key1, key4);
+    }
 }

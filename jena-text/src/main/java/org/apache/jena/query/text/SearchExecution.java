@@ -53,11 +53,10 @@ public class SearchExecution {
     // Lazy results
     private List<TextHit> hits;
     private List<SearchHit> searchHits;
-    private Map<String, List<FacetValue>> facetCounts;
+    private final Map<FacetRequestKey, Map<String, List<FacetValue>>> facetCountsCache = new HashMap<>();
     private long totalHits = -1;
     private boolean hitsComputed = false;
     private boolean searchHitsComputed = false;
-    private boolean facetCountsComputed = false;
 
     public SearchExecution(List<String> searchFields, String queryString,
                            CqlExpression filter, List<SortSpec> sortSpecs,
@@ -170,22 +169,24 @@ public class SearchExecution {
      * Get facet counts with minCount threshold, computing them lazily on first access.
      */
     public synchronized Map<String, List<FacetValue>> getFacetCounts(
-            List<String> facetFields, int maxValues, int minCount) {
-        if (!facetCountsComputed) {
+            FacetRequest facetRequest, int maxValues, int minCount) {
+        FacetRequestKey requestKey = FacetRequestKey.of(facetRequest, maxValues, minCount);
+        if (!facetCountsCache.containsKey(requestKey)) {
+            Map<String, List<FacetValue>> facetCounts;
             try {
                 if (filter == null) {
-                    facetCounts = textIndex.getFacetCounts(queryString, searchFields, facetFields, maxValues, minCount);
+                    facetCounts = textIndex.getFacetCounts(queryString, searchFields, facetRequest, maxValues, minCount);
                 } else {
                     facetCounts = textIndex.getFacetCountsWithCql(
-                        queryString, searchFields, facetFields, filter, maxValues, minCount);
+                        queryString, searchFields, facetRequest, filter, maxValues, minCount);
                 }
             } catch (Exception e) {
                 log.error("Error computing facet counts: {}", e.getMessage());
                 facetCounts = Collections.emptyMap();
             }
-            facetCountsComputed = true;
+            facetCountsCache.put(requestKey, facetCounts);
         }
-        return facetCounts;
+        return facetCountsCache.get(requestKey);
     }
 
     /**

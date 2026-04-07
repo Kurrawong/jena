@@ -40,7 +40,13 @@ import org.apache.lucene.facet.Facets;
 import org.apache.lucene.facet.FacetsCollector;
 import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.facet.LabelAndValue;
+import org.apache.lucene.facet.MultiDoubleValuesSource;
 import org.apache.lucene.facet.MultiFacets;
+import org.apache.lucene.facet.MultiLongValuesSource;
+import org.apache.lucene.facet.range.DoubleRange;
+import org.apache.lucene.facet.range.DoubleRangeFacetCounts;
+import org.apache.lucene.facet.range.LongRange;
+import org.apache.lucene.facet.range.LongRangeFacetCounts;
 import org.apache.lucene.facet.sortedset.DefaultSortedSetDocValuesReaderState;
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesFacetCounts;
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesFacetField;
@@ -66,6 +72,7 @@ import org.apache.lucene.search.NamedMatches;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.NumericUtils;
 import org.locationtech.jts.geom.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -206,9 +213,15 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      */
     public List<String> resolveFacetFieldNames(List<String> fieldIRIs) {
         if (fieldIRIs == null) return null;
-        // Wildcard: "*" expands to all facetable fields + hierarchy dimensions
+        // Wildcard expands only to flat/hierarchical facet targets, not numeric range fields.
         if (fieldIRIs.size() == 1 && "*".equals(fieldIRIs.get(0))) {
-            List<String> all = new ArrayList<>(facetFields);
+            List<String> all = new ArrayList<>();
+            for (String fieldName : facetFields) {
+                ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
+                if (fd != null && fd.getFieldType() == ShaclIndexMapping.FieldType.KEYWORD) {
+                    all.add(fieldName);
+                }
+            }
             all.addAll(hierarchyDimensions);
             return all;
         }
@@ -226,6 +239,24 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
         }
         return resolved;
+    }
+
+    private static boolean isNumericField(ShaclIndexMapping.FieldDef fieldDef) {
+        if (fieldDef == null) return false;
+        return switch (fieldDef.getFieldType()) {
+            case INT, LONG, DOUBLE -> true;
+            default -> false;
+        };
+    }
+
+    private boolean hasSortedSetFacetFields() {
+        for (String fieldName : facetFields) {
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
+            if (fd != null && fd.getFieldType() == ShaclIndexMapping.FieldType.KEYWORD) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public List<String> resolveSearchFields(List<String> fieldIRIs) {
@@ -589,8 +620,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 if (fieldDef.isStored()) {
                     doc.add(new StoredField(fieldName, intVal));
                 }
-                if (fieldDef.isSortable()) {
-                    doc.add(new NumericDocValuesField(fieldName, intVal));
+                if (fieldDef.isFacetable() || fieldDef.isSortable()) {
+                    doc.add(new SortedNumericDocValuesField(fieldName, intVal));
                 }
                 break;
             }
@@ -603,8 +634,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 if (fieldDef.isStored()) {
                     doc.add(new StoredField(fieldName, longVal));
                 }
-                if (fieldDef.isSortable()) {
-                    doc.add(new NumericDocValuesField(fieldName, longVal));
+                if (fieldDef.isFacetable() || fieldDef.isSortable()) {
+                    doc.add(new SortedNumericDocValuesField(fieldName, longVal));
                 }
                 break;
             }
@@ -617,8 +648,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 if (fieldDef.isStored()) {
                     doc.add(new StoredField(fieldName, dblVal));
                 }
-                if (fieldDef.isSortable()) {
-                    doc.add(new NumericDocValuesField(fieldName, Double.doubleToRawLongBits(dblVal)));
+                if (fieldDef.isFacetable() || fieldDef.isSortable()) {
+                    doc.add(new SortedNumericDocValuesField(fieldName, NumericUtils.doubleToSortableLong(dblVal)));
                 }
                 break;
             }
@@ -791,25 +822,25 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     }
 
     public Map<String, List<FacetValue>> getFacetCounts(List<String> facetFieldsToQuery, int maxValues) {
-        return getFacetCounts(null, null, facetFieldsToQuery, maxValues);
+        return getFacetCounts(null, null, FacetRequest.flatOnly(facetFieldsToQuery), maxValues, 0);
     }
 
     public Map<String, List<FacetValue>> getFacetCounts(String queryString, List<String> facetFieldsToQuery, int maxValues) {
-        return getFacetCounts(queryString, null, facetFieldsToQuery, maxValues, 0);
+        return getFacetCounts(queryString, null, FacetRequest.flatOnly(facetFieldsToQuery), maxValues, 0);
     }
 
     public Map<String, List<FacetValue>> getFacetCounts(String queryString, List<String> facetFieldsToQuery, int maxValues, int minCount) {
-        return getFacetCounts(queryString, null, facetFieldsToQuery, maxValues, minCount);
+        return getFacetCounts(queryString, null, FacetRequest.flatOnly(facetFieldsToQuery), maxValues, minCount);
     }
 
     public Map<String, List<FacetValue>> getFacetCounts(String queryString, List<String> searchFields,
             List<String> facetFieldsToQuery, int maxValues) {
-        return getFacetCounts(queryString, searchFields, facetFieldsToQuery, maxValues, 0);
+        return getFacetCounts(queryString, searchFields, FacetRequest.flatOnly(facetFieldsToQuery), maxValues, 0);
     }
 
     public Map<String, List<FacetValue>> getFacetCounts(String queryString, List<String> searchFields,
             List<String> facetFieldsToQuery, int maxValues, int minCount) {
-        return getFacetCounts(queryString, searchFields, facetFieldsToQuery, maxValues, minCount, null);
+        return getFacetCounts(queryString, searchFields, FacetRequest.flatOnly(facetFieldsToQuery), maxValues, minCount, null);
     }
 
     /**
@@ -819,10 +850,24 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     public Map<String, List<FacetValue>> getFacetCounts(String queryString, List<String> searchFields,
             List<String> facetFieldsToQuery, int maxValues, int minCount,
             Map<String, String[]> drillDown) {
-        facetFieldsToQuery = resolveFacetFieldNames(facetFieldsToQuery);
+        return getFacetCounts(queryString, searchFields, FacetRequest.flatOnly(facetFieldsToQuery), maxValues, minCount, drillDown);
+    }
+
+    public Map<String, List<FacetValue>> getFacetCounts(String queryString, List<String> searchFields,
+            FacetRequest facetRequest, int maxValues, int minCount) {
+        return getFacetCounts(queryString, searchFields, facetRequest, maxValues, minCount, null);
+    }
+
+    /**
+     * Get flat, hierarchical, and range facet counts from a single FacetsCollector pass.
+     */
+    public Map<String, List<FacetValue>> getFacetCounts(String queryString, List<String> searchFields,
+            FacetRequest facetRequest, int maxValues, int minCount,
+            Map<String, String[]> drillDown) {
+        List<String> facetFieldsToQuery = resolveFacetFieldNames(facetRequest.getFlatFields());
         Map<String, List<FacetValue>> result = new HashMap<>();
 
-        if (facetFieldsToQuery == null || facetFieldsToQuery.isEmpty()) {
+        if ((facetFieldsToQuery == null || facetFieldsToQuery.isEmpty()) && facetRequest.getRangeFields().isEmpty()) {
             return result;
         }
 
@@ -841,6 +886,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             Facets facets = createCombinedFacets(indexReader, fc);
 
             collectFacetResults(facets, facetFieldsToQuery, maxValues, minCount, drillDown, result);
+            collectRangeFacetResults(indexReader, fc, facetRequest.getRangeFields(), maxValues, minCount, result);
         } catch (IOException ex) {
             throw new TextIndexException("getFacetCounts", ex);
         } catch (ParseException ex) {
@@ -861,6 +907,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     private void collectFacetResults(Facets facets, List<String> facetFieldsToQuery,
             int maxValues, int minCount, Map<String, String[]> drillDown,
             Map<String, List<FacetValue>> result) throws IOException {
+        if (facets == null || facetFieldsToQuery == null || facetFieldsToQuery.isEmpty()) {
+            return;
+        }
         for (String fieldSpec : facetFieldsToQuery) {
             List<FacetValue> fieldFacets = new ArrayList<>();
             try {
@@ -880,7 +929,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 if (facetResult != null && facetResult.labelValues != null) {
                     for (LabelAndValue lv : facetResult.labelValues) {
                         if (minCount <= 0 || lv.value.longValue() >= minCount) {
-                            fieldFacets.add(new FacetValue(lv.label, lv.value.longValue()));
+                            fieldFacets.add(FacetValue.ofValue(lv.label, lv.value.longValue()));
                         }
                     }
                 }
@@ -888,21 +937,116 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 log.debug("No facet data for field '{}': {}", fieldSpec, e.getMessage());
             }
 
-            // For hierarchy results, use the child level field name as the key
-            // so that generateBindings() maps to the correct field IRI.
-            String resultKey = fieldSpec;
-            if (shaclMapping != null) {
-                ShaclIndexMapping.HierarchyDef hier = shaclMapping.findHierarchy(fieldSpec);
-                if (hier != null) {
-                    String[] drillPath = (drillDown != null) ? drillDown.get(fieldSpec) : null;
-                    int childLevel = (drillPath != null) ? drillPath.length : 0;
-                    if (childLevel < hier.getDepth()) {
-                        resultKey = hier.getLevel(childLevel).getFieldName();
-                    }
-                }
-            }
-            result.put(resultKey, fieldFacets);
+            result.put(fieldSpec, fieldFacets);
         }
+    }
+
+    private void collectRangeFacetResults(IndexReader indexReader, FacetsCollector fc,
+            List<FacetRequest.RangeFacetSpec> rangeSpecs, int maxValues, int minCount,
+            Map<String, List<FacetValue>> result) throws IOException {
+        if (rangeSpecs == null || rangeSpecs.isEmpty()) {
+            return;
+        }
+
+        FacetsCollector collector = fc;
+        if (collector == null) {
+            IndexSearcher searcher = new IndexSearcher(indexReader);
+            collector = new FacetsCollector();
+            searcher.search(new MatchAllDocsQuery(), collector);
+        }
+
+        for (FacetRequest.RangeFacetSpec spec : rangeSpecs) {
+            ShaclIndexMapping.FieldDef fieldDef = shaclMapping.findField(spec.fieldIri());
+            if (fieldDef == null) {
+                throw new TextIndexException("Unknown range facet field: " + spec.fieldIri());
+            }
+            String fieldName = fieldDef.getFieldName();
+            List<FacetValue> buckets = switch (fieldDef.getFieldType()) {
+                case INT -> collectIntRangeFacetResults(fieldName, spec.boundaries(), collector, maxValues, minCount);
+                case LONG -> collectLongRangeFacetResults(fieldName, spec.boundaries(), collector, maxValues, minCount);
+                case DOUBLE -> collectDoubleRangeFacetResults(fieldName, spec.boundaries(), collector, maxValues, minCount);
+                default -> throw new TextIndexException("Range facet field '" + spec.fieldIri() + "' is not numeric");
+            };
+            result.put(fieldName, buckets);
+        }
+    }
+
+    private List<FacetValue> collectIntRangeFacetResults(String fieldName, List<String> boundaries,
+            FacetsCollector fc, int maxValues, int minCount) throws IOException {
+        List<LongRange> ranges = buildLongRanges(boundaries, true);
+        LongRangeFacetCounts counts = new LongRangeFacetCounts(
+            fieldName, MultiLongValuesSource.fromIntField(fieldName), fc, ranges.toArray(LongRange[]::new));
+        return extractRangeBuckets(counts.getAllChildren(fieldName), boundaries, maxValues, minCount);
+    }
+
+    private List<FacetValue> collectLongRangeFacetResults(String fieldName, List<String> boundaries,
+            FacetsCollector fc, int maxValues, int minCount) throws IOException {
+        List<LongRange> ranges = buildLongRanges(boundaries, false);
+        LongRangeFacetCounts counts = new LongRangeFacetCounts(
+            fieldName, MultiLongValuesSource.fromLongField(fieldName), fc, ranges.toArray(LongRange[]::new));
+        return extractRangeBuckets(counts.getAllChildren(fieldName), boundaries, maxValues, minCount);
+    }
+
+    private List<FacetValue> collectDoubleRangeFacetResults(String fieldName, List<String> boundaries,
+            FacetsCollector fc, int maxValues, int minCount) throws IOException {
+        List<DoubleRange> ranges = buildDoubleRanges(boundaries);
+        DoubleRangeFacetCounts counts = new DoubleRangeFacetCounts(
+            fieldName,
+            MultiDoubleValuesSource.fromField(fieldName, NumericUtils::sortableLongToDouble),
+            fc,
+            ranges.toArray(DoubleRange[]::new));
+        return extractRangeBuckets(counts.getAllChildren(fieldName), boundaries, maxValues, minCount);
+    }
+
+    private static List<LongRange> buildLongRanges(List<String> boundaries, boolean intField) {
+        List<LongRange> ranges = new ArrayList<>();
+        for (int i = 0; i < boundaries.size() - 1; i++) {
+            String low = boundaries.get(i);
+            String high = boundaries.get(i + 1);
+            long min = low != null ? Long.parseLong(low) : (intField ? Integer.MIN_VALUE : Long.MIN_VALUE);
+            long max = high != null ? Long.parseLong(high) : (intField ? Integer.MAX_VALUE : Long.MAX_VALUE);
+            boolean minInclusive = true;
+            boolean maxInclusive = high == null;
+            ranges.add(new LongRange(Integer.toString(i), min, minInclusive, max, maxInclusive));
+        }
+        return ranges;
+    }
+
+    private static List<DoubleRange> buildDoubleRanges(List<String> boundaries) {
+        List<DoubleRange> ranges = new ArrayList<>();
+        for (int i = 0; i < boundaries.size() - 1; i++) {
+            String low = boundaries.get(i);
+            String high = boundaries.get(i + 1);
+            double min = low != null ? Double.parseDouble(low) : Double.NEGATIVE_INFINITY;
+            double max = high != null ? Double.parseDouble(high) : Double.POSITIVE_INFINITY;
+            boolean minInclusive = true;
+            boolean maxInclusive = high == null;
+            ranges.add(new DoubleRange(Integer.toString(i), min, minInclusive, max, maxInclusive));
+        }
+        return ranges;
+    }
+
+    private static List<FacetValue> extractRangeBuckets(FacetResult facetResult, List<String> boundaries,
+            int maxValues, int minCount) {
+        List<FacetValue> buckets = new ArrayList<>();
+        if (facetResult == null || facetResult.labelValues == null) {
+            return buckets;
+        }
+
+        int emitted = 0;
+        for (LabelAndValue lv : facetResult.labelValues) {
+            long count = lv.value.longValue();
+            if (minCount > 0 && count < minCount) {
+                continue;
+            }
+            int rangeIndex = Integer.parseInt(lv.label);
+            buckets.add(FacetValue.ofRange(boundaries.get(rangeIndex), boundaries.get(rangeIndex + 1), count));
+            emitted++;
+            if (maxValues > 0 && emitted >= maxValues) {
+                break;
+            }
+        }
+        return buckets;
     }
 
     /**
@@ -1067,11 +1211,14 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * facet dimensions. Uses {@link MultiFacets} when hierarchies are configured.
      */
     private Facets createCombinedFacets(IndexReader indexReader, FacetsCollector fc) throws IOException {
-        SortedSetDocValuesReaderState state =
-            new DefaultSortedSetDocValuesReaderState(indexReader, facetsConfig);
-        Facets flatFacets = (fc != null)
-            ? new SortedSetDocValuesFacetCounts(state, fc)
-            : new SortedSetDocValuesFacetCounts(state);
+        Facets flatFacets = null;
+        if (hasSortedSetFacetFields()) {
+            SortedSetDocValuesReaderState state =
+                new DefaultSortedSetDocValuesReaderState(indexReader, facetsConfig);
+            flatFacets = (fc != null)
+                ? new SortedSetDocValuesFacetCounts(state, fc)
+                : new SortedSetDocValuesFacetCounts(state);
+        }
 
         if (taxoDirectory == null || hierarchyDimensions.isEmpty()) {
             return flatFacets;
@@ -1092,7 +1239,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         for (String dim : hierarchyDimensions) {
             dimToFacets.put(dim, taxoFacets);
         }
-        return new MultiFacets(dimToFacets, flatFacets);
+        return flatFacets != null ? new MultiFacets(dimToFacets, flatFacets) : new MultiFacets(dimToFacets);
     }
 
     /**
@@ -1385,11 +1532,18 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     public Map<String, List<FacetValue>> getFacetCountsWithCql(
             String queryString, List<String> searchFields, List<String> facetFieldsToQuery,
             CqlExpression cqlFilter, int maxValues, int minCount) {
+        return getFacetCountsWithCql(queryString, searchFields, FacetRequest.flatOnly(facetFieldsToQuery),
+            cqlFilter, maxValues, minCount);
+    }
 
-        facetFieldsToQuery = resolveFacetFieldNames(facetFieldsToQuery);
+    public Map<String, List<FacetValue>> getFacetCountsWithCql(
+            String queryString, List<String> searchFields, FacetRequest facetRequest,
+            CqlExpression cqlFilter, int maxValues, int minCount) {
+
+        List<String> facetFieldsToQuery = resolveFacetFieldNames(facetRequest.getFlatFields());
         Map<String, List<FacetValue>> result = new HashMap<>();
 
-        if (facetFieldsToQuery == null || facetFieldsToQuery.isEmpty()) {
+        if ((facetFieldsToQuery == null || facetFieldsToQuery.isEmpty()) && facetRequest.getRangeFields().isEmpty()) {
             return result;
         }
 
@@ -1429,6 +1583,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             Map<String, String[]> drillDown = extractHierarchyDrillDown(cqlFilter, facetFieldsToQuery);
 
             collectFacetResults(facets, facetFieldsToQuery, maxValues, minCount, drillDown, result);
+            collectRangeFacetResults(indexReader, fc, facetRequest.getRangeFields(), maxValues, minCount, result);
         } catch (IOException ex) {
             throw new TextIndexException("getFacetCountsWithCql", ex);
         } catch (ParseException ex) {
@@ -1497,7 +1652,14 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 };
             }
 
-            fields[i] = new SortField(luceneFieldName, sortType, spec.descending());
+            if (fd != null && isNumericField(fd)) {
+                SortedNumericSelector.Type selector = spec.descending()
+                    ? SortedNumericSelector.Type.MAX
+                    : SortedNumericSelector.Type.MIN;
+                fields[i] = new SortedNumericSortField(luceneFieldName, sortType, spec.descending(), selector);
+            } else {
+                fields[i] = new SortField(luceneFieldName, sortType, spec.descending());
+            }
         }
         return new Sort(fields);
     }

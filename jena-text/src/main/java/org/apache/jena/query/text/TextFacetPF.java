@@ -27,6 +27,8 @@ import java.util.Map;
 
 import org.apache.jena.atlas.json.JSON;
 import org.apache.jena.atlas.json.JsonArray;
+import org.apache.jena.atlas.json.JsonObject;
+import org.apache.jena.atlas.json.JsonValue;
 import org.apache.jena.atlas.logging.Log;
 import org.apache.jena.datatypes.xsd.XSDDatatype;
 import org.apache.jena.graph.Node;
@@ -55,6 +57,7 @@ import org.slf4j.LoggerFactory;
  * <b>Syntax:</b>
  * <pre>
  * (?field ?value ?count) luc:facet (fieldSpec queryString '["field1","field2"]' cqlFilter? maxValues? minCount?)
+ * (?field ?value ?low ?high ?count) luc:facet (...)
  * </pre>
  * <p>
  * The first string literal is the field specification for text query scoping
@@ -74,8 +77,11 @@ public class TextFacetPF extends PropertyFunctionBase {
 
         if (argSubject.isList()) {
             int size = argSubject.getArgListSize();
-            if (size < 1 || size > 3) {
-                throw new QueryBuildException("Subject must have 1-3 elements (field, value, count): " + argSubject);
+            if (size == 4) {
+                throw new QueryBuildException("Subject arity 4 is not supported; use 3 variables for flat/hierarchical facets or 5 for range facets");
+            }
+            if (size < 1 || size > 5) {
+                throw new QueryBuildException("Subject must have 1-3 elements for legacy facets or 5 elements for range facets: " + argSubject);
             }
         }
 
@@ -126,39 +132,12 @@ public class TextFacetPF extends PropertyFunctionBase {
         argSubject = Substitute.substitute(argSubject, binding);
         argObject = Substitute.substitute(argObject, binding);
 
-        // Parse subject variables: (?field ?value ?count)
-        Node fieldNode = null;
-        Node valueNode = null;
-        Node countNode = null;
-
-        if (argSubject.isList()) {
-            List<Node> subjList = argSubject.getArgList();
-            fieldNode = subjList.get(0);
-            if (!fieldNode.isVariable()) {
-                throw new QueryExecException("Field must be a variable: " + argSubject);
-            }
-            if (subjList.size() > 1) {
-                valueNode = subjList.get(1);
-                if (!valueNode.isVariable()) {
-                    throw new QueryExecException("Value must be a variable: " + argSubject);
-                }
-            }
-            if (subjList.size() > 2) {
-                countNode = subjList.get(2);
-                if (!countNode.isVariable()) {
-                    throw new QueryExecException("Count must be a variable: " + argSubject);
-                }
-            }
-        } else {
-            fieldNode = argSubject.getArg();
-            if (!fieldNode.isVariable()) {
-                throw new QueryExecException("Subject must be a variable: " + argSubject);
-            }
-        }
+        // Parse subject variables: (?field ?value ?count) or (?field ?value ?low ?high ?count)
+        SubjectVars subjectVars = parseSubjectVars(argSubject);
 
         // Parse object arguments
         FacetArgs args = parseObjectArgs(argObject);
-        if (args == null || args.facetFields.isEmpty()) {
+        if (args == null || args.facetRequest.isEmpty()) {
             return IterLib.noResults(execCxt);
         }
 
@@ -177,30 +156,34 @@ public class TextFacetPF extends PropertyFunctionBase {
             return IterLib.noResults(execCxt);
         }
 
+        FacetArgs validatedArgs = validateFacetArgs(args, subjectVars);
+
         // Get facet counts via SearchExecution for shared state
         Map<String, List<FacetValue>> facetCounts;
         try {
             log.debug("TextFacetPF: searchFields={} cqlFilter={} queryString='{}' facetFields={}",
-                args.searchFields, args.cqlFilter, args.queryString, args.facetFields);
+                validatedArgs.searchFields, validatedArgs.cqlFilter, validatedArgs.queryString, validatedArgs.facetRequest);
 
             SearchExecution se = SearchExecution.getOrCreate(
-                execCxt, args.searchFields, args.queryString,
-                args.cqlFilter, null, textIndex, null, null);
-            facetCounts = se.getFacetCounts(args.facetFields, args.maxValues, args.minCount);
+                execCxt, validatedArgs.searchFields, validatedArgs.queryString,
+                validatedArgs.cqlFilter, null, textIndex, null, null);
+            facetCounts = se.getFacetCounts(validatedArgs.facetRequest, validatedArgs.maxValues, validatedArgs.minCount);
         } catch (Exception e) {
             log.error("Error getting facet counts: {}", e.getMessage());
             return IterLib.noResults(execCxt);
         }
 
-        return generateBindings(binding, fieldNode, valueNode, countNode, facetCounts, execCxt);
+        return generateBindings(binding, subjectVars, facetCounts, execCxt);
     }
 
-    private QueryIterator generateBindings(Binding binding, Node fieldNode, Node valueNode, Node countNode,
+    private QueryIterator generateBindings(Binding binding, SubjectVars subjectVars,
             Map<String, List<FacetValue>> facetCounts, ExecutionContext execCxt) {
 
-        Var fieldVar = Var.isVar(fieldNode) ? Var.alloc(fieldNode) : null;
-        Var valueVar = valueNode != null ? Var.alloc(valueNode) : null;
-        Var countVar = countNode != null ? Var.alloc(countNode) : null;
+        Var fieldVar = Var.isVar(subjectVars.fieldNode) ? Var.alloc(subjectVars.fieldNode) : null;
+        Var valueVar = subjectVars.valueNode != null ? Var.alloc(subjectVars.valueNode) : null;
+        Var lowVar = subjectVars.lowNode != null ? Var.alloc(subjectVars.lowNode) : null;
+        Var highVar = subjectVars.highNode != null ? Var.alloc(subjectVars.highNode) : null;
+        Var countVar = subjectVars.countNode != null ? Var.alloc(subjectVars.countNode) : null;
 
         ShaclIndexMapping mapping = textIndex.getShaclMapping();
         List<Binding> bindings = new ArrayList<>();
@@ -214,8 +197,14 @@ public class TextFacetPF extends PropertyFunctionBase {
                     builder.add(fieldVar, fd != null ? fd.getFieldIRI()
                         : NodeFactory.createLiteralString(field));
                 }
-                if (valueVar != null) {
+                if (valueVar != null && fv.getKind() == FacetValue.Kind.VALUE) {
                     builder.add(valueVar, facetValueNode(fd, fv.getValue()));
+                }
+                if (lowVar != null && fv.getKind() == FacetValue.Kind.RANGE && fv.getLow() != null) {
+                    builder.add(lowVar, facetValueNode(fd, fv.getLow()));
+                }
+                if (highVar != null && fv.getKind() == FacetValue.Kind.RANGE && fv.getHigh() != null) {
+                    builder.add(highVar, facetValueNode(fd, fv.getHigh()));
                 }
                 if (countVar != null) {
                     builder.add(countVar, NodeFactory.createLiteralDT(
@@ -255,6 +244,7 @@ public class TextFacetPF extends PropertyFunctionBase {
         List<String> searchFields = new ArrayList<>();
         String queryString = null;
         List<String> facetFields = new ArrayList<>();
+        List<FacetRequest.RangeFacetSpec> rangeFields = new ArrayList<>();
         CqlExpression cqlFilter = null;
         int maxValues = 10;
         int minCount = 0;
@@ -296,11 +286,7 @@ public class TextFacetPF extends PropertyFunctionBase {
             if (n.isLiteral()) {
                 String lex = n.getLiteralLexicalForm();
                 if (lex.startsWith("[")) {
-                    // JSON array: facet field names
-                    JsonArray arr = JSON.parseAny(lex).getAsArray();
-                    for (int i = 0; i < arr.size(); i++) {
-                        facetFields.add(arr.get(i).getAsString().value());
-                    }
+                    parseFacetRequestArray(lex, facetFields, rangeFields);
                 } else if (lex.startsWith("{")) {
                     // JSON object: CQL filter (has "op" key)
                     if (lex.contains("\"op\"")) {
@@ -324,7 +310,163 @@ public class TextFacetPF extends PropertyFunctionBase {
             idx++;
         }
 
-        return new FacetArgs(searchFields, queryString, facetFields, cqlFilter, maxValues, minCount);
+        return new FacetArgs(searchFields, queryString, new FacetRequest(facetFields, rangeFields), cqlFilter, maxValues, minCount);
+    }
+
+    private void parseFacetRequestArray(String json, List<String> facetFields, List<FacetRequest.RangeFacetSpec> rangeFields) {
+        JsonArray arr = JSON.parseAny(json).getAsArray();
+        for (int i = 0; i < arr.size(); i++) {
+            JsonValue item = arr.get(i);
+            if (item.isString()) {
+                facetFields.add(item.getAsString().value());
+                continue;
+            }
+            if (!item.isObject()) {
+                throw new QueryExecException("Facet request entries must be strings or range objects");
+            }
+            JsonObject obj = item.getAsObject();
+            if (!obj.hasKey("field") || !obj.hasKey("ranges")) {
+                throw new QueryExecException("Range facet objects must contain 'field' and 'ranges'");
+            }
+            String field = obj.get("field").getAsString().value();
+            JsonArray ranges = obj.get("ranges").getAsArray();
+            List<String> boundaries = new ArrayList<>(ranges.size());
+            for (int j = 0; j < ranges.size(); j++) {
+                JsonValue rangeValue = ranges.get(j);
+                if (rangeValue.isNull()) {
+                    boundaries.add(null);
+                } else if (rangeValue.isNumber()) {
+                    boundaries.add(rangeValue.getAsNumber().value().toString());
+                } else {
+                    throw new QueryExecException("Range boundaries must be numeric or null");
+                }
+            }
+            rangeFields.add(new FacetRequest.RangeFacetSpec(field, boundaries));
+        }
+    }
+
+    private FacetArgs validateFacetArgs(FacetArgs args, SubjectVars subjectVars) {
+        FacetRequest request = args.facetRequest;
+        List<String> validatedFlatFields = new ArrayList<>();
+        for (String field : request.getFlatFields()) {
+            if ("*".equals(field)) {
+                validatedFlatFields.add(field);
+                continue;
+            }
+            ShaclIndexMapping.FieldDef fd = textIndex.getShaclMapping().findField(field);
+            if (fd != null && isNumericField(fd)) {
+                throw new QueryExecException("Numeric facet field <" + field + "> requires a range object and the 5-slot luc:facet subject form");
+            }
+            validatedFlatFields.add(field);
+        }
+
+        List<FacetRequest.RangeFacetSpec> validatedRanges = new ArrayList<>();
+        for (FacetRequest.RangeFacetSpec spec : request.getRangeFields()) {
+            ShaclIndexMapping.FieldDef fd = textIndex.getShaclMapping().findField(spec.fieldIri());
+            if (!subjectVars.isFiveSlot()) {
+                throw new QueryExecException("Range facets require the 5-slot luc:facet subject form");
+            }
+            if (fd == null) {
+                throw new QueryExecException("Unknown range facet field <" + spec.fieldIri() + ">");
+            }
+            if (!isNumericField(fd)) {
+                throw new QueryExecException("Range object field <" + spec.fieldIri() + "> is not numeric; use a string facet target instead");
+            }
+            if (!fd.isFacetable()) {
+                throw new QueryExecException("Range facet field <" + spec.fieldIri() + "> is not facetable");
+            }
+            validateBoundaries(fd, spec);
+            validatedRanges.add(spec);
+        }
+
+        if (!validatedRanges.isEmpty() && !subjectVars.isFiveSlot()) {
+            throw new QueryExecException("Range facets require the 5-slot luc:facet subject form");
+        }
+
+        return new FacetArgs(args.searchFields, args.queryString, new FacetRequest(validatedFlatFields, validatedRanges),
+            args.cqlFilter, args.maxValues, args.minCount);
+    }
+
+    private void validateBoundaries(ShaclIndexMapping.FieldDef fd, FacetRequest.RangeFacetSpec spec) {
+        List<String> boundaries = spec.boundaries();
+        if (boundaries.size() < 2) {
+            throw new QueryExecException("Range facet field <" + spec.fieldIri() + "> must have at least two boundaries");
+        }
+        for (int i = 0; i < boundaries.size(); i++) {
+            String boundary = boundaries.get(i);
+            if (boundary == null && i != 0 && i != boundaries.size() - 1) {
+                throw new QueryExecException("Null range boundaries are allowed only at the start or end");
+            }
+            if (boundary == null) {
+                continue;
+            }
+            switch (fd.getFieldType()) {
+                case INT -> Integer.parseInt(boundary);
+                case LONG -> Long.parseLong(boundary);
+                case DOUBLE -> {
+                    double v = Double.parseDouble(boundary);
+                    if (Double.isNaN(v) || Double.isInfinite(v)) {
+                        throw new QueryExecException("DOUBLE range boundaries must be finite");
+                    }
+                }
+                default -> throw new QueryExecException("Range object field <" + spec.fieldIri() + "> is not numeric; use a string facet target instead");
+            }
+            if (i > 0 && boundaries.get(i - 1) != null) {
+                if (compareNumericLexical(fd, boundaries.get(i - 1), boundary) >= 0) {
+                    throw new QueryExecException("Range boundaries for <" + spec.fieldIri() + "> must be strictly increasing");
+                }
+            }
+        }
+    }
+
+    private int compareNumericLexical(ShaclIndexMapping.FieldDef fd, String left, String right) {
+        return switch (fd.getFieldType()) {
+            case INT -> Integer.compare(Integer.parseInt(left), Integer.parseInt(right));
+            case LONG -> Long.compare(Long.parseLong(left), Long.parseLong(right));
+            case DOUBLE -> Double.compare(Double.parseDouble(left), Double.parseDouble(right));
+            default -> throw new IllegalArgumentException("Field is not numeric: " + fd.getFieldName());
+        };
+    }
+
+    private static boolean isNumericField(ShaclIndexMapping.FieldDef fd) {
+        return switch (fd.getFieldType()) {
+            case INT, LONG, DOUBLE -> true;
+            default -> false;
+        };
+    }
+
+    private SubjectVars parseSubjectVars(PropFuncArg argSubject) {
+        if (!argSubject.isList()) {
+            Node fieldNode = argSubject.getArg();
+            if (!fieldNode.isVariable()) {
+                throw new QueryExecException("Subject must be a variable: " + argSubject);
+            }
+            return new SubjectVars(fieldNode, null, null, null, null);
+        }
+
+        List<Node> subjList = argSubject.getArgList();
+        if (subjList.size() == 4) {
+            throw new QueryExecException("Subject arity 4 is not supported; use 3 variables for flat/hierarchical facets or 5 for range facets");
+        }
+        Node fieldNode = requireVariable(subjList.get(0), "Field", argSubject);
+        if (subjList.size() == 5) {
+            return new SubjectVars(
+                fieldNode,
+                requireVariable(subjList.get(1), "Value", argSubject),
+                requireVariable(subjList.get(2), "Low", argSubject),
+                requireVariable(subjList.get(3), "High", argSubject),
+                requireVariable(subjList.get(4), "Count", argSubject));
+        }
+        Node valueNode = subjList.size() > 1 ? requireVariable(subjList.get(1), "Value", argSubject) : null;
+        Node countNode = subjList.size() > 2 ? requireVariable(subjList.get(2), "Count", argSubject) : null;
+        return new SubjectVars(fieldNode, valueNode, null, null, countNode);
+    }
+
+    private Node requireVariable(Node node, String label, PropFuncArg argSubject) {
+        if (!node.isVariable()) {
+            throw new QueryExecException(label + " must be a variable: " + argSubject);
+        }
+        return node;
     }
 
     private static boolean isInteger(String s) {
@@ -339,19 +481,39 @@ public class TextFacetPF extends PropertyFunctionBase {
     private static class FacetArgs {
         final List<String> searchFields;
         final String queryString;
-        final List<String> facetFields;
+        final FacetRequest facetRequest;
         final CqlExpression cqlFilter;
         final int maxValues;
         final int minCount;
 
-        FacetArgs(List<String> searchFields, String queryString, List<String> facetFields,
+        FacetArgs(List<String> searchFields, String queryString, FacetRequest facetRequest,
                   CqlExpression cqlFilter, int maxValues, int minCount) {
             this.searchFields = searchFields;
             this.queryString = queryString;
-            this.facetFields = facetFields;
+            this.facetRequest = facetRequest;
             this.cqlFilter = cqlFilter;
             this.maxValues = maxValues;
             this.minCount = minCount;
+        }
+    }
+
+    private static class SubjectVars {
+        final Node fieldNode;
+        final Node valueNode;
+        final Node lowNode;
+        final Node highNode;
+        final Node countNode;
+
+        SubjectVars(Node fieldNode, Node valueNode, Node lowNode, Node highNode, Node countNode) {
+            this.fieldNode = fieldNode;
+            this.valueNode = valueNode;
+            this.lowNode = lowNode;
+            this.highNode = highNode;
+            this.countNode = countNode;
+        }
+
+        boolean isFiveSlot() {
+            return lowNode != null || highNode != null;
         }
     }
 }
