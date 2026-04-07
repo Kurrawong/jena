@@ -146,8 +146,8 @@ public class TestHierarchicalFacetsSparql {
         // Request facets on a hierarchy level field IRI — auto-resolves to the dimension.
         // Requesting the type field (level 0) returns top-level hierarchy values.
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n"
-            + "SELECT ?field ?value ?count WHERE {\n"
-            + "  (?field ?value ?count) luc:facet (\"default\" \"*\" '[\"urn:jena:lucene:field#type\"]' 10)\n"
+            + "SELECT ?field ?value ?low ?high ?count WHERE {\n"
+            + "  (?field ?value ?low ?high ?count) luc:facet (\"default\" \"*\" '[\"urn:jena:lucene:field#type\"]' 10)\n"
             + "}";
 
         dataset.begin(ReadWrite.READ);
@@ -173,8 +173,8 @@ public class TestHierarchicalFacetsSparql {
         // Requesting facets on subtype (child level) with type=Water filter
         // auto-detects hierarchy membership and returns subtype children under Water.
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n"
-            + "SELECT ?field ?value ?count WHERE {\n"
-            + "  (?field ?value ?count) luc:facet (\"default\" \"*\""
+            + "SELECT ?field ?value ?low ?high ?count WHERE {\n"
+            + "  (?field ?value ?low ?high ?count) luc:facet (\"default\" \"*\""
             + " '[\"urn:jena:lucene:field#subtype\"]'"
             + " '{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#type\"},\"Water\"]}'"
             + " 10)\n"
@@ -202,8 +202,8 @@ public class TestHierarchicalFacetsSparql {
     public void testFlatFacetsStillWorkWithHierarchy() {
         // Flat facets (type, subtype) should still work alongside hierarchy
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n"
-            + "SELECT ?field ?value ?count WHERE {\n"
-            + "  (?field ?value ?count) luc:facet (\"default\" \"*\" '[\"type\"]' 10)\n"
+            + "SELECT ?field ?value ?low ?high ?count WHERE {\n"
+            + "  (?field ?value ?low ?high ?count) luc:facet (\"default\" \"*\" '[\"type\"]' 10)\n"
             + "}";
 
         dataset.begin(ReadWrite.READ);

@@ -7,8 +7,8 @@
 
 PREFIX luc: <urn:jena:lucene:index#>
 
-SELECT ?field ?value ?count
+SELECT ?field ?value ?low ?high ?count
 WHERE {
-    (?field ?value ?count) luc:facet ("default" "*" '["authorName", "state"]' 10)
+    (?field ?value ?low ?high ?count) luc:facet ("default" "*" '["authorName", "state"]' 10)
 }
 ORDER BY ?field DESC(?count)

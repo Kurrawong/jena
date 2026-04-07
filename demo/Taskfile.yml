@@ -75,6 +75,11 @@ tasks:
           - queries/06-sequence-path-facet.rq
           - queries/07-filter-by-author.rq
           - queries/08-spatial-bbox.rq
+          - queries/09-matchraw-multivalue.rq
+          - queries/10-match-field-details.rq
+          - queries/11-hierarchical-facets.rq
+          - queries/12-range-facets.rq
+          - queries/13-mixed-facets.rq
         cmd: |
           echo "=== {{.ITEM}} ==="
           curl -s -X POST "{{.SERVER_URL}}/mining/query" \

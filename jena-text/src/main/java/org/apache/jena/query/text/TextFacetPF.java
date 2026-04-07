@@ -56,7 +56,6 @@ import org.slf4j.LoggerFactory;
  * <p>
  * <b>Syntax:</b>
  * <pre>
- * (?field ?value ?count) luc:facet (fieldSpec queryString '["field1","field2"]' cqlFilter? maxValues? minCount?)
  * (?field ?value ?low ?high ?count) luc:facet (...)
  * </pre>
  * <p>
@@ -77,12 +76,11 @@ public class TextFacetPF extends PropertyFunctionBase {
 
         if (argSubject.isList()) {
             int size = argSubject.getArgListSize();
-            if (size == 4) {
-                throw new QueryBuildException("Subject arity 4 is not supported; use 3 variables for flat/hierarchical facets or 5 for range facets");
+            if (size != 5) {
+                throw new QueryBuildException("Subject must have exactly 5 variables: (field value low high count)");
             }
-            if (size < 1 || size > 5) {
-                throw new QueryBuildException("Subject must have 1-3 elements for legacy facets or 5 elements for range facets: " + argSubject);
-            }
+        } else {
+            throw new QueryBuildException("Subject must be a 5-element variable list: (field value low high count)");
         }
 
         if (argObject.isList()) {
@@ -132,7 +130,7 @@ public class TextFacetPF extends PropertyFunctionBase {
         argSubject = Substitute.substitute(argSubject, binding);
         argObject = Substitute.substitute(argObject, binding);
 
-        // Parse subject variables: (?field ?value ?count) or (?field ?value ?low ?high ?count)
+        // Parse subject variables: (?field ?value ?low ?high ?count)
         SubjectVars subjectVars = parseSubjectVars(argSubject);
 
         // Parse object arguments
@@ -156,7 +154,7 @@ public class TextFacetPF extends PropertyFunctionBase {
             return IterLib.noResults(execCxt);
         }
 
-        FacetArgs validatedArgs = validateFacetArgs(args, subjectVars);
+        FacetArgs validatedArgs = validateFacetArgs(args);
 
         // Get facet counts via SearchExecution for shared state
         Map<String, List<FacetValue>> facetCounts;
@@ -345,7 +343,7 @@ public class TextFacetPF extends PropertyFunctionBase {
         }
     }
 
-    private FacetArgs validateFacetArgs(FacetArgs args, SubjectVars subjectVars) {
+    private FacetArgs validateFacetArgs(FacetArgs args) {
         FacetRequest request = args.facetRequest;
         List<String> validatedFlatFields = new ArrayList<>();
         for (String field : request.getFlatFields()) {
@@ -355,7 +353,7 @@ public class TextFacetPF extends PropertyFunctionBase {
             }
             ShaclIndexMapping.FieldDef fd = textIndex.getShaclMapping().findField(field);
             if (fd != null && isNumericField(fd)) {
-                throw new QueryExecException("Numeric facet field <" + field + "> requires a range object and the 5-slot luc:facet subject form");
+                throw new QueryExecException("Numeric facet field <" + field + "> requires a range object");
             }
             validatedFlatFields.add(field);
         }
@@ -363,9 +361,6 @@ public class TextFacetPF extends PropertyFunctionBase {
         List<FacetRequest.RangeFacetSpec> validatedRanges = new ArrayList<>();
         for (FacetRequest.RangeFacetSpec spec : request.getRangeFields()) {
             ShaclIndexMapping.FieldDef fd = textIndex.getShaclMapping().findField(spec.fieldIri());
-            if (!subjectVars.isFiveSlot()) {
-                throw new QueryExecException("Range facets require the 5-slot luc:facet subject form");
-            }
             if (fd == null) {
                 throw new QueryExecException("Unknown range facet field <" + spec.fieldIri() + ">");
             }
@@ -377,10 +372,6 @@ public class TextFacetPF extends PropertyFunctionBase {
             }
             validateBoundaries(fd, spec);
             validatedRanges.add(spec);
-        }
-
-        if (!validatedRanges.isEmpty() && !subjectVars.isFiveSlot()) {
-            throw new QueryExecException("Range facets require the 5-slot luc:facet subject form");
         }
 
         return new FacetArgs(args.searchFields, args.queryString, new FacetRequest(validatedFlatFields, validatedRanges),
@@ -436,30 +427,17 @@ public class TextFacetPF extends PropertyFunctionBase {
     }
 
     private SubjectVars parseSubjectVars(PropFuncArg argSubject) {
-        if (!argSubject.isList()) {
-            Node fieldNode = argSubject.getArg();
-            if (!fieldNode.isVariable()) {
-                throw new QueryExecException("Subject must be a variable: " + argSubject);
-            }
-            return new SubjectVars(fieldNode, null, null, null, null);
-        }
-
         List<Node> subjList = argSubject.getArgList();
-        if (subjList.size() == 4) {
-            throw new QueryExecException("Subject arity 4 is not supported; use 3 variables for flat/hierarchical facets or 5 for range facets");
+        if (subjList.size() != 5) {
+            throw new QueryExecException("Subject must have exactly 5 variables: (field value low high count)");
         }
         Node fieldNode = requireVariable(subjList.get(0), "Field", argSubject);
-        if (subjList.size() == 5) {
-            return new SubjectVars(
-                fieldNode,
-                requireVariable(subjList.get(1), "Value", argSubject),
-                requireVariable(subjList.get(2), "Low", argSubject),
-                requireVariable(subjList.get(3), "High", argSubject),
-                requireVariable(subjList.get(4), "Count", argSubject));
-        }
-        Node valueNode = subjList.size() > 1 ? requireVariable(subjList.get(1), "Value", argSubject) : null;
-        Node countNode = subjList.size() > 2 ? requireVariable(subjList.get(2), "Count", argSubject) : null;
-        return new SubjectVars(fieldNode, valueNode, null, null, countNode);
+        return new SubjectVars(
+            fieldNode,
+            requireVariable(subjList.get(1), "Value", argSubject),
+            requireVariable(subjList.get(2), "Low", argSubject),
+            requireVariable(subjList.get(3), "High", argSubject),
+            requireVariable(subjList.get(4), "Count", argSubject));
     }
 
     private Node requireVariable(Node node, String label, PropFuncArg argSubject) {
@@ -510,10 +488,6 @@ public class TextFacetPF extends PropertyFunctionBase {
             this.lowNode = lowNode;
             this.highNode = highNode;
             this.countNode = countNode;
-        }
-
-        boolean isFiveSlot() {
-            return lowNode != null || highNode != null;
         }
     }
 }
