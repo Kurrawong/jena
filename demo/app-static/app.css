@@ -720,8 +720,18 @@ code {
 
 /* ── Hierarchy facets ── */
 .hierarchy-row {
-  cursor: pointer;
   user-select: none;
+}
+.hierarchy-chevron-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
 }
 .hierarchy-chevron {
   display: inline-block;
@@ -736,8 +746,15 @@ code {
   margin-left: 0.35em;
 }
 .hierarchy-child {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
   font-size: 0.75rem;
   opacity: 0.9;
+}
+.hierarchy-child.is-selected {
+  color: var(--amber);
 }
 .hierarchy-loading,
 .hierarchy-empty {

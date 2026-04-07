@@ -165,9 +165,14 @@
                         <div>
                           <template x-for="fv in visibleFacets(fieldName)" :key="fv.value">
                             <div class="hierarchy-parent">
-                              <div class="facet-option hierarchy-row" @click="toggleHierarchy(fieldName, fv.value)">
-                                <span class="hierarchy-chevron"
+                              <div class="facet-option hierarchy-row">
+                                <button class="hierarchy-chevron-btn"
+                                        type="button"
+                                        @click="toggleHierarchy(fieldName, fv.value)"
+                                        :aria-label="(isHierarchyOpen(fieldName, fv.value) ? 'Collapse ' : 'Expand ') + (fv.label || fv.value)">
+                                  <span class="hierarchy-chevron"
                                       x-text="isHierarchyOpen(fieldName, fv.value) ? '\u25BE' : '\u25B8'"></span>
+                                </button>
                                 <span class="facet-value" x-text="fv.label || fv.value" :title="fv.value"></span>
                                 <span class="facet-count" x-text="fv.count"></span>
                               </div>
@@ -177,10 +182,13 @@
                                     <div class="hierarchy-loading">Loading...</div>
                                   </template>
                                   <template x-for="child in getHierarchyChildren(fieldName, fv.value)" :key="child.value">
-                                    <div class="facet-option hierarchy-child">
+                                    <button class="facet-option hierarchy-child"
+                                            type="button"
+                                            :class="{ 'is-selected': isHierarchyChildSelected(fieldName, child.value) }"
+                                            @click="toggleHierarchyChild(fieldName, fv.value, child.value)">
                                       <span class="facet-value" x-text="child.label || child.value" :title="child.value"></span>
                                       <span class="facet-count" x-text="child.count"></span>
-                                    </div>
+                                    </button>
                                   </template>
                                   <template x-if="!isHierarchyLoading(fieldName, fv.value) && getHierarchyChildren(fieldName, fv.value).length === 0">
                                     <div class="hierarchy-empty">No children</div>
