@@ -159,15 +159,62 @@
                   <template x-if="(facets[fieldName] || []).length > 0">
                     <details class="facet-group" open>
                       <summary class="facet-group-label" x-text="fieldName" :title="fieldIRIs[fieldName] || fieldName"></summary>
-                      <template x-for="fv in visibleFacets(fieldName)" :key="fv.value">
-                        <label class="facet-option">
-                          <input type="checkbox"
-                                 :checked="isSelected(fieldName, fv.value)"
-                                 @change="toggleFacet(fieldName, fv.value)">
-                          <span class="facet-value" x-text="fv.label || fv.value" :title="fv.value"></span>
-                          <span class="facet-count" x-text="fv.count"></span>
-                        </label>
+
+                      <!-- Hierarchy facets: expandable tree -->
+                      <template x-if="isHierarchy(fieldName)">
+                        <div>
+                          <template x-for="fv in visibleFacets(fieldName)" :key="fv.value">
+                            <div class="hierarchy-parent">
+                              <div class="facet-option hierarchy-row">
+                                <button class="hierarchy-chevron-btn"
+                                        type="button"
+                                        @click="toggleHierarchy(fieldName, fv.value)"
+                                        :aria-label="(isHierarchyOpen(fieldName, fv.value) ? 'Collapse ' : 'Expand ') + (fv.label || fv.value)">
+                                  <span class="hierarchy-chevron"
+                                      x-text="isHierarchyOpen(fieldName, fv.value) ? '\u25BE' : '\u25B8'"></span>
+                                </button>
+                                <span class="facet-value" x-text="fv.label || fv.value" :title="fv.value"></span>
+                                <span class="facet-count" x-text="fv.count"></span>
+                              </div>
+                              <template x-if="isHierarchyOpen(fieldName, fv.value)">
+                                <div class="hierarchy-children">
+                                  <template x-if="isHierarchyLoading(fieldName, fv.value)">
+                                    <div class="hierarchy-loading">Loading...</div>
+                                  </template>
+                                  <template x-for="child in getHierarchyChildren(fieldName, fv.value)" :key="child.value">
+                                    <button class="facet-option hierarchy-child"
+                                            type="button"
+                                            :class="{ 'is-selected': isHierarchyChildSelected(fieldName, child.value) }"
+                                            @click="toggleHierarchyChild(fieldName, fv.value, child.value)">
+                                      <span class="facet-value" x-text="child.label || child.value" :title="child.value"></span>
+                                      <span class="facet-count" x-text="child.count"></span>
+                                    </button>
+                                  </template>
+                                  <template x-if="!isHierarchyLoading(fieldName, fv.value) && getHierarchyChildren(fieldName, fv.value).length === 0">
+                                    <div class="hierarchy-empty">No children</div>
+                                  </template>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
+                        </div>
                       </template>
+
+                      <!-- Flat facets: checkboxes -->
+                      <template x-if="!isHierarchy(fieldName)">
+                        <div>
+                          <template x-for="fv in visibleFacets(fieldName)" :key="fv.value">
+                            <label class="facet-option">
+                              <input type="checkbox"
+                                     :checked="isSelected(fieldName, fv.value)"
+                                     @change="toggleFacet(fieldName, fv.value)">
+                              <span class="facet-value" x-text="fv.label || fv.value" :title="fv.value"></span>
+                              <span class="facet-count" x-text="fv.count"></span>
+                            </label>
+                          </template>
+                        </div>
+                      </template>
+
                       <template x-if="(facets[fieldName] || []).length > 5">
                         <button class="facet-toggle-btn"
                                 @click="facetExpanded[fieldName] = !facetExpanded[fieldName]">

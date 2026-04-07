@@ -7,7 +7,7 @@
 mvn test -pl jena-text
 
 # Only SHACL / faceting tests
-mvn test -pl jena-text -Dtest="TestShaclIndexMapping,TestShaclDocumentBuilding,TestShaclTextDocProducer,TestShaclAssembler,TestShaclEntityPerDocument,TestNativeFacetCounts,TestTextFacetPF,TestTextQueryPFFilters,TestSearchExecution"
+mvn test -pl jena-text -Dtest="TestShaclIndexMapping,TestShaclDocumentBuilding,TestShaclTextDocProducer,TestShaclAssembler,TestShaclEntityPerDocument,TestNativeFacetCounts,TestTextFacetPF,TestTextQueryPFFilters,TestSearchExecution,TestHierarchicalFacets,TestHierarchicalFacetsSparql"
 ```
 
 All tests run via JUnit 4 and are aggregated in `TS_Text.java` (Surefire only picks up `**/TS_*.java`).
@@ -34,6 +34,13 @@ All tests run via JUnit 4 and are aggregated in `TS_Text.java` (Surefire only pi
 | `TestShaclTextDocProducer` | 5 | Change listener: add type creates doc, add property rebuilds, delete type removes, irrelevant predicate ignored, multiple entities |
 | `TestShaclAssembler` | 3 | Config parsing: valid shapes parsed, EntityDefinition derived, both shapes+entityMap errors |
 | `TestShaclEntityPerDocument` | 7 | End-to-end: text search, SPARQL `luc:query`, facet counts, filtered facets, add after load, entity-per-doc model verification |
+
+### Hierarchical Facets Tests
+
+| Class | Tests | What it covers |
+|-------|-------|---------------|
+| `TestHierarchicalFacets` | 8 | Java API: taxonomy indexing, top-level facets, drill-down path building, flat+hierarchy coexistence, multi-valued hierarchies, empty dimensions |
+| `TestHierarchicalFacetsSparql` | 3 | SPARQL `luc:facet` with hierarchy: top-level via field IRI, drill-down via CQL filter, flat facets alongside hierarchy |
 
 ### Existing Tests (unchanged, verifying no regressions)
 
@@ -109,6 +116,7 @@ TextIndexLucene index = (TextIndexLucene) Assembler.general().open(indexSpec);
 - Shared execution between PFs
 - Facet count accuracy with filters
 - minCount and maxValues options
+- Hierarchical facets: taxonomy indexing, top-level counts, drill-down via CQL filters, flat+hierarchy coexistence
 - Backward compatibility (all 303 existing tests pass unchanged)
 
 ### Not yet covered (candidates for future tests)

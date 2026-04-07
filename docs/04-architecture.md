@@ -71,6 +71,7 @@ Used with `text:shapes` configuration. SPARQL search via `luc:query` (with filte
 | `SearchExecution` | Shared execution state. Stored in `ExecutionContext` keyed by normalised query params. Lazy-computes hits, facet counts, and total hit count |
 | `FacetValue` | Immutable (value, count) pair for facet results |
 | `ShaclIndexAssembler` | Parses `text:shapes` RDF config into `ShaclIndexMapping`. Reads `sh:targetClass`, `sh:path`, `sh:alternativePath`. No jena-shacl dependency |
+| `ShaclTextIndexLucene` | Extended `TextIndexLucene` with taxonomy writer/reader for hierarchical facets, `MultiFacets`, and `extractHierarchyDrillDown()` |
 | `IndexVocab` | `urn:jena:lucene:index#` namespace constants and PF URI strings |
 
 ### Assembler (minimally extended)
@@ -173,6 +174,49 @@ rebuildEntityDocuments(subject)
               ├── Delete existing doc by (uri + docType) composite query
               └── Add new document
 ```
+
+---
+
+## Hierarchical Facets Architecture
+
+### Data Model
+
+`HierarchyDef` (inner class of `ShaclIndexMapping`) represents a hierarchy dimension:
+- `dimensionName` — auto-generated from level field names joined with `_` (e.g., `state_commodity`)
+- `levels` — ordered list of `FieldDef` references (index 0 = parent, 1 = child, etc.)
+- `getDepth()`, `getLevelIndex(field)`, `getLevel(i)` — navigation methods
+
+Hierarchies are declared per-shape via `idx:facetHierarchy` and parsed by `ShaclIndexAssembler.parseHierarchies()`.
+
+### Indexing
+
+Hierarchical fields use Lucene's taxonomy API (`DirectoryTaxonomyWriter/Reader`). `ShaclTextIndexLucene` maintains a separate taxonomy directory alongside the main index.
+
+During document building, each entity gets a `FacetField` per hierarchy dimension with path components from parent to child:
+```
+FacetField("state_commodity", "WA", "Gold")
+```
+
+`FacetsConfig` is configured with `setHierarchical(true)` and `setMultiValued(true)` for each dimension.
+
+### Query-Time Drill-Down
+
+`extractHierarchyDrillDown()` in `ShaclTextIndexLucene` scans the CQL expression tree for `=` comparisons on hierarchy level fields. When a filter like `{"op":"=","args":[{"property":"field#state"},"WA"]}` targets a hierarchy parent field, it builds a drill-down path `["WA"]` for the dimension.
+
+`collectFacetResults()` uses `FastTaxonomyFacetCounts` for hierarchy dimensions and `SortedSetDocValuesFacetCounts` for flat facets. `MultiFacets` combines both into a unified result map. Result keys use the child level field name (not the dimension name) so that `generateBindings()` returns proper field IRIs.
+
+### Field IRI Resolution
+
+`resolveFacetFieldNames()` auto-detects when a requested field IRI belongs to a hierarchy. It maps the field to the dimension name so the `MultiFacets` dispatch works correctly. Requesting `field#state` (level 0) returns top-level values; requesting `field#commodity` (level 1) with a parent filter returns child values.
+
+### Key Classes
+
+| Class | Hierarchy Role |
+|-------|---------------|
+| `ShaclIndexMapping.HierarchyDef` | Data model for hierarchy dimensions |
+| `ShaclTextIndexLucene` | Taxonomy writer/reader lifecycle, `extractHierarchyDrillDown()`, `MultiFacets` |
+| `ShaclIndexAssembler` | Parses `idx:facetHierarchy` RDF lists into `HierarchyDef` objects |
+| `TextFacetPF` | Passes resolved facet fields and CQL through to index |
 
 ---
 

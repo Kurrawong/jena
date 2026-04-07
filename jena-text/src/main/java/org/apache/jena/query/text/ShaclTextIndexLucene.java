@@ -34,15 +34,21 @@ import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.text.cql.CqlExpression;
 import org.apache.jena.query.text.cql.CqlToLuceneCompiler;
 import org.apache.lucene.document.*;
+import org.apache.lucene.facet.FacetField;
 import org.apache.lucene.facet.FacetResult;
 import org.apache.lucene.facet.Facets;
 import org.apache.lucene.facet.FacetsCollector;
 import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.facet.LabelAndValue;
+import org.apache.lucene.facet.MultiFacets;
 import org.apache.lucene.facet.sortedset.DefaultSortedSetDocValuesReaderState;
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesFacetCounts;
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesFacetField;
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesReaderState;
+import org.apache.lucene.facet.taxonomy.FastTaxonomyFacetCounts;
+import org.apache.lucene.facet.taxonomy.TaxonomyReader;
+import org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyReader;
+import org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyWriter;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexableField;
@@ -75,12 +81,24 @@ import org.slf4j.LoggerFactory;
 public class ShaclTextIndexLucene extends TextIndexLucene {
     private static final Logger log = LoggerFactory.getLogger(ShaclTextIndexLucene.class);
 
+    /** Index field name for taxonomy facet ordinals (kept separate from SSDV's $facets). */
+    private static final String TAXO_INDEX_FIELD = "$taxo_facets";
+
     private final ShaclIndexMapping shaclMapping;
     private final List<String> facetFields;
     private final FacetsConfig facetsConfig;
     private final int maxFacetHits;
 
+    // Taxonomy directory for hierarchical facets (null if no hierarchies configured)
+    private final Directory taxoDirectory;
+    private final DirectoryTaxonomyWriter taxoWriter;
+    private final Set<String> hierarchyDimensions;
+
     public ShaclTextIndexLucene(Directory directory, TextIndexConfig config) {
+        this(directory, null, config);
+    }
+
+    public ShaclTextIndexLucene(Directory directory, Directory taxoDirectory, TextIndexConfig config) {
         super(directory, config);
         this.shaclMapping = config.getShaclMapping();
         this.maxFacetHits = config.getMaxFacetHits();
@@ -100,6 +118,33 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         if (!this.facetFields.isEmpty()) {
             log.info("Faceting enabled for fields: {}", this.facetFields);
         }
+
+        // Initialize hierarchical facet support
+        // Taxonomy dimensions use a separate index field to avoid conflict with SSDV's $facets field
+        this.hierarchyDimensions = new LinkedHashSet<>();
+        for (ShaclIndexMapping.HierarchyDef h : shaclMapping.getAllHierarchies()) {
+            String dim = h.getDimensionName();
+            hierarchyDimensions.add(dim);
+            facetsConfig.setHierarchical(dim, true);
+            facetsConfig.setMultiValued(dim, true);
+            facetsConfig.setIndexFieldName(dim, TAXO_INDEX_FIELD);
+        }
+
+        if (!hierarchyDimensions.isEmpty()) {
+            if (taxoDirectory == null) {
+                taxoDirectory = new ByteBuffersDirectory();
+            }
+            this.taxoDirectory = taxoDirectory;
+            try {
+                this.taxoWriter = new DirectoryTaxonomyWriter(this.taxoDirectory);
+            } catch (IOException e) {
+                throw new TextIndexException("Failed to create taxonomy writer", e);
+            }
+            log.info("Hierarchical faceting enabled for dimensions: {}", hierarchyDimensions);
+        } else {
+            this.taxoDirectory = null;
+            this.taxoWriter = null;
+        }
     }
 
     public ShaclIndexMapping getShaclMapping() {
@@ -108,6 +153,45 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
     public boolean isShaclMode() {
         return true;
+    }
+
+    public boolean hasHierarchies() {
+        return taxoWriter != null;
+    }
+
+    public DirectoryTaxonomyWriter getTaxoWriter() {
+        return taxoWriter;
+    }
+
+    public Set<String> getHierarchyDimensions() {
+        return Collections.unmodifiableSet(hierarchyDimensions);
+    }
+
+    @Override
+    public void commit() {
+        super.commit();
+        if (taxoWriter != null) {
+            try {
+                taxoWriter.commit();
+            } catch (IOException e) {
+                throw new TextIndexException("Failed to commit taxonomy writer", e);
+            }
+        }
+    }
+
+    @Override
+    public void close() {
+        try {
+            if (taxoWriter != null) {
+                taxoWriter.close();
+            }
+            if (taxoDirectory != null) {
+                taxoDirectory.close();
+            }
+        } catch (IOException e) {
+            log.warn("Error closing taxonomy resources: {}", e.getMessage());
+        }
+        super.close();
     }
 
     // ---- Field-scoped query support ----
@@ -122,14 +206,24 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      */
     public List<String> resolveFacetFieldNames(List<String> fieldIRIs) {
         if (fieldIRIs == null) return null;
-        // Wildcard: "*" expands to all facetable fields
+        // Wildcard: "*" expands to all facetable fields + hierarchy dimensions
         if (fieldIRIs.size() == 1 && "*".equals(fieldIRIs.get(0))) {
-            return new ArrayList<>(facetFields);
+            List<String> all = new ArrayList<>(facetFields);
+            all.addAll(hierarchyDimensions);
+            return all;
         }
         List<String> resolved = new ArrayList<>(fieldIRIs.size());
         for (String iri : fieldIRIs) {
-            ShaclIndexMapping.FieldDef fd = shaclMapping.findField(iri);
-            resolved.add(fd != null ? fd.getFieldName() : iri);
+            // Check if this field IRI belongs to a hierarchy — if so, resolve to the dimension name
+            ShaclIndexMapping.HierarchyDef hier = shaclMapping.findHierarchyForField(iri);
+            if (hier != null) {
+                if (!resolved.contains(hier.getDimensionName())) {
+                    resolved.add(hier.getDimensionName());
+                }
+            } else {
+                ShaclIndexMapping.FieldDef fd = shaclMapping.findField(iri);
+                resolved.add(fd != null ? fd.getFieldName() : iri);
+            }
         }
         return resolved;
     }
@@ -395,7 +489,66 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
         }
 
+        // Add hierarchical facet fields
+        addHierarchyFacetFields(doc, entity, profile);
+
         return doc;
+    }
+
+    /**
+     * Add hierarchical FacetField entries to a document for all configured hierarchies.
+     * <p>
+     * For each hierarchy, extracts the value at each level from the entity and builds
+     * a Lucene {@link FacetField} with path components. If any level has no value,
+     * the path is truncated at that point (partial paths are valid for counting).
+     */
+    private void addHierarchyFacetFields(Document doc, Entity entity,
+            ShaclIndexMapping.IndexProfile profile) {
+        for (ShaclIndexMapping.HierarchyDef hierarchy : profile.getHierarchies()) {
+            // Collect values for each level
+            List<List<String>> levelValues = new ArrayList<>();
+            for (ShaclIndexMapping.FieldDef levelField : hierarchy.getLevels()) {
+                Object value = entity.get(levelField.getFieldName());
+                List<String> values = new ArrayList<>();
+                if (value instanceof List) {
+                    @SuppressWarnings("unchecked")
+                    List<Object> list = (List<Object>) value;
+                    for (Object v : list) {
+                        if (v != null) values.add(v.toString());
+                    }
+                } else if (value != null) {
+                    values.add(value.toString());
+                }
+                levelValues.add(values);
+            }
+
+            // Build FacetField paths from the cartesian product of level values
+            // For most cases this is a single path, but multi-valued levels create multiple paths
+            addFacetPaths(doc, hierarchy.getDimensionName(), levelValues, 0, new ArrayList<>());
+        }
+    }
+
+    private void addFacetPaths(Document doc, String dim, List<List<String>> levelValues,
+            int level, List<String> currentPath) {
+        if (level >= levelValues.size()) {
+            if (!currentPath.isEmpty()) {
+                doc.add(new FacetField(dim, currentPath.toArray(new String[0])));
+            }
+            return;
+        }
+        List<String> values = levelValues.get(level);
+        if (values.isEmpty()) {
+            // No value at this level — emit partial path if we have any components
+            if (!currentPath.isEmpty()) {
+                doc.add(new FacetField(dim, currentPath.toArray(new String[0])));
+            }
+            return;
+        }
+        for (String val : values) {
+            currentPath.add(val);
+            addFacetPaths(doc, dim, levelValues, level + 1, currentPath);
+            currentPath.remove(currentPath.size() - 1);
+        }
     }
 
     private void addFieldToDoc(Document doc, ShaclIndexMapping.FieldDef fieldDef, Object value) {
@@ -578,7 +731,14 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     public void updateEntityForProfile(Entity entity, ShaclIndexMapping.IndexProfile profile) {
         try {
             Document doc = docFromMapping(entity, profile);
-            Document indexDoc = facetFields.isEmpty() ? doc : facetsConfig.build(doc);
+            Document indexDoc;
+            if (taxoWriter != null) {
+                indexDoc = facetsConfig.build(taxoWriter, doc);
+            } else if (!facetFields.isEmpty()) {
+                indexDoc = facetsConfig.build(doc);
+            } else {
+                indexDoc = doc;
+            }
 
             String docIdField = profile.getDocIdField();
             String discriminatorField = profile.getDiscriminatorField();
@@ -649,6 +809,16 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
     public Map<String, List<FacetValue>> getFacetCounts(String queryString, List<String> searchFields,
             List<String> facetFieldsToQuery, int maxValues, int minCount) {
+        return getFacetCounts(queryString, searchFields, facetFieldsToQuery, maxValues, minCount, null);
+    }
+
+    /**
+     * Get facet counts, optionally with drill-down paths for hierarchical dimensions.
+     * @param drillDown optional map of dimension name → path prefix for hierarchical drill-down
+     */
+    public Map<String, List<FacetValue>> getFacetCounts(String queryString, List<String> searchFields,
+            List<String> facetFieldsToQuery, int maxValues, int minCount,
+            Map<String, String[]> drillDown) {
         facetFieldsToQuery = resolveFacetFieldNames(facetFieldsToQuery);
         Map<String, List<FacetValue>> result = new HashMap<>();
 
@@ -658,38 +828,19 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
         try (IndexReader indexReader = DirectoryReader.open(getDirectory())) {
             IndexSearcher searcher = new IndexSearcher(indexReader);
-            SortedSetDocValuesReaderState state = new DefaultSortedSetDocValuesReaderState(indexReader, facetsConfig);
 
             List<String> resolved = resolveSearchFields(searchFields);
 
-            Facets facets;
-            if (queryString == null || queryString.isEmpty()) {
-                facets = new SortedSetDocValuesFacetCounts(state);
-            } else {
+            FacetsCollector fc = null;
+            if (queryString != null && !queryString.isEmpty()) {
                 Query query = parseQueryForFields(queryString, resolved);
-                FacetsCollector fc = new FacetsCollector();
+                fc = new FacetsCollector();
                 searcher.search(query, fc);
-                facets = new SortedSetDocValuesFacetCounts(state, fc);
             }
 
-            for (String field : facetFieldsToQuery) {
-                List<FacetValue> fieldFacets = new ArrayList<>();
-                try {
-                    FacetResult facetResult = (maxValues <= 0)
-                        ? facets.getAllChildren(field)
-                        : facets.getTopChildren(maxValues, field);
-                    if (facetResult != null && facetResult.labelValues != null) {
-                        for (LabelAndValue lv : facetResult.labelValues) {
-                            if (minCount <= 0 || lv.value.longValue() >= minCount) {
-                                fieldFacets.add(new FacetValue(lv.label, lv.value.longValue()));
-                            }
-                        }
-                    }
-                } catch (IllegalArgumentException e) {
-                    log.debug("No facet data for field '{}': {}", field, e.getMessage());
-                }
-                result.put(field, fieldFacets);
-            }
+            Facets facets = createCombinedFacets(indexReader, fc);
+
+            collectFacetResults(facets, facetFieldsToQuery, maxValues, minCount, drillDown, result);
         } catch (IOException ex) {
             throw new TextIndexException("getFacetCounts", ex);
         } catch (ParseException ex) {
@@ -697,6 +848,152 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         }
 
         return result;
+    }
+
+    /**
+     * Collect facet results from a Facets object into the result map.
+     * Handles both flat fields and hierarchical dimensions with optional drill-down.
+     * <p>
+     * Drill-down paths are provided via the {@code drillDown} map, keyed by dimension name.
+     * When a CQL {@code =} filter references a hierarchy level field, the filter value
+     * is extracted as a drill-down path component by {@link #extractHierarchyDrillDown}.
+     */
+    private void collectFacetResults(Facets facets, List<String> facetFieldsToQuery,
+            int maxValues, int minCount, Map<String, String[]> drillDown,
+            Map<String, List<FacetValue>> result) throws IOException {
+        for (String fieldSpec : facetFieldsToQuery) {
+            List<FacetValue> fieldFacets = new ArrayList<>();
+            try {
+                String dim = fieldSpec;
+                String[] drillPath = (drillDown != null) ? drillDown.get(fieldSpec) : null;
+
+                FacetResult facetResult;
+                if (drillPath != null && drillPath.length > 0) {
+                    facetResult = (maxValues <= 0)
+                        ? facets.getAllChildren(dim, drillPath)
+                        : facets.getTopChildren(maxValues, dim, drillPath);
+                } else {
+                    facetResult = (maxValues <= 0)
+                        ? facets.getAllChildren(dim)
+                        : facets.getTopChildren(maxValues, dim);
+                }
+                if (facetResult != null && facetResult.labelValues != null) {
+                    for (LabelAndValue lv : facetResult.labelValues) {
+                        if (minCount <= 0 || lv.value.longValue() >= minCount) {
+                            fieldFacets.add(new FacetValue(lv.label, lv.value.longValue()));
+                        }
+                    }
+                }
+            } catch (IllegalArgumentException e) {
+                log.debug("No facet data for field '{}': {}", fieldSpec, e.getMessage());
+            }
+
+            // For hierarchy results, use the child level field name as the key
+            // so that generateBindings() maps to the correct field IRI.
+            String resultKey = fieldSpec;
+            if (shaclMapping != null) {
+                ShaclIndexMapping.HierarchyDef hier = shaclMapping.findHierarchy(fieldSpec);
+                if (hier != null) {
+                    String[] drillPath = (drillDown != null) ? drillDown.get(fieldSpec) : null;
+                    int childLevel = (drillPath != null) ? drillPath.length : 0;
+                    if (childLevel < hier.getDepth()) {
+                        resultKey = hier.getLevel(childLevel).getFieldName();
+                    }
+                }
+            }
+            result.put(resultKey, fieldFacets);
+        }
+    }
+
+    /**
+     * Extract hierarchy drill-down paths from a CQL filter expression.
+     * <p>
+     * Scans for {@code =} comparisons on fields that belong to a hierarchy. For each such
+     * comparison, the filter value becomes a drill-down path component on the hierarchy dimension.
+     * This allows regular CQL filters to transparently trigger hierarchical facet drill-down.
+     *
+     * @param cqlFilter the CQL filter expression (may be null)
+     * @param facetFieldsToQuery resolved facet field names (to identify which dimensions are requested)
+     * @return a map of dimension name → drill-down path components, or null if no hierarchy filters found
+     */
+    Map<String, String[]> extractHierarchyDrillDown(CqlExpression cqlFilter, List<String> facetFieldsToQuery) {
+        if (cqlFilter == null || shaclMapping == null || !shaclMapping.hasHierarchies()) {
+            return null;
+        }
+
+        // Collect all = comparisons from the CQL expression
+        List<CqlExpression.CqlComparison> comparisons = new ArrayList<>();
+        collectEqualComparisons(cqlFilter, comparisons);
+        if (comparisons.isEmpty()) return null;
+
+        // For each requested facet dimension, check if any CQL = filters reference parent levels
+        Map<String, String[]> drillDown = null;
+        Set<String> requestedDims = new HashSet<>(facetFieldsToQuery);
+
+        for (CqlExpression.CqlComparison cmp : comparisons) {
+            if (!"=".equals(cmp.op())) continue;
+
+            ShaclIndexMapping.HierarchyDef hier = shaclMapping.findHierarchyForField(cmp.property());
+            if (hier == null) continue;
+
+            String dimName = hier.getDimensionName();
+            if (!requestedDims.contains(dimName)) continue;
+
+            // This = filter is on a hierarchy level field, and the hierarchy dimension is being faceted.
+            // Build the drill-down path: values for all levels up to and including this one.
+            ShaclIndexMapping.FieldDef filterField = shaclMapping.findField(cmp.property());
+            int levelIdx = hier.getLevelIndex(filterField);
+            if (levelIdx < 0) continue;
+
+            // Build path from level 0 to levelIdx using values from CQL = filters
+            String[] path = new String[levelIdx + 1];
+            boolean complete = true;
+            for (int i = 0; i <= levelIdx; i++) {
+                ShaclIndexMapping.FieldDef levelField = hier.getLevel(i);
+                String levelValue = findEqualValue(comparisons, levelField);
+                if (levelValue == null) {
+                    complete = false;
+                    break;
+                }
+                path[i] = levelValue;
+            }
+
+            if (complete) {
+                if (drillDown == null) drillDown = new HashMap<>();
+                drillDown.put(dimName, path);
+            }
+        }
+
+        return drillDown;
+    }
+
+    /** Recursively collect all CqlComparison nodes with op "=" from a CQL expression tree. */
+    private void collectEqualComparisons(CqlExpression expr, List<CqlExpression.CqlComparison> result) {
+        switch (expr) {
+            case CqlExpression.CqlComparison cmp -> {
+                if ("=".equals(cmp.op())) result.add(cmp);
+            }
+            case CqlExpression.CqlAnd and -> {
+                for (CqlExpression child : and.args()) collectEqualComparisons(child, result);
+            }
+            case CqlExpression.CqlOr or -> {
+                for (CqlExpression child : or.args()) collectEqualComparisons(child, result);
+            }
+            case CqlExpression.CqlNot not -> collectEqualComparisons(not.arg(), result);
+            default -> {} // Other expression types don't contain = comparisons
+        }
+    }
+
+    /** Find the value of a CQL = comparison for a specific field. */
+    private String findEqualValue(List<CqlExpression.CqlComparison> comparisons,
+                                  ShaclIndexMapping.FieldDef field) {
+        for (CqlExpression.CqlComparison cmp : comparisons) {
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findField(cmp.property());
+            if (fd != null && fd.equals(field)) {
+                return String.valueOf(cmp.value());
+            }
+        }
+        return null;
     }
 
     public Map<String, List<FacetValue>> getFacetCountsWithFilters(
@@ -719,9 +1016,6 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
         try (IndexReader indexReader = DirectoryReader.open(getDirectory())) {
             IndexSearcher searcher = new IndexSearcher(indexReader);
-
-            SortedSetDocValuesReaderState state =
-                new DefaultSortedSetDocValuesReaderState(indexReader, facetsConfig);
 
             List<String> resolved = resolveSearchFields(searchFields);
 
@@ -749,34 +1043,16 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 }
             }
 
-            Facets facets;
+            FacetsCollector fc = null;
             BooleanQuery bq = combined.build();
-            if (bq.clauses().isEmpty()) {
-                facets = new SortedSetDocValuesFacetCounts(state);
-            } else {
-                FacetsCollector fc = new FacetsCollector();
+            if (!bq.clauses().isEmpty()) {
+                fc = new FacetsCollector();
                 searcher.search(bq, fc);
-                facets = new SortedSetDocValuesFacetCounts(state, fc);
             }
 
-            for (String field : facetFieldsToQuery) {
-                List<FacetValue> fieldFacets = new ArrayList<>();
-                try {
-                    FacetResult facetResult = (maxValues <= 0)
-                        ? facets.getAllChildren(field)
-                        : facets.getTopChildren(maxValues, field);
-                    if (facetResult != null && facetResult.labelValues != null) {
-                        for (LabelAndValue lv : facetResult.labelValues) {
-                            if (minCount <= 0 || lv.value.longValue() >= minCount) {
-                                fieldFacets.add(new FacetValue(lv.label, lv.value.longValue()));
-                            }
-                        }
-                    }
-                } catch (IllegalArgumentException e) {
-                    log.debug("No facet data for field '{}': {}", field, e.getMessage());
-                }
-                result.put(field, fieldFacets);
-            }
+            Facets facets = createCombinedFacets(indexReader, fc);
+
+            collectFacetResults(facets, facetFieldsToQuery, maxValues, minCount, null, result);
         } catch (IOException ex) {
             throw new TextIndexException("getFacetCountsWithFilters", ex);
         } catch (ParseException ex) {
@@ -784,6 +1060,55 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         }
 
         return result;
+    }
+
+    /**
+     * Create a combined Facets object that handles both flat (SSDV) and hierarchical (taxonomy)
+     * facet dimensions. Uses {@link MultiFacets} when hierarchies are configured.
+     */
+    private Facets createCombinedFacets(IndexReader indexReader, FacetsCollector fc) throws IOException {
+        SortedSetDocValuesReaderState state =
+            new DefaultSortedSetDocValuesReaderState(indexReader, facetsConfig);
+        Facets flatFacets = (fc != null)
+            ? new SortedSetDocValuesFacetCounts(state, fc)
+            : new SortedSetDocValuesFacetCounts(state);
+
+        if (taxoDirectory == null || hierarchyDimensions.isEmpty()) {
+            return flatFacets;
+        }
+
+        // FastTaxonomyFacetCounts requires a non-null FacetsCollector.
+        // When fc is null (no query), we need to collect all docs.
+        if (fc == null) {
+            IndexSearcher searcher = new IndexSearcher(indexReader);
+            fc = new FacetsCollector();
+            searcher.search(new MatchAllDocsQuery(), fc);
+        }
+
+        TaxonomyReader taxoReader = new DirectoryTaxonomyReader(taxoDirectory);
+        Facets taxoFacets = new FastTaxonomyFacetCounts(TAXO_INDEX_FIELD, taxoReader, facetsConfig, fc);
+
+        Map<String, Facets> dimToFacets = new HashMap<>();
+        for (String dim : hierarchyDimensions) {
+            dimToFacets.put(dim, taxoFacets);
+        }
+        return new MultiFacets(dimToFacets, flatFacets);
+    }
+
+    /**
+     * Check if a field name is a hierarchical dimension or maps to one.
+     * Returns the dimension name if hierarchical, null otherwise.
+     */
+    String resolveHierarchyDimension(String fieldNameOrIRI) {
+        if (hierarchyDimensions.contains(fieldNameOrIRI)) {
+            return fieldNameOrIRI;
+        }
+        // Check if it's a field IRI that belongs to a hierarchy
+        ShaclIndexMapping.HierarchyDef h = shaclMapping.findHierarchyForField(fieldNameOrIRI);
+        if (h != null) {
+            return h.getDimensionName();
+        }
+        return null;
     }
 
     // ---- Value and field node helpers ----
@@ -1070,8 +1395,6 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
         try (IndexReader indexReader = DirectoryReader.open(getDirectory())) {
             IndexSearcher searcher = new IndexSearcher(indexReader);
-            SortedSetDocValuesReaderState state =
-                new DefaultSortedSetDocValuesReaderState(indexReader, facetsConfig);
 
             List<String> resolved = resolveSearchFields(searchFields);
 
@@ -1093,34 +1416,19 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 }
             }
 
-            Facets facets;
+            FacetsCollector fc = null;
             BooleanQuery bq = combined.build();
-            if (bq.clauses().isEmpty()) {
-                facets = new SortedSetDocValuesFacetCounts(state);
-            } else {
-                FacetsCollector fc = new FacetsCollector();
+            if (!bq.clauses().isEmpty()) {
+                fc = new FacetsCollector();
                 searcher.search(bq, fc);
-                facets = new SortedSetDocValuesFacetCounts(state, fc);
             }
 
-            for (String field : facetFieldsToQuery) {
-                List<FacetValue> fieldFacets = new ArrayList<>();
-                try {
-                    FacetResult facetResult = (maxValues <= 0)
-                        ? facets.getAllChildren(field)
-                        : facets.getTopChildren(maxValues, field);
-                    if (facetResult != null && facetResult.labelValues != null) {
-                        for (LabelAndValue lv : facetResult.labelValues) {
-                            if (minCount <= 0 || lv.value.longValue() >= minCount) {
-                                fieldFacets.add(new FacetValue(lv.label, lv.value.longValue()));
-                            }
-                        }
-                    }
-                } catch (IllegalArgumentException e) {
-                    log.debug("No facet data for field '{}': {}", field, e.getMessage());
-                }
-                result.put(field, fieldFacets);
-            }
+            Facets facets = createCombinedFacets(indexReader, fc);
+
+            // Extract hierarchy drill-down paths from CQL = filters
+            Map<String, String[]> drillDown = extractHierarchyDrillDown(cqlFilter, facetFieldsToQuery);
+
+            collectFacetResults(facets, facetFieldsToQuery, maxValues, minCount, drillDown, result);
         } catch (IOException ex) {
             throw new TextIndexException("getFacetCountsWithCql", ex);
         } catch (ParseException ex) {

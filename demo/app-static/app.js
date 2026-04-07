@@ -102,7 +102,7 @@ function renderJsonTree(obj, indent) {
  *   polygon: [[lon, lat], ...] | null  (closed ring, CRS84 order)
  * Returns null if no filters are active.
  */
-function buildCqlFilter(selected, bbox, polygon, fieldIRIs) {
+function buildCqlFilter(selected, bbox, polygon, fieldIRIs, extraClauses) {
     const clauses = [];
     for (const [field, values] of Object.entries(selected)) {
         if (!values || values.length === 0) continue;
@@ -126,6 +126,9 @@ function buildCqlFilter(selected, bbox, polygon, fieldIRIs) {
             op: 's_intersects',
             args: [{property: locProp}, {type: 'Polygon', coordinates: [polygon]}],
         });
+    }
+    if (extraClauses && extraClauses.length > 0) {
+        clauses.push(...extraClauses);
     }
     if (clauses.length === 0) return null;
     if (clauses.length === 1) return JSON.stringify(clauses[0]);
@@ -268,6 +271,7 @@ function extractConfig(store) {
     const fieldIRIs = {};
     const predicateToFacet = {};
     const seenFacets = new Set();
+    const hierarchyDimensions = new Map();
 
     for (const shapeNode of shapeNodes) {
         const targetClass = getObject(store, shapeNode, SH + 'targetClass');
@@ -328,6 +332,27 @@ function extractConfig(store) {
             }
         }
 
+        // Parse idx:facetHierarchy — RDF lists of field IRIs defining hierarchy levels
+        const hierNodes = getObjects(store, shapeNode, IDX + 'facetHierarchy');
+        for (const hierNode of hierNodes) {
+            const levelNodes = walkList(store, hierNode);
+            const levels = levelNodes
+                .filter(n => n.termType === 'NamedNode')
+                .map(n => ({
+                    name: getLiteral(store, n, IDX + 'fieldName'),
+                    iri: n.value,
+                }))
+                .filter(l => l.name);
+            if (levels.length >= 2) {
+                const dimName = levels.map(l => l.name).join('_');
+                if (!seenFacets.has(dimName)) {
+                    seenFacets.add(dimName);
+                    facetFields.push(dimName);
+                    hierarchyDimensions.set(dimName, levels);
+                }
+            }
+        }
+
         shapes.push(shape);
     }
 
@@ -339,6 +364,7 @@ function extractConfig(store) {
         facetFields,
         fieldIRIs,
         predicateToFacet,
+        hierarchyDimensions,
     };
 }
 
@@ -421,6 +447,11 @@ function searchApp() {
         facetFields: [],
         fieldIRIs: {},
         predicateToFacet: {},
+        hierarchyDimensions: new Map(),
+        hierarchyChildren: {},  // dim → { parentValue: [{value, label, count}] }
+        hierarchyOpen: {},      // dim → { parentValue: true/false }
+        hierarchyLoading: {},   // dim → { parentValue: true/false }
+        hierarchySelected: {},  // dim → { parentValue: [childValue, ...] }
         facets: {},
         facetExpanded: {},
         cards: [],
@@ -481,9 +512,23 @@ function searchApp() {
             this.facetFields = config.facetFields;
             this.fieldIRIs = config.fieldIRIs;
             this.predicateToFacet = config.predicateToFacet;
+            this.hierarchyDimensions = config.hierarchyDimensions || new Map();
 
             this.loadFromUrl();
             await this.executeSearch();
+
+            // Auto-expand hierarchy drill-down if specified in URL
+            const drillParam = new URLSearchParams(window.location.search).get('drillDown');
+            if (drillParam) {
+                const sep = drillParam.indexOf(':');
+                if (sep > 0) {
+                    const dim = drillParam.substring(0, sep);
+                    const value = drillParam.substring(sep + 1);
+                    if (this.hierarchyDimensions.has(dim)) {
+                        await this.toggleHierarchy(dim, value);
+                    }
+                }
+            }
 
             window.addEventListener('popstate', async () => {
                 this.loadFromUrl();
@@ -618,7 +663,13 @@ function searchApp() {
             const params = new URLSearchParams();
             if (this.q.trim()) params.set('q', this.q.trim());
             if (this.identifier.trim()) params.set('id', this.identifier.trim());
-            const cql = buildCqlFilter(this.selected, this.spatialBbox, this.spatialPolygon, this.fieldIRIs);
+            const cql = buildCqlFilter(
+                this.selected,
+                this.spatialBbox,
+                this.spatialPolygon,
+                this.fieldIRIs,
+                this.buildHierarchyParentClauses()
+            );
             if (cql) params.set('filter', cql);
             const qs = params.toString();
             const url = qs ? '?' + qs : window.location.pathname;
@@ -630,6 +681,7 @@ function searchApp() {
             this.q = params.get('q') || '';
             this.identifier = params.get('id') || '';
             const { selected, bbox, polygon } = parseCqlFilter(params.get('filter'), this.fieldIRIs);
+            this.hierarchySelected = {};
             for (const f of this.facetFields) {
                 this.selected[f] = selected[f] || [];
             }
@@ -690,6 +742,7 @@ function searchApp() {
             for (const f of this.facetFields) {
                 this.selected[f] = [];
             }
+            this.hierarchySelected = {};
             this.clearBbox();
             this.clearPolygon();
             this.pushUrl();
@@ -711,8 +764,163 @@ function searchApp() {
             return all.slice(0, 5);
         },
 
+        isHierarchy(fieldName) {
+            return this.hierarchyDimensions.has(fieldName);
+        },
+
+        getHierarchyChildLevel(dim) {
+            const levels = this.hierarchyDimensions.get(dim);
+            return levels && levels.length >= 2 ? levels[1] : null;
+        },
+
+        getHierarchyChildFieldName(dim) {
+            return this.getHierarchyChildLevel(dim)?.name || null;
+        },
+
+        getHierarchyParentLevel(dim) {
+            const levels = this.hierarchyDimensions.get(dim);
+            return levels && levels.length >= 1 ? levels[0] : null;
+        },
+
+        isHierarchyOpen(dim, parentValue) {
+            return !!(this.hierarchyOpen[dim] && this.hierarchyOpen[dim][parentValue]);
+        },
+
+        isHierarchyLoading(dim, parentValue) {
+            return !!(this.hierarchyLoading[dim] && this.hierarchyLoading[dim][parentValue]);
+        },
+
+        getHierarchyChildren(dim, parentValue) {
+            return (this.hierarchyChildren[dim] && this.hierarchyChildren[dim][parentValue]) || [];
+        },
+
+        isHierarchyChildSelected(dim, value) {
+            const childField = this.getHierarchyChildFieldName(dim);
+            return childField ? this.isSelected(childField, value) : false;
+        },
+
+        buildHierarchyParentClauses() {
+            const clauses = [];
+            for (const [dim, parents] of Object.entries(this.hierarchySelected || {})) {
+                const parentLevel = this.getHierarchyParentLevel(dim);
+                if (!parentLevel) continue;
+                for (const [parentValue, childValues] of Object.entries(parents || {})) {
+                    if (!childValues || childValues.length === 0) continue;
+                    clauses.push({
+                        op: '=',
+                        args: [{property: parentLevel.iri}, parentValue],
+                    });
+                }
+            }
+            return clauses;
+        },
+
+        async toggleHierarchyChild(dim, parentValue, value) {
+            const childField = this.getHierarchyChildFieldName(dim);
+            if (!childField) return;
+            if (!this.selected[childField]) this.selected[childField] = [];
+            if (!this.hierarchySelected[dim]) this.hierarchySelected[dim] = {};
+            if (!this.hierarchySelected[dim][parentValue]) this.hierarchySelected[dim][parentValue] = [];
+
+            const idx = this.selected[childField].indexOf(value);
+            if (idx >= 0) {
+                this.selected[childField].splice(idx, 1);
+                const values = this.hierarchySelected[dim][parentValue];
+                const pairIdx = values.indexOf(value);
+                if (pairIdx >= 0) values.splice(pairIdx, 1);
+                if (values.length === 0) delete this.hierarchySelected[dim][parentValue];
+                if (Object.keys(this.hierarchySelected[dim]).length === 0) delete this.hierarchySelected[dim];
+            } else {
+                this.selected[childField].push(value);
+                this.hierarchySelected[dim][parentValue].push(value);
+            }
+            this.pushUrl();
+            await this.executeSearch();
+        },
+
+        async toggleHierarchy(dim, parentValue) {
+            if (!this.hierarchyOpen[dim]) this.hierarchyOpen[dim] = {};
+            const isOpen = this.hierarchyOpen[dim][parentValue];
+            this.hierarchyOpen[dim][parentValue] = !isOpen;
+
+            // Fetch children on first open
+            if (!isOpen && !this.getHierarchyChildren(dim, parentValue).length) {
+                if (!this.hierarchyLoading[dim]) this.hierarchyLoading[dim] = {};
+                this.hierarchyLoading[dim][parentValue] = true;
+
+                try {
+                    const levels = this.hierarchyDimensions.get(dim);
+                    if (!levels || levels.length < 2) return;
+
+                    // Request facets on the child level's IRI from config.ttl,
+                    // with a CQL filter constrained by the selected parent value.
+                    const parentLevelIRI = levels[0].iri;
+                    const childLevelIRI = levels[1].iri;
+
+                    const term = this.identifier.trim() || this.q.trim() || '*';
+                    const searchField = this.identifier.trim() ? this.identifierFieldSpec() : 'default';
+                    const escaped = escapeSparql(term);
+
+                    // Build CQL filter: combine existing filters with hierarchy parent = value
+                    const hierFilter = JSON.stringify({
+                        op: '=',
+                        args: [{ property: parentLevelIRI }, parentValue],
+                    });
+                    const existingCql = buildCqlFilter(
+                        this.selected,
+                        this.spatialBbox,
+                        this.spatialPolygon,
+                        this.fieldIRIs,
+                        this.buildHierarchyParentClauses()
+                    );
+                    let combinedFilter;
+                    if (existingCql) {
+                        const existing = JSON.parse(existingCql);
+                        combinedFilter = JSON.stringify({
+                            op: 'and',
+                            args: [existing, JSON.parse(hierFilter)],
+                        });
+                    } else {
+                        combinedFilter = hierFilter;
+                    }
+
+                    const query = `${SPARQL_PREFIXES}
+SELECT ?field ?value ?count WHERE {
+    (?field ?value ?count) luc:facet ('${searchField}' '${escaped}' '${JSON.stringify([childLevelIRI])}' '${combinedFilter}' ${this.maxFacetValues})
+}`;
+                    const data = await this.runSparql(query);
+                    const children = [];
+                    for (const row of (data.results?.bindings || [])) {
+                        if (row.value && row.count) {
+                            const childVal = row.value.value;
+                            const childIsUri = row.value.type === 'uri' || /^https?:\/\//.test(childVal);
+                            children.push({
+                                value: childVal,
+                                label: childIsUri ? shortName(childVal) : childVal,
+                                count: parseInt(row.count.value, 10),
+                            });
+                        }
+                    }
+                    children.sort((a, b) => b.count - a.count);
+                    if (!this.hierarchyChildren[dim]) this.hierarchyChildren[dim] = {};
+                    this.hierarchyChildren[dim][parentValue] = children;
+                } catch (e) {
+                    console.error('Hierarchy drill-down failed:', e);
+                } finally {
+                    this.hierarchyLoading[dim][parentValue] = false;
+                }
+            }
+        },
+
         _resolveFieldName(fieldUri) {
             return resolveFieldName(fieldUri, this.fieldIRIs);
+        },
+
+        _resolveHierarchyDim(fieldName) {
+            for (const [dim, levels] of this.hierarchyDimensions) {
+                if (levels.some(l => l.name === fieldName)) return dim;
+            }
+            return null;
         },
 
         identifierFieldSpec() {
@@ -742,9 +950,20 @@ function searchApp() {
             const term = identifier || this.q.trim() || '*';
             const searchField = identifier ? this.identifierFieldSpec() : 'default';
             const escaped = escapeSparql(term);
-            const cqlFilter = buildCqlFilter(this.selected, this.spatialBbox, this.spatialPolygon, this.fieldIRIs);
+            const cqlFilter = buildCqlFilter(
+                this.selected,
+                this.spatialBbox,
+                this.spatialPolygon,
+                this.fieldIRIs,
+                this.buildHierarchyParentClauses()
+            );
             const filterArg = cqlFilter ? ` '${cqlFilter}'` : '';
-            const facetIRIs = this.facetFields.map(f => this.fieldIRIs[f] || f);
+            const facetIRIs = this.facetFields.map(f => {
+                // For hierarchy dimensions, use the first level's field IRI
+                const hier = this.hierarchyDimensions.get(f);
+                if (hier) return hier[0].iri;
+                return this.fieldIRIs[f] || f;
+            });
             const facetFieldsJson = JSON.stringify(facetIRIs);
 
             return `${SPARQL_PREFIXES}
@@ -802,13 +1021,17 @@ WHERE {
                 } else if (row.field) {
                     // ?field is a URI — resolve to field name via IRI map or shortName fallback
                     const fieldUri = row.field.value;
-                    const f = this._resolveFieldName(fieldUri);
+                    let f = this._resolveFieldName(fieldUri);
+                    // Check if this field is a hierarchy level — map to dimension name
+                    f = this._resolveHierarchyDim(f) || f;
                     if (!facets[f]) facets[f] = [];
                     // ?value may be a URI (KEYWORD) or literal (TEXT) —
                     // store the raw value for CQL filter matching
+                    const rawVal = row.value.value;
+                    const isUri = row.value.type === 'uri' || /^https?:\/\//.test(rawVal);
                     facets[f].push({
-                        value: row.value.value,
-                        label: row.value.type === 'uri' ? shortName(row.value.value) : row.value.value,
+                        value: rawVal,
+                        label: isUri ? shortName(rawVal) : rawVal,
                         count: parseInt(row.count.value, 10),
                     });
                 }
@@ -1005,6 +1228,10 @@ WHERE {
             this._abortController = new AbortController();
             const signal = this._abortController.signal;
 
+            // Clear cached hierarchy drill-down (counts change with search/filters)
+            this.hierarchyChildren = {};
+            this.hierarchyOpen = {};
+
             this.loading = true;
             this.showLoading = true;
             clearTimeout(this._loadingTimer);
@@ -1019,7 +1246,13 @@ WHERE {
                 const searchLabel = searchTerm
                     + (activeFilters > 0 ? ` + ${activeFilters} filter${activeFilters > 1 ? 's' : ''}` : '');
 
-                const cqlFilter = buildCqlFilter(this.selected, this.spatialBbox, this.spatialPolygon, this.fieldIRIs);
+                const cqlFilter = buildCqlFilter(
+                    this.selected,
+                    this.spatialBbox,
+                    this.spatialPolygon,
+                    this.fieldIRIs,
+                    this.buildHierarchyParentClauses()
+                );
                 if (cqlFilter) {
                     this.logQuery('CQL Filter', JSON.stringify(JSON.parse(cqlFilter), null, 2));
                 }
