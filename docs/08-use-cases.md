@@ -429,16 +429,16 @@ flowchart TB
 
 ### Range Facets — Numeric Buckets
 
-New PF `luc:facetRange` · No breaking changes · Deferrable
+Integrated into `luc:facet` via range objects · Requires 5-slot facet rows
 
 Group numeric or date values into ranges and return counts per range.
 
 ```mermaid
 flowchart LR
-    Query["luc:facetRange<br/>field: year<br/>ranges: 2020, 2022, 2024, 2026"]
-    R1["2020–2022 (35)"]
-    R2["2022–2024 (28)"]
-    R3["2024–2026 (18)"]
+    Query["luc:facet<br/>?field ?value ?low ?high ?count<br/>field: year<br/>ranges: 2020, 2022, 2024, 2026"]
+    R1["2020 ≤ year < 2022 (35)"]
+    R2["2022 ≤ year < 2024 (28)"]
+    R3["2024 ≤ year < 2026 (18)"]
 
     Query --> R1
     Query --> R2
@@ -454,6 +454,8 @@ flowchart LR
 - Year/date filtering (publications, events, records)
 - Price bands (products, grants, budgets)
 - Size or quantity ranges (file size, population, area)
+
+**Output model:** range rows bind explicit `?low` / `?high` bounds, while flat facet rows bind `?value`. Missing bounds on open-ended buckets are left unbound.
 
 ---
 

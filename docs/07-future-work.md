@@ -27,7 +27,7 @@ The `ShaclTextDocProducer` uses a `ThreadLocal<Boolean>` for transaction trackin
 
 ### Deferrable extensions
 
-The following features do not change the existing query or response models. Each can be added later as either an opt-in parameter on an existing PF or as a new PF, with no breaking changes. They are listed here for completeness but are not prioritised.
+The following features are deferred. Most can be added as opt-in extensions or new PFs. Where a feature extends an existing response model, it should do so in a backward-compatible way.
 
 #### DrillSideways
 
@@ -45,33 +45,28 @@ This is the standard faceted search UX pattern. Implementation requires:
 
 **API impact:** Opt-in parameter on `luc:facet`. No breaking changes.
 
-#### Hierarchical facets
+#### Hierarchy enhancements
 
-For taxonomy-based faceting (e.g., Science > Physics > Quantum Physics), Lucene supports hierarchical facets via path-based `FacetField`:
+Hierarchical facets are already supported. Follow-on work could extend them with:
 
-```java
-doc.add(new FacetField("category", "Science", "Physics", "Quantum Physics"));
-```
+- SKOS broader/narrower-derived hierarchies
+- label-aware hierarchy path rendering
+- richer hierarchy browsing UIs
 
-Would require:
-- Config syntax for hierarchy delimiter or SKOS broader/narrower traversal
-- Returning hierarchy paths in facet results
-- UI support for drill-down
+**API impact:** Extensions on top of the existing `luc:facet` hierarchy model.
 
-**API impact:** Facet values become path strings. Same response shape `(field, value, count)`. No breaking changes.
+#### Range facet enhancements
 
-#### Range facets
+Base numeric range faceting is designed to live on `luc:facet` using range objects in `facetFields` and the 5-slot subject form `(?field ?value ?low ?high ?count)`.
 
-Numeric and date range faceting (e.g., "2020-2024", "0-100"):
+Follow-on work could extend that baseline with:
 
-```sparql
-PREFIX luc: <urn:jena:lucene:index#>
-(?range ?count) luc:facetRange ("learning" "year" '[2020, 2022, 2024, 2026]') .
-```
+- automatic bucket generation
+- calendar-aware bucketing for date/time values
+- label generation for UI display
+- range-on-range aggregation over pre-ranged source data
 
-The entity-per-document model with `IntPoint`/`LongPoint`/`DoublePoint` fields provides the foundation. Implementation would use Lucene's `LongRangeFacetCounts` or similar.
-
-**API impact:** New PF `luc:facetRange`. No changes to existing PFs.
+**API impact:** Extensions on top of the existing `luc:facet` model rather than a separate `luc:facetRange` PF.
 
 #### Result grouping
 

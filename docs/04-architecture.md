@@ -220,15 +220,67 @@ FacetField("state_commodity", "WA", "Gold")
 
 ---
 
+## Range Facets Architecture
+
+### Design
+
+Range facets are integrated into the existing `luc:facet` property function rather than a separate PF. The `facetFields` JSON array accepts both plain field IRI strings (for flat/hierarchical facets) and range specification objects (for numeric bucketed counts).
+
+Public result shapes:
+
+- flat and hierarchical facets may continue to use the legacy 3-slot form: `(?field ?value ?count)`
+- any request containing a range object uses the 5-slot form: `(?field ?value ?low ?high ?count)`
+- mixed flat + range requests also use the 5-slot form
+
+### Lucene Integration
+
+Range facets use a different Lucene API from flat facets:
+
+| Facet type | Lucene API | Data source |
+|-----------|-----------|-------------|
+| Flat (KEYWORD) | `SortedSetDocValuesFacetCounts` | `SortedSetDocValuesFacetField` |
+| Hierarchical | `FastTaxonomyFacetCounts` | `FacetField` (taxonomy) |
+| Range (INT/LONG) | `LongRangeFacetCounts` | `SortedNumericDocValuesField` + `MultiLongValuesSource` |
+| Range (DOUBLE) | `DoubleRangeFacetCounts` | `SortedNumericDocValuesField` + `MultiDoubleValuesSource.fromField(..., NumericUtils::sortableLongToDouble)` |
+
+All three facet types share the same search collection step. After collection, flat facets query SSDV structures, hierarchical facets query the taxonomy index, and range facets query numeric docvalues with caller-specified bucket boundaries. For `DOUBLE`, the sorted numeric docvalues are stored in sortable-long form for sorting, then decoded back to doubles for range aggregation.
+
+The important design point is that range boundaries are not part of the search itself. Shared execution is keyed by search parameters, while facet request details such as range boundaries are applied after shared collection.
+
+### Boundary Semantics
+
+Boundaries use the histogram bin-edge convention: contiguous, lower-inclusive, upper-exclusive `[low, high)`. This matches Lucene's `LongRange`/`DoubleRange` constructors, Solr, Elasticsearch, and numpy/pandas.
+
+Open-ended ranges are represented by `null` sentinels in the boundary array, which map to `Long.MIN_VALUE`/`Long.MAX_VALUE` (or `Double` equivalents) in the Lucene range objects.
+
+The public SPARQL output for a range bucket is explicit bounds, not a display label. Range rows bind `?low` and `?high` as typed numeric literals; open-ended buckets leave the missing bound unbound.
+
+### Validation
+
+- A numeric field (INT/LONG/DOUBLE) appearing as a bare string in the facet fields array produces an error; numeric facets require explicit range boundaries
+- The wildcard `"*"` expands to flat and hierarchical fields only — range facets require explicit boundaries
+- Range objects targeting non-numeric fields (KEYWORD/TEXT/LATLON) produce an error
+- Mixed flat + range requests require the 5-slot `luc:facet` subject form
+
+### Key Classes
+
+| Class | Range Facet Role |
+|-------|-----------------|
+| `TextFacetPF` | Parses mixed facet fields array — detects objects vs strings, extracts `RangeFacetSpec` |
+| `ShaclTextIndexLucene` | Writes numeric docvalues, performs numeric sort selection, and computes range buckets after shared search collection |
+| `SearchExecution` | Shares search state by search parameters only; caches facet results per facet request |
+
+---
+
 ## Lucene Field Mapping (SHACL Mode)
 
 | FieldType | Lucene indexed field | Lucene stored field | Lucene DocValues |
 |-----------|---------------------|--------------------|--------------------|
 | TEXT | `TextField` | (via `TYPE_STORED`) | — |
 | KEYWORD | `StringField` | (via `Store.YES`) | `SortedSetDocValuesFacetField` (facetable), `SortedDocValuesField` (sortable) |
-| INT | `IntPoint` | `StoredField(int)` | `NumericDocValuesField` (sortable) |
-| LONG | `LongPoint` | `StoredField(long)` | `NumericDocValuesField` (sortable) |
-| DOUBLE | `DoublePoint` | `StoredField(double)` | `NumericDocValuesField` (sortable) |
+| INT | `IntPoint` | `StoredField(int)` | `SortedNumericDocValuesField` (facetable and/or sortable) |
+| LONG | `LongPoint` | `StoredField(long)` | `SortedNumericDocValuesField` (facetable and/or sortable) |
+| DOUBLE | `DoublePoint` | `StoredField(double)` | `SortedNumericDocValuesField` (facetable and/or sortable) |
 
 Each entity document also gets:
 - **URI field** (`ftIRI` type) — tokenized=false, stored=true
@@ -249,10 +301,10 @@ The SHACL mode uses Lucene's `SortedSetDocValuesFacetCounts` for facet counting:
 
 ### Best Practices
 
-1. **Only enable faceting on fields you'll facet on** — set `idx:facetable true` selectively, not on every field
+1. **Only enable faceting on fields you'll facet on** — set `idx:facetable true` selectively on KEYWORD and numeric fields
 2. **Use `maxValues`** — don't request more facet values than the UI needs
 3. **Use `minCount`** — exclude rare values to reduce result size
-4. **Index rebuild required** — changing a field from non-facetable to facetable requires a full reindex since DocValues are built at write time
+4. **Index rebuild required** — changing `idx:facetable`, `idx:sortable`, or `idx:multiValued` on a faceted/sortable field requires a full reindex since DocValues are built at write time
 5. **`text:maxFacetHits`** — for large indexes, set this assembler property to cap the number of documents searched during facet collection. `0` (default) means unlimited.
 
 ### Entity Rebuild Cost
