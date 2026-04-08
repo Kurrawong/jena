@@ -30,8 +30,6 @@ import org.apache.jena.graph.Triple;
 import org.apache.jena.query.text.ShaclIndexMapping.*;
 import org.apache.jena.sparql.core.DatasetGraph;
 import org.apache.jena.sparql.core.Quad;
-import org.apache.jena.sparql.path.Path;
-import org.apache.jena.sparql.path.eval.PathEval;
 import org.apache.jena.util.iterator.ExtendedIterator;
 import org.apache.jena.vocabulary.RDF;
 import org.slf4j.Logger;
@@ -220,60 +218,6 @@ public class ShaclBulkIndexer {
      * Uses PathEval for complex paths (sequence, inverse); direct triple match for simple predicates.
      */
     private Entity buildEntity(Graph graph, Node subject, String entityUri, IndexProfile profile) {
-        Entity entity = new Entity(entityUri, null);
-
-        for (FieldDef fieldDef : profile.getFields()) {
-            Path path = fieldDef.getPath();
-            if (path != null && fieldDef.hasComplexPath()) {
-                // Complex path — use PathEval
-                Iterator<Node> values = PathEval.eval(graph, subject, path, null);
-                while (values.hasNext()) {
-                    Node obj = values.next();
-                    Object value = nodeToValue(obj, fieldDef.getFieldType());
-                    if (value != null) {
-                        entity.addValue(fieldDef.getFieldName(), value);
-                    }
-                }
-            } else {
-                // Simple predicate(s) — direct triple match (fast path)
-                for (Node predicate : fieldDef.getPredicates()) {
-                    ExtendedIterator<Triple> triples = graph.find(subject, predicate, Node.ANY);
-                    try {
-                        while (triples.hasNext()) {
-                            Node obj = triples.next().getObject();
-                            Object value = nodeToValue(obj, fieldDef.getFieldType());
-                            if (value != null) {
-                                entity.addValue(fieldDef.getFieldName(), value);
-                            }
-                        }
-                    } finally {
-                        triples.close();
-                    }
-                }
-            }
-        }
-
-        return entity;
-    }
-
-    private Object nodeToValue(Node obj, FieldType fieldType) {
-        if (obj.isLiteral()) {
-            switch (fieldType) {
-                case INT:
-                    try { return Integer.parseInt(obj.getLiteralLexicalForm()); }
-                    catch (NumberFormatException e) { return null; }
-                case LONG:
-                    try { return Long.parseLong(obj.getLiteralLexicalForm()); }
-                    catch (NumberFormatException e) { return null; }
-                case DOUBLE:
-                    try { return Double.parseDouble(obj.getLiteralLexicalForm()); }
-                    catch (NumberFormatException e) { return null; }
-                default:
-                    return obj.getLiteralLexicalForm();
-            }
-        } else if (obj.isURI()) {
-            return obj.getURI();
-        }
-        return null;
+        return ShaclEntityBuilder.buildEntity(graph, subject, entityUri, profile);
     }
 }

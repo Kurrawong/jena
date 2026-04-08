@@ -353,7 +353,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             if (cqlFilter != null) {
                 BooleanQuery.Builder combined = new BooleanQuery.Builder();
                 combined.add(textQuery, BooleanClause.Occur.MUST);
-                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping);
+                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig);
                 CqlToLuceneCompiler.CompileResult result = compiler.compile(cqlFilter);
                 if (result.pushed() != null) {
                     combined.add(result.pushed(), BooleanClause.Occur.MUST);
@@ -536,27 +536,56 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     private void addHierarchyFacetFields(Document doc, Entity entity,
             ShaclIndexMapping.IndexProfile profile) {
         for (ShaclIndexMapping.HierarchyDef hierarchy : profile.getHierarchies()) {
-            // Collect values for each level
+            addDirectHierarchyFacetFields(doc, entity, hierarchy);
+        }
+        for (ShaclIndexMapping.NestedDef nestedDef : profile.getNestedDefs()) {
+            for (ShaclIndexMapping.HierarchyDef hierarchy : nestedDef.getHierarchies()) {
+                addNestedHierarchyFacetFields(doc, entity, nestedDef, hierarchy);
+            }
+        }
+    }
+
+    private void addDirectHierarchyFacetFields(Document doc, Entity entity,
+            ShaclIndexMapping.HierarchyDef hierarchy) {
+        List<List<String>> levelValues = new ArrayList<>();
+        for (ShaclIndexMapping.FieldDef levelField : hierarchy.getLevels()) {
+            levelValues.add(asStringValues(entity.get(levelField.getFieldName())));
+        }
+        addFacetPaths(doc, hierarchy.getDimensionName(), levelValues, 0, new ArrayList<>());
+    }
+
+    private void addNestedHierarchyFacetFields(Document doc, Entity entity,
+            ShaclIndexMapping.NestedDef nestedDef, ShaclIndexMapping.HierarchyDef hierarchy) {
+        for (Entity.NestedRecord record : entity.getNestedRecords(nestedDef.getNestedName())) {
             List<List<String>> levelValues = new ArrayList<>();
+            boolean hasAnyValue = false;
             for (ShaclIndexMapping.FieldDef levelField : hierarchy.getLevels()) {
-                Object value = entity.get(levelField.getFieldName());
-                List<String> values = new ArrayList<>();
-                if (value instanceof List) {
-                    @SuppressWarnings("unchecked")
-                    List<Object> list = (List<Object>) value;
-                    for (Object v : list) {
-                        if (v != null) values.add(v.toString());
-                    }
-                } else if (value != null) {
-                    values.add(value.toString());
+                List<String> values = asStringValues(record.get(levelField.getFieldName()));
+                if (!values.isEmpty()) {
+                    hasAnyValue = true;
                 }
                 levelValues.add(values);
             }
-
-            // Build FacetField paths from the cartesian product of level values
-            // For most cases this is a single path, but multi-valued levels create multiple paths
-            addFacetPaths(doc, hierarchy.getDimensionName(), levelValues, 0, new ArrayList<>());
+            if (hasAnyValue) {
+                addFacetPaths(doc, hierarchy.getDimensionName(), levelValues, 0, new ArrayList<>());
+            }
         }
+    }
+
+    private List<String> asStringValues(Object value) {
+        List<String> values = new ArrayList<>();
+        if (value instanceof List) {
+            @SuppressWarnings("unchecked")
+            List<Object> list = (List<Object>) value;
+            for (Object v : list) {
+                if (v != null) {
+                    values.add(v.toString());
+                }
+            }
+        } else if (value != null) {
+            values.add(value.toString());
+        }
+        return values;
     }
 
     private void addFacetPaths(Document doc, String dim, List<List<String>> levelValues,
@@ -1487,7 +1516,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
 
             if (cqlFilter != null) {
-                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping);
+                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig);
                 CqlToLuceneCompiler.CompileResult result = compiler.compile(cqlFilter);
                 if (result.pushed() != null) {
                     combined.add(result.pushed(), BooleanClause.Occur.MUST);
@@ -1559,7 +1588,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
 
             if (cqlFilter != null) {
-                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping);
+                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig);
                 CqlToLuceneCompiler.CompileResult cr = compiler.compile(cqlFilter);
                 if (cr.pushed() != null) {
                     combined.add(cr.pushed(), BooleanClause.Occur.MUST);
@@ -1602,7 +1631,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 bq.add(parseQueryForFields(queryString, resolved), BooleanClause.Occur.MUST);
             }
             if (cqlFilter != null) {
-                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping);
+                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig);
                 CqlToLuceneCompiler.CompileResult cr = compiler.compile(cqlFilter);
                 if (cr.pushed() != null) {
                     bq.add(cr.pushed(), BooleanClause.Occur.MUST);

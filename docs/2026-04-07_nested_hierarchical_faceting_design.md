@@ -7,9 +7,9 @@ date: "2026-04-07"
 
 ## Status
 
-This note records the proposed direction for fixing hierarchical facets over correlated repeated child records.
+This note records the design direction that informed the initial `idx:nested` implementation on the follow-up branch.
 
-It does not change the existing user docs yet. It is a design note for the follow-up work after the current range-facet branch.
+The current code now supports `idx:nested` with simple, inverse, and sequence `idx:joinPath` values built from forward/inverse predicate steps. Block join remains future work.
 
 ## Problem
 
@@ -156,6 +156,30 @@ But it does not yet guarantee same-child correlation for mixed text + sibling-fi
 
 Those semantics require child-level querying, which is the point where block join becomes necessary.
 
+In Phase 1, that example can still over-match: an entity with one `HoleNumber` child and a different `Company` child whose value starts with `841` can satisfy both clauses because the text field is still flattened on the parent document.
+
+## Phase 1 Flattening Boundary
+
+In Phase 1, all nested fields still flatten onto the parent Lucene document for ordinary non-hierarchy queries, not just analyzed text fields.
+
+That means:
+
+- `identifierValueText` is flattened for entity-level prefix/typeahead search
+- `identifierValueExact` is also flattened for lone exact filters
+- `identifierType` is also flattened for lone exact filters
+
+Only the hierarchy-specific path uses child correlation in Phase 1:
+
+- taxonomy population is per child record
+- exact `=` filters across contiguous hierarchy levels are folded into one hierarchy path query
+
+Everything else stays parent-level until block join exists:
+
+- lone leaf filters
+- `OR` / `NOT`
+- child numeric/range filters
+- child text plus sibling child filters
+
 ## Non-Identifier Example: Direct Hierarchies
 
 The current `state -> commodity` example is still valid and does not need `idx:nested`.
@@ -292,13 +316,21 @@ Under that model:
 
 The key design requirement is that `idx:nested` must describe the data model, not the temporary storage strategy.
 
+Because Phase 1 already exposes parent-flattened child fields for ordinary queries, Phase 2 also has a compatibility constraint: parent-flattened child fields either need to remain available or become an explicit opt-in compatibility mode so existing query patterns do not silently change meaning.
+
 ## Proposed Rules
 
 The intended rules for the new model are:
 
 - `idx:nested` is optional and additive
 - `idx:joinPath` is required inside `idx:nested`
+- `idx:joinPath` may be:
+  - a simple predicate path
+  - an inverse predicate path
+  - a sequence composed from simple and inverse predicate steps
+- `idx:joinPath` does not support alternative paths
 - fields named by `idx:property` are evaluated relative to the child node reached by `idx:joinPath`
+- a field IRI may belong to only one scope: root or one nested collection
 - `idx:facetHierarchy` may appear either:
   - on the shape itself for direct entity fields, or
   - inside `idx:nested` for child-relative fields

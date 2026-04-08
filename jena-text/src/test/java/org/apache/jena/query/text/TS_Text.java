@@ -111,6 +111,8 @@ import org.junit.runners.Suite.SuiteClasses;
     // Hierarchical facets
     , TestHierarchicalFacets.class
     , TestHierarchicalFacetsSparql.class
+    , TestNestedHierarchicalFacets.class
+    , TestNestedJoinPathSupport.class
 
     // Range facets
     , TestRangeFacetCounts.class

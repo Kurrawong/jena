@@ -11,6 +11,7 @@ PREFIX text:    <http://jena.apache.org/text#>
 PREFIX idx:     <urn:jena:lucene:index#>
 PREFIX sh:      <http://www.w3.org/ns/shacl#>
 PREFIX ex:      <http://example.org/mining/>
+PREFIX schema:  <https://schema.org/>
 
 ## --- Fuseki server ---
 
@@ -119,6 +120,28 @@ field:identifier
     idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] ;
     sh:path ex:identifier .
 
+field:identifierType
+    idx:fieldName "identifierType" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true ;
+    idx:multiValued true ;
+    sh:path schema:propertyID .
+
+field:identifierValueExact
+    idx:fieldName "identifierValueExact" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true ;
+    idx:multiValued true ;
+    sh:path schema:value .
+
+field:identifierValueText
+    idx:fieldName "identifierValueText" ;
+    idx:fieldType idx:TextField ;
+    idx:multiValued true ;
+    idx:analyzer [ a text:EdgeNGramAnalyzer ] ;
+    idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] ;
+    sh:path schema:value .
+
 field:location
     idx:fieldName "location" ;
     idx:fieldType idx:LatLonField ;
@@ -151,6 +174,13 @@ field:location
     sh:property field:state ;
     sh:property field:depth ;
     sh:property field:location ;
+    idx:nested [
+        idx:joinPath schema:identifier ;
+        idx:property field:identifierType ;
+        idx:property field:identifierValueExact ;
+        idx:property field:identifierValueText ;
+        idx:facetHierarchy ( field:identifierType field:identifierValueExact ) ;
+    ] ;
     idx:facetHierarchy ( field:state field:commodity ) .
 
 :SiteShape

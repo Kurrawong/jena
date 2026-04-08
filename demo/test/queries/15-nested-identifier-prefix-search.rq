@@ -1,0 +1,10 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# Prefix search across nested identifier values using the flattened text field.
+
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?s ?score ?lit
+WHERE {
+    (?hit ?s ?score ?lit) luc:query ('["urn:jena:lucene:field#identifierValueText"]' "bod" 10)
+}
+ORDER BY DESC(?score) ?s

@@ -22,7 +22,12 @@
 package org.apache.jena.query.text.cql;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.apache.jena.atlas.json.JSON;
 import org.apache.jena.atlas.json.JsonArray;
@@ -30,7 +35,10 @@ import org.apache.jena.atlas.json.JsonObject;
 import org.apache.jena.query.text.ShaclIndexMapping;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
+import org.apache.jena.query.text.ShaclIndexMapping.HierarchyDef;
 import org.apache.jena.query.text.TextIndexException;
+import org.apache.lucene.facet.DrillDownQuery;
+import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.document.DoublePoint;
 import org.apache.lucene.document.IntPoint;
 import org.apache.lucene.document.LatLonShape;
@@ -52,11 +60,17 @@ import org.apache.lucene.util.BytesRef;
 public class CqlToLuceneCompiler {
 
     private final ShaclIndexMapping mapping;
+    private final FacetsConfig facetsConfig;
 
     public record CompileResult(Query pushed, CqlExpression residual) {}
 
     public CqlToLuceneCompiler(ShaclIndexMapping mapping) {
+        this(mapping, null);
+    }
+
+    public CqlToLuceneCompiler(ShaclIndexMapping mapping, FacetsConfig facetsConfig) {
         this.mapping = mapping;
+        this.facetsConfig = facetsConfig;
     }
 
     public CompileResult compile(CqlExpression expr) {
@@ -79,8 +93,14 @@ public class CqlToLuceneCompiler {
     private CompileResult compileAnd(CqlExpression.CqlAnd and) {
         List<Query> pushed = new ArrayList<>();
         List<CqlExpression> residual = new ArrayList<>();
+        Set<CqlExpression> consumed = Collections.newSetFromMap(new IdentityHashMap<>());
+
+        pushed.addAll(compileHierarchyDrillDowns(and.args(), consumed));
 
         for (CqlExpression child : and.args()) {
+            if (consumed.contains(child)) {
+                continue;
+            }
             CompileResult r = compileExpr(child);
             if (r.pushed() != null) {
                 pushed.add(r.pushed());
@@ -109,6 +129,72 @@ public class CqlToLuceneCompiler {
         }
 
         return new CompileResult(pushedQuery, residualExpr);
+    }
+
+    private List<Query> compileHierarchyDrillDowns(List<CqlExpression> args, Set<CqlExpression> consumed) {
+        if (facetsConfig == null || !mapping.hasHierarchies()) {
+            return Collections.emptyList();
+        }
+
+        Map<HierarchyDef, Map<Integer, CqlExpression.CqlComparison>> grouped = new HashMap<>();
+        Set<HierarchyDef> ambiguous = new java.util.HashSet<>();
+
+        for (CqlExpression child : args) {
+            if (!(child instanceof CqlExpression.CqlComparison cmp) || !"=".equals(cmp.op())) {
+                continue;
+            }
+
+            HierarchyDef hierarchy = mapping.findHierarchyForField(cmp.property());
+            if (hierarchy == null) {
+                continue;
+            }
+
+            FieldDef field = findField(cmp.property());
+            if (field == null) {
+                continue;
+            }
+            int levelIndex = hierarchy.getLevelIndex(field);
+            if (levelIndex < 0) {
+                continue;
+            }
+
+            Map<Integer, CqlExpression.CqlComparison> byLevel =
+                grouped.computeIfAbsent(hierarchy, h -> new HashMap<>());
+            CqlExpression.CqlComparison existing = byLevel.putIfAbsent(levelIndex, cmp);
+            if (existing != null && !existing.equals(cmp)) {
+                ambiguous.add(hierarchy);
+            }
+        }
+
+        List<Query> drilldowns = new ArrayList<>();
+        for (Map.Entry<HierarchyDef, Map<Integer, CqlExpression.CqlComparison>> entry : grouped.entrySet()) {
+            HierarchyDef hierarchy = entry.getKey();
+            if (ambiguous.contains(hierarchy)) {
+                continue;
+            }
+
+            Map<Integer, CqlExpression.CqlComparison> byLevel = entry.getValue();
+            int prefixDepth = 0;
+            while (byLevel.containsKey(prefixDepth)) {
+                prefixDepth++;
+            }
+            if (prefixDepth == 0) {
+                continue;
+            }
+
+            String[] path = new String[prefixDepth];
+            for (int i = 0; i < prefixDepth; i++) {
+                CqlExpression.CqlComparison cmp = byLevel.get(i);
+                path[i] = String.valueOf(cmp.value());
+                consumed.add(cmp);
+            }
+
+            DrillDownQuery drillDownQuery = new DrillDownQuery(facetsConfig);
+            drillDownQuery.add(hierarchy.getDimensionName(), path);
+            drilldowns.add(drillDownQuery);
+        }
+
+        return drilldowns;
     }
 
     private CompileResult compileOr(CqlExpression.CqlOr or) {
@@ -159,6 +245,13 @@ public class CqlToLuceneCompiler {
             return new CompileResult(null, cmp);
         }
 
+        if ("=".equals(cmp.op())) {
+            Query hierarchyQuery = compileSingleHierarchyEquality(cmp, field);
+            if (hierarchyQuery != null) {
+                return new CompileResult(hierarchyQuery, null);
+            }
+        }
+
         String op = cmp.op();
         Object value = cmp.value();
         FieldType ft = field.getFieldType();
@@ -183,6 +276,26 @@ public class CqlToLuceneCompiler {
             return new CompileResult(null, cmp);
         }
         return new CompileResult(q, null);
+    }
+
+    private Query compileSingleHierarchyEquality(CqlExpression.CqlComparison cmp, FieldDef field) {
+        if (facetsConfig == null || !mapping.hasHierarchies()) {
+            return null;
+        }
+
+        HierarchyDef hierarchy = mapping.findHierarchyForField(cmp.property());
+        if (hierarchy == null) {
+            return null;
+        }
+
+        int levelIndex = hierarchy.getLevelIndex(field);
+        if (levelIndex != 0) {
+            return null;
+        }
+
+        DrillDownQuery drillDownQuery = new DrillDownQuery(facetsConfig);
+        drillDownQuery.add(hierarchy.getDimensionName(), String.valueOf(cmp.value()));
+        return drillDownQuery;
     }
 
     private CompileResult compileIn(CqlExpression.CqlIn in) {

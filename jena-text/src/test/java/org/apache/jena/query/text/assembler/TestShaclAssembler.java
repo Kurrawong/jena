@@ -24,6 +24,7 @@ package org.apache.jena.query.text.assembler;
 import static org.junit.Assert.*;
 
 import org.apache.jena.assembler.Assembler;
+import org.apache.jena.assembler.exceptions.AssemblerException;
 import org.apache.jena.query.text.ShaclIndexMapping;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
 import org.apache.jena.query.text.ShaclTextIndexLucene;
@@ -265,6 +266,192 @@ public class TestShaclAssembler {
             assertEquals("Should have 2 leaf predicates", 2, authorNameField.getPredicates().size());
         } finally {
             index.close();
+        }
+    }
+
+    @Test
+    public void testNestedHierarchyParsed() {
+        Model model = createModel();
+
+        Resource identifierType = model.createResource("urn:jena:lucene:field#identifierType")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifierType")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
+            .addProperty(model.createProperty(IndexVocab.NS, "facetable"), model.createTypedLiteral(true))
+            .addProperty(model.createProperty(SH, "path"), model.createResource("https://schema.org/propertyID"));
+
+        Resource identifierValueExact = model.createResource("urn:jena:lucene:field#identifierValueExact")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifierValueExact")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
+            .addProperty(model.createProperty(IndexVocab.NS, "facetable"), model.createTypedLiteral(true))
+            .addProperty(model.createProperty(SH, "path"), model.createResource("https://schema.org/value"));
+
+        Resource identifierValueText = model.createResource("urn:jena:lucene:field#identifierValueText")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifierValueText")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField)
+            .addProperty(model.createProperty(IndexVocab.NS, "analyzer"),
+                model.createResource().addProperty(RDF.type, TextVocab.edgeNGramAnalyzer))
+            .addProperty(model.createProperty(IndexVocab.NS, "queryAnalyzer"),
+                model.createResource().addProperty(RDF.type, TextVocab.lowerCaseKeywordAnalyzer))
+            .addProperty(model.createProperty(SH, "path"), model.createResource("https://schema.org/value"));
+
+        Resource nested = model.createResource()
+            .addProperty(model.createProperty(IndexVocab.NS, "joinPath"), model.createResource("https://schema.org/identifier"))
+            .addProperty(model.createProperty(IndexVocab.NS, "property"), identifierType)
+            .addProperty(model.createProperty(IndexVocab.NS, "property"), identifierValueExact)
+            .addProperty(model.createProperty(IndexVocab.NS, "property"), identifierValueText)
+            .addProperty(model.createProperty(IndexVocab.NS, "facetHierarchy"),
+                model.createList(new RDFNode[] { identifierType, identifierValueExact }));
+
+        Resource boreholeShape = model.createResource(EX + "BoreholeShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Borehole"))
+            .addProperty(model.createProperty(SH, "property"),
+                model.createResource()
+                    .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "title")
+                    .addProperty(model.createProperty(IndexVocab.NS, "defaultSearch"), model.createTypedLiteral(true))
+                    .addProperty(model.createProperty(SH, "path"), RDFS.label))
+            .addProperty(model.createProperty(IndexVocab.NS, "nested"), nested);
+
+        RDFNode shapesList = model.createList(new RDFNode[] { boreholeShape });
+        Resource indexSpec = model.createResource(EX + "index")
+            .addProperty(RDF.type, TextVocab.textIndexShacl)
+            .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+            .addProperty(TextVocab.pShapes, shapesList);
+
+        ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
+        try {
+            ShaclIndexMapping.IndexProfile profile = index.getShaclMapping().getProfiles().get(0);
+            assertEquals("Should parse nested definition", 1, profile.getNestedDefs().size());
+            ShaclIndexMapping.NestedDef nestedDef = profile.getNestedDefs().get(0);
+            assertTrue("joinPath should be a simple predicate", nestedDef.getJoinPath() instanceof P_Link);
+            assertEquals("Nested scope name should be derived from joinPath",
+                "<https://schema.org/identifier>", nestedDef.getNestedName());
+            assertEquals("Simple join path should produce one join step", 1, nestedDef.getJoinSteps().size());
+            assertFalse("Simple join step should be forward", nestedDef.getJoinSteps().get(0).isInverse());
+            assertTrue("join predicates should contain the join predicate",
+                nestedDef.getJoinPredicates().contains(model.createResource("https://schema.org/identifier").asNode()));
+            assertEquals("Nested fields should be available on the profile", 4, profile.getFields().size());
+            assertEquals("Nested block should define one hierarchy", 1, nestedDef.getHierarchies().size());
+            ShaclIndexMapping.HierarchyDef hierarchy = nestedDef.getHierarchies().get(0);
+            assertEquals("identifierType_identifierValueExact", hierarchy.getDimensionName());
+            assertEquals("First hierarchy level should be identifierType",
+                "urn:jena:lucene:field#identifierType", hierarchy.getLevel(0).getFieldIRI().getURI());
+            assertEquals("Second hierarchy level should be identifierValueExact",
+                "urn:jena:lucene:field#identifierValueExact", hierarchy.getLevel(1).getFieldIRI().getURI());
+            assertTrue("Nested fields should carry nested scope metadata",
+                hierarchy.getLevel(0).isNestedScoped());
+        } finally {
+            index.close();
+        }
+    }
+
+    @Test
+    public void testNestedInverseJoinPathParsed() {
+        Model model = createModel();
+
+        Resource identifierType = model.createResource("urn:jena:lucene:field#identifierType")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifierType")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
+            .addProperty(model.createProperty(SH, "path"), model.createResource("https://schema.org/propertyID"));
+
+        Resource nested = model.createResource()
+            .addProperty(model.createProperty(IndexVocab.NS, "joinPath"),
+                model.createResource().addProperty(model.createProperty(SH, "inversePath"),
+                    model.createResource("https://schema.org/about")))
+            .addProperty(model.createProperty(IndexVocab.NS, "property"), identifierType);
+
+        Resource boreholeShape = model.createResource(EX + "BoreholeShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Borehole"))
+            .addProperty(model.createProperty(IndexVocab.NS, "nested"), nested);
+
+        RDFNode shapesList = model.createList(new RDFNode[] { boreholeShape });
+        Resource indexSpec = model.createResource(EX + "index")
+            .addProperty(RDF.type, TextVocab.textIndexShacl)
+            .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+            .addProperty(TextVocab.pShapes, shapesList);
+
+        ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
+        try {
+            ShaclIndexMapping.NestedDef nestedDef = index.getShaclMapping().getProfiles().get(0).getNestedDefs().get(0);
+            assertTrue(nestedDef.getJoinPath() instanceof P_Inverse);
+            assertEquals(1, nestedDef.getJoinSteps().size());
+            assertTrue(nestedDef.getJoinSteps().get(0).isInverse());
+            assertEquals("https://schema.org/about", nestedDef.getJoinSteps().get(0).getPredicate().getURI());
+        } finally {
+            index.close();
+        }
+    }
+
+    @Test
+    public void testNestedSequenceJoinPathParsed() {
+        Model model = createModel();
+
+        Resource identifierType = model.createResource("urn:jena:lucene:field#identifierType")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifierType")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
+            .addProperty(model.createProperty(SH, "path"), model.createResource("https://schema.org/propertyID"));
+
+        Resource joinPath = model.createList(new RDFNode[] {
+            model.createResource("https://example.org/hasIdentifierLink"),
+            model.createResource("https://example.org/identifierNode")
+        }).asResource();
+
+        Resource nested = model.createResource()
+            .addProperty(model.createProperty(IndexVocab.NS, "joinPath"), joinPath)
+            .addProperty(model.createProperty(IndexVocab.NS, "property"), identifierType);
+
+        Resource boreholeShape = model.createResource(EX + "BoreholeShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Borehole"))
+            .addProperty(model.createProperty(IndexVocab.NS, "nested"), nested);
+
+        RDFNode shapesList = model.createList(new RDFNode[] { boreholeShape });
+        Resource indexSpec = model.createResource(EX + "index")
+            .addProperty(RDF.type, TextVocab.textIndexShacl)
+            .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+            .addProperty(TextVocab.pShapes, shapesList);
+
+        ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
+        try {
+            ShaclIndexMapping.NestedDef nestedDef = index.getShaclMapping().getProfiles().get(0).getNestedDefs().get(0);
+            assertTrue(nestedDef.getJoinPath() instanceof P_Seq);
+            assertEquals(2, nestedDef.getJoinSteps().size());
+            assertEquals("https://example.org/hasIdentifierLink", nestedDef.getJoinSteps().get(0).getPredicate().getURI());
+            assertEquals("https://example.org/identifierNode", nestedDef.getJoinSteps().get(1).getPredicate().getURI());
+            assertFalse(nestedDef.getJoinSteps().get(0).isInverse());
+            assertFalse(nestedDef.getJoinSteps().get(1).isInverse());
+        } finally {
+            index.close();
+        }
+    }
+
+    @Test
+    public void testFieldCannotBeUsedInBothRootAndNestedScope() {
+        Model model = createModel();
+
+        Resource identifierType = model.createResource("urn:jena:lucene:field#identifierType")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifierType")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
+            .addProperty(model.createProperty(SH, "path"), model.createResource("https://schema.org/propertyID"));
+
+        Resource nested = model.createResource()
+            .addProperty(model.createProperty(IndexVocab.NS, "joinPath"), model.createResource("https://schema.org/identifier"))
+            .addProperty(model.createProperty(IndexVocab.NS, "property"), identifierType);
+
+        Resource boreholeShape = model.createResource(EX + "BoreholeShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Borehole"))
+            .addProperty(model.createProperty(SH, "property"), identifierType)
+            .addProperty(model.createProperty(IndexVocab.NS, "nested"), nested);
+
+        RDFNode shapesList = model.createList(new RDFNode[] { boreholeShape });
+        Resource indexSpec = model.createResource(EX + "index")
+            .addProperty(RDF.type, TextVocab.textIndexShacl)
+            .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+            .addProperty(TextVocab.pShapes, shapesList);
+
+        try {
+            Assembler.general().open(indexSpec);
+            fail("Expected root/nested field reuse to be rejected");
+        } catch (AssemblerException ex) {
+            assertTrue(ex.getMessage().contains("cannot be used both as a root field and as an idx:nested property"));
         }
     }
 
