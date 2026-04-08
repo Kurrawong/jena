@@ -1,7 +1,6 @@
 # Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
 
-PREFIX luc: <http://jena.apache.org/text#>
-PREFIX field: <urn:jena:lucene:field#>
+PREFIX luc: <urn:jena:lucene:index#>
 
 # Range faceting for numeric fields (INT, LONG, DOUBLE)
 # Requires 5-slot subject form: (?field ?value ?low ?high ?count)
@@ -12,7 +11,14 @@ PREFIX field: <urn:jena:lucene:field#>
 
 SELECT ?field ?value ?low ?high ?count
 WHERE {
-  (?s ?score) luc:query "*" .
-  (?field ?value ?low ?high ?count) luc:facet '{"facetFields":[{"field":"urn:jena:lucene:field#year","ranges":[null, 2000, 2020, null]}, {"field":"urn:jena:lucene:field#depth","ranges":[0, 200, 500, 1000]}]}' .
+  (?field ?value ?low ?high ?count) luc:facet (
+    "default"
+    "default"
+    "*"
+    '[{"field":"urn:jena:lucene:field#year","ranges":[null, 2000, 2020, null]}, {"field":"urn:jena:lucene:field#depth","ranges":[0, 200, 500, 1000]}]'
+    "null"
+    20
+    0
+  ) .
 }
 ORDER BY ?field ?low

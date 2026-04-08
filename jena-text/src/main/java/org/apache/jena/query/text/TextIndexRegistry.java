@@ -25,6 +25,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Named registry of {@link TextIndexLucene} instances for multi-index support.
@@ -34,9 +35,40 @@ import java.util.Map;
  */
 public class TextIndexRegistry {
 
+    public static final class ResolvedIndex {
+        private final String canonicalKey;
+        private final TextIndexLucene index;
+
+        private ResolvedIndex(String canonicalKey, TextIndexLucene index) {
+            this.canonicalKey = canonicalKey;
+            this.index = index;
+        }
+
+        public String canonicalKey() {
+            return canonicalKey;
+        }
+
+        public TextIndexLucene index() {
+            return index;
+        }
+    }
+
+    private static final class Entry {
+        private final String id;
+        private final String canonicalKey;
+        private final TextIndexLucene index;
+
+        private Entry(String id, String canonicalKey, TextIndexLucene index) {
+            this.id = id;
+            this.canonicalKey = canonicalKey;
+            this.index = index;
+        }
+    }
+
     public static final String DEFAULT_ID = "default";
 
     private final Map<String, TextIndexLucene> indexes = new LinkedHashMap<>();
+    private final Map<String, Entry> selectors = new LinkedHashMap<>();
     private String defaultId;
 
     public TextIndexRegistry() {}
@@ -51,7 +83,31 @@ public class TextIndexRegistry {
     }
 
     public void register(String id, TextIndexLucene index) {
+        register(id, null, index);
+    }
+
+    public void register(String id, String canonicalIri, TextIndexLucene index) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(index, "index");
+        String canonicalKey = canonicalIri != null ? canonicalIri : id;
+
+        Entry existingById = selectors.get(id);
+        if (existingById != null && existingById.index != index) {
+            throw new TextIndexException("Duplicate text index selector: " + id);
+        }
+        if (canonicalIri != null) {
+            Entry existingByIri = selectors.get(canonicalIri);
+            if (existingByIri != null && existingByIri.index != index) {
+                throw new TextIndexException("Duplicate text index selector: " + canonicalIri);
+            }
+        }
+
         indexes.put(id, index);
+        Entry entry = new Entry(id, canonicalKey, index);
+        selectors.put(id, entry);
+        if (canonicalIri != null) {
+            selectors.put(canonicalIri, entry);
+        }
         if (defaultId == null) {
             defaultId = id;
         }
@@ -65,11 +121,26 @@ public class TextIndexRegistry {
         return idx;
     }
 
+    public ResolvedIndex resolve(String selector) {
+        Entry entry = selectors.get(selector);
+        if (entry == null) {
+            throw new TextIndexException("No text index registered with selector: " + selector);
+        }
+        return new ResolvedIndex(entry.canonicalKey, entry.index);
+    }
+
     public TextIndexLucene getDefault() {
         if (defaultId == null) {
             throw new TextIndexException("No text indexes registered");
         }
         return indexes.get(defaultId);
+    }
+
+    public ResolvedIndex getDefaultResolved() {
+        if (defaultId == null) {
+            throw new TextIndexException("No text indexes registered");
+        }
+        return resolve(defaultId);
     }
 
     public String getDefaultId() {

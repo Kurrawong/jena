@@ -30,7 +30,9 @@ import static org.apache.jena.query.text.assembler.TextVocab.textDataset;
 
 import java.lang.reflect.Constructor;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.jena.assembler.Assembler;
 import org.apache.jena.assembler.Mode;
@@ -100,19 +102,25 @@ public class TextDatasetAssembler extends DatasetAssembler implements Assembler 
     private Dataset openMultiIndex(Assembler a, Resource root, Mode mode,
                                     Dataset ds, Statement indexesStmt, Resource textDocProducerNode) {
         RDFNode indexesNode = indexesStmt.getObject();
-        if (!indexesNode.canAs(RDFList.class)) {
-            throw new TextIndexException("text:indexes must be an RDF list: " + indexesNode);
+        List<Resource> indexResources = new ArrayList<>();
+        if (indexesNode.isResource() && !indexesNode.canAs(RDFList.class)) {
+            indexResources.add(indexesNode.asResource());
+        } else if (indexesNode.canAs(RDFList.class)) {
+            RDFList indexesList = indexesNode.as(RDFList.class);
+            for (RDFNode node : indexesList.asJavaList()) {
+                if (!node.isResource()) {
+                    throw new TextIndexException("Each element of text:indexes must be a resource: " + node);
+                }
+                indexResources.add(node.asResource());
+            }
+        } else {
+            throw new TextIndexException("text:indexes must be a resource or an RDF list: " + indexesNode);
         }
-
-        RDFList indexesList = indexesNode.as(RDFList.class);
         TextIndexRegistry registry = new TextIndexRegistry();
         List<TextDocProducer> producers = new ArrayList<>();
+        Set<String> seenIds = new HashSet<>();
 
-        for (RDFNode node : indexesList.asJavaList()) {
-            if (!node.isResource()) {
-                throw new TextIndexException("Each element of text:indexes must be a resource: " + node);
-            }
-            Resource indexRes = node.asResource();
+        for (Resource indexRes : indexResources) {
             TextIndex textIndex = (TextIndex) a.open(indexRes);
 
             if (!(textIndex instanceof TextIndexLucene luceneIndex)) {
@@ -128,7 +136,11 @@ public class TextDatasetAssembler extends DatasetAssembler implements Assembler 
                 indexId = indexRes.isURIResource() ? indexRes.getLocalName() : "index_" + registry.size();
             }
 
-            registry.register(indexId, luceneIndex);
+            if (!seenIds.add(indexId)) {
+                throw new TextIndexException("Duplicate text:indexId: " + indexId);
+            }
+
+            registry.register(indexId, indexRes.isURIResource() ? indexRes.getURI() : null, luceneIndex);
 
             // Create doc producer for this index
             if (luceneIndex instanceof ShaclTextIndexLucene shaclIndex) {

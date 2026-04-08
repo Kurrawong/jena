@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jena SHACL luc:* One-Page Reference</title>
+<style>
+  :root {
+    --bg: #f6f3ea;
+    --paper: #fffdf8;
+    --ink: #1f2430;
+    --muted: #5f6b7a;
+    --rule: #d8d2c3;
+    --accent: #a14a16;
+    --accent-2: #0f5f74;
+    --mono-bg: #f3efe5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(circle at top right, #f0dcc7 0, transparent 26rem),
+      linear-gradient(180deg, #f8f4ec 0, var(--bg) 100%);
+  }
+  main {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 32px 20px 56px;
+  }
+  h1, h2, h3 { margin: 0 0 12px; line-height: 1.1; }
+  h1 {
+    font-family: "IBM Plex Serif", Georgia, serif;
+    font-size: clamp(2rem, 4vw, 3.2rem);
+    letter-spacing: -0.03em;
+  }
+  h2 {
+    font-size: 1.25rem;
+    color: var(--accent);
+    margin-top: 28px;
+  }
+  p, li {
+    font-size: 0.98rem;
+    line-height: 1.55;
+    color: var(--ink);
+  }
+  .lede {
+    color: var(--muted);
+    max-width: 70ch;
+    margin: 10px 0 18px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin-top: 18px;
+  }
+  .card {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 16px;
+    padding: 18px;
+    box-shadow: 0 12px 24px rgba(31, 36, 48, 0.05);
+  }
+  .card h3 {
+    font-size: 1rem;
+    color: var(--accent-2);
+    margin-bottom: 10px;
+  }
+  code, pre {
+    font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  }
+  code {
+    background: var(--mono-bg);
+    padding: 0.08rem 0.32rem;
+    border-radius: 6px;
+  }
+  pre {
+    margin: 12px 0 0;
+    padding: 14px;
+    overflow: auto;
+    border-radius: 12px;
+    border: 1px solid var(--rule);
+    background: #fbf8f1;
+    line-height: 1.45;
+    font-size: 0.9rem;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    font-size: 0.95rem;
+  }
+  th {
+    background: #f1eadc;
+    color: var(--accent);
+  }
+  tr:last-child td { border-bottom: 0; }
+  .note {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border-left: 4px solid var(--accent);
+    background: #fff7ea;
+    color: var(--muted);
+    border-radius: 10px;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Jena SHACL <code>luc:*</code> One-Page Reference</h1>
+  <p class="lede">
+    Current API surface for SHACL-mode search. This page reflects the fixed-position signatures on
+    <code>main</code>: explicit <code>indexSelector</code>, explicit <code>fieldSpec</code>, no
+    <code>?match</code> on <code>luc:query</code>, and field IRIs for all public field references.
+  </p>
+
+  <div class="grid">
+    <section class="card">
+      <h3><code>luc:query</code></h3>
+      <pre>(?hit ?entity ?score ?totalHits)
+  luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit)</pre>
+      <p>Use <code>"null"</code> for an unused <code>cqlFilter</code> or <code>sortSpec</code>.</p>
+    </section>
+
+    <section class="card">
+      <h3><code>luc:match</code></h3>
+      <pre>(?hit ?field ?value ?snippet) luc:match ()</pre>
+      <p>Per-hit match detail lives here. This is the only match-detail API.</p>
+    </section>
+
+    <section class="card">
+      <h3><code>luc:facet</code></h3>
+      <pre>(?field ?value ?low ?high ?count)
+  luc:facet (indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount)</pre>
+      <p>The active supported subject form is the 5-slot form above.</p>
+    </section>
+  </div>
+
+  <h2>Argument Rules</h2>
+  <table>
+    <thead>
+      <tr><th>Concept</th><th>Rule</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>indexSelector</code></td><td>String literal. Usually <code>"default"</code>, but can also be a configured <code>text:indexId</code> or index resource IRI.</td></tr>
+      <tr><td><code>fieldSpec</code></td><td>Either <code>"default"</code> or a JSON array of field IRIs.</td></tr>
+      <tr><td>Field references</td><td>Always field IRIs in <code>fieldSpec</code>, CQL <code>property</code>, sort specs, and facet arrays.</td></tr>
+      <tr><td>Graph filtering</td><td>Target model uses reserved synthetic field <code>urn:jena:lucene:field#sourceGraph</code>, not a dedicated <code>?graph</code> slot.</td></tr>
+      <tr><td>Arity</td><td>No heuristic parsing. <code>luc:query</code> takes exactly 6 object args. <code>luc:facet</code> takes exactly 7 object args.</td></tr>
+      <tr><td>Highlight</td><td>Reserved for later. Not part of the active supported <code>luc:query</code> signature yet.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Examples</h2>
+  <pre>PREFIX luc: &lt;urn:jena:lucene:index#&gt;
+
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score)
+    luc:query ("default" "default" "learning" "null" "null" 20) .
+}</pre>
+
+  <pre>PREFIX luc: &lt;urn:jena:lucene:index#&gt;
+
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score)
+    luc:query (
+      "default"
+      '["urn:jena:lucene:field#title"]'
+      "copper"
+      "null"
+      '{"field":"urn:jena:lucene:field#year","order":"desc"}'
+      10
+    ) .
+}</pre>
+
+  <pre>PREFIX luc: &lt;urn:jena:lucene:index#&gt;
+
+SELECT ?entity ?field ?value WHERE {
+  (?hit ?entity ?score)
+    luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "null" "null" 10) .
+  (?hit ?field ?value) luc:match () .
+}</pre>
+
+  <pre>PREFIX luc: &lt;urn:jena:lucene:index#&gt;
+
+SELECT ?field ?value ?low ?high ?count WHERE {
+  (?field ?value ?low ?high ?count)
+    luc:facet (
+      "default"
+      "default"
+      "*"
+      '["urn:jena:lucene:field#state", {"field":"urn:jena:lucene:field#year","ranges":[null,2000,2010,2020,null]}]'
+      "null"
+      20
+      0
+    ) .
+}</pre>
+
+  <h2>Sort Syntax</h2>
+  <p>Sort specs are JSON and use field IRIs in the public API.</p>
+  <pre>{"field":"urn:jena:lucene:field#year","order":"desc"}</pre>
+  <pre>[
+  {"field":"urn:jena:lucene:field#year","order":"desc"},
+  {"field":"urn:jena:lucene:field#title"}
+]</pre>
+
+  <h2>Graph Filtering</h2>
+  <p>
+    Target model: graph restriction is a normal CQL filter on a reserved synthetic field,
+    not a special result binding.
+  </p>
+  <pre>{"op":"=","args":[{"property":"urn:jena:lucene:field#sourceGraph"},"http://example.org/graph/A"]}</pre>
+
+  <div class="note">
+    Shared execution is keyed by resolved index identity, field spec, query string, CQL filter, and
+    sort spec. Matching <code>luc:query</code>, <code>luc:facet</code>, and <code>luc:match</code>
+    calls reuse one Lucene search.
+  </div>
+</main>
+</body>
+</html>

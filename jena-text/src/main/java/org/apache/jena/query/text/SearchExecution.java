@@ -42,6 +42,7 @@ import org.slf4j.LoggerFactory;
 public class SearchExecution {
     private static final Logger log = LoggerFactory.getLogger(SearchExecution.class);
 
+    private final String indexIdentity;
     private final List<String> searchFields;
     private final String queryString;
     private final CqlExpression filter;
@@ -58,9 +59,10 @@ public class SearchExecution {
     private boolean hitsComputed = false;
     private boolean searchHitsComputed = false;
 
-    public SearchExecution(List<String> searchFields, String queryString,
+    public SearchExecution(String indexIdentity, List<String> searchFields, String queryString,
                            CqlExpression filter, List<SortSpec> sortSpecs,
                            ShaclTextIndexLucene textIndex, String graphURI, String lang) {
+        this.indexIdentity = indexIdentity;
         this.searchFields = searchFields != null ? new ArrayList<>(searchFields) : new ArrayList<>();
         this.queryString = queryString;
         this.filter = filter;
@@ -75,12 +77,13 @@ public class SearchExecution {
      * If one already exists with the same key, it is reused.
      */
     public static SearchExecution getOrCreate(ExecutionContext execCxt,
+                                              String indexIdentity,
                                               List<String> searchFields,
                                               String queryString, CqlExpression filter,
                                               List<SortSpec> sortSpecs,
                                               ShaclTextIndexLucene textIndex,
                                               String graphURI, String lang) {
-        String key = buildKey(searchFields, queryString, filter, sortSpecs);
+        String key = buildKey(indexIdentity, searchFields, queryString, filter, sortSpecs);
         Symbol symbol = Symbol.create(TextQuery.NS + "searchExecution/" + key);
 
         Object existing = execCxt.getContext().get(symbol);
@@ -89,7 +92,7 @@ public class SearchExecution {
             return (SearchExecution) existing;
         }
 
-        SearchExecution se = new SearchExecution(searchFields, queryString, filter,
+        SearchExecution se = new SearchExecution(indexIdentity, searchFields, queryString, filter,
             sortSpecs, textIndex, graphURI, lang);
         execCxt.getContext().put(symbol, se);
         log.trace("Created new SearchExecution for key: {}", key);
@@ -99,15 +102,17 @@ public class SearchExecution {
     /**
      * Build a cache key from search fields, query string, CQL filter, and sort specs.
      */
-    static String buildKey(List<String> searchFields, String queryString,
+    static String buildKey(String indexIdentity, List<String> searchFields, String queryString,
                            CqlExpression filter, List<SortSpec> sortSpecs) {
         StringBuilder sb = new StringBuilder();
+
+        sb.append("index=").append(indexIdentity != null ? indexIdentity : TextIndexRegistry.DEFAULT_ID);
 
         if (searchFields != null && !searchFields.isEmpty()) {
             List<String> sorted = searchFields.stream()
                 .sorted()
                 .collect(Collectors.toList());
-            sb.append("fields=").append(String.join(",", sorted));
+            sb.append("|fields=").append(String.join(",", sorted));
         }
 
         sb.append("|qs=").append(queryString != null ? queryString : "");
@@ -206,6 +211,10 @@ public class SearchExecution {
 
     public CqlExpression getFilter() {
         return filter;
+    }
+
+    public String getIndexIdentity() {
+        return indexIdentity;
     }
 
     public String getQueryString() {

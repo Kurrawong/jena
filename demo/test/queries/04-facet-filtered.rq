@@ -9,10 +9,12 @@ SELECT ?field ?value ?low ?high ?count
 WHERE {
     (?field ?value ?low ?high ?count) luc:facet (
         "default"
+        "default"
         "gold"
-        '["operator", "commodity"]'
-        '{"op":"=","args":[{"property":"state"},"WA"]}'
+        '["urn:jena:lucene:field#operator", "urn:jena:lucene:field#commodity"]'
+        '{"op":"=","args":[{"property":"urn:jena:lucene:field#state"},"http://example.org/mining/state/WA"]}'
         10
+        0
     )
 }
 ORDER BY ?field DESC(?count)

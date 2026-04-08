@@ -1,403 +1,39 @@
-# User Guide: Faceted Search in Jena Text
+# User Guide
 
-## Overview
+This guide covers SHACL-mode text indexing and search.
 
-The `jena-text` module provides full-text search over RDF data using Apache Lucene. This fork adds **entity-per-document indexing with native faceted search** — the ability to get categorised counts alongside text search results, the same pattern used by e-commerce sites, library catalogues, and data portals.
+## Mental Model
 
-SHACL shapes define entity types with typed fields. Each entity matching a shape's `sh:targetClass` gets one Lucene document containing all its fields. Search uses `luc:query` (with CQL2-JSON filters) and `luc:facet` (for facet counts).
+Each entity matching a configured `sh:targetClass` becomes one Lucene document with typed fields.
 
-> **Note:** The upstream Jena `text:query` / `text:entityMap` (classic mode) is unchanged and still available. This documentation covers only the SHACL mode added by this fork.
+The main SHACL property functions are:
 
----
+- `luc:query` for hit search
+- `luc:match` for per-hit field/value details
+- `luc:facet` for aggregate counts
 
-## Getting Started
+## Quick Start
 
-### 1. Define your index configuration
+### 1. Configure a dataset
 
 ```turtle
-@prefix text:  <http://jena.apache.org/text#> .
-@prefix idx:   <urn:jena:lucene:index#> .
+@prefix text: <http://jena.apache.org/text#> .
+@prefix tdb2: <http://jena.apache.org/2016/tdb#> .
+
+<#ds> a text:TextDataset ;
+    text:dataset <#baseDs> ;
+    text:indexes <#index> .
+
+<#baseDs> a tdb2:DatasetTDB2 ;
+    tdb2:location "/path/to/tdb2" .
+```
+
+### 2. Define fields
+
+```turtle
+@prefix idx: <urn:jena:lucene:index#> .
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
 @prefix field: <urn:jena:lucene:field#> .
-@prefix sh:    <http://www.w3.org/ns/shacl#> .
-@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix ex:    <http://example.org/> .
-
-<#index> a text:TextIndexLucene ;
-    text:directory "mem" ;
-    text:shapes ( <#BookShape> ) ;
-    text:storeValues true ;
-    .
-
-## Named field resources — their IRIs identify fields in SPARQL queries
-field:title
-    idx:fieldName "title" ;
-    idx:fieldType idx:TextField ;
-    idx:defaultSearch true ;
-    sh:path rdfs:label .
-
-field:category
-    idx:fieldName "category" ;
-    idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    idx:multiValued true ;
-    sh:path ex:category .
-
-field:author
-    idx:fieldName "author" ;
-    idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path ex:author .
-
-field:authorName
-    idx:fieldName "authorName" ;
-    idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path ( ex:writtenBy ex:name ) .  ## sequence path — indexes author name on the book
-
-field:year
-    idx:fieldName "year" ;
-    idx:fieldType idx:IntField ;
-    idx:facetable true ;
-    idx:sortable true ;
-    sh:path ex:year .
-
-<#BookShape>
-    sh:targetClass ex:Book ;
-    sh:property field:title ;
-    sh:property field:category ;
-    sh:property field:author ;
-    sh:property field:authorName ;
-    sh:property field:year .
-```
-
-Each field is a **named resource** with a stable, absolute IRI (e.g., `urn:jena:lucene:field#category`). This IRI is used in SPARQL queries to identify fields — in `luc:query` field specs, `luc:facet` facet field arrays, CQL2-JSON filter properties, and sort specs. The `idx:fieldName` property defines the internal Lucene field name and is not used in SPARQL.
-
-Fields defined as blank nodes get auto-generated IRIs (`urn:jena:lucene:field#{fieldName}`). Named resources are recommended — they enable field reuse across multiple shapes and support sequence/inverse paths for cross-entity indexing without forward chaining (see [Configuration Reference](03-configuration.md)).
-
-### 2. Load data
-
-Data is indexed automatically when triples are added to a text-indexed dataset:
-
-```sparql
-PREFIX ex: <http://example.org/>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-
-INSERT DATA {
-    ex:book1 a ex:Book ;
-        rdfs:label "Introduction to Machine Learning" ;
-        ex:category "Technology" ;
-        ex:author "Smith" ;
-        ex:year 2024 .
-
-    ex:book2 a ex:Book ;
-        rdfs:label "Quantum Physics Basics" ;
-        ex:category "Science" ;
-        ex:author "Wilson" ;
-        ex:year 2023 .
-}
-```
-
-### 3. Search
-
-```sparql
-PREFIX luc: <urn:jena:lucene:index#>
-
-SELECT ?s ?score WHERE {
-    (?hit ?s ?score) luc:query ("machine learning") .
-}
-```
-
-### 4. Get facet counts
-
-```sparql
-PREFIX luc: <urn:jena:lucene:index#>
-
-SELECT ?field ?value ?count WHERE {
-    (?field ?value ?count) luc:facet ("default" "machine learning"
-        '["urn:jena:lucene:field#category", "urn:jena:lucene:field#author"]' 10) .
-}
-```
-
-Returns rows like:
-
-| ?field | ?value | ?count |
-|--------|--------|--------|
-| `<urn:jena:lucene:field#category>` | `"Technology"` | 3 |
-| `<urn:jena:lucene:field#category>` | `"Science"` | 1 |
-| `<urn:jena:lucene:field#author>` | `"Smith"` | 2 |
-| `<urn:jena:lucene:field#author>` | `"Jones"` | 1 |
-
-`?field` returns the field IRI (the named resource from config). For flat and hierarchical facets, `?value` returns the stored keyword value. Values that look like URIs are returned as IRIs; otherwise they are returned as string literals.
-
-The `facetFields` array requires field IRIs — the full IRI of each field resource as defined in the configuration.
-
-### 5. Range facets on numeric fields
-
-For numeric fields (INT, LONG, DOUBLE), set `idx:facetable true` on the field and use range objects in the facet fields array to get bucketed counts.
-
-Range-capable facet requests use the 5-slot subject form:
-
-```sparql
-(?field ?value ?low ?high ?count) luc:facet (...)
-```
-
-The legacy 3-slot form remains valid for flat and hierarchical facets only.
-
-```sparql
-PREFIX luc: <urn:jena:lucene:index#>
-
-SELECT ?field ?value ?low ?high ?count WHERE {
-    (?field ?value ?low ?high ?count) luc:facet ("default" "machine learning"
-        '[{"field":"urn:jena:lucene:field#year", "ranges":[2020, 2022, 2024, 2026]}]'
-        10) .
-}
-```
-
-Returns rows like:
-
-| ?field | ?value | ?low | ?high | ?count |
-|--------|--------|------|-------|--------|
-| `<urn:jena:lucene:field#year>` | — | `2020` | `2022` | 1 |
-| `<urn:jena:lucene:field#year>` | — | `2022` | `2024` | 1 |
-
-`?low` and `?high` are typed numeric literals matching the field type. Boundaries define contiguous `[low, high)` buckets. Use `null` for open-ended ranges: `[null, 2020, 2024, null]` produces `(-∞, 2020)`, `[2020, 2024)`, `[2024, +∞)`, with the missing bound left unbound.
-
-Mix flat and range facets in a single call by using the same 5-slot form. Flat rows bind `?value`; range rows bind `?low`/`?high`.
-
-```sparql
-PREFIX luc: <urn:jena:lucene:index#>
-
-SELECT ?field ?value ?low ?high ?count WHERE {
-    (?field ?value ?low ?high ?count) luc:facet ("default" "machine learning"
-        '["urn:jena:lucene:field#category", {"field":"urn:jena:lucene:field#year", "ranges":[2020, 2022, 2024, 2026]}]'
-        10) .
-}
-```
-
-### 6. Search with facet filtering
-Filters use CQL2-JSON syntax. The `property` value must be a field IRI:
-
-```sparql
-PREFIX luc: <urn:jena:lucene:index#>
-
-# Only return results where category is "Technology"
-SELECT ?s ?score WHERE {
-    (?hit ?s ?score) luc:query ("default" "learning"
-        '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}'
-        20) .
-}
-```
-
-**Facets with filters applied:**
-
-```sparql
-PREFIX luc: <urn:jena:lucene:index#>
-
-# Get author counts, but only for Technology books
-SELECT ?field ?value ?count WHERE {
-    (?field ?value ?count) luc:facet (
-        "default"
-        "learning"
-        '["urn:jena:lucene:field#author"]'
-        '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}'
-        10
-    ) .
-}
-```
-
-### 7. Get total hit count
-
-Add `?totalHits` as the 4th subject variable to get the total number of matching documents. This is useful for "Showing X of Y results" UI patterns:
-
-```sparql
-PREFIX luc: <urn:jena:lucene:index#>
-
-SELECT ?s ?score ?totalHits WHERE {
-    (?s ?score ?_lit ?totalHits) luc:query ("learning" 10) .
-}
-```
-
-`?totalHits` is the same value on every row — read it from the first result. The count is computed efficiently using `IndexSearcher.count()` and only runs when the variable is present.
-
-### 8. Combine search and facets in one query
-
-When `luc:query` and `luc:facet` appear in the same query with matching parameters, they automatically share execution (one Lucene query, not two):
-
-```sparql
-PREFIX luc: <urn:jena:lucene:index#>
-
-SELECT ?s ?score ?totalHits ?field ?value ?count WHERE {
-    { (?s ?score ?_lit ?totalHits) luc:query ("learning" 10) }
-    UNION
-    { (?field ?value ?count) luc:facet ("learning"
-        '["urn:jena:lucene:field#category"]' 10) }
-}
-```
-
----
-
-## Filter Semantics
-
-Filters use CQL2-JSON syntax. The `property` value is a field IRI.
-
-Single equality:
-
-```json
-{"op": "=", "args": [{"property": "urn:jena:lucene:field#category"}, "Technology"]}
-```
-
-Multiple values (OR within a field):
-
-```json
-{"op": "or", "args": [
-    {"op": "=", "args": [{"property": "urn:jena:lucene:field#category"}, "Technology"]},
-    {"op": "=", "args": [{"property": "urn:jena:lucene:field#category"}, "Science"]}
-]}
-```
-
-Multiple fields (AND across fields):
-
-```json
-{"op": "and", "args": [
-    {"op": "=", "args": [{"property": "urn:jena:lucene:field#category"}, "Technology"]},
-    {"op": "=", "args": [{"property": "urn:jena:lucene:field#author"}, "Smith"]}
-]}
-```
-
-See [SPARQL API Reference](02-sparql-api.md) for the full CQL2-JSON syntax.
-
----
-
-## Hierarchical Facets
-
-Hierarchical facets enable tree-structured drill-down navigation — for example, selecting a state to reveal commodity breakdowns within it.
-
-### Configuration
-
-Add `idx:facetHierarchy` to a shape with an ordered list of field resources (parent → child):
-
-```turtle
-field:state
-    idx:fieldName "state" ;
-    idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path ex:state .
-
-field:commodity
-    idx:fieldName "commodity" ;
-    idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path ex:commodity .
-
-<#SiteShape>
-    sh:targetClass ex:Site ;
-    sh:property field:state ;
-    sh:property field:commodity ;
-    idx:facetHierarchy ( field:state field:commodity ) .
-```
-
-### Workflow
-
-**Step 1: Get top-level facets** — request facets on the parent level field IRI:
-
-```sparql
-PREFIX luc: <urn:jena:lucene:index#>
-
-SELECT ?field ?value ?count WHERE {
-    (?field ?value ?count) luc:facet ("default" "*"
-        '["urn:jena:lucene:field#state"]' 10) .
-}
-```
-
-Returns: `WA: 15`, `QLD: 12`, `NSW: 8`, ...
-
-**Step 2: Drill down** — filter on the parent value and request facets on the child field:
-
-```sparql
-PREFIX luc: <urn:jena:lucene:index#>
-
-SELECT ?field ?value ?count WHERE {
-    (?field ?value ?count) luc:facet ("default" "*"
-        '["urn:jena:lucene:field#commodity"]'
-        '{"op":"=","args":[{"property":"urn:jena:lucene:field#state"},"http://example.org/mining/state/WA"]}'
-        10) .
-}
-```
-
-Returns: `Gold: 8`, `Iron: 4`, `Copper: 3`, ... (scoped to WA)
-
-The CQL `=` filter on a hierarchy parent field is automatically detected and converted to a Lucene taxonomy drill-down. No special syntax is needed — regular CQL filters "just work" with hierarchies.
-
-See [Configuration — Hierarchical Facets](03-configuration.md#hierarchical-facets) for full configuration details and [SPARQL API — Hierarchy Drill-Down](02-sparql-api.md#hierarchy-drill-down) for more query examples.
-
----
-
-## Key Options
-
-| Option | Where | Effect |
-|--------|-------|--------|
-| `maxValues` | `luc:facet` arg | Max facet values per field. `0` = return all values |
-| `minCount` | `luc:facet` arg | Exclude values with count below this threshold |
-| `text:maxFacetHits` | Assembler config | Limit internal Lucene search for facet collection. `0` = unlimited |
-| `text:storeValues` | Assembler config | Store literal values for retrieval in results |
-
----
-
-## Deploying with Fuseki
-
-### Prerequisites
-
-- Java 21+ (Java 25 recommended)
-- Maven 3.9+
-
-### Build the Fuseki Server
-
-```bash
-cd jena
-
-# Build jena-text and all dependencies first
-mvn clean install -pl jena-text -am -DskipTests
-
-# Build the Fuseki server (uber-jar including jena-text)
-mvn clean install -pl jena-fuseki2/jena-fuseki-server -am -DskipTests
-```
-
-### Create a Fuseki Configuration File
-
-Create `config.ttl` for a SHACL-mode text-indexed dataset:
-
-```turtle
-PREFIX fuseki:  <http://jena.apache.org/fuseki#>
-PREFIX rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
-PREFIX ja:      <http://jena.hpl.hp.com/2005/11/Assembler#>
-PREFIX text:    <http://jena.apache.org/text#>
-PREFIX idx:     <urn:jena:lucene:index#>
-PREFIX field:   <urn:jena:lucene:field#>
-PREFIX sh:      <http://www.w3.org/ns/shacl#>
-PREFIX ex:      <http://example.org/>
-
-[] rdf:type fuseki:Server ;
-   fuseki:services ( <#service> ) .
-
-<#service> rdf:type fuseki:Service ;
-    fuseki:name "ds" ;
-    fuseki:endpoint [ fuseki:operation fuseki:query ] ;
-    fuseki:endpoint [ fuseki:operation fuseki:update ] ;
-    fuseki:endpoint [ fuseki:operation fuseki:gsp-rw ] ;
-    fuseki:dataset <#text_dataset> .
-
-<#text_dataset> rdf:type text:TextDataset ;
-    text:dataset <#base_dataset> ;
-    text:index <#index> .
-
-<#base_dataset> rdf:type ja:MemoryDataset .
-
-<#index> rdf:type text:TextIndexLucene ;
-    text:directory "mem" ;
-    text:shapes ( <#BookShape> ) ;
-    text:storeValues true ;
-    .
 
 field:title
     idx:fieldName "title" ;
@@ -410,134 +46,206 @@ field:category
     idx:fieldType idx:KeywordField ;
     idx:facetable true ;
     sh:path ex:category .
+```
 
-field:author
-    idx:fieldName "author" ;
-    idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path ex:author .
+### 3. Define a shape
 
+```turtle
 <#BookShape>
     sh:targetClass ex:Book ;
     sh:property field:title ;
-    sh:property field:category ;
-    sh:property field:author .
+    sh:property field:category .
 ```
 
-### Start the Server
+### 4. Query it
 
-```bash
-java -jar jena-fuseki2/jena-fuseki-server/target/jena-fuseki-server-*.jar \
-    --config config.ttl
+```sparql
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score)
+    luc:query ("default" "default" "machine learning" "null" "null" 20) .
+}
+ORDER BY DESC(?score)
 ```
 
-The server starts on `http://localhost:3030/`. Use `--port 3031` for an alternative port.
+## Query Model
 
-### Load Data
+Two selectors exist at query time:
 
-```bash
-curl -X POST "http://localhost:3030/ds" \
-    -H "Content-Type: application/sparql-update" \
-    -d '
-PREFIX ex: <http://example.org/>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+- `indexSelector`: which index to use
+- `fieldSpec`: which fields inside that index to search
 
-INSERT DATA {
-    ex:book1 a ex:Book ; rdfs:label "Introduction to Machine Learning" ;
-        ex:category "Technology" ; ex:author "Smith" .
-    ex:book2 a ex:Book ; rdfs:label "Quantum Physics Basics" ;
-        ex:category "Science" ; ex:author "Wilson" .
-    ex:book3 a ex:Book ; rdfs:label "Deep Learning Neural Networks" ;
-        ex:category "Technology" ; ex:author "Jones" .
-}'
+These are separate on purpose.
+
+### `luc:query`
+
+```sparql
+(?hit ?entity ?score ?totalHits)
+  luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit)
 ```
 
-### Test Queries
+Example with filter:
 
-```bash
-# Search
-curl -s -X POST "http://localhost:3030/ds" \
-    -H "Content-Type: application/sparql-query" \
-    -H "Accept: application/json" \
-    -d 'PREFIX luc: <urn:jena:lucene:index#>
-SELECT ?s ?score WHERE {
-  (?hit ?s ?score) luc:query ("learning") .
-} ORDER BY DESC(?score)'
-
-# Facets
-curl -s -X POST "http://localhost:3030/ds" \
-    -H "Content-Type: application/sparql-query" \
-    -H "Accept: application/json" \
-    -d 'PREFIX luc: <urn:jena:lucene:index#>
-SELECT ?f ?v ?c WHERE {
-  (?f ?v ?c) luc:facet ("learning" '\''["urn:jena:lucene:field#category", "urn:jena:lucene:field#author"]'\'' 10)
-} ORDER BY ?f DESC(?c)'
-
-# Search with CQL2-JSON filter
-curl -s -X POST "http://localhost:3030/ds" \
-    -H "Content-Type: application/sparql-query" \
-    -H "Accept: application/json" \
-    -d 'PREFIX luc: <urn:jena:lucene:index#>
-SELECT ?s ?score WHERE {
-  (?hit ?s ?score) luc:query ("default" "learning" '\''{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}'\'' 20)
-} ORDER BY DESC(?score)'
+```sparql
+(?hit ?entity ?score ?totalHits)
+  luc:query (
+    "default"
+    "default"
+    "learning"
+    '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}'
+    "null"
+    20
+  ) .
 ```
 
-**Note:** With unnamed endpoints (as in the config above), all operations go to `/ds`. Do not use `/ds/query` or `/ds/update` — those require named endpoints in the config.
+Example with sort:
 
----
+```sparql
+(?hit ?entity ?score)
+  luc:query (
+    "default"
+    "default"
+    "learning"
+    "null"
+    '{"field":"urn:jena:lucene:field#year","order":"desc"}'
+    10
+  ) .
+```
+
+Notes:
+
+- `fieldSpec` is `"default"` or a JSON array of field IRIs.
+- `cqlFilter` is a JSON object or `"null"`.
+- `sortSpec` is a JSON object/array or `"null"`.
+- `?match` is not part of `luc:query`.
+
+### Graph Scoping
+
+Target model:
+
+- graph scoping is treated as a normal doc-level filter
+- there is no dedicated `?graph` slot in the public SHACL query signature
+- the reserved synthetic field IRI is `urn:jena:lucene:field#sourceGraph`
+
+Example target filter:
+
+```sparql
+(?hit ?entity ?score)
+  luc:query (
+    "default"
+    "default"
+    "*"
+    '{"op":"=","args":[{"property":"urn:jena:lucene:field#sourceGraph"},"http://example.org/graph/A"]}'
+    "null"
+    20
+  ) .
+```
+
+Intended semantics:
+
+- `sourceGraph` is multi-valued
+- it records every graph touched while indexing the entity document
+- strict graph partitioning should still be handled at index time when needed
+
+### `luc:match`
+
+```sparql
+(?hit ?field ?value ?snippet) luc:match ()
+```
+
+Use it when you need to know which field matched:
+
+```sparql
+SELECT ?entity ?field ?value WHERE {
+  (?hit ?entity ?score)
+    luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "null" "null" 10) .
+  (?hit ?field ?value) luc:match () .
+}
+```
+
+### `luc:facet`
+
+```sparql
+(?field ?value ?low ?high ?count)
+  luc:facet (indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount)
+```
+
+Example:
+
+```sparql
+(?field ?value ?low ?high ?count)
+  luc:facet (
+    "default"
+    "default"
+    "learning"
+    '["urn:jena:lucene:field#category"]'
+    "null"
+    10
+    0
+  ) .
+```
+
+Range facets:
+
+```sparql
+(?field ?value ?low ?high ?count)
+  luc:facet (
+    "default"
+    "default"
+    "*"
+    '[{"field":"urn:jena:lucene:field#year","ranges":[null,2000,2010,2020,null]}]'
+    "null"
+    20
+    0
+  ) .
+```
+
+## Field Identity
+
+External SPARQL always uses field IRIs:
+
+- query `fieldSpec`
+- facet `facetFields`
+- CQL `property`
+- sort `"field"`
+- returned `?field` bindings from `luc:match` and `luc:facet`
+
+`idx:fieldName` is still important, but only as the internal Lucene field key.
+
+## Fixed Arity
+
+The SHACL API is strict:
+
+- `luc:query` object arity is exactly 6
+- `luc:facet` object arity is exactly 7
+- no argument-shape guessing
+- missing arguments fail fast
+
+Use `"null"` placeholders when a slot is intentionally unused.
+
+## Multiple Indexes
+
+If you configure multiple indexes, use different `text:indexId` values and select one explicitly:
+
+```sparql
+(?hit ?entity ?score)
+  luc:query ("objects" "default" "gold" "null" "null" 20) .
+```
+
+The selector may also be the index resource IRI if the index was configured as a URI resource.
 
 ## Troubleshooting
 
-### Named Graph Data Not Indexed
+Common causes of failures:
 
-If data is loaded into named graphs (e.g. N-Quads), the SHACL indexer reads from a combined view of all graphs (`MultiUnion` of default + named). This works automatically. For SPARQL queries to also see named graph data, add `tdb2:unionDefaultGraph true` to the TDB2 dataset config:
+- Wrong object arity.
+- Using field names instead of field IRIs.
+- Using an index selector that is not registered.
+- Sorting on a non-sortable field.
+- Requesting a field IRI that does not exist in the selected index.
 
-```turtle
-:base_dataset rdf:type tdb2:DatasetTDB ;
-    tdb2:location "DB" ;
-    tdb2:unionDefaultGraph true .
-```
+If a query suddenly stops working after this change, check the first two object arguments first:
 
-### No Search Results
-
-1. **Verify data is loaded:**
-   ```sparql
-   SELECT (COUNT(*) AS ?count) WHERE { ?s ?p ?o }
-   ```
-2. **Check that entities have the correct `rdf:type`** — SHACL mode only indexes entities matching a shape's `sh:targetClass`
-3. **Verify `text:storeValues true`** is set in the assembler config
-
-### No Facet Results
-
-1. **Check that fields have `idx:facetable true`** in the shape definition — this applies to KEYWORD flat/hierarchical facets and numeric range facets
-2. **Verify field IRIs match** — the `luc:facet` JSON array requires field IRIs (the full IRI of each field resource)
-3. **Use the 5-slot subject form for any range facet request** — `(?field ?value ?low ?high ?count) luc:facet (...)`
-4. **Rebuild the index** if faceting or sorting was enabled after data was loaded — facet/sort DocValues are built at write time
-
-### "No Fuseki dispatch" Error
-
-Using `/ds/query` or `/ds/update` with unnamed endpoints will fail. Either:
-- Use `/ds` for all operations (content type determines the operation), or
-- Add named endpoints in the config:
-  ```turtle
-  fuseki:endpoint [
-      fuseki:operation fuseki:query ;
-      fuseki:name "query"    # enables /ds/query
-  ] ;
-  ```
-
-### Common Errors
-
-| Error | Cause | Solution |
-|-------|-------|----------|
-| `text:shapes and text:entityMap are mutually exclusive` | Both specified on the same index | Use one or the other |
-| `TextIndexException: no shapes defined` | `text:shapes` list is empty | Add at least one shape resource |
-| No facet data for a field | Field not marked `idx:facetable true`, wrong `luc:facet` subject form for a range request, or index not rebuilt | Check config, query shape, and reindex |
-| Port already in use | Another process on port 3030 | Use `--port 3031` or stop the other process |
-
-### Performance Issues
-
-- Set `text:maxFacetHits` in the assembler config to limit facet collection scope for large indexes
-- Use `maxValues` and `minCount` arguments in `luc:facet` to reduce result size
-- See [Architecture — Performance Characteristics](04-architecture.md#performance-characteristics) for tuning guidance
+1. `indexSelector`
+2. `fieldSpec`

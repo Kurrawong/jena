@@ -925,7 +925,7 @@ function searchApp() {
 
                     const query = `${SPARQL_PREFIXES}
 SELECT ?field ?value ?low ?high ?count WHERE {
-    (?field ?value ?low ?high ?count) luc:facet ('${searchField}' '${escaped}' '${JSON.stringify([childLevelIRI])}' '${combinedFilter}' ${this.maxFacetValues})
+    (?field ?value ?low ?high ?count) luc:facet ('default' '${searchField}' '${escaped}' '${JSON.stringify([childLevelIRI])}' '${combinedFilter}' ${this.maxFacetValues} 0)
 }`;
                     const data = await this.runSparql(query);
                     const children = [];
@@ -987,7 +987,7 @@ SELECT ?field ?value ?low ?high ?count WHERE {
         buildSearchQuery() {
             const identifier = this.identifier.trim();
             const term = identifier || this.q.trim() || '*';
-            const searchField = identifier ? this.identifierFieldSpec() : 'default';
+            const searchField = identifier ? JSON.stringify([this.identifierFieldSpec()]) : 'default';
             const escaped = escapeSparql(term);
             const cqlFilter = buildCqlFilter(
                 this.selected,
@@ -996,7 +996,7 @@ SELECT ?field ?value ?low ?high ?count WHERE {
                 this.fieldIRIs,
                 this.buildHierarchyParentClauses()
             );
-            const filterArg = cqlFilter ? ` '${cqlFilter}'` : '';
+            const filterArg = cqlFilter ? `'${cqlFilter}'` : "'null'";
             const facetRequests = this.facetFields.map(f => {
                 // For hierarchy dimensions, use the first level's field IRI
                 const hier = this.hierarchyDimensions.get(f);
@@ -1010,19 +1010,19 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             return `${SPARQL_PREFIXES}
 SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
 WHERE {
-    { (?hit ?entity ?score ?_lit ?totalHits) luc:query ('${searchField}' '${escaped}'${filterArg} ${this.limit}) }
+    { (?hit ?entity ?score ?totalHits) luc:query ('default' '${searchField}' '${escaped}' ${filterArg} 'null' ${this.limit}) }
     UNION
-    { (?field ?value ?low ?high ?count) luc:facet ('${searchField}' '${escaped}' '${facetFieldsJson}'${filterArg} ${this.maxFacetValues}) }
+    { (?field ?value ?low ?high ?count) luc:facet ('default' '${searchField}' '${escaped}' '${facetFieldsJson}' ${filterArg} ${this.maxFacetValues} 0) }
 }`;
         },
 
         buildIdentifierSuggestionQuery(identifier) {
             const escaped = escapeSparql(identifier);
-            const fieldSpec = this.identifierFieldSpec();
+            const fieldSpec = JSON.stringify([this.identifierFieldSpec()]);
             return `${SPARQL_PREFIXES}
 SELECT DISTINCT ?identifier
 WHERE {
-    (?hit ?entity ?score) luc:query ('${fieldSpec}' '${escaped}' 8) .
+    (?hit ?entity ?score) luc:query ('default' '${fieldSpec}' '${escaped}' 'null' 'null' 8) .
     ?entity ex:identifier ?identifier .
 }
 ORDER BY LCASE(STR(?identifier))
@@ -1772,9 +1772,9 @@ function statsApp() {
                 const statsQuery = `${SPARQL_PREFIXES}
 SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
 WHERE {
-    { (?hit ?entity ?score ?_lit ?totalHits) luc:query ('default' '*' 0) }
+    { (?hit ?entity ?score ?totalHits) luc:query ('default' 'default' '*' 'null' 'null' 0) }
     UNION
-    { (?field ?value ?low ?high ?count) luc:facet ('default' '*' '${facetFieldsJson}' 0) }
+    { (?field ?value ?low ?high ?count) luc:facet ('default' 'default' '*' '${facetFieldsJson}' 'null' 0 0) }
 }`;
                 const statsData = await this.runSparql(endpoint, statsQuery);
                 const statsMs = performance.now() - t0;

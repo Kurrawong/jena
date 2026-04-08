@@ -191,7 +191,7 @@ public class TestShaclPathSupport {
         String queryStr =
             "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s WHERE {\n" +
-            "  (?hit ?s ?score) luc:query ('default' 'machine') .\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"machine\" \"null\" \"null\" 10) .\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -241,7 +241,7 @@ public class TestShaclPathSupport {
             "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "PREFIX ex: <" + NS + ">\n" +
             "SELECT ?s WHERE {\n" +
-            "  (?hit ?s ?score) luc:query ('default' 'machine') .\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"machine\" \"null\" \"null\" 10) .\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -301,7 +301,7 @@ public class TestShaclPathSupport {
         String queryStr =
             "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s WHERE {\n" +
-            "  (?hit ?s ?score) luc:query ('default' 'learning OR physics OR deep' '{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#authorName\"},\"Jane Smith\"]}') .\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning OR physics OR deep\" '{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#authorName\"},\"Jane Smith\"]}' \"null\" 10) .\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);

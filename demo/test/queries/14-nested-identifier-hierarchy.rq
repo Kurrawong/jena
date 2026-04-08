@@ -5,6 +5,6 @@ PREFIX luc: <urn:jena:lucene:index#>
 
 SELECT ?field ?value ?low ?high ?count
 WHERE {
-    (?field ?value ?low ?high ?count) luc:facet ("default" "*" '["identifierType_identifierValueExact"]' 20)
+    (?field ?value ?low ?high ?count) luc:facet ("default" "default" "*" '["urn:jena:lucene:field#identifierType"]' "null" 20 0)
 }
 ORDER BY ?field DESC(?count) ?value

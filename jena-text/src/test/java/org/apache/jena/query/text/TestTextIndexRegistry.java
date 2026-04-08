@@ -75,6 +75,16 @@ public class TestTextIndexRegistry {
         assertEquals("reports", reg.getDefaultId());
     }
 
+    @Test
+    public void testResolveByCanonicalIri() {
+        TextIndexRegistry reg = new TextIndexRegistry();
+        reg.register("reports", "urn:example:index:reports", index1);
+
+        TextIndexRegistry.ResolvedIndex resolved = reg.resolve("urn:example:index:reports");
+        assertSame(index1, resolved.index());
+        assertEquals("urn:example:index:reports", resolved.canonicalKey());
+    }
+
     @Test(expected = TextIndexException.class)
     public void testGetNonexistent() {
         TextIndexRegistry reg = TextIndexRegistry.single(index1);
