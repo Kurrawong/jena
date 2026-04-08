@@ -7,6 +7,14 @@ PREFIX luc: <urn:jena:lucene:index#>
 
 SELECT ?field ?value ?low ?high ?count
 WHERE {
-    (?field ?value ?low ?high ?count) luc:facet ("default" "copper" '["commodity", "state", "operator"]' 10)
+    (?field ?value ?low ?high ?count) luc:facet (
+        "default"
+        "default"
+        "copper"
+        '["urn:jena:lucene:field#commodity", "urn:jena:lucene:field#state", "urn:jena:lucene:field#operator"]'
+        ""
+        10
+        0
+    )
 }
 ORDER BY ?field DESC(?count)
