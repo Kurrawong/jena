@@ -210,7 +210,7 @@ public class TestPerFieldQueryAnalyzer {
         String queryStr =
             "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s WHERE {\n" +
-            "  (?hit ?s ?score) luc:query (\"default\" '[\"urn:jena:lucene:field#label\"]' 'Pilbara' \"null\" \"null\" 10) .\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" '[\"urn:jena:lucene:field#label\"]' 'Pilbara' \"\" \"\" 10) .\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -236,7 +236,7 @@ public class TestPerFieldQueryAnalyzer {
         String queryStr =
             "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s WHERE {\n" +
-            "  (?hit ?s ?score) luc:query (\"default\" '[\"urn:jena:lucene:field#label\"]' 'GSWA' \"null\" \"null\" 10) .\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" '[\"urn:jena:lucene:field#label\"]' 'GSWA' \"\" \"\" 10) .\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -288,7 +288,7 @@ public class TestPerFieldQueryAnalyzer {
         String queryStr =
             "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s WHERE {\n" +
-            "  (?hit ?s ?score) luc:query (\"default\" '[\"urn:jena:lucene:field#identifier\"]' '" + prefix + "' \"null\" \"null\" 10) .\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" '[\"urn:jena:lucene:field#identifier\"]' '" + prefix + "' \"\" \"\" 10) .\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);

@@ -131,7 +131,7 @@
       <h3><code>luc:query</code></h3>
       <pre>(?hit ?entity ?score ?totalHits)
   luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit)</pre>
-      <p>Use <code>"null"</code> for an unused <code>cqlFilter</code> or <code>sortSpec</code>.</p>
+      <p>Use <code>""</code> for an unused <code>cqlFilter</code> or <code>sortSpec</code>.</p>
     </section>
 
     <section class="card">
@@ -144,7 +144,7 @@
       <h3><code>luc:facet</code></h3>
       <pre>(?field ?value ?low ?high ?count)
   luc:facet (indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount)</pre>
-      <p>The active supported subject form is the 5-slot form above.</p>
+      <p>The active supported subject form is the 5-slot form above. Flat facet rows bind <code>?value</code> and leave <code>?low</code> / <code>?high</code> unbound.</p>
     </section>
   </div>
 
@@ -168,7 +168,7 @@
 
 SELECT ?entity ?score WHERE {
   (?hit ?entity ?score)
-    luc:query ("default" "default" "learning" "null" "null" 20) .
+    luc:query ("default" "default" "learning" "" "" 20) .
 }</pre>
 
   <pre>PREFIX luc: &lt;urn:jena:lucene:index#&gt;
@@ -179,7 +179,7 @@ SELECT ?entity ?score WHERE {
       "default"
       '["urn:jena:lucene:field#title"]'
       "copper"
-      "null"
+      ""
       '{"field":"urn:jena:lucene:field#year","order":"desc"}'
       10
     ) .
@@ -189,7 +189,7 @@ SELECT ?entity ?score WHERE {
 
 SELECT ?entity ?field ?value WHERE {
   (?hit ?entity ?score)
-    luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "null" "null" 10) .
+    luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "" "" 10) .
   (?hit ?field ?value) luc:match () .
 }</pre>
 
@@ -202,7 +202,7 @@ SELECT ?field ?value ?low ?high ?count WHERE {
       "default"
       "*"
       '["urn:jena:lucene:field#state", {"field":"urn:jena:lucene:field#year","ranges":[null,2000,2010,2020,null]}]'
-      "null"
+      ""
       20
       0
     ) .

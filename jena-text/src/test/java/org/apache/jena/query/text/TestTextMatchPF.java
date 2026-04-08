@@ -123,7 +123,7 @@ public class TestTextMatchPF {
     public void testMatchReturnsSingleFieldForSingleFieldQuery() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?hit ?s ?field ?value WHERE {\n" +
-            "  (?hit ?s ?score) luc:query (\"default\" '[\"" + FIELD_IRI_PREFIX + "title\"]' \"learning\" \"null\" \"null\" 10) .\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" '[\"" + FIELD_IRI_PREFIX + "title\"]' \"learning\" \"\" \"\" 10) .\n" +
             "  (?hit ?field ?value) luc:match () .\n" +
             "}";
 
@@ -151,7 +151,7 @@ public class TestTextMatchPF {
         // Verify that ?hit from luc:query joins correctly with luc:match
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s ?field WHERE {\n" +
-            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"machine\" \"null\" \"null\" 10) .\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"machine\" \"\" \"\" 10) .\n" +
             "  (?hit ?field ?value) luc:match () .\n" +
             "}";
 
@@ -175,7 +175,7 @@ public class TestTextMatchPF {
         // Use OPTIONAL so hits without field matches still appear
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?hit ?s ?field WHERE {\n" +
-            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" \"null\" \"null\" 10) .\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" \"\" \"\" 10) .\n" +
             "  OPTIONAL { (?hit ?field ?value) luc:match () . }\n" +
             "}";
 
@@ -200,7 +200,7 @@ public class TestTextMatchPF {
         // For TEXT fields, ?value should be a literal
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?value WHERE {\n" +
-            "  (?hit ?s ?score) luc:query (\"default\" '[\"" + FIELD_IRI_PREFIX + "title\"]' \"machine\" \"null\" \"null\" 10) .\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" '[\"" + FIELD_IRI_PREFIX + "title\"]' \"machine\" \"\" \"\" 10) .\n" +
             "  (?hit ?field ?value) luc:match () .\n" +
             "}";
 
@@ -238,7 +238,7 @@ public class TestTextMatchPF {
     public void testHitIdIsBlankNode() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?hit WHERE {\n" +
-            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" \"null\" \"null\" 10) .\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" \"\" \"\" 10) .\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);

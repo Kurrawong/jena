@@ -20,7 +20,7 @@ Public API rules:
 - `luc:query` returns `?hit`; per-hit match detail comes from `luc:match`.
 - `luc:query` no longer returns `?match`.
 - Parsing is fixed-position and fixed-arity. There is no shape-based argument inference.
-- Use `"null"` as the placeholder for an unused `cqlFilter` or `sortSpec`.
+- Use `""` as the placeholder for an unused `cqlFilter` or `sortSpec`.
 - Highlight is reserved for later and is not part of the active supported `luc:query` signature.
 
 ## luc:query
@@ -48,8 +48,8 @@ Object arity is always exactly 6.
 | 1 | `indexSelector` | string literal | Yes | Usually `"default"`; may also be a configured index id or index IRI |
 | 2 | `fieldSpec` | string literal | Yes | `"default"` or a JSON array of field IRIs |
 | 3 | `queryString` | string literal | Yes | Lucene query string |
-| 4 | `cqlFilter` | string literal | Yes | CQL2-JSON object, or `"null"` |
-| 5 | `sortSpec` | string literal | Yes | JSON sort object/array, or `"null"` |
+| 4 | `cqlFilter` | string literal | Yes | CQL2-JSON object, or `""` |
+| 5 | `sortSpec` | string literal | Yes | JSON sort object/array, or `""` |
 | 6 | `limit` | integer literal | Yes | Negative means unlimited |
 
 ### `fieldSpec`
@@ -79,7 +79,7 @@ Search all default-search fields:
 
 ```sparql
 (?hit ?entity ?score)
-  luc:query ("default" "default" "machine learning" "null" "null" 20) .
+  luc:query ("default" "default" "machine learning" "" "" 20) .
 ```
 
 Search a specific field IRI:
@@ -90,8 +90,8 @@ Search a specific field IRI:
     "default"
     '["urn:jena:lucene:field#title"]'
     "machine learning"
-    "null"
-    "null"
+    ""
+    ""
     20
   ) .
 ```
@@ -105,7 +105,7 @@ Search with a CQL filter:
     "default"
     "learning"
     '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}'
-    "null"
+    ""
     20
   ) .
 ```
@@ -118,7 +118,7 @@ Search with sort:
     "default"
     "default"
     "learning"
-    "null"
+    ""
     '{"field":"urn:jena:lucene:field#year","order":"desc"}'
     10
   ) .
@@ -132,7 +132,7 @@ Multi-sort:
     "default"
     "default"
     "learning"
-    "null"
+    ""
     '[{"field":"urn:jena:lucene:field#year","order":"desc"},{"field":"urn:jena:lucene:field#title"}]'
     10
   ) .
@@ -166,7 +166,7 @@ The object is always `()`.
 ```sparql
 SELECT ?entity ?score ?field ?value WHERE {
   (?hit ?entity ?score)
-    luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "null" "null" 10) .
+    luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "" "" 10) .
   (?hit ?field ?value) luc:match () .
 }
 ```
@@ -181,6 +181,7 @@ SELECT ?entity ?score ?field ?value WHERE {
 ```
 
 The active supported subject form is the 5-slot form above.
+Flat facets use the same 5-slot form. On flat facet rows, `?value` is bound and `?low` / `?high` are left unbound.
 
 Object arity is always exactly 7.
 
@@ -192,7 +193,7 @@ Object arity is always exactly 7.
 | 2 | `fieldSpec` | string literal | Yes | `"default"` or JSON array of field IRIs for search scoping |
 | 3 | `queryString` | string literal | Yes | Lucene query string |
 | 4 | `facetFields` | string literal | Yes | JSON array of field IRIs and/or range facet objects |
-| 5 | `cqlFilter` | string literal | Yes | CQL2-JSON object, or `"null"` |
+| 5 | `cqlFilter` | string literal | Yes | CQL2-JSON object, or `""` |
 | 6 | `maxValues` | integer literal | Yes | `0` means all values |
 | 7 | `minCount` | integer literal | Yes | Minimum count threshold |
 
@@ -230,7 +231,7 @@ Flat facets:
     "default"
     "learning"
     '["urn:jena:lucene:field#category"]'
-    "null"
+    ""
     10
     0
   ) .
@@ -260,7 +261,7 @@ Range facets:
     "default"
     "*"
     '[{"field":"urn:jena:lucene:field#year","ranges":[null,2000,2010,2020,null]}]'
-    "null"
+    ""
     20
     0
   ) .

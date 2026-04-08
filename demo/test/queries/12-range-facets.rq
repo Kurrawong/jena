@@ -16,7 +16,7 @@ WHERE {
     "default"
     "*"
     '[{"field":"urn:jena:lucene:field#year","ranges":[null, 2000, 2020, null]}, {"field":"urn:jena:lucene:field#depth","ranges":[0, 200, 500, 1000]}]'
-    "null"
+    ""
     20
     0
   ) .

@@ -21,9 +21,10 @@ This doc set covers the SHACL/entity-per-document search model in `jena-text`.
 - `luc:facet` object arguments are exactly `(indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount)`.
 - `luc:query` does not expose `?match`.
 - `luc:match` is the only match-detail API.
-- Use `"null"` placeholders for unused `cqlFilter` and `sortSpec`.
+- Use `""` placeholders for unused `cqlFilter` and `sortSpec`.
 - Query-time field references are always field IRIs.
 - Graph filtering is intended to use a reserved synthetic field, not a dedicated result slot.
+- `luc:facet` always uses the 5-slot subject form; flat facet rows leave `?low` and `?high` unbound.
 
 ## Example
 
@@ -32,7 +33,7 @@ PREFIX luc: <urn:jena:lucene:index#>
 
 SELECT ?entity ?score WHERE {
   (?hit ?entity ?score)
-    luc:query ("default" "default" "learning" "null" "null" 20) .
+    luc:query ("default" "default" "learning" "" "" 20) .
 }
 ```
 
@@ -41,7 +42,7 @@ PREFIX luc: <urn:jena:lucene:index#>
 
 SELECT ?entity ?field ?value WHERE {
   (?hit ?entity ?score)
-    luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "null" "null" 10) .
+    luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "" "" 10) .
   (?hit ?field ?value) luc:match () .
 }
 ```
@@ -56,7 +57,7 @@ SELECT ?field ?value ?low ?high ?count WHERE {
       "default"
       "learning"
       '["urn:jena:lucene:field#category"]'
-      "null"
+      ""
       10
       0
     ) .

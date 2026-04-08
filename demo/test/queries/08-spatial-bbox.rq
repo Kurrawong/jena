@@ -5,6 +5,6 @@ PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?entity ?score WHERE {
   (?hit ?entity ?score) luc:query ("default" "default" "*"
     '{"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[112,-44,154,-10]}]}'
-    "null"
+    ""
     20)
 }

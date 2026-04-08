@@ -12,7 +12,7 @@ WHERE {
         "default"
         "copper"
         '["urn:jena:lucene:field#commodity", "urn:jena:lucene:field#state", "urn:jena:lucene:field#operator"]'
-        "null"
+        ""
         10
         0
     )

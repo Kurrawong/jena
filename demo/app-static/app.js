@@ -996,7 +996,7 @@ SELECT ?field ?value ?low ?high ?count WHERE {
                 this.fieldIRIs,
                 this.buildHierarchyParentClauses()
             );
-            const filterArg = cqlFilter ? `'${cqlFilter}'` : "'null'";
+            const filterArg = cqlFilter ? `'${cqlFilter}'` : "''";
             const facetRequests = this.facetFields.map(f => {
                 // For hierarchy dimensions, use the first level's field IRI
                 const hier = this.hierarchyDimensions.get(f);
@@ -1010,7 +1010,7 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             return `${SPARQL_PREFIXES}
 SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
 WHERE {
-    { (?hit ?entity ?score ?totalHits) luc:query ('default' '${searchField}' '${escaped}' ${filterArg} 'null' ${this.limit}) }
+    { (?hit ?entity ?score ?totalHits) luc:query ('default' '${searchField}' '${escaped}' ${filterArg} '' ${this.limit}) }
     UNION
     { (?field ?value ?low ?high ?count) luc:facet ('default' '${searchField}' '${escaped}' '${facetFieldsJson}' ${filterArg} ${this.maxFacetValues} 0) }
 }`;
@@ -1022,7 +1022,7 @@ WHERE {
             return `${SPARQL_PREFIXES}
 SELECT DISTINCT ?identifier
 WHERE {
-    (?hit ?entity ?score) luc:query ('default' '${fieldSpec}' '${escaped}' 'null' 'null' 8) .
+    (?hit ?entity ?score) luc:query ('default' '${fieldSpec}' '${escaped}' '' '' 8) .
     ?entity ex:identifier ?identifier .
 }
 ORDER BY LCASE(STR(?identifier))
@@ -1772,9 +1772,9 @@ function statsApp() {
                 const statsQuery = `${SPARQL_PREFIXES}
 SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
 WHERE {
-    { (?hit ?entity ?score ?totalHits) luc:query ('default' 'default' '*' 'null' 'null' 0) }
+    { (?hit ?entity ?score ?totalHits) luc:query ('default' 'default' '*' '' '' 0) }
     UNION
-    { (?field ?value ?low ?high ?count) luc:facet ('default' 'default' '*' '${facetFieldsJson}' 'null' 0 0) }
+    { (?field ?value ?low ?high ?count) luc:facet ('default' 'default' '*' '${facetFieldsJson}' '' 0 0) }
 }`;
                 const statsData = await this.runSparql(endpoint, statsQuery);
                 const statsMs = performance.now() - t0;

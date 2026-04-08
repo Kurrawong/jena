@@ -131,7 +131,7 @@ public class TestTextQueryPFFilters {
     public void testLucQueryWithoutFilters() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s ?score WHERE {\n" +
-            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" \"null\" \"null\" 10)\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" \"\" \"\" 10)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -153,11 +153,29 @@ public class TestTextQueryPFFilters {
     }
 
     @Test
+    public void testLucQueryAcceptsEmptyPlaceholdersAndStringLimit() {
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT ?s ?score WHERE {\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" \"\" \"\" \"10\")\n" +
+            "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
+                ResultSet rs = qe.execSelect();
+                assertTrue("Empty placeholders and a string limit should still yield results", rs.hasNext());
+            }
+        } finally {
+            dataset.end();
+        }
+    }
+
+    @Test
     public void testLucQueryWithCqlEqualFilter() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s ?score WHERE {\n" +
             "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" " +
-            "    '{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#category\"},\"http://example.org/category/technology\"]}' \"null\" 20)\n" +
+            "    '{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#category\"},\"http://example.org/category/technology\"]}' \"\" 20)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -187,7 +205,7 @@ public class TestTextQueryPFFilters {
             "    '{\"op\":\"and\",\"args\":[" +
             "      {\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#category\"},\"http://example.org/category/technology\"]}," +
             "      {\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#author\"},\"http://example.org/author/Smith\"]}" +
-            "    ]}' \"null\" 20)\n" +
+            "    ]}' \"\" 20)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -214,7 +232,7 @@ public class TestTextQueryPFFilters {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s WHERE {\n" +
             "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" " +
-            "    '{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#category\"},\"http://example.org/category/nonexistent\"]}' \"null\" 20)\n" +
+            "    '{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#category\"},\"http://example.org/category/nonexistent\"]}' \"\" 20)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -233,7 +251,7 @@ public class TestTextQueryPFFilters {
         // Search only the "title" field via its IRI (JSON array)
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s ?score WHERE {\n" +
-            "  (?hit ?s ?score) luc:query (\"default\" '[\"" + FIELD_IRI_PREFIX + "title\"]' \"learning\" \"null\" \"null\" 10)\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" '[\"" + FIELD_IRI_PREFIX + "title\"]' \"learning\" \"\" \"\" 10)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -258,7 +276,7 @@ public class TestTextQueryPFFilters {
         // Search multiple fields via JSON array of IRIs
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s ?score WHERE {\n" +
-            "  (?hit ?s ?score) luc:query (\"default\" '[\"" + FIELD_IRI_PREFIX + "title\"]' \"learning\" \"null\" \"null\" 10)\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" '[\"" + FIELD_IRI_PREFIX + "title\"]' \"learning\" \"\" \"\" 10)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -282,7 +300,7 @@ public class TestTextQueryPFFilters {
         // Search a single field and check that luc:match returns ?field bound to the field IRI
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?hit ?s ?score ?field ?value WHERE {\n" +
-            "  (?hit ?s ?score) luc:query (\"default\" '[\"" + FIELD_IRI_PREFIX + "title\"]' \"learning\" \"null\" \"null\" 10) .\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" '[\"" + FIELD_IRI_PREFIX + "title\"]' \"learning\" \"\" \"\" 10) .\n" +
             "  (?hit ?field ?value) luc:match () .\n" +
             "}";
 
@@ -311,7 +329,7 @@ public class TestTextQueryPFFilters {
         // The fourth luc:query slot now binds ?totalHits rather than a raw match literal
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s ?score ?totalHits WHERE {\n" +
-            "  (?hit ?s ?score ?totalHits) luc:query (\"default\" '[\"" + FIELD_IRI_PREFIX + "title\"]' \"machine\" \"null\" \"null\" 10)\n" +
+            "  (?hit ?s ?score ?totalHits) luc:query (\"default\" '[\"" + FIELD_IRI_PREFIX + "title\"]' \"machine\" \"\" \"\" 10)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -339,7 +357,7 @@ public class TestTextQueryPFFilters {
         // With "default", luc:match should still return field matches
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?hit ?s ?field ?value WHERE {\n" +
-            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" \"null\" \"null\" 10) .\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" \"\" \"\" 10) .\n" +
             "  OPTIONAL { (?hit ?field ?value) luc:match () . }\n" +
             "}";
 
@@ -367,7 +385,7 @@ public class TestTextQueryPFFilters {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s ?score WHERE {\n" +
             "  (?hit ?s ?score) luc:query (\"default\" '[\"" + FIELD_IRI_PREFIX + "title\"]' \"learning\" " +
-            "    '{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#category\"},\"http://example.org/category/technology\"]}' \"null\" 20)\n" +
+            "    '{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#category\"},\"http://example.org/category/technology\"]}' \"\" 20)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);

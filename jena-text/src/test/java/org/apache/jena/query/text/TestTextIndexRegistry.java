@@ -85,6 +85,17 @@ public class TestTextIndexRegistry {
         assertEquals("urn:example:index:reports", resolved.canonicalKey());
     }
 
+    @Test
+    public void testReregisterSameLogicalIndexSelector() {
+        TextIndexRegistry reg = new TextIndexRegistry();
+        reg.register("reports", "urn:example:index:reports", index1);
+        reg.register("reports", "urn:example:index:reports", index2);
+
+        TextIndexRegistry.ResolvedIndex resolved = reg.resolve("reports");
+        assertSame(index2, resolved.index());
+        assertEquals("urn:example:index:reports", resolved.canonicalKey());
+    }
+
     @Test(expected = TextIndexException.class)
     public void testGetNonexistent() {
         TextIndexRegistry reg = TextIndexRegistry.single(index1);

@@ -92,12 +92,12 @@ public class TextIndexRegistry {
         String canonicalKey = canonicalIri != null ? canonicalIri : id;
 
         Entry existingById = selectors.get(id);
-        if (existingById != null && existingById.index != index) {
+        if (existingById != null && !Objects.equals(existingById.canonicalKey, canonicalKey)) {
             throw new TextIndexException("Duplicate text index selector: " + id);
         }
         if (canonicalIri != null) {
             Entry existingByIri = selectors.get(canonicalIri);
-            if (existingByIri != null && existingByIri.index != index) {
+            if (existingByIri != null && !Objects.equals(existingByIri.id, id)) {
                 throw new TextIndexException("Duplicate text index selector: " + canonicalIri);
             }
         }

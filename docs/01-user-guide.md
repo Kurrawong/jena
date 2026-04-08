@@ -64,7 +64,7 @@ PREFIX luc: <urn:jena:lucene:index#>
 
 SELECT ?entity ?score WHERE {
   (?hit ?entity ?score)
-    luc:query ("default" "default" "machine learning" "null" "null" 20) .
+    luc:query ("default" "default" "machine learning" "" "" 20) .
 }
 ORDER BY DESC(?score)
 ```
@@ -94,7 +94,7 @@ Example with filter:
     "default"
     "learning"
     '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}'
-    "null"
+    ""
     20
   ) .
 ```
@@ -107,7 +107,7 @@ Example with sort:
     "default"
     "default"
     "learning"
-    "null"
+    ""
     '{"field":"urn:jena:lucene:field#year","order":"desc"}'
     10
   ) .
@@ -116,8 +116,8 @@ Example with sort:
 Notes:
 
 - `fieldSpec` is `"default"` or a JSON array of field IRIs.
-- `cqlFilter` is a JSON object or `"null"`.
-- `sortSpec` is a JSON object/array or `"null"`.
+- `cqlFilter` is a JSON object or `""`.
+- `sortSpec` is a JSON object/array or `""`.
 - `?match` is not part of `luc:query`.
 
 ### Graph Scoping
@@ -137,7 +137,7 @@ Example target filter:
     "default"
     "*"
     '{"op":"=","args":[{"property":"urn:jena:lucene:field#sourceGraph"},"http://example.org/graph/A"]}'
-    "null"
+    ""
     20
   ) .
 ```
@@ -159,7 +159,7 @@ Use it when you need to know which field matched:
 ```sparql
 SELECT ?entity ?field ?value WHERE {
   (?hit ?entity ?score)
-    luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "null" "null" 10) .
+    luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "" "" 10) .
   (?hit ?field ?value) luc:match () .
 }
 ```
@@ -171,6 +171,8 @@ SELECT ?entity ?field ?value WHERE {
   luc:facet (indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount)
 ```
 
+Flat facets use the same 5-slot subject form. On flat facet rows, `?value` is bound and `?low` / `?high` are left unbound.
+
 Example:
 
 ```sparql
@@ -180,7 +182,7 @@ Example:
     "default"
     "learning"
     '["urn:jena:lucene:field#category"]'
-    "null"
+    ""
     10
     0
   ) .
@@ -195,7 +197,7 @@ Range facets:
     "default"
     "*"
     '[{"field":"urn:jena:lucene:field#year","ranges":[null,2000,2010,2020,null]}]'
-    "null"
+    ""
     20
     0
   ) .
@@ -222,7 +224,7 @@ The SHACL API is strict:
 - no argument-shape guessing
 - missing arguments fail fast
 
-Use `"null"` placeholders when a slot is intentionally unused.
+Use `""` placeholders when a slot is intentionally unused.
 
 ## Multiple Indexes
 
@@ -230,7 +232,7 @@ If you configure multiple indexes, use different `text:indexId` values and selec
 
 ```sparql
 (?hit ?entity ?score)
-  luc:query ("objects" "default" "gold" "null" "null" 20) .
+  luc:query ("objects" "default" "gold" "" "" 20) .
 ```
 
 The selector may also be the index resource IRI if the index was configured as a URI resource.

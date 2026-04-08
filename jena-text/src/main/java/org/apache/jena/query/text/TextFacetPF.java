@@ -106,8 +106,7 @@ public class TextFacetPF extends PropertyFunctionBase {
             if (idx instanceof ShaclTextIndexLucene shaclIdx) {
                 return new ResolvedTextIndex(resolved.canonicalKey(), shaclIdx);
             }
-            Log.warn(TextFacetPF.class, "Text index is not a ShaclTextIndexLucene - faceting not supported");
-            return null;
+            throw new TextIndexException("Selected text index is not SHACL-enabled: " + selector);
         }
 
         // Fall back to single index
@@ -120,14 +119,14 @@ public class TextFacetPF extends PropertyFunctionBase {
             return new ResolvedTextIndex(TextIndexRegistry.DEFAULT_ID, shaclIdx);
         }
         if (obj != null) {
-            Log.warn(TextFacetPF.class, "Context setting '" + TextQuery.textIndex + "' is not a ShaclTextIndexLucene");
+            throw new TextIndexException("Configured text index is not SHACL-enabled");
         }
         if (dsg instanceof DatasetGraphText) {
             TextIndex ti = ((DatasetGraphText) dsg).getTextIndex();
             if (ti instanceof ShaclTextIndexLucene shaclIdx) {
                 return new ResolvedTextIndex(TextIndexRegistry.DEFAULT_ID, shaclIdx);
             }
-            Log.warn(TextFacetPF.class, "TextIndex is not a ShaclTextIndexLucene - faceting not supported");
+            throw new TextIndexException("Dataset text index is not SHACL-enabled");
         }
         Log.warn(TextFacetPF.class, "Failed to find the text index");
         return null;
@@ -297,7 +296,7 @@ public class TextFacetPF extends PropertyFunctionBase {
     }
 
     private static CqlExpression parseCqlFilter(String filterLex) {
-        if ("null".equals(filterLex)) {
+        if (filterLex.isEmpty()) {
             return null;
         }
         return CqlParser.parse(filterLex);

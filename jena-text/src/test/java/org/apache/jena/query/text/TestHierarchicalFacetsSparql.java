@@ -147,7 +147,7 @@ public class TestHierarchicalFacetsSparql {
         // Requesting the type field (level 0) returns top-level hierarchy values.
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n"
             + "SELECT ?field ?value ?low ?high ?count WHERE {\n"
-            + "  (?field ?value ?low ?high ?count) luc:facet (\"default\" \"default\" \"*\" '[\"urn:jena:lucene:field#type\"]' \"null\" 10 0)\n"
+            + "  (?field ?value ?low ?high ?count) luc:facet (\"default\" \"default\" \"*\" '[\"urn:jena:lucene:field#type\"]' \"\" 10 0)\n"
             + "}";
 
         dataset.begin(ReadWrite.READ);
@@ -203,7 +203,7 @@ public class TestHierarchicalFacetsSparql {
         // Flat facets (type, subtype) should still work alongside hierarchy
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n"
             + "SELECT ?field ?value ?low ?high ?count WHERE {\n"
-            + "  (?field ?value ?low ?high ?count) luc:facet (\"default\" \"default\" \"*\" '[\"urn:jena:lucene:field#type\"]' \"null\" 10 0)\n"
+            + "  (?field ?value ?low ?high ?count) luc:facet (\"default\" \"default\" \"*\" '[\"urn:jena:lucene:field#type\"]' \"\" 10 0)\n"
             + "}";
 
         dataset.begin(ReadWrite.READ);

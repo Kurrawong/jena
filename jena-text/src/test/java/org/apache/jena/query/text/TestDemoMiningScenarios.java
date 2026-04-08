@@ -437,7 +437,7 @@ public class TestDemoMiningScenarios {
     public void testFacetCountsCommodity() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
-            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"*\" '[\"" + FP + "commodity\"]' \"null\" 20 0)\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"*\" '[\"" + FP + "commodity\"]' \"\" 20 0)\n" +
             "}";
 
         Map<String, Long> counts = facetCountMap(sparql);
@@ -451,7 +451,7 @@ public class TestDemoMiningScenarios {
     public void testFacetCountsState() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
-            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"*\" '[\"" + FP + "state\"]' \"null\" 20 0)\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"*\" '[\"" + FP + "state\"]' \"\" 20 0)\n" +
             "}";
 
         Map<String, Long> counts = facetCountMap(sparql);
@@ -472,7 +472,7 @@ public class TestDemoMiningScenarios {
     public void testFacetCountsMultipleFields() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
-            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"*\" '[\"" + FP + "state\", \"" + FP + "commodity\"]' \"null\" 20 0)\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"*\" '[\"" + FP + "state\", \"" + FP + "commodity\"]' \"\" 20 0)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -518,7 +518,7 @@ public class TestDemoMiningScenarios {
     public void testFacetWildcardExpandsAllFields() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
-            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"*\" '[\"*\"]' \"null\" 10 0)\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"*\" '[\"*\"]' \"\" 10 0)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -548,7 +548,7 @@ public class TestDemoMiningScenarios {
         // Verify wildcard returns same results as listing all facetable fields explicitly
         String wildcardSparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
-            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"*\" '[\"*\"]' \"null\" 0 0)\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"*\" '[\"*\"]' \"\" 0 0)\n" +
             "}";
         String explicitSparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
@@ -558,7 +558,7 @@ public class TestDemoMiningScenarios {
             FP + "state\", \"" +
             FP + "operator\", \"" +
             FP + "status\", \"" +
-            FP + "authorName\"]' \"null\" 0 0)\n" +
+            FP + "authorName\"]' \"\" 0 0)\n" +
             "}";
 
         Map<String, Map<String, Long>> wildcardResults = facetResultMap(wildcardSparql);
@@ -578,7 +578,7 @@ public class TestDemoMiningScenarios {
         // Wildcard facets with text search for "copper"
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
-            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"copper\" '[\"*\"]' \"null\" 10 0)\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"copper\" '[\"*\"]' \"\" 10 0)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -634,7 +634,7 @@ public class TestDemoMiningScenarios {
     public void testAuthorNameFacetCounts() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
-            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"*\" '[\"" + FP + "authorName\"]' \"null\" 10 0)\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"*\" '[\"" + FP + "authorName\"]' \"\" 10 0)\n" +
             "}";
 
         Map<String, Long> counts = facetCountMap(sparql);
@@ -669,9 +669,9 @@ public class TestDemoMiningScenarios {
     public void testCombinedQueryAndFacet() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?entity ?score ?f ?v ?low ?high ?c WHERE {\n" +
-            "  { (?hit ?entity ?score) luc:query (\"default\" \"default\" \"iron ore\" \"null\" \"null\" 20) }\n" +
+            "  { (?hit ?entity ?score) luc:query (\"default\" \"default\" \"iron ore\" \"\" \"\" 20) }\n" +
             "  UNION\n" +
-            "  { (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"iron ore\" '[\"" + FP + "state\"]' \"null\" 10 0) }\n" +
+            "  { (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"iron ore\" '[\"" + FP + "state\"]' \"\" 10 0) }\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -717,7 +717,7 @@ public class TestDemoMiningScenarios {
     public void testEntityTypeDistribution() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
-            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"*\" '[\"" + FP + "entityType\"]' \"null\" 10 0)\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"*\" '[\"" + FP + "entityType\"]' \"\" 10 0)\n" +
             "}";
 
         Map<String, Long> counts = facetCountMap(sparql);
@@ -735,8 +735,8 @@ public class TestDemoMiningScenarios {
         sb.append("PREFIX luc: <urn:jena:lucene:index#>\n");
         sb.append("SELECT ?s WHERE {\n");
         sb.append("  (?hit ?s ?score) luc:query (\"default\" \"default\" \"").append(queryText).append("\" ");
-        sb.append(filter != null ? "'" + filter + "'" : "\"null\"");
-        sb.append(" \"null\" ").append(limit).append(")\n}");
+        sb.append(filter != null ? "'" + filter + "'" : "\"\"");
+        sb.append(" \"\" ").append(limit).append(")\n}");
 
         Set<String> results = new HashSet<>();
         dataset.begin(ReadWrite.READ);

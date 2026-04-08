@@ -5,6 +5,6 @@ PREFIX luc: <urn:jena:lucene:index#>
 
 SELECT ?s ?score
 WHERE {
-    (?hit ?s ?score) luc:query ("default" '["urn:jena:lucene:field#identifierValueText"]' "bod" "null" "null" 10)
+    (?hit ?s ?score) luc:query ("default" '["urn:jena:lucene:field#identifierValueText"]' "bod" "" "" 10)
 }
 ORDER BY DESC(?score) ?s

@@ -12,7 +12,7 @@ WHERE {
         "default"
         "copper"
         '{"op":"=","args":[{"property":"urn:jena:lucene:field#state"},"http://example.org/mining/state/QLD"]}'
-        "null"
+        ""
         10
     )
 }
