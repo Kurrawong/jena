@@ -55,13 +55,14 @@ public class ShaclIndexMapping {
         private final Set<Node> predicates;
         private final Path path;
         private final Node fieldIRI;
+        private final String nestedName;
 
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
                         boolean stored, boolean indexed, boolean facetable,
                         boolean sortable, boolean multiValued, boolean defaultSearch,
                         Set<Node> predicates) {
             this(fieldName, fieldType, analyzer, null, stored, indexed, facetable,
-                 sortable, multiValued, defaultSearch, predicates, null, null);
+                 sortable, multiValued, defaultSearch, predicates, null, null, null);
         }
 
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
@@ -69,7 +70,7 @@ public class ShaclIndexMapping {
                         boolean sortable, boolean multiValued, boolean defaultSearch,
                         Set<Node> predicates, Path path) {
             this(fieldName, fieldType, analyzer, null, stored, indexed, facetable,
-                 sortable, multiValued, defaultSearch, predicates, path, null);
+                 sortable, multiValued, defaultSearch, predicates, path, null, null);
         }
 
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
@@ -77,7 +78,7 @@ public class ShaclIndexMapping {
                         boolean sortable, boolean multiValued, boolean defaultSearch,
                         Set<Node> predicates, Path path, Node fieldIRI) {
             this(fieldName, fieldType, analyzer, null, stored, indexed, facetable,
-                 sortable, multiValued, defaultSearch, predicates, path, fieldIRI);
+                 sortable, multiValued, defaultSearch, predicates, path, fieldIRI, null);
         }
 
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
@@ -85,6 +86,15 @@ public class ShaclIndexMapping {
                         boolean stored, boolean indexed, boolean facetable,
                         boolean sortable, boolean multiValued, boolean defaultSearch,
                         Set<Node> predicates, Path path, Node fieldIRI) {
+            this(fieldName, fieldType, analyzer, queryAnalyzer, stored, indexed, facetable,
+                sortable, multiValued, defaultSearch, predicates, path, fieldIRI, null);
+        }
+
+        public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
+                        Analyzer queryAnalyzer,
+                        boolean stored, boolean indexed, boolean facetable,
+                        boolean sortable, boolean multiValued, boolean defaultSearch,
+                        Set<Node> predicates, Path path, Node fieldIRI, String nestedName) {
             this.fieldName = Objects.requireNonNull(fieldName);
             this.fieldType = fieldType != null ? fieldType : FieldType.TEXT;
             this.analyzer = analyzer;
@@ -99,6 +109,7 @@ public class ShaclIndexMapping {
             this.path = path;
             this.fieldIRI = fieldIRI != null ? fieldIRI
                 : NodeFactory.createURI(FIELD_IRI_PREFIX + fieldName);
+            this.nestedName = nestedName;
         }
 
         public String getFieldName()       { return fieldName; }
@@ -113,6 +124,9 @@ public class ShaclIndexMapping {
         public boolean isDefaultSearch()    { return defaultSearch; }
         public Set<Node> getPredicates()    { return predicates; }
         public Node getFieldIRI()            { return fieldIRI; }
+        public String getNestedName()       { return nestedName; }
+        public boolean isNestedScoped()     { return nestedName != null; }
+        public boolean isRootScoped()       { return nestedName == null; }
 
         /** The structured path for this field. Null for simple predicate fields (backward compat). */
         public Path getPath()              { return path; }
@@ -122,9 +136,19 @@ public class ShaclIndexMapping {
             return path != null && !(path instanceof P_Link);
         }
 
+        public FieldDef withNestedName(String nestedName) {
+            if (Objects.equals(this.nestedName, nestedName)) {
+                return this;
+            }
+            return new FieldDef(fieldName, fieldType, analyzer, queryAnalyzer, stored, indexed,
+                facetable, sortable, multiValued, defaultSearch, predicates, path, fieldIRI, nestedName);
+        }
+
         @Override
         public String toString() {
-            return fieldName + "(" + fieldType + ")";
+            return nestedName == null
+                ? fieldName + "(" + fieldType + ")"
+                : fieldName + "(" + fieldType + "@" + nestedName + ")";
         }
     }
 
@@ -170,6 +194,91 @@ public class ShaclIndexMapping {
         }
     }
 
+    /**
+     * One simple step in a nested join path.
+     * A forward step follows {@code subject --predicate--> object}.
+     * An inverse step follows {@code object --predicate--> subject}.
+     */
+    public static class JoinStep {
+        private final Node predicate;
+        private final boolean inverse;
+
+        public JoinStep(Node predicate, boolean inverse) {
+            this.predicate = Objects.requireNonNull(predicate);
+            this.inverse = inverse;
+        }
+
+        public Node getPredicate()        { return predicate; }
+        public boolean isInverse()        { return inverse; }
+
+        @Override
+        public String toString() {
+            return inverse ? "^" + predicate : predicate.toString();
+        }
+    }
+
+    /**
+     * Defines a repeated correlated child collection whose fields are evaluated
+     * relative to the child node reached from the parent entity.
+     */
+    public static class NestedDef {
+        private final String nestedName;
+        private final Path joinPath;
+        private final List<JoinStep> joinSteps;
+        private final Set<Node> joinPredicates;
+        private final List<FieldDef> fields;
+        private final List<HierarchyDef> hierarchies;
+
+        public NestedDef(String nestedName, Path joinPath, Set<Node> joinPredicates,
+                         List<FieldDef> fields, List<HierarchyDef> hierarchies) {
+            this(nestedName, joinPath, defaultJoinSteps(joinPath), joinPredicates, fields, hierarchies);
+        }
+
+        public NestedDef(String nestedName, Path joinPath, List<JoinStep> joinSteps,
+                         Set<Node> joinPredicates, List<FieldDef> fields, List<HierarchyDef> hierarchies) {
+            this.nestedName = Objects.requireNonNull(nestedName);
+            this.joinPath = Objects.requireNonNull(joinPath);
+            this.joinSteps = joinSteps != null
+                ? Collections.unmodifiableList(new ArrayList<>(joinSteps))
+                : Collections.emptyList();
+            this.joinPredicates = joinPredicates != null
+                ? Collections.unmodifiableSet(new LinkedHashSet<>(joinPredicates))
+                : Collections.emptySet();
+            this.fields = fields != null
+                ? Collections.unmodifiableList(new ArrayList<>(fields))
+                : Collections.emptyList();
+            this.hierarchies = hierarchies != null
+                ? Collections.unmodifiableList(new ArrayList<>(hierarchies))
+                : Collections.emptyList();
+            if (this.fields.isEmpty()) {
+                throw new IllegalArgumentException("NestedDef must contain at least one field");
+            }
+            if (this.joinSteps.isEmpty()) {
+                throw new IllegalArgumentException("NestedDef must contain at least one join step");
+            }
+        }
+
+        public String getNestedName()       { return nestedName; }
+        public Path getJoinPath()           { return joinPath; }
+        public List<JoinStep> getJoinSteps() { return joinSteps; }
+        public Set<Node> getJoinPredicates() { return joinPredicates; }
+        public List<FieldDef> getFields()   { return fields; }
+        public List<HierarchyDef> getHierarchies() { return hierarchies; }
+
+        @Override
+        public String toString() {
+            return "NestedDef(" + nestedName + ", joinPath=" + joinPath + ", fields=" + fields + ")";
+        }
+
+        private static List<JoinStep> defaultJoinSteps(Path joinPath) {
+            if (joinPath instanceof P_Link link) {
+                return Collections.singletonList(new JoinStep(link.getNode(), false));
+            }
+            throw new IllegalArgumentException(
+                "NestedDef constructor without join steps only supports simple predicate join paths: " + joinPath);
+        }
+    }
+
     public static class IndexProfile {
         private final Node shapeNode;
         private final Set<Node> targetClasses;
@@ -177,22 +286,33 @@ public class ShaclIndexMapping {
         private final String discriminatorField;
         private final List<FieldDef> fields;
         private final List<HierarchyDef> hierarchies;
+        private final List<NestedDef> nestedDefs;
 
         public IndexProfile(Node shapeNode, Set<Node> targetClasses,
                             String docIdField, String discriminatorField,
                             List<FieldDef> fields) {
-            this(shapeNode, targetClasses, docIdField, discriminatorField, fields, Collections.emptyList());
+            this(shapeNode, targetClasses, docIdField, discriminatorField, fields,
+                Collections.emptyList(), Collections.emptyList());
         }
 
         public IndexProfile(Node shapeNode, Set<Node> targetClasses,
                             String docIdField, String discriminatorField,
                             List<FieldDef> fields, List<HierarchyDef> hierarchies) {
+            this(shapeNode, targetClasses, docIdField, discriminatorField, fields,
+                hierarchies, Collections.emptyList());
+        }
+
+        public IndexProfile(Node shapeNode, Set<Node> targetClasses,
+                            String docIdField, String discriminatorField,
+                            List<FieldDef> fields, List<HierarchyDef> hierarchies,
+                            List<NestedDef> nestedDefs) {
             this.shapeNode = shapeNode;
             this.targetClasses = targetClasses != null ? Collections.unmodifiableSet(new LinkedHashSet<>(targetClasses)) : Collections.emptySet();
             this.docIdField = docIdField != null ? docIdField : "uri";
             this.discriminatorField = discriminatorField != null ? discriminatorField : "docType";
             this.fields = fields != null ? Collections.unmodifiableList(new ArrayList<>(fields)) : Collections.emptyList();
             this.hierarchies = hierarchies != null ? Collections.unmodifiableList(new ArrayList<>(hierarchies)) : Collections.emptyList();
+            this.nestedDefs = nestedDefs != null ? Collections.unmodifiableList(new ArrayList<>(nestedDefs)) : Collections.emptyList();
         }
 
         public Node getShapeNode()          { return shapeNode; }
@@ -201,6 +321,7 @@ public class ShaclIndexMapping {
         public String getDiscriminatorField() { return discriminatorField; }
         public List<FieldDef> getFields()   { return fields; }
         public List<HierarchyDef> getHierarchies() { return hierarchies; }
+        public List<NestedDef> getNestedDefs() { return nestedDefs; }
 
         @Override
         public String toString() {
@@ -225,10 +346,15 @@ public class ShaclIndexMapping {
     private final List<IndexProfile> profiles;
     private final Map<Node, List<ProfileField>> predicateLookup;
     private final Map<Node, List<IndexProfile>> classLookup;
+    private final Set<Node> topLevelPredicates;
+    private final Set<Node> nestedChildPredicates;
+    private final Set<Node> nestedJoinPredicates;
+    private final Set<Node> relevantPredicates;
 
     public ShaclIndexMapping(List<IndexProfile> profiles) {
         this.profiles = Collections.unmodifiableList(new ArrayList<>(profiles));
         validateFieldNameUniqueness();
+        validateFieldScopeUniqueness();
 
         // Build predicate → (profile, field) lookup
         Map<Node, List<ProfileField>> predMap = new HashMap<>();
@@ -241,6 +367,10 @@ public class ShaclIndexMapping {
             }
         }
         this.predicateLookup = Collections.unmodifiableMap(predMap);
+        this.topLevelPredicates = buildTopLevelPredicates(profiles);
+        this.nestedChildPredicates = buildNestedChildPredicates(profiles);
+        this.nestedJoinPredicates = buildNestedJoinPredicates(profiles);
+        this.relevantPredicates = buildRelevantPredicates(topLevelPredicates, nestedChildPredicates, nestedJoinPredicates);
 
         // Build targetClass → profiles lookup
         Map<Node, List<IndexProfile>> clsMap = new HashMap<>();
@@ -258,7 +388,19 @@ public class ShaclIndexMapping {
     }
 
     public boolean isRelevantPredicate(Node p) {
-        return predicateLookup.containsKey(p);
+        return relevantPredicates.contains(p);
+    }
+
+    public boolean isTopLevelPredicate(Node p) {
+        return topLevelPredicates.contains(p);
+    }
+
+    public boolean isNestedChildPredicate(Node p) {
+        return nestedChildPredicates.contains(p);
+    }
+
+    public boolean isNestedJoinPredicate(Node p) {
+        return nestedJoinPredicates.contains(p);
     }
 
     public List<ProfileField> getProfilesForPredicate(Node p) {
@@ -345,6 +487,21 @@ public class ShaclIndexMapping {
         }
     }
 
+    private void validateFieldScopeUniqueness() {
+        Map<String, String> seenScopes = new HashMap<>();
+        for (IndexProfile profile : profiles) {
+            for (FieldDef field : profile.getFields()) {
+                String iri = field.getFieldIRI().getURI();
+                String prevScope = seenScopes.putIfAbsent(iri, field.getNestedName());
+                if (prevScope != null && !Objects.equals(prevScope, field.getNestedName())) {
+                    throw new TextIndexException(
+                        "Field IRI '" + iri + "' is used in both root and nested scopes, or across multiple nested scopes. "
+                        + "Define separate field IRIs for each scope.");
+                }
+            }
+        }
+    }
+
     /** Return all field names marked as facetable across all profiles. */
     public List<String> getFacetFieldNames() {
         List<String> result = new ArrayList<>();
@@ -364,6 +521,9 @@ public class ShaclIndexMapping {
         List<HierarchyDef> result = new ArrayList<>();
         for (IndexProfile profile : profiles) {
             result.addAll(profile.getHierarchies());
+            for (NestedDef nestedDef : profile.getNestedDefs()) {
+                result.addAll(nestedDef.getHierarchies());
+            }
         }
         return result;
     }
@@ -374,6 +534,13 @@ public class ShaclIndexMapping {
             for (HierarchyDef h : profile.getHierarchies()) {
                 if (h.getDimensionName().equals(dimensionName)) {
                     return h;
+                }
+            }
+            for (NestedDef nestedDef : profile.getNestedDefs()) {
+                for (HierarchyDef h : nestedDef.getHierarchies()) {
+                    if (h.getDimensionName().equals(dimensionName)) {
+                        return h;
+                    }
                 }
             }
         }
@@ -393,6 +560,13 @@ public class ShaclIndexMapping {
                     return h;
                 }
             }
+            for (NestedDef nestedDef : profile.getNestedDefs()) {
+                for (HierarchyDef h : nestedDef.getHierarchies()) {
+                    if (h.containsField(fd)) {
+                        return h;
+                    }
+                }
+            }
         }
         return null;
     }
@@ -404,6 +578,11 @@ public class ShaclIndexMapping {
             for (HierarchyDef h : profile.getHierarchies()) {
                 result.add(h.getDimensionName());
             }
+            for (NestedDef nestedDef : profile.getNestedDefs()) {
+                for (HierarchyDef h : nestedDef.getHierarchies()) {
+                    result.add(h.getDimensionName());
+                }
+            }
         }
         return result;
     }
@@ -414,7 +593,64 @@ public class ShaclIndexMapping {
             if (!profile.getHierarchies().isEmpty()) {
                 return true;
             }
+            for (NestedDef nestedDef : profile.getNestedDefs()) {
+                if (!nestedDef.getHierarchies().isEmpty()) {
+                    return true;
+                }
+            }
         }
         return false;
+    }
+
+    public boolean hasNestedDefs() {
+        for (IndexProfile profile : profiles) {
+            if (!profile.getNestedDefs().isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Set<Node> buildTopLevelPredicates(List<IndexProfile> profiles) {
+        Set<Node> preds = new LinkedHashSet<>();
+        for (IndexProfile profile : profiles) {
+            for (FieldDef field : profile.getFields()) {
+                if (field.isRootScoped()) {
+                    preds.addAll(field.getPredicates());
+                }
+            }
+        }
+        return Collections.unmodifiableSet(preds);
+    }
+
+    private static Set<Node> buildNestedChildPredicates(List<IndexProfile> profiles) {
+        Set<Node> preds = new LinkedHashSet<>();
+        for (IndexProfile profile : profiles) {
+            for (NestedDef nestedDef : profile.getNestedDefs()) {
+                for (FieldDef field : nestedDef.getFields()) {
+                    preds.addAll(field.getPredicates());
+                }
+            }
+        }
+        return Collections.unmodifiableSet(preds);
+    }
+
+    private static Set<Node> buildNestedJoinPredicates(List<IndexProfile> profiles) {
+        Set<Node> preds = new LinkedHashSet<>();
+        for (IndexProfile profile : profiles) {
+            for (NestedDef nestedDef : profile.getNestedDefs()) {
+                preds.addAll(nestedDef.getJoinPredicates());
+            }
+        }
+        return Collections.unmodifiableSet(preds);
+    }
+
+    private static Set<Node> buildRelevantPredicates(Set<Node> topLevelPredicates,
+            Set<Node> nestedChildPredicates, Set<Node> nestedJoinPredicates) {
+        Set<Node> preds = new LinkedHashSet<>();
+        preds.addAll(topLevelPredicates);
+        preds.addAll(nestedChildPredicates);
+        preds.addAll(nestedJoinPredicates);
+        return Collections.unmodifiableSet(preds);
     }
 }

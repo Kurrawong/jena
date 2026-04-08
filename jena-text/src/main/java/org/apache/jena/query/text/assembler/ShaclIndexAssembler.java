@@ -109,7 +109,7 @@ public class ShaclIndexAssembler {
         String discriminatorField = getOptionalString(shape, IndexVocab.pDiscriminatorField);
 
         // Parse fields from idx:field list or sh:property
-        List<FieldDef> fields = new ArrayList<>();
+        Map<String, FieldDef> fieldsByIRI = new LinkedHashMap<>();
 
         // idx:field — an RDF list of field resources
         Statement fieldStmt = shape.getProperty(IndexVocab.pField);
@@ -120,7 +120,7 @@ public class ShaclIndexAssembler {
                     RDFList fieldList = fieldNode.asResource().as(RDFList.class);
                     for (RDFNode fn : fieldList.asJavaList()) {
                         if (fn.isResource()) {
-                            fields.add(parseFieldDef(a, fn.asResource()));
+                            resolveRootFieldDef(a, fn.asResource(), fieldsByIRI);
                         }
                     }
                 } catch (Exception e) {
@@ -133,39 +133,98 @@ public class ShaclIndexAssembler {
         StmtIterator propIter = shape.listProperties(shProperty);
         while (propIter.hasNext()) {
             Resource propShape = propIter.next().getObject().asResource();
-            fields.add(parseFieldDef(a, propShape));
+            resolveRootFieldDef(a, propShape, fieldsByIRI);
         }
+
+        List<NestedDef> nestedDefs = parseNestedDefs(a, shape, fieldsByIRI);
+        List<FieldDef> fields = new ArrayList<>(fieldsByIRI.values());
 
         if (fields.isEmpty()) {
-            throw new TextIndexException("Shape " + shape + " has no fields (idx:field or sh:property)");
+            throw new TextIndexException("Shape " + shape + " has no fields (idx:field, sh:property, or idx:nested/idx:property)");
         }
 
-        // Parse hierarchical facet definitions: idx:facetHierarchy
+        // Parse direct hierarchical facet definitions: idx:facetHierarchy
         List<HierarchyDef> hierarchies = parseHierarchies(shape, fields);
 
-        return new IndexProfile(shapeNode, targetClasses, docIdField, discriminatorField, fields, hierarchies);
+        return new IndexProfile(shapeNode, targetClasses, docIdField, discriminatorField,
+            fields, hierarchies, nestedDefs);
     }
 
     /**
-     * Parse {@code idx:facetHierarchy} declarations on a shape.
+     * Parse {@code idx:nested} declarations on a shape.
+     */
+    private static List<NestedDef> parseNestedDefs(Assembler a, Resource shape,
+            Map<String, FieldDef> fieldsByIRI) {
+        List<NestedDef> nestedDefs = new ArrayList<>();
+
+        StmtIterator nestedIter = shape.listProperties(IndexVocab.pNested);
+        while (nestedIter.hasNext()) {
+            RDFNode nestedNode = nestedIter.next().getObject();
+            if (!nestedNode.isResource()) {
+                throw new TextIndexException("idx:nested must be a resource on " + shape);
+            }
+
+            Resource nestedRes = nestedNode.asResource();
+            Path joinPath = extractJoinPath(nestedRes);
+            if (joinPath == null) {
+                throw new TextIndexException("idx:nested on " + shape + " is missing idx:joinPath");
+            }
+            String nestedName = deriveNestedName(joinPath);
+            List<JoinStep> joinSteps;
+            try {
+                joinSteps = extractJoinSteps(joinPath);
+            } catch (TextIndexException ex) {
+                throw new TextIndexException("Invalid idx:joinPath on " + shape + ": " + ex.getMessage(), ex);
+            }
+
+            List<FieldDef> nestedFields = new ArrayList<>();
+            Set<String> seenFieldIRIs = new LinkedHashSet<>();
+
+            StmtIterator nestedFieldIter = nestedRes.listProperties(IndexVocab.pProperty);
+            while (nestedFieldIter.hasNext()) {
+                RDFNode fieldNode = nestedFieldIter.next().getObject();
+                if (!fieldNode.isResource()) {
+                    throw new TextIndexException("idx:property inside idx:nested must be a resource on " + shape);
+                }
+                FieldDef fieldDef = resolveNestedFieldDef(a, fieldNode.asResource(), fieldsByIRI, nestedName);
+                if (seenFieldIRIs.add(fieldDef.getFieldIRI().getURI())) {
+                    nestedFields.add(fieldDef);
+                }
+            }
+
+            if (nestedFields.isEmpty()) {
+                throw new TextIndexException("idx:nested on " + shape + " must reference at least one idx:property");
+            }
+
+            List<HierarchyDef> nestedHierarchies = parseHierarchies(nestedRes, nestedFields);
+            nestedDefs.add(new NestedDef(nestedName, joinPath, joinSteps, extractJoinPredicates(joinSteps),
+                nestedFields, nestedHierarchies));
+            log.debug("Parsed nested definition: {} joinPath={} fields={}", nestedName, joinPath, nestedFields);
+        }
+
+        return nestedDefs;
+    }
+
+    /**
+     * Parse {@code idx:facetHierarchy} declarations on a shape or nested block.
      * Each hierarchy is an RDF list of field resource IRIs that define the ordered levels.
      * The dimension name is derived from the field names joined by "_".
      */
-    private static List<HierarchyDef> parseHierarchies(Resource shape, List<FieldDef> fields) {
+    private static List<HierarchyDef> parseHierarchies(Resource owner, List<FieldDef> fields) {
         List<HierarchyDef> hierarchies = new ArrayList<>();
 
-        StmtIterator hierIter = shape.listProperties(IndexVocab.pFacetHierarchy);
+        StmtIterator hierIter = owner.listProperties(IndexVocab.pFacetHierarchy);
         while (hierIter.hasNext()) {
             RDFNode hierNode = hierIter.next().getObject();
             if (!hierNode.isResource()) {
-                throw new TextIndexException("idx:facetHierarchy must be an RDF list on " + shape);
+                throw new TextIndexException("idx:facetHierarchy must be an RDF list on " + owner);
             }
 
             RDFList hierList = hierNode.asResource().as(RDFList.class);
             List<RDFNode> levelNodes = hierList.asJavaList();
             if (levelNodes.size() < 2) {
                 throw new TextIndexException(
-                    "idx:facetHierarchy on " + shape + " must have at least 2 levels, got " + levelNodes.size());
+                    "idx:facetHierarchy on " + owner + " must have at least 2 levels, got " + levelNodes.size());
             }
 
             List<FieldDef> levels = new ArrayList<>();
@@ -180,7 +239,7 @@ public class ShaclIndexAssembler {
                 if (fd == null) {
                     throw new TextIndexException(
                         "idx:facetHierarchy references unknown field IRI: " + levelIRI
-                        + ". All hierarchy levels must be declared as fields.");
+                        + ". All hierarchy levels must be declared on the same shape or nested block.");
                 }
                 levels.add(fd);
                 if (dimNameBuilder.length() > 0) dimNameBuilder.append("_");
@@ -193,6 +252,91 @@ public class ShaclIndexAssembler {
         }
 
         return hierarchies;
+    }
+
+    private static FieldDef resolveRootFieldDef(Assembler a, Resource fieldRes,
+            Map<String, FieldDef> fieldsByIRI) {
+        FieldDef parsed = parseFieldDef(a, fieldRes).withNestedName(null);
+        String iri = parsed.getFieldIRI().getURI();
+        FieldDef existing = fieldsByIRI.get(iri);
+        if (existing == null) {
+            fieldsByIRI.put(iri, parsed);
+            return parsed;
+        }
+        if (existing.isNestedScoped()) {
+            throw new TextIndexException(
+                "Field " + iri + " cannot be used both as a root field and as an idx:nested property. "
+                + "Define separate field IRIs for parent and nested scopes.");
+        }
+        return existing;
+    }
+
+    private static FieldDef resolveNestedFieldDef(Assembler a, Resource fieldRes,
+            Map<String, FieldDef> fieldsByIRI, String nestedName) {
+        FieldDef parsed = parseFieldDef(a, fieldRes).withNestedName(nestedName);
+        String iri = parsed.getFieldIRI().getURI();
+        FieldDef existing = fieldsByIRI.get(iri);
+        if (existing == null) {
+            fieldsByIRI.put(iri, parsed);
+            return parsed;
+        }
+        if (existing.isRootScoped()) {
+            throw new TextIndexException(
+                "Field " + iri + " cannot be used both as a root field and as an idx:nested property. "
+                + "Define separate field IRIs for parent and nested scopes.");
+        }
+        if (!nestedName.equals(existing.getNestedName())) {
+            throw new TextIndexException(
+                "Field " + iri + " cannot be reused across multiple idx:nested scopes. "
+                + "Define a separate field IRI for each nested collection.");
+        }
+        return existing;
+    }
+
+    private static String deriveNestedName(Path joinPath) {
+        return joinPath.toString();
+    }
+
+    static List<JoinStep> extractJoinSteps(Path joinPath) {
+        List<JoinStep> steps = new ArrayList<>();
+        collectJoinSteps(joinPath, steps);
+        if (steps.isEmpty()) {
+            throw new TextIndexException(
+                "idx:joinPath must contain at least one predicate step: " + joinPath);
+        }
+        return Collections.unmodifiableList(steps);
+    }
+
+    private static void collectJoinSteps(Path joinPath, List<JoinStep> steps) {
+        if (joinPath instanceof P_Link link) {
+            steps.add(new JoinStep(link.getNode(), false));
+            return;
+        }
+        if (joinPath instanceof P_Inverse inverse) {
+            Path subPath = inverse.getSubPath();
+            if (subPath instanceof P_Link link) {
+                steps.add(new JoinStep(link.getNode(), true));
+                return;
+            }
+            throw new TextIndexException(
+                "idx:joinPath inverse steps must target a simple predicate, got: " + joinPath);
+        }
+        if (joinPath instanceof P_Seq seq) {
+            collectJoinSteps(seq.getLeft(), steps);
+            collectJoinSteps(seq.getRight(), steps);
+            return;
+        }
+        throw new TextIndexException(
+            "idx:joinPath supports only simple predicate steps, inverse predicate steps, "
+            + "and sequences composed from them: " + joinPath);
+    }
+
+    private static Set<Node> extractJoinPredicates(List<JoinStep> joinSteps) {
+        Set<Node> predicates = new LinkedHashSet<>();
+        for (JoinStep joinStep : joinSteps) {
+            predicates.add(joinStep.getPredicate());
+        }
+        return Collections.unmodifiableSet(predicates);
     }
 
     private static FieldDef findFieldByIRI(List<FieldDef> fields, String iri) {
@@ -287,6 +431,16 @@ public class ShaclIndexAssembler {
         }
 
         return null;
+    }
+
+    static Path extractJoinPath(Resource nestedRes) {
+        Statement pathStmt = nestedRes.getProperty(IndexVocab.pJoinPath);
+        if (pathStmt == null) {
+            return null;
+        }
+        Node pathNode = pathStmt.getObject().asNode();
+        Graph graph = nestedRes.getModel().getGraph();
+        return parseShaclPath(graph, pathNode);
     }
 
     /**

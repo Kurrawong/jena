@@ -32,6 +32,8 @@ import org.apache.jena.query.DatasetFactory;
 import org.apache.jena.query.ReadWrite;
 import org.apache.jena.query.text.ShaclIndexMapping.*;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
+import org.apache.jena.query.text.cql.CqlExpression;
+import org.apache.jena.query.text.cql.CqlParser;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.ResourceFactory;
@@ -272,6 +274,23 @@ public class TestHierarchicalFacets {
         assertTrue("Should have Water", facetMap.containsKey("Water"));
         assertTrue("Should have Mineral", facetMap.containsKey("Mineral"));
         assertFalse("Should not have Gas (count=1 < minCount=2)", facetMap.containsKey("Gas"));
+    }
+
+    @Test
+    public void testDirectHierarchyExactFiltersCompileToHierarchyPath() {
+        CqlExpression cql = CqlParser.parse("""
+            {"op":"and","args":[
+              {"op":"=","args":[{"property":"urn:jena:lucene:field#type"},"Mineral"]},
+              {"op":"=","args":[{"property":"urn:jena:lucene:field#subtype"},"Gold"]}
+            ]}
+            """);
+
+        List<TextHit> results = textIndex.queryWithCql(null, null, cql, null, null, null, 10, null);
+        Set<String> uris = new LinkedHashSet<>();
+        for (TextHit hit : results) {
+            uris.add(hit.getNode().getURI());
+        }
+        assertEquals(Set.of(NS + "bh4", NS + "bh5"), uris);
     }
 
     private static Map<String, Long> toMap(List<FacetValue> facets) {

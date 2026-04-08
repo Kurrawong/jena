@@ -25,7 +25,9 @@ import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.jena.datatypes.RDFDatatype;
 
 import java.util.ArrayList ;
+import java.util.Collections;
 import java.util.HashMap ;
+import java.util.LinkedHashMap;
 import java.util.List ;
 import java.util.Map ;
 
@@ -36,6 +38,34 @@ public class Entity
     private final String language ;
     private final RDFDatatype datatype ;
     private final Map<String, Object> map = new HashMap<>() ;
+    private final Map<String, List<NestedRecord>> nestedRecords = new LinkedHashMap<>() ;
+
+    public static class NestedRecord {
+        private final Map<String, Object> values = new LinkedHashMap<>() ;
+
+        public Object get(String key) {
+            return values.get(key);
+        }
+
+        public Map<String, Object> getValues() {
+            return values;
+        }
+
+        @SuppressWarnings("unchecked")
+        public void addValue(String key, Object value) {
+            Object existing = values.get(key);
+            if (existing == null) {
+                values.put(key, value);
+            } else if (existing instanceof List) {
+                ((List<Object>) existing).add(value);
+            } else {
+                List<Object> list = new ArrayList<>();
+                list.add(existing);
+                list.add(value);
+                values.put(key, list);
+            }
+        }
+    }
 
     public Entity(String entityId, String entityGraph) {
         this(entityId, entityGraph, null, null);
@@ -68,6 +98,18 @@ public class Entity
 
     public Map<String, Object> getMap()     { return map ; }
 
+    public void addNestedRecord(String nestedName, NestedRecord record) {
+        nestedRecords.computeIfAbsent(nestedName, k -> new ArrayList<>()).add(record);
+    }
+
+    public List<NestedRecord> getNestedRecords(String nestedName) {
+        return nestedRecords.getOrDefault(nestedName, Collections.emptyList());
+    }
+
+    public Map<String, List<NestedRecord>> getNestedRecords() {
+        return nestedRecords;
+    }
+
     @SuppressWarnings("unchecked")
     public void addValue(String key, Object value) {
         Object existing = map.get(key);
@@ -97,4 +139,3 @@ public class Entity
         return id+" : "+graph+" : "+language+" : "+datatype+" : "+map ;
     }
 }
-

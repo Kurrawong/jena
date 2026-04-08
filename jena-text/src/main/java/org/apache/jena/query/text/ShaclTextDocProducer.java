@@ -30,9 +30,6 @@ import org.apache.jena.query.text.changes.TextQuadAction;
 import org.apache.jena.sparql.core.DatasetGraph;
 import org.apache.jena.sparql.core.Quad;
 import org.apache.jena.sparql.graph.GraphUnionRead;
-import org.apache.jena.sparql.path.P_Link;
-import org.apache.jena.sparql.path.Path;
-import org.apache.jena.sparql.path.eval.PathEval;
 import org.apache.jena.vocabulary.RDF;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -88,8 +85,16 @@ public class ShaclTextDocProducer implements TextDocProducer {
             // rdf:type change → may add/remove entity from a profile
             handleTypeChange(qaction, s, o);
         } else if (mapping.isRelevantPredicate(p)) {
-            // Relevant data predicate → rebuild the entity's documents
-            rebuildEntityDocuments(s);
+            Set<Node> entitiesToRebuild = new LinkedHashSet<>();
+            if (mapping.isTopLevelPredicate(p)) {
+                entitiesToRebuild.add(s);
+            }
+            if (mapping.isNestedChildPredicate(p) || mapping.isNestedJoinPredicate(p)) {
+                entitiesToRebuild.addAll(findParentEntitiesForNestedChange(s, p, o));
+            }
+            for (Node entity : entitiesToRebuild) {
+                rebuildEntityDocuments(entity);
+            }
         }
         // Else: irrelevant predicate, ignore
 
@@ -153,39 +158,7 @@ public class ShaclTextDocProducer implements TextDocProducer {
      * Uses PathEval for complex paths (sequence, inverse); direct triple match for simple predicates.
      */
     private Entity buildEntity(Node subject, String entityUri, IndexProfile profile) {
-        Entity entity = new Entity(entityUri, null);
-        Graph graph = allGraphsView();
-
-        for (FieldDef fieldDef : profile.getFields()) {
-            Path path = fieldDef.getPath();
-            if (path != null && fieldDef.hasComplexPath()) {
-                // Complex path — use PathEval
-                Iterator<Node> values = PathEval.eval(graph, subject, path, null);
-                while (values.hasNext()) {
-                    Node obj = values.next();
-                    Object value = nodeToValue(obj, fieldDef.getFieldType());
-                    if (value != null) {
-                        entity.addValue(fieldDef.getFieldName(), value);
-                    }
-                }
-            } else {
-                // Simple predicate(s) — direct triple match (fast path)
-                for (Node predicate : fieldDef.getPredicates()) {
-                    Iterator<Node> objects = graph
-                        .find(subject, predicate, Node.ANY)
-                        .mapWith(t -> t.getObject());
-                    while (objects.hasNext()) {
-                        Node obj = objects.next();
-                        Object value = nodeToValue(obj, fieldDef.getFieldType());
-                        if (value != null) {
-                            entity.addValue(fieldDef.getFieldName(), value);
-                        }
-                    }
-                }
-            }
-        }
-
-        return entity;
+        return ShaclEntityBuilder.buildEntity(allGraphsView(), subject, entityUri, profile);
     }
 
     /**
@@ -199,27 +172,67 @@ public class ShaclTextDocProducer implements TextDocProducer {
         return new GraphUnionRead(baseDataset, graphNames);
     }
 
-    private Object nodeToValue(Node obj, FieldType fieldType) {
-        if (obj.isLiteral()) {
-            switch (fieldType) {
-                case INT:
-                    try { return Integer.parseInt(obj.getLiteralLexicalForm()); }
-                    catch (NumberFormatException e) { return null; }
-                case LONG:
-                    try { return Long.parseLong(obj.getLiteralLexicalForm()); }
-                    catch (NumberFormatException e) { return null; }
-                case DOUBLE:
-                    try { return Double.parseDouble(obj.getLiteralLexicalForm()); }
-                    catch (NumberFormatException e) { return null; }
-                case LATLON:
-                    return obj.getLiteralLexicalForm();
-                default:
-                    return obj.getLiteralLexicalForm();
+    private Set<Node> findParentEntitiesForNestedChange(Node changedSubject, Node changedPredicate, Node changedObject) {
+        Graph graph = allGraphsView();
+        Set<Node> parents = new LinkedHashSet<>();
+        for (IndexProfile profile : mapping.getProfiles()) {
+            for (NestedDef nestedDef : profile.getNestedDefs()) {
+                boolean nestedChildPredicate = nestedDef.getFields().stream()
+                    .anyMatch(f -> f.getPredicates().contains(changedPredicate));
+                boolean nestedJoinPredicate = nestedDef.getJoinPredicates().contains(changedPredicate);
+
+                if (nestedChildPredicate) {
+                    parents.addAll(reverseTraverseToParents(graph, Collections.singleton(changedSubject),
+                        nestedDef.getJoinSteps()));
+                }
+                if (nestedJoinPredicate) {
+                    parents.addAll(findParentsForJoinStepChange(graph, nestedDef, changedPredicate, changedSubject, changedObject));
+                }
             }
-        } else if (obj.isURI()) {
-            // URI objects get stored as their URI string (useful for keyword fields)
-            return obj.getURI();
         }
-        return null;
+
+        return parents;
+    }
+
+    private Set<Node> findParentsForJoinStepChange(Graph graph, NestedDef nestedDef,
+            Node changedPredicate, Node changedSubject, Node changedObject) {
+        Set<Node> parents = new LinkedHashSet<>();
+        List<JoinStep> joinSteps = nestedDef.getJoinSteps();
+
+        for (int i = 0; i < joinSteps.size(); i++) {
+            JoinStep joinStep = joinSteps.get(i);
+            if (!joinStep.getPredicate().equals(changedPredicate)) {
+                continue;
+            }
+
+            Node stepStart = joinStep.isInverse() ? changedObject : changedSubject;
+            if (stepStart == null) {
+                continue;
+            }
+
+            parents.addAll(reverseTraverseToParents(graph, Collections.singleton(stepStart),
+                joinSteps.subList(0, i)));
+        }
+
+        return parents;
+    }
+
+    private Set<Node> reverseTraverseToParents(Graph graph, Collection<Node> startNodes, List<JoinStep> joinSteps) {
+        Set<Node> current = new LinkedHashSet<>(startNodes);
+        for (int i = joinSteps.size() - 1; i >= 0 && !current.isEmpty(); i--) {
+            JoinStep joinStep = joinSteps.get(i);
+            Set<Node> next = new LinkedHashSet<>();
+            for (Node node : current) {
+                if (joinStep.isInverse()) {
+                    graph.find(node, joinStep.getPredicate(), Node.ANY)
+                        .forEachRemaining(t -> next.add(t.getObject()));
+                } else {
+                    graph.find(Node.ANY, joinStep.getPredicate(), node)
+                        .forEachRemaining(t -> next.add(t.getSubject()));
+                }
+            }
+            current = next;
+        }
+        return current;
     }
 }

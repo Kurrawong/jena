@@ -54,6 +54,7 @@ public class IndexVocab {
     public static final Property pField             = Vocab.property(NS, "field");
     public static final Property pDocIdField        = Vocab.property(NS, "docIdField");
     public static final Property pDiscriminatorField = Vocab.property(NS, "discriminatorField");
+    public static final Property pNested            = Vocab.property(NS, "nested");
 
     // Field-level properties
     public static final Property pFieldName     = Vocab.property(NS, "fieldName");
@@ -67,6 +68,8 @@ public class IndexVocab {
     public static final Property pMultiValued   = Vocab.property(NS, "multiValued");
     public static final Property pDefaultSearch = Vocab.property(NS, "defaultSearch");
     public static final Property pPath          = Vocab.property(NS, "path");
+    public static final Property pJoinPath      = Vocab.property(NS, "joinPath");
+    public static final Property pProperty      = Vocab.property(NS, "property");
 
     // Hierarchical facet properties
     public static final Property pFacetHierarchy = Vocab.property(NS, "facetHierarchy");

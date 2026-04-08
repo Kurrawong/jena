@@ -158,7 +158,12 @@ DatasetGraphTextMonitor.add(g, s, p, o)
         │     └── handleTypeChange()
         │           └── rebuildEntityDocuments(s)
         ├── mapping.isRelevantPredicate(p)?
-        │     └── rebuildEntityDocuments(s)
+        │     ├── top-level predicate?
+        │     │     └── rebuild entity subject directly
+        │     ├── nested child predicate?
+        │     │     └── reverse nested join path from changed child node
+        │     └── nested join predicate?
+        │           └── locate join step, reverse join-path prefix to parent
         └── else: ignore (irrelevant predicate)
 
 rebuildEntityDocuments(subject)
@@ -177,7 +182,7 @@ rebuildEntityDocuments(subject)
 
 ---
 
-## Hierarchical Facets Architecture
+## Hierarchical and Nested Facets Architecture
 
 ### Data Model
 
@@ -186,22 +191,71 @@ rebuildEntityDocuments(subject)
 - `levels` — ordered list of `FieldDef` references (index 0 = parent, 1 = child, etc.)
 - `getDepth()`, `getLevelIndex(field)`, `getLevel(i)` — navigation methods
 
-Hierarchies are declared per-shape via `idx:facetHierarchy` and parsed by `ShaclIndexAssembler.parseHierarchies()`.
+`NestedDef` represents a repeated correlated child collection:
+- `nestedName` — the child scope identifier derived from `idx:joinPath`
+- `joinPath` — the SHACL path used to enumerate child nodes
+- `joinSteps` — the ordered forward/inverse predicate steps used for change monitoring
+- `joinPredicates` — the predicate set used for change monitoring
+- `fields` — child-scoped `FieldDef` references
+- `hierarchies` — hierarchy dimensions declared inside that nested block
+
+`FieldDef` now carries explicit scope metadata:
+- root fields have `nestedName = null`
+- child fields have `nestedName = <joinPath>`
+
+This allows the runtime to distinguish:
+- root fields evaluated from the entity node
+- child fields evaluated from the nested join node
+
+Hierarchies are declared either:
+- per-shape via shape-level `idx:facetHierarchy`, or
+- per-child-collection via `idx:nested / idx:facetHierarchy`
 
 ### Indexing
 
 Hierarchical fields use Lucene's taxonomy API (`DirectoryTaxonomyWriter/Reader`). `ShaclTextIndexLucene` maintains a separate taxonomy directory alongside the main index.
 
-During document building, each entity gets a `FacetField` per hierarchy dimension with path components from parent to child:
+During document building:
+
+- root hierarchies use ordinary entity field values
+- nested hierarchies iterate child records first, then emit one `FacetField` path per child record
+
+Direct hierarchy example:
 ```
 FacetField("state_commodity", "WA", "Gold")
 ```
 
+Nested identifier example:
+```
+FacetField("identifierType_identifierValueExact", "Company", "Glencore")
+FacetField("identifierType_identifierValueExact", "HoleNumber", "MIA-DDH-001")
+```
+
 `FacetsConfig` is configured with `setHierarchical(true)` and `setMultiValued(true)` for each dimension.
 
-### Query-Time Drill-Down
+Nested fields are also flattened onto the parent Lucene document in Phase 1 so ordinary search and typeahead can still target them without block join. This flattening applies to both keyword and text child fields.
 
-`extractHierarchyDrillDown()` in `ShaclTextIndexLucene` scans the CQL expression tree for `=` comparisons on hierarchy level fields. When a filter like `{"op":"=","args":[{"property":"field#state"},"WA"]}` targets a hierarchy parent field, it builds a drill-down path `["WA"]` for the dimension.
+### Query-Time Behavior
+
+There are two hierarchy-related query paths:
+
+1. `CqlToLuceneCompiler` folds contiguous `=` comparisons on hierarchy levels into a `DrillDownQuery`.
+   Example: `type = Mineral AND subtype = Gold` becomes one hierarchy path query on `type_subtype`.
+2. `extractHierarchyDrillDown()` in `ShaclTextIndexLucene` derives drill-down paths for facet counting from `=` filters when the client is requesting hierarchy counts.
+
+This gives correct exact-match semantics for:
+
+- direct hierarchies
+- nested hierarchies when the query anchors the path from level 0 downward
+- bare `=` filters on level-0 hierarchy fields
+
+Phase 1 limitation:
+
+- non-folded child-field queries still run against flattened parent fields
+- this includes lone leaf filters, `OR`/`NOT`, and child numeric/range filters
+- child text + sibling child filter correlation still requires a later block-join execution layer
+
+That Phase 1 parent flattening is now part of the forward-compatibility contract. When block join lands, parent-flattened child fields either need to remain available or become an explicit opt-in compatibility mode so existing child-field filters do not silently change meaning.
 
 `collectFacetResults()` uses `FastTaxonomyFacetCounts` for hierarchy dimensions and `SortedSetDocValuesFacetCounts` for flat facets. `MultiFacets` combines both into a unified result map. Result keys use the child level field name (not the dimension name) so that `generateBindings()` returns proper field IRIs.
 
@@ -209,13 +263,32 @@ FacetField("state_commodity", "WA", "Gold")
 
 `resolveFacetFieldNames()` auto-detects when a requested field IRI belongs to a hierarchy. It maps the field to the dimension name so the `MultiFacets` dispatch works correctly. Requesting `field#state` (level 0) returns top-level values; requesting `field#commodity` (level 1) with a parent filter returns child values.
 
+### Change Monitoring
+
+`ShaclTextDocProducer` treats predicates in three buckets:
+
+- root-field predicates rebuild the entity directly
+- nested child predicates rebuild parent entities by reversing the nested join path from the changed child node
+- nested join predicates rebuild parent entities by locating the changed join step, then reversing the join-path prefix back to the parent
+
+Reverse parent lookup currently supports `idx:joinPath` values made from:
+
+- simple predicate steps
+- inverse predicate steps
+- sequences composed from those steps
+
+Alternative join paths are still rejected for `idx:joinPath`.
+
 ### Key Classes
 
 | Class | Hierarchy Role |
 |-------|---------------|
 | `ShaclIndexMapping.HierarchyDef` | Data model for hierarchy dimensions |
-| `ShaclTextIndexLucene` | Taxonomy writer/reader lifecycle, `extractHierarchyDrillDown()`, `MultiFacets` |
-| `ShaclIndexAssembler` | Parses `idx:facetHierarchy` RDF lists into `HierarchyDef` objects |
+| `ShaclIndexMapping.NestedDef` | Data model for repeated child collections |
+| `ShaclTextIndexLucene` | Taxonomy writer/reader lifecycle, direct vs nested hierarchy indexing, `extractHierarchyDrillDown()`, `MultiFacets` |
+| `ShaclEntityBuilder` | Builds root fields plus nested child records from graph data |
+| `CqlToLuceneCompiler` | Folds exact hierarchy filters into `DrillDownQuery` |
+| `ShaclIndexAssembler` | Parses `idx:facetHierarchy`, `idx:nested`, `idx:joinPath`, and scoped fields |
 | `TextFacetPF` | Passes resolved facet fields and CQL through to index |
 
 ---

@@ -29,7 +29,10 @@ import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.text.ShaclIndexMapping;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
+import org.apache.jena.query.text.ShaclIndexMapping.HierarchyDef;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
+import org.apache.lucene.facet.DrillDownQuery;
+import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.search.*;
 import org.junit.Before;
 import org.junit.Test;
@@ -270,5 +273,32 @@ public class TestCqlToLuceneCompiler {
 
         assertNotNull(r.pushed());
         assertNull(r.residual());
+    }
+
+    @Test
+    public void testSingleHierarchyLevelEqualityUsesDrillDownQuery() {
+        FieldDef stateField = new FieldDef("state", FieldType.KEYWORD, null,
+            true, true, true, false, false, false, Collections.emptySet());
+        FieldDef commodityField = new FieldDef("commodity", FieldType.KEYWORD, null,
+            true, true, true, false, false, false, Collections.emptySet());
+        HierarchyDef hierarchy = new HierarchyDef("state_commodity", List.of(stateField, commodityField));
+
+        IndexProfile profile = new IndexProfile(
+            NodeFactory.createURI("http://example.org/Shape"),
+            Collections.singleton(NodeFactory.createURI("http://example.org/Thing")),
+            "uri", "docType",
+            List.of(stateField, commodityField),
+            List.of(hierarchy),
+            Collections.emptyList());
+
+        CqlToLuceneCompiler hierarchyCompiler =
+            new CqlToLuceneCompiler(new ShaclIndexMapping(Collections.singletonList(profile)), new FacetsConfig());
+
+        CqlExpression expr = new CqlExpression.CqlComparison("=", FP + "state", "WA");
+        CqlToLuceneCompiler.CompileResult r = hierarchyCompiler.compile(expr);
+
+        assertNotNull(r.pushed());
+        assertNull(r.residual());
+        assertTrue(r.pushed() instanceof DrillDownQuery);
     }
 }

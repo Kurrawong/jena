@@ -283,6 +283,97 @@ Drill-down is triggered automatically when a CQL `=` filter targets a hierarchy 
 
 ---
 
+## Nested Child Collections
+
+Use `idx:nested` when hierarchy levels belong to a repeated correlated child record rather than to the entity itself.
+
+Typical examples:
+
+- identifiers: `schema:identifier / schema:propertyID / schema:value`
+- assessments: `pe:hasLocationAssessment / pe:method / pe:status / pe:resolvedFeature`
+
+### Identifier Example
+
+```turtle
+@prefix field:  <urn:jena:lucene:field#> .
+@prefix schema: <https://schema.org/> .
+
+field:identifierType
+    idx:fieldName "identifierType" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true ;
+    idx:multiValued true ;
+    sh:path schema:propertyID .
+
+field:identifierValueExact
+    idx:fieldName "identifierValueExact" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true ;
+    idx:multiValued true ;
+    sh:path schema:value .
+
+field:identifierValueText
+    idx:fieldName "identifierValueText" ;
+    idx:fieldType idx:TextField ;
+    idx:multiValued true ;
+    idx:analyzer [ a text:EdgeNGramAnalyzer ] ;
+    idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] ;
+    sh:path schema:value .
+
+<#BoreholeShape>
+    sh:targetClass ex:Borehole ;
+    sh:property field:title ;
+    idx:nested [
+        idx:joinPath schema:identifier ;
+        idx:property field:identifierType ;
+        idx:property field:identifierValueExact ;
+        idx:property field:identifierValueText ;
+        idx:facetHierarchy ( field:identifierType field:identifierValueExact ) ;
+    ] .
+```
+
+### Rules
+
+- `idx:joinPath` is required inside `idx:nested`
+- `idx:joinPath` supports:
+  - a simple predicate path
+  - an inverse predicate path such as `[ sh:inversePath schema:about ]`
+  - a sequence composed from simple and inverse predicate steps
+- `idx:joinPath` does not support alternative paths
+- `idx:property` fields are evaluated relative to the child node reached by `idx:joinPath`
+- a field IRI may belong to only one scope: either root `sh:property` or one `idx:nested` block
+- direct hierarchies such as `state -> commodity` stay as ordinary shape-level `idx:facetHierarchy`
+
+For example, these are valid nested joins:
+
+```turtle
+# Parent --identifier--> child
+idx:joinPath schema:identifier ;
+
+# Child --about--> parent
+idx:joinPath [ sh:inversePath schema:about ] ;
+
+# Parent --assessmentLink--> x, child --aboutAssessment--> x
+idx:joinPath (
+    ex:assessmentLink
+    [ sh:inversePath ex:aboutAssessment ]
+) ;
+```
+
+### Phase 1 Query Semantics
+
+The current implementation fixes correlated hierarchy population, but does not yet implement block join.
+
+- hierarchy tuples inside `idx:nested` are emitted per child record, so drill-down counts are correlated
+- exact `=` filters across contiguous hierarchy levels are compiled into one hierarchy path query
+- a bare `=` filter on a level-0 hierarchy field also compiles to a hierarchy drill-down query
+- nested fields are still flattened onto the parent Lucene document for ordinary non-hierarchy queries
+- a lone child-field filter, child-field `OR`/`NOT`, or a range filter on a child field still uses the flattened parent field until block join exists
+
+So `identifierType = Company AND identifierValueExact = 8412` is correlated, but `identifierValueExact = 8412` alone is still a parent-level field filter.
+
+---
+
 ## Validation rules
 
 - `text:shapes` and `text:entityMap` are **mutually exclusive** — specifying both throws an error
