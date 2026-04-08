@@ -14,7 +14,7 @@
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/n3@1.22.3/browser/n3.min.js"></script>
   <script src="app-config.js?v=3"></script>
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
   <script>
     document.addEventListener('alpine:init', () => {
       Alpine.store('app', { showLog: true, showMap: true, highlightUri: null });
@@ -126,6 +126,22 @@
                     <template x-for="n in facetLimits" :key="n">
                       <option :value="n" x-text="n.toLocaleString()"></option>
                     </template>
+                  </select>
+                </div>
+                <div class="limit-control">
+                  <label class="limit-label">Sort</label>
+                  <select class="limit-select" x-model="sortField" @change="search()">
+                    <option value="">Relevance</option>
+                    <template x-for="f in sortableFields" :key="f.iri">
+                      <option :value="f.name" x-text="f.name"></option>
+                    </template>
+                  </select>
+                </div>
+                <div class="limit-control" x-show="sortField">
+                  <label class="limit-label">Order</label>
+                  <select class="limit-select" x-model="sortDirection" @change="search()">
+                    <option value="asc">asc</option>
+                    <option value="desc">desc</option>
                   </select>
                 </div>
               </div>

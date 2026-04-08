@@ -11,6 +11,7 @@ const RESULT_LIMITS = [10, 100, 1000, 5000, 9999];
 const DEFAULT_LIMIT = 10;
 const FACET_LIMITS = [10, 25, 50, 100, 500];
 const DEFAULT_FACET_LIMIT = 10;
+const DEFAULT_SORT_DIRECTION = 'asc';
 
 // ---------------------------------------------------------------------------
 // RDF namespace constants
@@ -62,6 +63,28 @@ function resolveFieldName(fieldUri, fieldIRIs) {
         if (shortName(iri) === fragment) return name;
     }
     return fragment;
+}
+
+function buildSortSpec(sortField, sortDirection, fieldIRIs) {
+    if (!sortField) return '';
+    const fieldIri = (fieldIRIs && fieldIRIs[sortField]) || sortField;
+    return JSON.stringify({
+        field: fieldIri,
+        order: sortDirection || DEFAULT_SORT_DIRECTION,
+    });
+}
+
+function parseSortParam(sortParam, fieldIRIs) {
+    if (!sortParam) {
+        return { field: '', direction: DEFAULT_SORT_DIRECTION };
+    }
+    const idx = sortParam.lastIndexOf(':');
+    const rawField = idx >= 0 ? sortParam.substring(0, idx) : sortParam;
+    const rawDirection = idx >= 0 ? sortParam.substring(idx + 1) : DEFAULT_SORT_DIRECTION;
+    return {
+        field: resolveFieldName(rawField, fieldIRIs),
+        direction: rawDirection === 'desc' ? 'desc' : DEFAULT_SORT_DIRECTION,
+    };
 }
 
 function renderJsonTree(obj, indent) {
@@ -302,9 +325,11 @@ function extractConfig(store) {
 
     const shapes = [];
     const facetFields = [];
+    const sortableFields = [];
     const fieldIRIs = {};
     const predicateToFacet = {};
     const seenFacets = new Set();
+    const seenSortable = new Set();
     const hierarchyDimensions = new Map();
 
     for (const shapeNode of shapeNodes) {
@@ -347,6 +372,16 @@ function extractConfig(store) {
             });
 
             if (fieldIRI) fieldIRIs[fieldName] = fieldIRI;
+
+            if (sortable && !seenSortable.has(fieldName)) {
+                seenSortable.add(fieldName);
+                sortableFields.push({
+                    name: fieldName,
+                    iri: fieldIRI || fieldName,
+                    fieldType: fieldTypeShort,
+                    isNumeric,
+                });
+            }
 
             if (facetable && !seenFacets.has(fieldName)) {
                 seenFacets.add(fieldName);
@@ -401,6 +436,7 @@ function extractConfig(store) {
         maxFacetHits,
         shapes,
         facetFields,
+        sortableFields,
         fieldIRIs,
         predicateToFacet,
         hierarchyDimensions,
@@ -482,6 +518,9 @@ function searchApp() {
         resultLimits: RESULT_LIMITS,
         maxFacetValues: DEFAULT_FACET_LIMIT,
         facetLimits: FACET_LIMITS,
+        sortableFields: [],
+        sortField: '',
+        sortDirection: DEFAULT_SORT_DIRECTION,
         selected: {},
         facetFields: [],
         fieldIRIs: {},
@@ -549,6 +588,7 @@ function searchApp() {
 
             this.endpoint = config.endpoint;
             this.facetFields = config.facetFields;
+            this.sortableFields = config.sortableFields || [];
             this.fieldIRIs = config.fieldIRIs;
             this.predicateToFacet = config.predicateToFacet;
             this.hierarchyDimensions = config.hierarchyDimensions || new Map();
@@ -702,6 +742,10 @@ function searchApp() {
             const params = new URLSearchParams();
             if (this.q.trim()) params.set('q', this.q.trim());
             if (this.identifier.trim()) params.set('id', this.identifier.trim());
+            if (this.sortField) {
+                const sortIri = this.fieldIRIs[this.sortField] || this.sortField;
+                params.set('sort', `${sortIri}:${this.sortDirection}`);
+            }
             const cql = buildCqlFilter(
                 this.selected,
                 this.spatialBbox,
@@ -719,6 +763,9 @@ function searchApp() {
             const params = new URLSearchParams(window.location.search);
             this.q = params.get('q') || '';
             this.identifier = params.get('id') || '';
+            const sort = parseSortParam(params.get('sort'), this.fieldIRIs);
+            this.sortField = sort.field;
+            this.sortDirection = sort.direction;
             const { selected, bbox, polygon } = parseCqlFilter(params.get('filter'), this.fieldIRIs);
             this.hierarchySelected = {};
             for (const f of this.facetFields) {
@@ -791,6 +838,11 @@ function searchApp() {
         hasActiveFilters() {
             return this.spatialBbox != null || this.spatialPolygon != null ||
                 this.facetFields.some(f => (this.selected[f] || []).length > 0);
+        },
+
+        sortLabel() {
+            if (!this.sortField) return 'relevance';
+            return `${this.sortField} ${this.sortDirection === 'desc' ? 'desc' : 'asc'}`;
         },
 
         isSelected(field, value) {
@@ -997,6 +1049,8 @@ SELECT ?field ?value ?low ?high ?count WHERE {
                 this.buildHierarchyParentClauses()
             );
             const filterArg = cqlFilter ? `'${cqlFilter}'` : "''";
+            const sortSpec = buildSortSpec(this.sortField, this.sortDirection, this.fieldIRIs);
+            const sortArg = sortSpec ? `'${escapeSparql(sortSpec)}'` : "''";
             const facetRequests = this.facetFields.map(f => {
                 // For hierarchy dimensions, use the first level's field IRI
                 const hier = this.hierarchyDimensions.get(f);
@@ -1010,7 +1064,7 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             return `${SPARQL_PREFIXES}
 SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
 WHERE {
-    { (?hit ?entity ?score ?totalHits) luc:query ('default' '${searchField}' '${escaped}' ${filterArg} '' ${this.limit}) }
+    { (?hit ?entity ?score ?totalHits) luc:query ('default' '${searchField}' '${escaped}' ${filterArg} ${sortArg} ${this.limit}) }
     UNION
     { (?field ?value ?low ?high ?count) luc:facet ('default' '${searchField}' '${escaped}' '${facetFieldsJson}' ${filterArg} ${this.maxFacetValues} 0) }
 }`;
@@ -1118,7 +1172,7 @@ WHERE {
             return merged;
         },
 
-        parseEntityDetails(data, scores) {
+        parseEntityDetails(data, scores, orderedUris) {
             const entities = {};
             for (const row of (data.results?.bindings || [])) {
                 const uri = row.entity.value;
@@ -1231,6 +1285,10 @@ WHERE {
                 }
             }
 
+            if (orderedUris && orderedUris.length > 0) {
+                const rank = new Map(orderedUris.map((uri, idx) => [uri, idx]));
+                return cards.sort((a, b) => (rank.get(a.uri) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.uri) ?? Number.MAX_SAFE_INTEGER));
+            }
             return cards.sort((a, b) => b.score - a.score);
         },
 
@@ -1266,6 +1324,9 @@ WHERE {
             }
             if (filters.length > 0) {
                 parts.push('filtered by ' + filters.join(' AND '));
+            }
+            if (this.sortField) {
+                parts.push('sorted by ' + escapeHtml(this.sortLabel()));
             }
 
             let result = parts.join(' ') + ' \u2014 ';
@@ -1335,7 +1396,7 @@ WHERE {
                     const detailMs = performance.now() - t0;
                     this.logQuery(`Details: ${uris.length} entities`, detailQuery, detailMs);
 
-                    this.cards = this.parseEntityDetails(detailData, scores);
+                    this.cards = this.parseEntityDetails(detailData, scores, uris);
                 } else {
                     this.cards = [];
                 }

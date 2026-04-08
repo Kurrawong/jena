@@ -124,6 +124,10 @@ it finds entities that link *to* the report.
 | `11-hierarchical-facets.rq` | Hierarchical facets using Lucene taxonomy |
 | `12-range-facets.rq` | Numeric range facets on `year` and `depth` (INT fields) |
 | `13-mixed-facets.rq` | Mixed flat (state) and range (year) facets in one query |
+| `14-nested-identifier-hierarchy.rq` | Nested identifier hierarchy facets |
+| `15-nested-identifier-prefix-search.rq` | Prefix search over nested identifier text |
+| `16-sort-by-year-desc.rq` | Sort reports by `year` descending via field-IRI sort JSON |
+| `17-sort-boreholes-by-depth-asc.rq` | Sort boreholes by `depth` ascending via field-IRI sort JSON |
 
 ### Expected results for path queries
 

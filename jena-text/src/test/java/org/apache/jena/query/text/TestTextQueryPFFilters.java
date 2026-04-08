@@ -52,6 +52,7 @@ public class TestTextQueryPFFilters {
     private static final Node TITLE_PRED = NodeFactory.createURI(NS + "title");
     private static final Node CATEGORY_PRED = NodeFactory.createURI(NS + "category");
     private static final Node AUTHOR_PRED = NodeFactory.createURI(NS + "author");
+    private static final Node YEAR_PRED = NodeFactory.createURI(NS + "year");
 
     private Dataset dataset;
 
@@ -71,11 +72,15 @@ public class TestTextQueryPFFilters {
             true, true, true, false, false, false,
             Collections.singleton(AUTHOR_PRED));
 
+        FieldDef yearField = new FieldDef("year", FieldType.INT, null,
+            true, true, false, true, false, false,
+            Collections.singleton(YEAR_PRED));
+
         IndexProfile bookProfile = new IndexProfile(
             NodeFactory.createURI(NS + "BookShape"),
             Collections.singleton(BOOK_CLASS),
             "uri", "docType",
-            Arrays.asList(titleField, categoryField, authorField));
+            Arrays.asList(titleField, categoryField, authorField, yearField));
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(bookProfile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -101,23 +106,24 @@ public class TestTextQueryPFFilters {
         dataset.begin(ReadWrite.WRITE);
         try {
             Model model = dataset.getDefaultModel();
-            addBook(model, "doc1", "Introduction to Machine Learning", NS + "category/technology", NS + "author/Smith");
-            addBook(model, "doc2", "Deep Learning Neural Networks", NS + "category/technology", NS + "author/Jones");
-            addBook(model, "doc3", "Machine Learning for Beginners", NS + "category/technology", NS + "author/Smith");
-            addBook(model, "doc4", "Learning About Quantum Physics", NS + "category/science", NS + "author/Wilson");
-            addBook(model, "doc5", "Machine Learning in Biology", NS + "category/science", NS + "author/Smith");
+            addBook(model, "doc1", "Introduction to Machine Learning", NS + "category/technology", NS + "author/Smith", 2018);
+            addBook(model, "doc2", "Deep Learning Neural Networks", NS + "category/technology", NS + "author/Jones", 2021);
+            addBook(model, "doc3", "Machine Learning for Beginners", NS + "category/technology", NS + "author/Smith", 2022);
+            addBook(model, "doc4", "Learning About Quantum Physics", NS + "category/science", NS + "author/Wilson", 2019);
+            addBook(model, "doc5", "Machine Learning in Biology", NS + "category/science", NS + "author/Smith", 2024);
             dataset.commit();
         } finally {
             dataset.end();
         }
     }
 
-    private void addBook(Model model, String id, String title, String categoryUri, String authorUri) {
+    private void addBook(Model model, String id, String title, String categoryUri, String authorUri, int year) {
         Resource book = ResourceFactory.createResource(NS + id);
         model.add(book, RDF.type, ResourceFactory.createResource(NS + "Book"));
         model.add(book, ResourceFactory.createProperty(NS + "title"), title);
         model.add(book, ResourceFactory.createProperty(NS + "category"), ResourceFactory.createResource(categoryUri));
         model.add(book, ResourceFactory.createProperty(NS + "author"), ResourceFactory.createResource(authorUri));
+        model.add(book, ResourceFactory.createProperty(NS + "year"), ResourceFactory.createTypedLiteral(year));
     }
 
     @After
@@ -401,6 +407,56 @@ public class TestTextQueryPFFilters {
                 for (String s : subjects) {
                     assertFalse("Should not find doc4 (science)", s.equals(NS + "doc4"));
                 }
+            }
+        } finally {
+            dataset.end();
+        }
+    }
+
+    @Test
+    public void testLucQuerySortDescendingByFieldIri() {
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "PREFIX ex: <http://example.org/>\n" +
+            "SELECT ?s ?year WHERE {\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" \"\" '{\"field\":\"urn:jena:lucene:field#year\",\"order\":\"desc\"}' 10) .\n" +
+            "  ?s ex:year ?year .\n" +
+            "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
+                ResultSet rs = qe.execSelect();
+                List<Integer> years = new ArrayList<>();
+                while (rs.hasNext()) {
+                    years.add(rs.next().getLiteral("year").getInt());
+                }
+                assertEquals(Arrays.asList(2024, 2022, 2021, 2019, 2018), years);
+            }
+        } finally {
+            dataset.end();
+        }
+    }
+
+    @Test
+    public void testLucQuerySortAscendingWithFilter() {
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "PREFIX ex: <http://example.org/>\n" +
+            "SELECT ?s ?year WHERE {\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" " +
+            "    '{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#category\"},\"http://example.org/category/technology\"]}' " +
+            "    '{\"field\":\"urn:jena:lucene:field#year\",\"order\":\"asc\"}' 10) .\n" +
+            "  ?s ex:year ?year .\n" +
+            "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
+                ResultSet rs = qe.execSelect();
+                List<Integer> years = new ArrayList<>();
+                while (rs.hasNext()) {
+                    years.add(rs.next().getLiteral("year").getInt());
+                }
+                assertEquals(Arrays.asList(2018, 2021, 2022), years);
             }
         } finally {
             dataset.end();

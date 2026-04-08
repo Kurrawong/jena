@@ -3,11 +3,11 @@
 ## Running Tests
 
 ```bash
-# Full jena-text suite (366 tests)
+# Full jena-text suite (546 tests)
 mvn test -pl jena-text
 
 # Only SHACL / faceting tests
-mvn test -pl jena-text -Dtest="TestShaclIndexMapping,TestShaclDocumentBuilding,TestShaclTextDocProducer,TestShaclAssembler,TestShaclEntityPerDocument,TestNativeFacetCounts,TestTextFacetPF,TestTextQueryPFFilters,TestSearchExecution,TestHierarchicalFacets,TestHierarchicalFacetsSparql"
+mvn test -pl jena-text -Dtest="TestShaclIndexMapping,TestShaclDocumentBuilding,TestShaclTextDocProducer,TestShaclAssembler,TestShaclEntityPerDocument,TestNativeFacetCounts,TestTextFacetPF,TestTextQueryPFFilters,TestSearchExecution,TestHierarchicalFacets,TestHierarchicalFacetsSparql,TestSortSpec"
 ```
 
 All tests run via JUnit 4 and are aggregated in `TS_Text.java` (Surefire only picks up `**/TS_*.java`).
@@ -21,30 +21,37 @@ All tests run via JUnit 4 and are aggregated in `TS_Text.java` (Surefire only pi
 | Class | Tests | What it covers |
 |-------|-------|---------------|
 | `TestNativeFacetCounts` | 10 | Java API: open facets, filtered facets, maxValues, minCount, getAllChildren, empty/nonexistent fields |
-| `TestTextFacetPF` | 7 | SPARQL `luc:facet` PF: basic counts, multiple fields, filters, maxValues, minCount, maxValues=0 |
-| `TestTextQueryPFFilters` | 6 | SPARQL `luc:query` with JSON filters: single filter, multi-field, no matches, JSON parsing |
-| `TestSearchExecution` | 6 | Shared execution: key generation, normalisation, reuse across PFs |
+| `TestTextFacetPF` | 16 | SPARQL `luc:facet` PF: flat/range facets, mixed requests, filters, maxValues, minCount, subject arity checks, empty-string placeholders |
+| `TestTextQueryPFFilters` | 13 | SPARQL `luc:query` with JSON filters, field-IRI scoping, empty-string placeholders, string limits, and end-to-end sort pushdown |
+| `TestSearchExecution` | 10 | Shared execution: key generation, normalisation, index-aware reuse, and sort-sensitive cache keys |
 
 ### SHACL Entity-Per-Document Tests
 
 | Class | Tests | What it covers |
 |-------|-------|---------------|
-| `TestShaclIndexMapping` | 8 | Data model: predicate lookup, class lookup, irrelevant predicates, facet field names, defaults |
+| `TestShaclIndexMapping` | 13 | Data model: predicate lookup, class lookup, field resolution, facet field names, defaults, hierarchy metadata |
 | `TestShaclDocumentBuilding` | 11 | Lucene doc building: TEXT/KEYWORD/INT/LONG/DOUBLE field types, multi-valued, discriminator, null fields, int-from-string |
 | `TestShaclTextDocProducer` | 5 | Change listener: add type creates doc, add property rebuilds, delete type removes, irrelevant predicate ignored, multiple entities |
-| `TestShaclAssembler` | 3 | Config parsing: valid shapes parsed, EntityDefinition derived, both shapes+entityMap errors |
+| `TestShaclAssembler` | 9 | Config parsing: valid shapes, SHACL/entity-map exclusivity, hierarchy config, and assembler validation paths |
 | `TestShaclEntityPerDocument` | 7 | End-to-end: text search, SPARQL `luc:query`, facet counts, filtered facets, add after load, entity-per-doc model verification |
 
 ### Hierarchical Facets Tests
 
 | Class | Tests | What it covers |
 |-------|-------|---------------|
-| `TestHierarchicalFacets` | 8 | Java API: taxonomy indexing, top-level facets, drill-down path building, flat+hierarchy coexistence, multi-valued hierarchies, empty dimensions |
+| `TestHierarchicalFacets` | 9 | Java API: taxonomy indexing, top-level facets, drill-down path building, flat+hierarchy coexistence, multi-valued hierarchies, empty dimensions |
 | `TestHierarchicalFacetsSparql` | 3 | SPARQL `luc:facet` with hierarchy: top-level via field IRI, drill-down via CQL filter, flat facets alongside hierarchy |
+
+### Sort Tests
+
+| Class | Tests | What it covers |
+|-------|-------|---------------|
+| `TestSortSpec` | 9 | Sort JSON parsing, field-IRI sort specs, Lucene sort construction, numeric selector semantics, invalid text-field sorting |
+| `TestTextQueryPFFilters` | 13 | End-to-end SPARQL `luc:query` sorting with field IRIs, including descending and filtered ascending order |
 
 ### Existing Tests (unchanged, verifying no regressions)
 
-303 pre-existing tests covering text search, multilingual support, graph indexing, deletion, analyzers, property lists, etc. All pass unchanged.
+The remaining suite covers text search, multilingual support, graph indexing, deletion, analyzers, property lists, spatial filtering, nested identifiers, and demo mining scenarios. The full `jena-text` module currently passes at 546 tests.
 
 ---
 
@@ -116,13 +123,13 @@ TextIndexLucene index = (TextIndexLucene) Assembler.general().open(indexSpec);
 - Shared execution between PFs
 - Facet count accuracy with filters
 - minCount and maxValues options
+- End-to-end SPARQL sort pushdown using field IRIs
 - Hierarchical facets: taxonomy indexing, top-level counts, drill-down via CQL filters, flat+hierarchy coexistence
-- Backward compatibility (all 303 existing tests pass unchanged)
+- Range facets on numeric fields: single-valued, multi-valued, open-ended buckets, mixed flat+range requests, and 5-slot `luc:facet` bindings
+- Multi-valued numeric sorting semantics (`MIN` for ascending, `MAX` for descending)
 
 ### Not yet covered (candidates for future tests)
 
-- Range facets on numeric fields: single-valued, multi-valued, open-ended buckets, mixed flat+range requests, and 5-slot `luc:facet` bindings
-- Multi-valued numeric sorting semantics (`MIN` for ascending, `MAX` for descending)
 - Named graph support in SHACL mode
 - Multiple shapes with overlapping predicates
 - Large-scale performance (10k+ entities)

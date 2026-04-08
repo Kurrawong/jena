@@ -26,6 +26,11 @@
   { "label": "\"gold\" reports only", "params": "?q=gold&filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}", "minResults": 1 },
   { "label": "\"exploration\" in WA", "params": "?q=exploration&filter={\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"http://example.org/mining/state/WA\"]}", "minResults": 1 },
 
+  { "group": "Sorting" },
+  { "label": "Reports sorted by year desc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}&sort=year:desc", "minResults": 5 },
+  { "label": "Boreholes sorted by depth asc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&sort=depth:asc", "minResults": 5 },
+  { "label": "\"copper\" sorted by year asc", "params": "?q=copper&sort=year:asc", "minResults": 3 },
+
   { "group": "Entity Types" },
   { "label": "Sites only", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Site\"]}", "minResults": 5 },
   { "label": "Boreholes only", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}", "minResults": 5 },
