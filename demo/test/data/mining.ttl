@@ -118,8 +118,8 @@ ex:site-ok-tedi a ex:Site ;
 
 ## --- Boreholes ---
 ## The schema:identifier records model the qualified-value pattern behind issue #39.
-## This file intentionally mixes blank-node child records and named child resources;
-## the nested indexer treats both forms the same.
+## Each borehole carries three correlated blank-node identifier records:
+## company, anumber, and mnumber.
 
 ex:bh-mia-001 a ex:Borehole ;
     rdfs:label "MIA-DDH-001 Mount Isa Diamond Drill Hole" ;
@@ -129,8 +129,9 @@ ex:bh-mia-001 a ex:Borehole ;
     ex:state state:QLD ;
     ex:depth 450 ;
     schema:identifier
-        [ schema:propertyID "Company" ; schema:value "Glencore" ],
-        [ schema:propertyID "HoleNumber" ; schema:value "MIA-DDH-001" ] ;
+        [ schema:propertyID "company" ; schema:value "Glencore" ],
+        [ schema:propertyID "anumber" ; schema:value "A-9412" ],
+        [ schema:propertyID "mnumber" ; schema:value "MIA-DDH-001" ] ;
     geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-20.74 139.50)"^^geo:wktLiteral .
 
 ex:bh-mia-002 a ex:Borehole ;
@@ -140,7 +141,10 @@ ex:bh-mia-002 a ex:Borehole ;
     ex:commodity commodity:Lead, commodity:Zinc ;
     ex:state state:QLD ;
     ex:depth 320 ;
-    schema:identifier ex:bh-mia-002-company-id, ex:bh-mia-002-hole-id .
+    schema:identifier
+        [ schema:propertyID "company" ; schema:value "Glencore" ],
+        [ schema:propertyID "anumber" ; schema:value "A-9413" ],
+        [ schema:propertyID "mnumber" ; schema:value "MIA-DDH-002" ] .
 
 ex:bh-od-001 a ex:Borehole ;
     rdfs:label "OD-RC-001 Olympic Dam Reverse Circulation Hole" ;
@@ -149,7 +153,10 @@ ex:bh-od-001 a ex:Borehole ;
     ex:commodity commodity:Copper, commodity:Uranium ;
     ex:state state:SA ;
     ex:depth 280 ;
-    schema:identifier ex:bh-od-001-company-id, ex:bh-od-001-hole-id .
+    schema:identifier
+        [ schema:propertyID "company" ; schema:value "BHP" ],
+        [ schema:propertyID "anumber" ; schema:value "A-1208" ],
+        [ schema:propertyID "mnumber" ; schema:value "OD-RC-001" ] .
 
 ex:bh-bod-001 a ex:Borehole ;
     rdfs:label "BOD-DDH-001 Boddington Deep Diamond Hole" ;
@@ -158,7 +165,10 @@ ex:bh-bod-001 a ex:Borehole ;
     ex:commodity commodity:Gold ;
     ex:state state:WA ;
     ex:depth 600 ;
-    schema:identifier ex:bh-bod-001-company-id, ex:bh-bod-001-hole-id ;
+    schema:identifier
+        [ schema:propertyID "company" ; schema:value "Newmont" ],
+        [ schema:propertyID "anumber" ; schema:value "A-3301" ],
+        [ schema:propertyID "mnumber" ; schema:value "BOD-DDH-001" ] ;
     geo:asWKT "POINT(116.36 -32.78)"^^geo:wktLiteral .
 
 ex:bh-bh-001 a ex:Borehole ;
@@ -168,7 +178,10 @@ ex:bh-bh-001 a ex:Borehole ;
     ex:commodity commodity:Lead, commodity:Silver ;
     ex:state state:NSW ;
     ex:depth 210 ;
-    schema:identifier ex:bh-bh-001-company-id, ex:bh-bh-001-hole-id .
+    schema:identifier
+        [ schema:propertyID "company" ; schema:value "Legacy Co" ],
+        [ schema:propertyID "anumber" ; schema:value "A-4402" ],
+        [ schema:propertyID "mnumber" ; schema:value "BHM-DDH-001" ] .
 
 ex:bh-cad-001 a ex:Borehole ;
     rdfs:label "CAD-DDH-001 Cadia Deep Exploration Hole" ;
@@ -177,7 +190,10 @@ ex:bh-cad-001 a ex:Borehole ;
     ex:commodity commodity:Gold, commodity:Copper ;
     ex:state state:NSW ;
     ex:depth 850 ;
-    schema:identifier ex:bh-cad-001-company-id, ex:bh-cad-001-hole-id .
+    schema:identifier
+        [ schema:propertyID "company" ; schema:value "Newcrest" ],
+        [ schema:propertyID "anumber" ; schema:value "A-5507" ],
+        [ schema:propertyID "mnumber" ; schema:value "CAD-DDH-001" ] .
 
 ex:bh-pil-001 a ex:Borehole ;
     rdfs:label "PIL-RC-001 Pilbara Iron Ore Reverse Circulation" ;
@@ -186,21 +202,11 @@ ex:bh-pil-001 a ex:Borehole ;
     ex:commodity commodity:Iron-Ore ;
     ex:state state:WA ;
     ex:depth 150 ;
-    schema:identifier ex:bh-pil-001-company-id, ex:bh-pil-001-hole-id ;
+    schema:identifier
+        [ schema:propertyID "company" ; schema:value "Rio Tinto" ],
+        [ schema:propertyID "anumber" ; schema:value "A-6609" ],
+        [ schema:propertyID "mnumber" ; schema:value "PIL-RC-001" ] ;
     geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-22.35 118.60)"^^geo:wktLiteral .
-
-ex:bh-mia-002-company-id schema:propertyID "Company" ; schema:value "Glencore" .
-ex:bh-mia-002-hole-id    schema:propertyID "HoleNumber" ; schema:value "MIA-DDH-002" .
-ex:bh-od-001-company-id  schema:propertyID "Company" ; schema:value "BHP" .
-ex:bh-od-001-hole-id     schema:propertyID "HoleNumber" ; schema:value "OD-RC-001" .
-ex:bh-bod-001-company-id schema:propertyID "Company" ; schema:value "Newmont" .
-ex:bh-bod-001-hole-id    schema:propertyID "HoleNumber" ; schema:value "BOD-DDH-001" .
-ex:bh-bh-001-company-id  schema:propertyID "Company" ; schema:value "Legacy Co" .
-ex:bh-bh-001-hole-id     schema:propertyID "HoleNumber" ; schema:value "BHM-DDH-001" .
-ex:bh-cad-001-company-id schema:propertyID "Company" ; schema:value "Newcrest" .
-ex:bh-cad-001-hole-id    schema:propertyID "HoleNumber" ; schema:value "CAD-DDH-001" .
-ex:bh-pil-001-company-id schema:propertyID "Company" ; schema:value "Rio Tinto" .
-ex:bh-pil-001-hole-id    schema:propertyID "HoleNumber" ; schema:value "PIL-RC-001" .
 
 ## --- Authors ---
 ## Authors are separate entities linked to reports via ex:authoredBy (on reports)

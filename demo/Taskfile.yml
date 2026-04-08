@@ -84,6 +84,8 @@ tasks:
           - queries/15-nested-identifier-prefix-search.rq
           - queries/16-sort-by-year-desc.rq
           - queries/17-sort-boreholes-by-depth-asc.rq
+          - queries/18-nested-identifier-company-drilldown.rq
+          - queries/19-nested-identifier-exact-pair.rq
         cmd: |
           echo "=== {{.ITEM}} ==="
           curl -s -X POST "{{.SERVER_URL}}/mining/query" \

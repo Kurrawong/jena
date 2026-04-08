@@ -14,7 +14,7 @@
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/n3@1.22.3/browser/n3.min.js"></script>
   <script src="app-config.js?v=3"></script>
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=6"></script>
   <script>
     document.addEventListener('alpine:init', () => {
       Alpine.store('app', { showLog: true, showMap: true, highlightUri: null });
@@ -174,7 +174,7 @@
                 <div>
                   <template x-if="(facets[fieldName] || []).length > 0">
                     <details class="facet-group" open>
-                      <summary class="facet-group-label" x-text="fieldName" :title="fieldIRIs[fieldName] || fieldName"></summary>
+                      <summary class="facet-group-label" x-text="facetLabel(fieldName)" :title="fieldIRIs[fieldName] || fieldName"></summary>
 
                       <!-- Hierarchy facets: expandable tree -->
                       <template x-if="isHierarchy(fieldName)">

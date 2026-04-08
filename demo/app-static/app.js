@@ -332,82 +332,72 @@ function extractConfig(store) {
     const seenSortable = new Set();
     const hierarchyDimensions = new Map();
 
-    for (const shapeNode of shapeNodes) {
-        const targetClass = getObject(store, shapeNode, SH + 'targetClass');
-        const shape = {
-            name: shortName(shapeNode.value),
-            targetClass: targetClass ? shortName(targetClass.value) : '?',
-            fields: [],
-        };
+    function registerField(shape, propNode, { includeFacetField = true, includePredicateMapping = true } = {}) {
+        const fieldName = getLiteral(store, propNode, IDX + 'fieldName');
+        const fieldType = getObject(store, propNode, IDX + 'fieldType');
+        const pathNode = getObject(store, propNode, SH + 'path');
+        if (!fieldName || !fieldType) return;
 
-        const propNodes = getObjects(store, shapeNode, SH + 'property');
-        for (const propNode of propNodes) {
-            const fieldName = getLiteral(store, propNode, IDX + 'fieldName');
-            const fieldType = getObject(store, propNode, IDX + 'fieldType');
-            const pathNode = getObject(store, propNode, SH + 'path');
-            if (!fieldName || !fieldType) continue;
+        const facetable = getLiteral(store, propNode, IDX + 'facetable') === 'true';
+        const multiValued = getLiteral(store, propNode, IDX + 'multiValued') === 'true';
+        const defaultSearch = getLiteral(store, propNode, IDX + 'defaultSearch') === 'true';
+        const sortable = getLiteral(store, propNode, IDX + 'sortable') === 'true';
+        const pathStr = pathNode ? pathToString(store, pathNode) : '?';
 
-            const facetable = getLiteral(store, propNode, IDX + 'facetable') === 'true';
-            const multiValued = getLiteral(store, propNode, IDX + 'multiValued') === 'true';
-            const defaultSearch = getLiteral(store, propNode, IDX + 'defaultSearch') === 'true';
-            const sortable = getLiteral(store, propNode, IDX + 'sortable') === 'true';
-            const pathStr = pathNode ? pathToString(store, pathNode) : '?';
+        const fieldIRI = propNode.termType === 'NamedNode' ? propNode.value : null;
 
-            const fieldIRI = propNode.termType === 'NamedNode' ? propNode.value : null;
+        const fieldTypeShort = shortName(fieldType.value);
+        const typeStr = fieldType.value.toLowerCase();
+        const isNumeric = typeStr.includes('int') || typeStr.includes('long') || typeStr.includes('double');
 
-            const fieldTypeShort = shortName(fieldType.value);
-            const typeStr = fieldType.value.toLowerCase();
-            const isNumeric = typeStr.includes('int') || typeStr.includes('long') || typeStr.includes('double');
+        shape.fields.push({
+            name: fieldName,
+            iri: fieldIRI,
+            path: pathStr,
+            fieldType: fieldTypeShort,
+            facetable,
+            multiValued,
+            defaultSearch,
+            sortable,
+            isNumeric,
+        });
 
-            shape.fields.push({
+        if (fieldIRI) fieldIRIs[fieldName] = fieldIRI;
+
+        if (sortable && !seenSortable.has(fieldName)) {
+            seenSortable.add(fieldName);
+            sortableFields.push({
                 name: fieldName,
-                iri: fieldIRI,
-                path: pathStr,
+                iri: fieldIRI || fieldName,
                 fieldType: fieldTypeShort,
-                facetable,
-                multiValued,
-                defaultSearch,
-                sortable,
                 isNumeric,
             });
+        }
 
-            if (fieldIRI) fieldIRIs[fieldName] = fieldIRI;
+        if (includeFacetField && facetable && !seenFacets.has(fieldName)) {
+            seenFacets.add(fieldName);
+            facetFields.push(fieldName);
+        }
 
-            if (sortable && !seenSortable.has(fieldName)) {
-                seenSortable.add(fieldName);
-                sortableFields.push({
-                    name: fieldName,
-                    iri: fieldIRI || fieldName,
-                    fieldType: fieldTypeShort,
-                    isNumeric,
-                });
-            }
-
-            if (facetable && !seenFacets.has(fieldName)) {
-                seenFacets.add(fieldName);
-                facetFields.push(fieldName);
-            }
-
-            if (facetable && pathNode) {
-                if (pathNode.termType === 'NamedNode') {
-                    predicateToFacet[shortName(pathNode.value)] = fieldName;
-                } else {
-                    // Sequence path: map first predicate to this facet field
-                    const first = getObject(store, pathNode, RDF + 'first');
-                    if (first && first.termType === 'NamedNode') {
-                        predicateToFacet[shortName(first.value)] = fieldName;
-                    }
-                    // Inverse path: map the inverted predicate
-                    const inv = getObject(store, pathNode, SH + 'inversePath');
-                    if (inv && inv.termType === 'NamedNode') {
-                        predicateToFacet[shortName(inv.value)] = fieldName;
-                    }
+        if (includePredicateMapping && facetable && pathNode) {
+            if (pathNode.termType === 'NamedNode') {
+                predicateToFacet[shortName(pathNode.value)] = fieldName;
+            } else {
+                // Sequence path: map first predicate to this facet field
+                const first = getObject(store, pathNode, RDF + 'first');
+                if (first && first.termType === 'NamedNode') {
+                    predicateToFacet[shortName(first.value)] = fieldName;
+                }
+                // Inverse path: map the inverted predicate
+                const inv = getObject(store, pathNode, SH + 'inversePath');
+                if (inv && inv.termType === 'NamedNode') {
+                    predicateToFacet[shortName(inv.value)] = fieldName;
                 }
             }
         }
+    }
 
-        // Parse idx:facetHierarchy — RDF lists of field IRIs defining hierarchy levels
-        const hierNodes = getObjects(store, shapeNode, IDX + 'facetHierarchy');
+    function registerHierarchies(hierNodes, label = null) {
         for (const hierNode of hierNodes) {
             const levelNodes = walkList(store, hierNode);
             const levels = levelNodes
@@ -419,12 +409,45 @@ function extractConfig(store) {
                 .filter(l => l.name);
             if (levels.length >= 2) {
                 const dimName = levels.map(l => l.name).join('_');
+                if (label) levels.label = label;
                 if (!seenFacets.has(dimName)) {
                     seenFacets.add(dimName);
                     facetFields.push(dimName);
                     hierarchyDimensions.set(dimName, levels);
                 }
             }
+        }
+    }
+
+    for (const shapeNode of shapeNodes) {
+        const targetClass = getObject(store, shapeNode, SH + 'targetClass');
+        const shape = {
+            name: shortName(shapeNode.value),
+            targetClass: targetClass ? shortName(targetClass.value) : '?',
+            fields: [],
+        };
+
+        const propNodes = getObjects(store, shapeNode, SH + 'property');
+        for (const propNode of propNodes) {
+            registerField(shape, propNode);
+        }
+
+        registerHierarchies(getObjects(store, shapeNode, IDX + 'facetHierarchy'));
+
+        const nestedNodes = getObjects(store, shapeNode, IDX + 'nested');
+        for (const nestedNode of nestedNodes) {
+            const joinPathNode = getObject(store, nestedNode, IDX + 'joinPath');
+            let nestedLabel = null;
+            if (joinPathNode && joinPathNode.termType === 'NamedNode') {
+                nestedLabel = shortName(joinPathNode.value);
+                if (nestedLabel === 'identifier') nestedLabel = 'identifiers';
+            }
+            for (const nestedPropNode of getObjects(store, nestedNode, IDX + 'property')) {
+                // Track nested field IRIs for filtering and drill-down, but keep the sidebar
+                // focused on the hierarchy dimension rather than duplicating flat child fields.
+                registerField(shape, nestedPropNode, { includeFacetField: false, includePredicateMapping: false });
+            }
+            registerHierarchies(getObjects(store, nestedNode, IDX + 'facetHierarchy'), nestedLabel);
         }
 
         shapes.push(shape);
@@ -767,10 +790,12 @@ function searchApp() {
             this.sortField = sort.field;
             this.sortDirection = sort.direction;
             const { selected, bbox, polygon } = parseCqlFilter(params.get('filter'), this.fieldIRIs);
-            this.hierarchySelected = {};
-            for (const f of this.facetFields) {
+            const fieldNames = new Set([...this.facetFields, ...Object.keys(selected)]);
+            this.selected = {};
+            for (const f of fieldNames) {
                 this.selected[f] = selected[f] || [];
             }
+            this.hierarchySelected = this.inferHierarchySelections(this.selected);
             this.spatialBbox = bbox;
             this.spatialPolygon = polygon;
         },
@@ -825,7 +850,7 @@ function searchApp() {
         },
 
         async clearFilters() {
-            for (const f of this.facetFields) {
+            for (const f of Object.keys(this.selected)) {
                 this.selected[f] = [];
             }
             this.hierarchySelected = {};
@@ -837,12 +862,19 @@ function searchApp() {
 
         hasActiveFilters() {
             return this.spatialBbox != null || this.spatialPolygon != null ||
-                this.facetFields.some(f => (this.selected[f] || []).length > 0);
+                Object.values(this.selected).some(values => (values || []).length > 0) ||
+                Object.values(this.hierarchySelected || {}).some(parents =>
+                    Object.values(parents || {}).some(values => (values || []).length > 0));
         },
 
         sortLabel() {
             if (!this.sortField) return 'relevance';
             return `${this.sortField} ${this.sortDirection === 'desc' ? 'desc' : 'asc'}`;
+        },
+
+        facetLabel(fieldName) {
+            const hierarchy = this.hierarchyDimensions.get(fieldName);
+            return hierarchy?.label || fieldName;
         },
 
         isSelected(field, value) {
@@ -885,14 +917,32 @@ function searchApp() {
             return (this.hierarchyChildren[dim] && this.hierarchyChildren[dim][parentValue]) || [];
         },
 
+        inferHierarchySelections(selected) {
+            const inferred = {};
+            for (const [dim, levels] of this.hierarchyDimensions.entries()) {
+                if (!levels || levels.length < 2) continue;
+                const parentField = levels[0].name;
+                const childField = levels[1].name;
+                const parents = selected[parentField] || [];
+                const children = selected[childField] || [];
+                if (parents.length === 0 || children.length === 0) continue;
+                inferred[dim] = {};
+                for (const parentValue of parents) {
+                    inferred[dim][parentValue] = [...children];
+                }
+            }
+            return inferred;
+        },
+
         isHierarchyChildSelected(dim, value) {
             const childField = this.getHierarchyChildFieldName(dim);
             return childField ? this.isSelected(childField, value) : false;
         },
 
-        buildHierarchyParentClauses() {
+        buildHierarchyParentClauses(excludedDim = null) {
             const clauses = [];
             for (const [dim, parents] of Object.entries(this.hierarchySelected || {})) {
+                if (excludedDim && dim === excludedDim) continue;
                 const parentLevel = this.getHierarchyParentLevel(dim);
                 if (!parentLevel) continue;
                 for (const [parentValue, childValues] of Object.entries(parents || {})) {
@@ -904,6 +954,89 @@ function searchApp() {
                 }
             }
             return clauses;
+        },
+
+        async ensureHierarchyChildren(dim, parentValue) {
+            if (!this.hierarchyLoading[dim]) this.hierarchyLoading[dim] = {};
+            this.hierarchyLoading[dim][parentValue] = true;
+
+            try {
+                const levels = this.hierarchyDimensions.get(dim);
+                if (!levels || levels.length < 2) return;
+
+                // Request facets on the child level's IRI from config.ttl,
+                // with a CQL filter constrained by the selected parent value.
+                const parentLevel = levels[0];
+                const childLevel = levels[1];
+                const parentLevelIRI = parentLevel.iri;
+                const childLevelIRI = childLevel.iri;
+
+                const term = this.identifier.trim() || this.q.trim() || '*';
+                    const searchField = this.identifier.trim() ? this.identifierFieldSelector() : 'default';
+                const escaped = escapeSparql(term);
+
+                const hierFilter = JSON.stringify({
+                    op: '=',
+                    args: [{ property: parentLevelIRI }, parentValue],
+                });
+                const selectedWithoutCurrentHierarchy = { ...this.selected };
+                delete selectedWithoutCurrentHierarchy[parentLevel.name];
+                delete selectedWithoutCurrentHierarchy[childLevel.name];
+
+                const existingCql = buildCqlFilter(
+                    selectedWithoutCurrentHierarchy,
+                    this.spatialBbox,
+                    this.spatialPolygon,
+                    this.fieldIRIs,
+                    this.buildHierarchyParentClauses(dim)
+                );
+                let combinedFilter;
+                if (existingCql) {
+                    const existing = JSON.parse(existingCql);
+                    combinedFilter = JSON.stringify({
+                        op: 'and',
+                        args: [existing, JSON.parse(hierFilter)],
+                    });
+                } else {
+                    combinedFilter = hierFilter;
+                }
+
+                const query = `${SPARQL_PREFIXES}
+SELECT ?field ?value ?low ?high ?count WHERE {
+    (?field ?value ?low ?high ?count) luc:facet ('default' '${searchField}' '${escaped}' '${JSON.stringify([childLevelIRI])}' '${combinedFilter}' ${this.maxFacetValues} 0)
+}`;
+                const data = await this.runSparql(query);
+                const children = [];
+                for (const row of (data.results?.bindings || [])) {
+                    if (row.value && row.count) {
+                        const childVal = row.value.value;
+                        const childIsUri = row.value.type === 'uri' || /^https?:\/\//.test(childVal);
+                        children.push({
+                            value: childVal,
+                            label: childIsUri ? shortName(childVal) : childVal,
+                            count: parseInt(row.count.value, 10),
+                        });
+                    }
+                }
+                children.sort((a, b) => b.count - a.count);
+                if (!this.hierarchyChildren[dim]) this.hierarchyChildren[dim] = {};
+                this.hierarchyChildren[dim][parentValue] = children;
+            } catch (e) {
+                console.error('Hierarchy drill-down failed:', e);
+            } finally {
+                this.hierarchyLoading[dim][parentValue] = false;
+            }
+        },
+
+        async restoreHierarchySelections() {
+            for (const [dim, parents] of Object.entries(this.hierarchySelected || {})) {
+                if (!this.hierarchyOpen[dim]) this.hierarchyOpen[dim] = {};
+                for (const [parentValue, childValues] of Object.entries(parents || {})) {
+                    if (!childValues || childValues.length === 0) continue;
+                    this.hierarchyOpen[dim][parentValue] = true;
+                    await this.ensureHierarchyChildren(dim, parentValue);
+                }
+            }
         },
 
         async toggleHierarchyChild(dim, parentValue, value) {
@@ -936,70 +1069,7 @@ function searchApp() {
 
             // Fetch children on first open
             if (!isOpen && !this.getHierarchyChildren(dim, parentValue).length) {
-                if (!this.hierarchyLoading[dim]) this.hierarchyLoading[dim] = {};
-                this.hierarchyLoading[dim][parentValue] = true;
-
-                try {
-                    const levels = this.hierarchyDimensions.get(dim);
-                    if (!levels || levels.length < 2) return;
-
-                    // Request facets on the child level's IRI from config.ttl,
-                    // with a CQL filter constrained by the selected parent value.
-                    const parentLevelIRI = levels[0].iri;
-                    const childLevelIRI = levels[1].iri;
-
-                    const term = this.identifier.trim() || this.q.trim() || '*';
-                    const searchField = this.identifier.trim() ? this.identifierFieldSpec() : 'default';
-                    const escaped = escapeSparql(term);
-
-                    // Build CQL filter: combine existing filters with hierarchy parent = value
-                    const hierFilter = JSON.stringify({
-                        op: '=',
-                        args: [{ property: parentLevelIRI }, parentValue],
-                    });
-                    const existingCql = buildCqlFilter(
-                        this.selected,
-                        this.spatialBbox,
-                        this.spatialPolygon,
-                        this.fieldIRIs,
-                        this.buildHierarchyParentClauses()
-                    );
-                    let combinedFilter;
-                    if (existingCql) {
-                        const existing = JSON.parse(existingCql);
-                        combinedFilter = JSON.stringify({
-                            op: 'and',
-                            args: [existing, JSON.parse(hierFilter)],
-                        });
-                    } else {
-                        combinedFilter = hierFilter;
-                    }
-
-                    const query = `${SPARQL_PREFIXES}
-SELECT ?field ?value ?low ?high ?count WHERE {
-    (?field ?value ?low ?high ?count) luc:facet ('default' '${searchField}' '${escaped}' '${JSON.stringify([childLevelIRI])}' '${combinedFilter}' ${this.maxFacetValues} 0)
-}`;
-                    const data = await this.runSparql(query);
-                    const children = [];
-                    for (const row of (data.results?.bindings || [])) {
-                        if (row.value && row.count) {
-                            const childVal = row.value.value;
-                            const childIsUri = row.value.type === 'uri' || /^https?:\/\//.test(childVal);
-                            children.push({
-                                value: childVal,
-                                label: childIsUri ? shortName(childVal) : childVal,
-                                count: parseInt(row.count.value, 10),
-                            });
-                        }
-                    }
-                    children.sort((a, b) => b.count - a.count);
-                    if (!this.hierarchyChildren[dim]) this.hierarchyChildren[dim] = {};
-                    this.hierarchyChildren[dim][parentValue] = children;
-                } catch (e) {
-                    console.error('Hierarchy drill-down failed:', e);
-                } finally {
-                    this.hierarchyLoading[dim][parentValue] = false;
-                }
+                await this.ensureHierarchyChildren(dim, parentValue);
             }
         },
 
@@ -1014,8 +1084,16 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             return null;
         },
 
-        identifierFieldSpec() {
-            return this.fieldIRIs.identifier || 'urn:jena:lucene:field#identifier';
+        identifierFieldSpecs() {
+            const fields = [
+                this.fieldIRIs.identifier || 'urn:jena:lucene:field#identifier',
+                this.fieldIRIs.identifierValueText || 'urn:jena:lucene:field#identifierValueText',
+            ];
+            return [...new Set(fields)];
+        },
+
+        identifierFieldSelector() {
+            return JSON.stringify(this.identifierFieldSpecs());
         },
 
         // --- SPARQL execution ---
@@ -1039,7 +1117,7 @@ SELECT ?field ?value ?low ?high ?count WHERE {
         buildSearchQuery() {
             const identifier = this.identifier.trim();
             const term = identifier || this.q.trim() || '*';
-            const searchField = identifier ? JSON.stringify([this.identifierFieldSpec()]) : 'default';
+            const searchField = identifier ? this.identifierFieldSelector() : 'default';
             const escaped = escapeSparql(term);
             const cqlFilter = buildCqlFilter(
                 this.selected,
@@ -1072,7 +1150,7 @@ WHERE {
 
         buildIdentifierSuggestionQuery(identifier) {
             const escaped = escapeSparql(identifier);
-            const fieldSpec = JSON.stringify([this.identifierFieldSpec()]);
+            const fieldSpec = this.identifierFieldSelector();
             return `${SPARQL_PREFIXES}
 SELECT DISTINCT ?identifier
 WHERE {
@@ -1248,8 +1326,24 @@ WHERE {
                         }
                         continue;
                     }
+                    if (pred === 'year' || pred === 'depth') {
+                        card.rows.push({
+                            property: pred,
+                            values: values.map(pv => ({
+                                value: pv.raw,
+                                displayValue: pv.display,
+                                facetField: null,
+                                isActive: false,
+                                clickable: false,
+                                mapUri: null,
+                                tooltip: '',
+                                cssClass: 'prop-chip-neutral',
+                            })),
+                        });
+                        continue;
+                    }
                     const facetField = this.predicateToFacet[pred] || null;
-                    // Skip non-facetable literal values (e.g., depth, year, score)
+                    // Skip non-facetable literal values that do not add much to the card.
                     if (!facetField && !values.some(v => v.isUri)) continue;
                     const rowValues = [];
                     for (const pv of values) {
@@ -1402,6 +1496,7 @@ WHERE {
                 }
 
                 this.updateMap();
+                await this.restoreHierarchySelections();
                 const totalSec = (performance.now() - loadStart) / 1000;
                 this.description = this.buildDescription(hits.length, totalHits, totalSec);
             } catch (e) {

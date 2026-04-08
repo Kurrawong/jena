@@ -43,6 +43,13 @@
   { "group": "Identifier Search" },
   { "label": "Identifier: 94130 (multi-valued demo record)", "params": "?id=94130", "minResults": 1 },
 
+  { "group": "Nested Identifier Hierarchy" },
+  { "label": "Boreholes only (identifier drill-down visible)", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}", "minResults": 5, "scrollToText": "identifiers" },
+  { "label": "Drill-down: company identifiers", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&drillDown=identifierType_identifierValueExact:company", "minResults": 5, "scrollToText": "identifiers" },
+  { "label": "Drill-down: anumber identifiers", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&drillDown=identifierType_identifierValueExact:anumber", "minResults": 5, "scrollToText": "identifiers" },
+  { "label": "Drill-down: mnumber identifiers", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&drillDown=identifierType_identifierValueExact:mnumber", "minResults": 5, "scrollToText": "identifiers" },
+  { "label": "Exact pair: company = Newmont", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]},{\"op\":\"=\",\"args\":[{\"property\":\"identifierType\"},\"company\"]},{\"op\":\"=\",\"args\":[{\"property\":\"identifierValueExact\"},\"Newmont\"]}]}", "minResults": 1, "scrollToText": "identifiers" },
+
   { "group": "Spatial: Bbox Filter" },
   { "label": "Australia bbox (all spatial)", "params": "?filter={\"op\":\"s_intersects\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"bbox\":[112,-44,154,-10]}]}", "minResults": 10 },
   { "label": "Queensland bbox", "params": "?filter={\"op\":\"s_intersects\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"bbox\":[138,-29,154,-10]}]}", "minResults": 5 },
