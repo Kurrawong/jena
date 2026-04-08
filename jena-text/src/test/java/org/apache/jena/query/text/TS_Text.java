@@ -112,6 +112,9 @@ import org.junit.runners.Suite.SuiteClasses;
     , TestHierarchicalFacets.class
     , TestHierarchicalFacetsSparql.class
 
+    // Range facets
+    , TestRangeFacetCounts.class
+
     // Demo data validation
     , TestDemoDataParsing.class
     , TestDemoMiningScenarios.class

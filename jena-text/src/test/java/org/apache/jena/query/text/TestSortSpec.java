@@ -31,6 +31,8 @@ import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.SortField;
+import org.apache.lucene.search.SortedNumericSelector;
+import org.apache.lucene.search.SortedNumericSortField;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.junit.Test;
 
@@ -115,7 +117,10 @@ public class TestSortSpec {
         SortField[] fields = sort.getSort();
         assertEquals(2, fields.length);
         assertEquals("year", fields[0].getField());
-        assertEquals(SortField.Type.INT, fields[0].getType());
+        assertTrue(fields[0] instanceof SortedNumericSortField);
+        assertEquals(SortField.Type.CUSTOM, fields[0].getType());
+        assertEquals(SortField.Type.INT, ((SortedNumericSortField) fields[0]).getNumericType());
+        assertEquals(SortedNumericSelector.Type.MAX, ((SortedNumericSortField) fields[0]).getSelector());
         assertTrue(fields[0].getReverse());
         assertEquals("state", fields[1].getField());
         assertEquals(SortField.Type.STRING, fields[1].getType());
@@ -148,6 +153,36 @@ public class TestSortSpec {
         assertNull(textIndex.buildLuceneSort(Collections.emptyList()));
 
         textIndex.close();
+    }
+
+    @Test
+    public void testBuildLuceneSortAscendingUsesMinSelector() {
+        FieldDef yearField = new FieldDef("year", FieldType.INT, null,
+            true, true, false, true, true, false, Collections.emptySet());
+
+        IndexProfile profile = new IndexProfile(
+            NodeFactory.createURI("http://example.org/Shape"),
+            Collections.singleton(NodeFactory.createURI("http://example.org/Thing")),
+            "uri", "docType",
+            Collections.singletonList(yearField));
+
+        ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
+        EntityDefinition defn = org.apache.jena.query.text.assembler.ShaclIndexAssembler.deriveEntityDefinition(mapping);
+
+        TextIndexConfig config = new TextIndexConfig(defn);
+        config.setShaclMapping(mapping);
+
+        ByteBuffersDirectory dir = new ByteBuffersDirectory();
+        ShaclTextIndexLucene textIndex = new ShaclTextIndexLucene(dir, config);
+
+        try {
+            Sort sort = textIndex.buildLuceneSort(List.of(new SortSpec(FP + "year", false)));
+            SortField field = sort.getSort()[0];
+            assertTrue(field instanceof SortedNumericSortField);
+            assertEquals(SortedNumericSelector.Type.MIN, ((SortedNumericSortField) field).getSelector());
+        } finally {
+            textIndex.close();
+        }
     }
 
     @Test(expected = TextIndexException.class)

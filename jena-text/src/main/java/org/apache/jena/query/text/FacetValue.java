@@ -28,12 +28,40 @@ package org.apache.jena.query.text;
  *   value="electronics", count=42
  */
 public class FacetValue {
+    public enum Kind { VALUE, RANGE }
+
+    private final Kind kind;
     private final String value;
+    private final String low;
+    private final String high;
     private final long count;
     
     public FacetValue(String value, long count) {
+        this(Kind.VALUE, value, null, null, count);
+    }
+
+    public FacetValue(String low, String high, long count) {
+        this(Kind.RANGE, null, low, high, count);
+    }
+
+    private FacetValue(Kind kind, String value, String low, String high, long count) {
+        this.kind = kind;
         this.value = value;
+        this.low = low;
+        this.high = high;
         this.count = count;
+    }
+
+    public static FacetValue ofValue(String value, long count) {
+        return new FacetValue(value, count);
+    }
+
+    public static FacetValue ofRange(String low, String high, long count) {
+        return new FacetValue(low, high, count);
+    }
+
+    public Kind getKind() {
+        return kind;
     }
     
     /**
@@ -41,6 +69,14 @@ public class FacetValue {
      */
     public String getValue() {
         return value;
+    }
+
+    public String getLow() {
+        return low;
+    }
+
+    public String getHigh() {
+        return high;
     }
     
     /**
@@ -52,6 +88,9 @@ public class FacetValue {
     
     @Override
     public String toString() {
+        if (kind == Kind.RANGE) {
+            return "[" + low + "," + high + ") (" + count + ")";
+        }
         return value + " (" + count + ")";
     }
     
@@ -60,13 +99,19 @@ public class FacetValue {
         if (this == obj) return true;
         if (!(obj instanceof FacetValue)) return false;
         FacetValue other = (FacetValue) obj;
-        return count == other.count && 
-               (value == null ? other.value == null : value.equals(other.value));
+        return count == other.count
+            && kind == other.kind
+            && (value == null ? other.value == null : value.equals(other.value))
+            && (low == null ? other.low == null : low.equals(other.low))
+            && (high == null ? other.high == null : high.equals(other.high));
     }
     
     @Override
     public int hashCode() {
-        int result = value != null ? value.hashCode() : 0;
+        int result = kind.hashCode();
+        result = 31 * result + (value != null ? value.hashCode() : 0);
+        result = 31 * result + (low != null ? low.hashCode() : 0);
+        result = 31 * result + (high != null ? high.hashCode() : 0);
         result = 31 * result + (int) (count ^ (count >>> 32));
         return result;
     }

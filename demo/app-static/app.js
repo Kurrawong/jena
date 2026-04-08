@@ -107,10 +107,44 @@ function buildCqlFilter(selected, bbox, polygon, fieldIRIs, extraClauses) {
     for (const [field, values] of Object.entries(selected)) {
         if (!values || values.length === 0) continue;
         const prop = (fieldIRIs && fieldIRIs[field]) || field;
-        if (values.length === 1) {
-            clauses.push({op: '=', args: [{property: prop}, values[0]]});
-        } else {
-            clauses.push({op: 'in', args: [{property: prop}, values]});
+
+        const rangeVals = values.filter(v => typeof v === 'string' && v.startsWith('__RANGE__'));
+        const exactVals = values.filter(v => !(typeof v === 'string' && v.startsWith('__RANGE__')));
+
+        const fieldClauses = [];
+
+        if (exactVals.length > 0) {
+            if (exactVals.length === 1) {
+                fieldClauses.push({op: '=', args: [{property: prop}, exactVals[0]]});
+            } else {
+                fieldClauses.push({op: 'in', args: [{property: prop}, exactVals]});
+            }
+        }
+
+        for (const rv of rangeVals) {
+            const parts = rv.substring(9).split('|');
+            const low = parts[0] !== '' ? Number(parts[0]) : null;
+            const high = parts[1] !== '' ? Number(parts[1]) : null;
+
+            if (low !== null && high !== null) {
+                fieldClauses.push({
+                    op: 'and',
+                    args: [
+                        {op: '>=', args: [{property: prop}, low]},
+                        {op: '<', args: [{property: prop}, high]}
+                    ]
+                });
+            } else if (low !== null) {
+                fieldClauses.push({op: '>=', args: [{property: prop}, low]});
+            } else if (high !== null) {
+                fieldClauses.push({op: '<', args: [{property: prop}, high]});
+            }
+        }
+
+        if (fieldClauses.length === 1) {
+            clauses.push(fieldClauses[0]);
+        } else if (fieldClauses.length > 1) {
+            clauses.push({op: 'or', args: fieldClauses});
         }
     }
     if (bbox && bbox.length === 4) {
@@ -296,15 +330,20 @@ function extractConfig(store) {
 
             const fieldIRI = propNode.termType === 'NamedNode' ? propNode.value : null;
 
+            const fieldTypeShort = shortName(fieldType.value);
+            const typeStr = fieldType.value.toLowerCase();
+            const isNumeric = typeStr.includes('int') || typeStr.includes('long') || typeStr.includes('double');
+
             shape.fields.push({
                 name: fieldName,
                 iri: fieldIRI,
                 path: pathStr,
-                fieldType: shortName(fieldType.value),
+                fieldType: fieldTypeShort,
                 facetable,
                 multiValued,
                 defaultSearch,
                 sortable,
+                isNumeric,
             });
 
             if (fieldIRI) fieldIRIs[fieldName] = fieldIRI;
@@ -885,8 +924,8 @@ function searchApp() {
                     }
 
                     const query = `${SPARQL_PREFIXES}
-SELECT ?field ?value ?count WHERE {
-    (?field ?value ?count) luc:facet ('${searchField}' '${escaped}' '${JSON.stringify([childLevelIRI])}' '${combinedFilter}' ${this.maxFacetValues})
+SELECT ?field ?value ?low ?high ?count WHERE {
+    (?field ?value ?low ?high ?count) luc:facet ('${searchField}' '${escaped}' '${JSON.stringify([childLevelIRI])}' '${combinedFilter}' ${this.maxFacetValues})
 }`;
                     const data = await this.runSparql(query);
                     const children = [];
@@ -958,20 +997,22 @@ SELECT ?field ?value ?count WHERE {
                 this.buildHierarchyParentClauses()
             );
             const filterArg = cqlFilter ? ` '${cqlFilter}'` : '';
-            const facetIRIs = this.facetFields.map(f => {
+            const facetRequests = this.facetFields.map(f => {
                 // For hierarchy dimensions, use the first level's field IRI
                 const hier = this.hierarchyDimensions.get(f);
-                if (hier) return hier[0].iri;
-                return this.fieldIRIs[f] || f;
+                const iri = hier ? hier[0].iri : (this.fieldIRIs[f] || f);
+                if (f === 'year') return { field: iri, ranges: [null, 2000, 2010, 2020, null] };
+                if (f === 'depth') return { field: iri, ranges: [0, 100, 250, 500, 1000] };
+                return iri;
             });
-            const facetFieldsJson = JSON.stringify(facetIRIs);
+            const facetFieldsJson = JSON.stringify(facetRequests);
 
             return `${SPARQL_PREFIXES}
-SELECT ?entity ?score ?totalHits ?field ?value ?count
+SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
 WHERE {
     { (?hit ?entity ?score ?_lit ?totalHits) luc:query ('${searchField}' '${escaped}'${filterArg} ${this.limit}) }
     UNION
-    { (?field ?value ?count) luc:facet ('${searchField}' '${escaped}' '${facetFieldsJson}'${filterArg} ${this.maxFacetValues}) }
+    { (?field ?value ?low ?high ?count) luc:facet ('${searchField}' '${escaped}' '${facetFieldsJson}'${filterArg} ${this.maxFacetValues}) }
 }`;
         },
 
@@ -1027,12 +1068,31 @@ WHERE {
                     if (!facets[f]) facets[f] = [];
                     // ?value may be a URI (KEYWORD) or literal (TEXT) —
                     // store the raw value for CQL filter matching
-                    const rawVal = row.value.value;
-                    const isUri = row.value.type === 'uri' || /^https?:\/\//.test(rawVal);
+                    let rawVal = null;
+                    let isUri = false;
+                    let label = null;
+
+                    if (row.value) {
+                        rawVal = row.value.value;
+                        isUri = row.value.type === 'uri' || /^https?:\/\//.test(rawVal);
+                        label = isUri ? shortName(rawVal) : rawVal;
+                    } else if (row.low || row.high) {
+                        const l = row.low ? row.low.value : '*';
+                        const h = row.high ? row.high.value : '*';
+                        rawVal = `__RANGE__${row.low ? row.low.value : ''}|${row.high ? row.high.value : ''}`;
+                        label = `${l} to ${h}`;
+                    } else {
+                        // fallback for empty/null buckets if any
+                        rawVal = '__NULL__';
+                        label = '(empty)';
+                    }
+
                     facets[f].push({
                         value: rawVal,
-                        label: isUri ? shortName(rawVal) : rawVal,
+                        label: label,
                         count: parseInt(row.count.value, 10),
+                        low: row.low ? row.low.value : null,
+                        high: row.high ? row.high.value : null,
                     });
                 }
             }
@@ -1702,14 +1762,19 @@ function statsApp() {
                 const t0 = performance.now();
 
                 // 1. Total entities + facet counts in one query
-                const facetIRIs = facetFields.map(f => fieldIRIs[f] || f);
-                const facetFieldsJson = JSON.stringify(facetIRIs);
+                const facetRequests = facetFields.map(f => {
+                    const iri = fieldIRIs[f] || f;
+                    if (f === 'year') return { field: iri, ranges: [null, 2000, 2010, 2020, null] };
+                    if (f === 'depth') return { field: iri, ranges: [0, 100, 250, 500, 1000] };
+                    return iri;
+                });
+                const facetFieldsJson = JSON.stringify(facetRequests);
                 const statsQuery = `${SPARQL_PREFIXES}
-SELECT ?entity ?score ?totalHits ?field ?value ?count
+SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
 WHERE {
     { (?hit ?entity ?score ?_lit ?totalHits) luc:query ('default' '*' 0) }
     UNION
-    { (?field ?value ?count) luc:facet ('default' '*' '${facetFieldsJson}' 0) }
+    { (?field ?value ?low ?high ?count) luc:facet ('default' '*' '${facetFieldsJson}' 0) }
 }`;
                 const statsData = await this.runSparql(endpoint, statsQuery);
                 const statsMs = performance.now() - t0;
@@ -1724,9 +1789,23 @@ WHERE {
                     if (row.field) {
                         const f = resolveFieldName(row.field.value, config.fieldIRIs);
                         if (!facets[f]) facets[f] = [];
+                        let rawVal = null;
+                        let label = null;
+                        if (row.value) {
+                            rawVal = row.value.value;
+                            label = row.value.type === 'uri' ? shortName(rawVal) : rawVal;
+                        } else if (row.low || row.high) {
+                            const l = row.low ? row.low.value : '*';
+                            const h = row.high ? row.high.value : '*';
+                            rawVal = `__RANGE__${row.low ? row.low.value : ''}|${row.high ? row.high.value : ''}`;
+                            label = `${l} to ${h}`;
+                        } else {
+                            rawVal = '__NULL__';
+                            label = '(empty)';
+                        }
                         facets[f].push({
-                            value: row.value.value,
-                            label: row.value.type === 'uri' ? shortName(row.value.value) : row.value.value,
+                            value: rawVal,
+                            label: label,
                             count: parseInt(row.count.value, 10),
                         });
                     }

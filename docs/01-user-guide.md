@@ -57,6 +57,7 @@ field:authorName
 field:year
     idx:fieldName "year" ;
     idx:fieldType idx:IntField ;
+    idx:facetable true ;
     idx:sortable true ;
     sh:path ex:year .
 
@@ -121,16 +122,59 @@ Returns rows like:
 
 | ?field | ?value | ?count |
 |--------|--------|--------|
-| `<urn:jena:lucene:field#category>` | `<http://example.org/Technology>` | 3 |
-| `<urn:jena:lucene:field#category>` | `<http://example.org/Science>` | 1 |
-| `<urn:jena:lucene:field#author>` | `<http://example.org/Smith>` | 2 |
-| `<urn:jena:lucene:field#author>` | `<http://example.org/Jones>` | 1 |
+| `<urn:jena:lucene:field#category>` | `"Technology"` | 3 |
+| `<urn:jena:lucene:field#category>` | `"Science"` | 1 |
+| `<urn:jena:lucene:field#author>` | `"Smith"` | 2 |
+| `<urn:jena:lucene:field#author>` | `"Jones"` | 1 |
 
-`?field` returns the field IRI (the named resource from config). `?value` returns IRIs for KEYWORD fields, string literals for TEXT fields.
+`?field` returns the field IRI (the named resource from config). For flat and hierarchical facets, `?value` returns the stored keyword value. Values that look like URIs are returned as IRIs; otherwise they are returned as string literals.
 
 The `facetFields` array requires field IRIs — the full IRI of each field resource as defined in the configuration.
 
-### 5. Search with facet filtering
+### 5. Range facets on numeric fields
+
+For numeric fields (INT, LONG, DOUBLE), set `idx:facetable true` on the field and use range objects in the facet fields array to get bucketed counts.
+
+Range-capable facet requests use the 5-slot subject form:
+
+```sparql
+(?field ?value ?low ?high ?count) luc:facet (...)
+```
+
+The legacy 3-slot form remains valid for flat and hierarchical facets only.
+
+```sparql
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?field ?value ?low ?high ?count WHERE {
+    (?field ?value ?low ?high ?count) luc:facet ("default" "machine learning"
+        '[{"field":"urn:jena:lucene:field#year", "ranges":[2020, 2022, 2024, 2026]}]'
+        10) .
+}
+```
+
+Returns rows like:
+
+| ?field | ?value | ?low | ?high | ?count |
+|--------|--------|------|-------|--------|
+| `<urn:jena:lucene:field#year>` | — | `2020` | `2022` | 1 |
+| `<urn:jena:lucene:field#year>` | — | `2022` | `2024` | 1 |
+
+`?low` and `?high` are typed numeric literals matching the field type. Boundaries define contiguous `[low, high)` buckets. Use `null` for open-ended ranges: `[null, 2020, 2024, null]` produces `(-∞, 2020)`, `[2020, 2024)`, `[2024, +∞)`, with the missing bound left unbound.
+
+Mix flat and range facets in a single call by using the same 5-slot form. Flat rows bind `?value`; range rows bind `?low`/`?high`.
+
+```sparql
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?field ?value ?low ?high ?count WHERE {
+    (?field ?value ?low ?high ?count) luc:facet ("default" "machine learning"
+        '["urn:jena:lucene:field#category", {"field":"urn:jena:lucene:field#year", "ranges":[2020, 2022, 2024, 2026]}]'
+        10) .
+}
+```
+
+### 6. Search with facet filtering
 Filters use CQL2-JSON syntax. The `property` value must be a field IRI:
 
 ```sparql
@@ -161,7 +205,7 @@ SELECT ?field ?value ?count WHERE {
 }
 ```
 
-### 6. Get total hit count
+### 7. Get total hit count
 
 Add `?totalHits` as the 4th subject variable to get the total number of matching documents. This is useful for "Showing X of Y results" UI patterns:
 
@@ -175,7 +219,7 @@ SELECT ?s ?score ?totalHits WHERE {
 
 `?totalHits` is the same value on every row — read it from the first result. The count is computed efficiently using `IndexSearcher.count()` and only runs when the variable is present.
 
-### 7. Combine search and facets in one query
+### 8. Combine search and facets in one query
 
 When `luc:query` and `luc:facet` appear in the same query with matching parameters, they automatically share execution (one Lucene query, not two):
 
@@ -466,9 +510,10 @@ If data is loaded into named graphs (e.g. N-Quads), the SHACL indexer reads from
 
 ### No Facet Results
 
-1. **Check that fields have `idx:facetable true`** in the shape definition
+1. **Check that fields have `idx:facetable true`** in the shape definition — this applies to KEYWORD flat/hierarchical facets and numeric range facets
 2. **Verify field IRIs match** — the `luc:facet` JSON array requires field IRIs (the full IRI of each field resource)
-3. **Rebuild the index** if faceting was enabled after data was loaded — SortedSetDocValues are built at write time
+3. **Use the 5-slot subject form for any range facet request** — `(?field ?value ?low ?high ?count) luc:facet (...)`
+4. **Rebuild the index** if faceting or sorting was enabled after data was loaded — facet/sort DocValues are built at write time
 
 ### "No Fuseki dispatch" Error
 
@@ -488,7 +533,7 @@ Using `/ds/query` or `/ds/update` with unnamed endpoints will fail. Either:
 |-------|-------|----------|
 | `text:shapes and text:entityMap are mutually exclusive` | Both specified on the same index | Use one or the other |
 | `TextIndexException: no shapes defined` | `text:shapes` list is empty | Add at least one shape resource |
-| No facet data for a field | Field not marked `idx:facetable true`, or index not rebuilt | Check config and reindex |
+| No facet data for a field | Field not marked `idx:facetable true`, wrong `luc:facet` subject form for a range request, or index not rebuilt | Check config, query shape, and reindex |
 | Port already in use | Another process on port 3030 | Use `--port 3031` or stop the other process |
 
 ### Performance Issues

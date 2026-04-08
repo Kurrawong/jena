@@ -118,7 +118,12 @@ it finds entities that link *to* the report.
 | `05-combined.rq` | Search + facets in one query (UNION pattern) |
 | `06-sequence-path-facet.rq` | Facet counts on `authorName` (sequence path field) |
 | `07-filter-by-author.rq` | Filter results by `authorName` = "Dr Sarah Jones" |
+| `08-spatial-bbox.rq` | Bounding box spatial search |
 | `09-matchraw-multivalue.rq` | Multi-valued identifier search showing `?matchRaw` on dirty identifier data |
+| `10-match-field-details.rq` | Access field details like field name and weight |
+| `11-hierarchical-facets.rq` | Hierarchical facets using Lucene taxonomy |
+| `12-range-facets.rq` | Numeric range facets on `year` and `depth` (INT fields) |
+| `13-mixed-facets.rq` | Mixed flat (state) and range (year) facets in one query |
 
 ### Expected results for path queries
 
@@ -142,6 +147,28 @@ even though the entity also carries an empty identifier value:
 report-identifier-demo  "94130"  ""
 report-identifier-demo  "94130"  "94130"
 report-identifier-demo  "94130"  "DAG2011/00113216"
+```
+
+**Query 12** should return year and depth buckets:
+```
+year   null  2000  1
+year   2000  2020  1
+year   2020  null  7
+depth  0     200   1
+depth  200   500   4
+depth  500   1000  2
+```
+
+**Query 13** should return state and year facets for "copper":
+```
+state  state:NSW  null  null  3
+state  state:QLD  null  null  3
+state  state:SA   null  null  3
+state  state:WA   null  null  3
+state  state:PNG  null  null  1
+year   null       2020  null  0
+year   2020       2024  null  3
+year   2024       null  null  1
 ```
 
 ## Server image

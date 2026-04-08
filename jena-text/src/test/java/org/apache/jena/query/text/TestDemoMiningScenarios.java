@@ -436,8 +436,8 @@ public class TestDemoMiningScenarios {
     @Test
     public void testFacetCountsCommodity() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"*\" '[\"" + FP + "commodity\"]' 20)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"*\" '[\"" + FP + "commodity\"]' 20)\n" +
             "}";
 
         Map<String, Long> counts = facetCountMap(sparql);
@@ -450,8 +450,8 @@ public class TestDemoMiningScenarios {
     @Test
     public void testFacetCountsState() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"*\" '[\"" + FP + "state\"]' 20)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"*\" '[\"" + FP + "state\"]' 20)\n" +
             "}";
 
         Map<String, Long> counts = facetCountMap(sparql);
@@ -471,8 +471,8 @@ public class TestDemoMiningScenarios {
     @Test
     public void testFacetCountsMultipleFields() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"*\" '[\"" + FP + "state\", \"" + FP + "commodity\"]' 20)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"*\" '[\"" + FP + "state\", \"" + FP + "commodity\"]' 20)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -499,8 +499,8 @@ public class TestDemoMiningScenarios {
     public void testFacetCountsWithFilter() {
         // Facets for Gold entities only
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"*\" '[\"" + FP + "state\"]' " +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"*\" '[\"" + FP + "state\"]' " +
             "'{\"op\":\"=\",\"args\":[{\"property\":\"" + FP + "commodity\"},\"" + EX + "commodity/Gold\"]}' 20)\n" +
             "}";
 
@@ -517,8 +517,8 @@ public class TestDemoMiningScenarios {
     @Test
     public void testFacetWildcardExpandsAllFields() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"*\" '[\"*\"]' 10)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"*\" '[\"*\"]' 10)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -547,12 +547,12 @@ public class TestDemoMiningScenarios {
     public void testFacetWildcardMatchesExplicitFields() {
         // Verify wildcard returns same results as listing all facetable fields explicitly
         String wildcardSparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"*\" '[\"*\"]' 0)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"*\" '[\"*\"]' 0)\n" +
             "}";
         String explicitSparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"*\" '[\"" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"*\" '[\"" +
             FP + "entityType\", \"" +
             FP + "commodity\", \"" +
             FP + "state\", \"" +
@@ -577,8 +577,8 @@ public class TestDemoMiningScenarios {
     public void testFacetWildcardWithTextSearch() {
         // Wildcard facets with text search for "copper"
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"copper\" '[\"*\"]' 10)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"copper\" '[\"*\"]' 10)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -604,8 +604,8 @@ public class TestDemoMiningScenarios {
     public void testFacetWildcardWithCqlFilter() {
         // Wildcard facets with CQL filter
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"*\" '[\"*\"]' " +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"*\" '[\"*\"]' " +
             "'{\"op\":\"=\",\"args\":[{\"property\":\"" + FP + "state\"},\"" + EX + "state/WA\"]}' 10)\n" +
             "}";
 
@@ -633,8 +633,8 @@ public class TestDemoMiningScenarios {
     @Test
     public void testAuthorNameFacetCounts() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"*\" '[\"" + FP + "authorName\"]' 10)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"*\" '[\"" + FP + "authorName\"]' 10)\n" +
             "}";
 
         Map<String, Long> counts = facetCountMap(sparql);
@@ -668,10 +668,10 @@ public class TestDemoMiningScenarios {
     @Test
     public void testCombinedQueryAndFacet() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?entity ?score ?f ?v ?c WHERE {\n" +
+            "SELECT ?entity ?score ?f ?v ?low ?high ?c WHERE {\n" +
             "  { (?hit ?entity ?score) luc:query (\"default\" \"iron ore\" 20) }\n" +
             "  UNION\n" +
-            "  { (?f ?v ?c) luc:facet (\"default\" \"iron ore\" '[\"" + FP + "state\"]' 10) }\n" +
+            "  { (?f ?v ?low ?high ?c) luc:facet (\"default\" \"iron ore\" '[\"" + FP + "state\"]' 10) }\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -716,8 +716,8 @@ public class TestDemoMiningScenarios {
     @Test
     public void testEntityTypeDistribution() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"*\" '[\"" + FP + "entityType\"]' 10)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"*\" '[\"" + FP + "entityType\"]' 10)\n" +
             "}";
 
         Map<String, Long> counts = facetCountMap(sparql);

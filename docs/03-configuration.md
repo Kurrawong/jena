@@ -159,8 +159,8 @@ Sequence and inverse paths enable cross-entity indexing without forward chaining
 | `idx:fieldType` | Resource | `idx:TextField` | One of the field types below |
 | `idx:stored` | boolean | true | Store value for retrieval |
 | `idx:indexed` | boolean | true | Index for searching |
-| `idx:facetable` | boolean | false | Enable SortedSetDocValues faceting |
-| `idx:sortable` | boolean | false | Add DocValues for sorting |
+| `idx:facetable` | boolean | false | Enable faceting: KEYWORD flat/taxonomy facets or numeric range facets |
+| `idx:sortable` | boolean | false | Enable sorting |
 | `idx:multiValued` | boolean | false | Allow multiple values per entity |
 | `idx:defaultSearch` | boolean | false | Use as default search field |
 | `idx:analyzer` | Resource | index default | Per-field analyzer |
@@ -172,12 +172,35 @@ Sequence and inverse paths enable cross-entity indexing without forward chaining
 |------|--------------|-----------|----------|
 | `idx:TextField` | `TextField` | analyzed text | Full-text search. Returns string literals in bindings |
 | `idx:KeywordField` | `StringField` | exact string | Facets, filters, exact match. Returns IRIs in `?literal` and `?value` bindings when the stored value looks like a URI |
-| `idx:IntField` | `IntPoint` | int | Numeric range queries. Returns `xsd:integer` typed literals |
-| `idx:LongField` | `LongPoint` | long | Large numeric values. Returns `xsd:long` typed literals |
-| `idx:DoubleField` | `DoublePoint` | double | Floating point values. Returns `xsd:double` typed literals |
+| `idx:IntField` | `IntPoint` | int | Numeric range queries, numeric range facets, numeric sorting. Range facets return typed `?low` / `?high` literals |
+| `idx:LongField` | `LongPoint` | long | Large numeric values, numeric range facets, numeric sorting. Range facets return typed `?low` / `?high` literals |
+| `idx:DoubleField` | `DoublePoint` | double | Floating point values, numeric range facets, numeric sorting. Range facets return typed `?low` / `?high` literals |
 | `idx:LatLonField` | `LatLonShape` | WKT geometry | Spatial filtering via CQL2-JSON `s_intersects`. See [Spatial Filtering](09-spatial.md) |
 
-When `idx:facetable true` is set on a KeywordField, a `SortedSetDocValuesFacetField` is automatically added. When `idx:sortable true` is set, a `SortedDocValuesField` (for keywords) or `NumericDocValuesField` (for numerics) is added.
+When `idx:facetable true` is set on a `KeywordField`, a `SortedSetDocValuesFacetField` is added for flat facets. When `idx:sortable true` is set on a `KeywordField`, a `SortedDocValuesField` is added for sorting.
+
+For numeric fields (`INT`, `LONG`, `DOUBLE`), docvalues are written whenever either `idx:facetable true` or `idx:sortable true` is set. This supports:
+
+- range faceting on facetable numeric fields
+- sorting on sortable numeric fields
+- single-valued and multi-valued numeric fields via a common docvalues representation
+
+### Range facets on numeric fields
+
+Numeric fields (`INT`, `LONG`, `DOUBLE`) support range faceting via `luc:facet` when the field is marked `idx:facetable true`. Bucket boundaries are specified per query in the `facetFields` JSON array — no index-time bucket configuration is needed.
+
+Key points:
+
+- `idx:facetable true` is the public switch for numeric range faceting
+- `idx:sortable true` is only needed if the same numeric field must also be sortable
+- numeric range facets support both single-valued and multi-valued fields
+- mixed flat + range facet requests use the 5-slot `luc:facet` subject form
+
+For multi-valued numeric sorting, ascending order uses the field's minimum value and descending order uses the field's maximum value.
+
+See [SPARQL API — Range Facets](02-sparql-api.md#range-facets) for query syntax.
+
+**Date fields:** Lucene has no native date type. Store dates as epoch milliseconds using `idx:LongField`. Mark the field `idx:facetable true` for range faceting and `idx:sortable true` if you also need sort pushdown. Range facet boundaries are then epoch millis values. For hierarchical date navigation (year → month → day drill-down), use separate KEYWORD fields per level instead — see [Hierarchical vs Range Facets for Dates](02-sparql-api.md#hierarchical-vs-range-facets-for-dates).
 
 ### Field IRIs
 

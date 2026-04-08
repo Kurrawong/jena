@@ -53,6 +53,7 @@ public class TestTextFacetPF {
     private static final Node TITLE_PRED = NodeFactory.createURI(NS + "title");
     private static final Node CATEGORY_PRED = NodeFactory.createURI(NS + "category");
     private static final Node AUTHOR_PRED = NodeFactory.createURI(NS + "author");
+    private static final Node YEAR_PRED = NodeFactory.createURI(NS + "year");
 
     private Dataset dataset;
 
@@ -72,11 +73,15 @@ public class TestTextFacetPF {
             true, true, true, false, false, false,
             Collections.singleton(AUTHOR_PRED));
 
+        FieldDef yearField = new FieldDef("year", FieldType.INT, null,
+            true, true, true, true, true, false,
+            Collections.singleton(YEAR_PRED));
+
         IndexProfile bookProfile = new IndexProfile(
             NodeFactory.createURI(NS + "BookShape"),
             Collections.singleton(BOOK_CLASS),
             "uri", "docType",
-            Arrays.asList(titleField, categoryField, authorField));
+            Arrays.asList(titleField, categoryField, authorField, yearField));
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(bookProfile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -102,23 +107,26 @@ public class TestTextFacetPF {
         dataset.begin(ReadWrite.WRITE);
         try {
             Model model = dataset.getDefaultModel();
-            addBook(model, "doc1", "Introduction to Machine Learning", NS + "category/technology", NS + "author/Smith");
-            addBook(model, "doc2", "Deep Learning Neural Networks", NS + "category/technology", NS + "author/Jones");
-            addBook(model, "doc3", "Machine Learning for Beginners", NS + "category/technology", NS + "author/Smith");
-            addBook(model, "doc4", "Learning About Quantum Physics", NS + "category/science", NS + "author/Wilson");
-            addBook(model, "doc5", "Machine Learning in Biology", NS + "category/science", NS + "author/Smith");
+            addBook(model, "doc1", "Introduction to Machine Learning", NS + "category/technology", NS + "author/Smith", 2018, 2020);
+            addBook(model, "doc2", "Deep Learning Neural Networks", NS + "category/technology", NS + "author/Jones", 2021);
+            addBook(model, "doc3", "Machine Learning for Beginners", NS + "category/technology", NS + "author/Smith", 2022);
+            addBook(model, "doc4", "Learning About Quantum Physics", NS + "category/science", NS + "author/Wilson", 2019);
+            addBook(model, "doc5", "Machine Learning in Biology", NS + "category/science", NS + "author/Smith", 2024);
             dataset.commit();
         } finally {
             dataset.end();
         }
     }
 
-    private void addBook(Model model, String id, String title, String categoryUri, String authorUri) {
+    private void addBook(Model model, String id, String title, String categoryUri, String authorUri, int... years) {
         Resource book = ResourceFactory.createResource(NS + id);
         model.add(book, RDF.type, ResourceFactory.createResource(NS + "Book"));
         model.add(book, ResourceFactory.createProperty(NS + "title"), title);
         model.add(book, ResourceFactory.createProperty(NS + "category"), ResourceFactory.createResource(categoryUri));
         model.add(book, ResourceFactory.createProperty(NS + "author"), ResourceFactory.createResource(authorUri));
+        for (int year : years) {
+            model.add(book, ResourceFactory.createProperty(NS + "year"), ResourceFactory.createTypedLiteral(year));
+        }
     }
 
     @After
@@ -131,8 +139,8 @@ public class TestTextFacetPF {
     @Test
     public void testBasicFacetCounts() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "category\"]' 10)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "category\"]' 10)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -157,8 +165,8 @@ public class TestTextFacetPF {
     @Test
     public void testFacetFieldIsURI() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "category\"]' 10)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "category\"]' 10)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -180,8 +188,8 @@ public class TestTextFacetPF {
     @Test
     public void testFacetCountsWithMultipleFields() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "category\", \"" + FP + "author\"]' 10)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "category\", \"" + FP + "author\"]' 10)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -207,8 +215,8 @@ public class TestTextFacetPF {
     @Test
     public void testFacetWildcard() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"learning\" '[\"*\"]' 10)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"learning\" '[\"*\"]' 10)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -234,8 +242,8 @@ public class TestTextFacetPF {
     @Test
     public void testFacetCountsWithFilters() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "author\"]' '{\"op\":\"=\",\"args\":[{\"property\":\"" + FP + "category\"},\"" + NS + "category/technology\"]}' 10)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "author\"]' '{\"op\":\"=\",\"args\":[{\"property\":\"" + FP + "category\"},\"" + NS + "category/technology\"]}' 10)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -258,8 +266,8 @@ public class TestTextFacetPF {
     @Test
     public void testFacetCountsWithMaxValues() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "author\"]' 1)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "author\"]' 1)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -281,8 +289,8 @@ public class TestTextFacetPF {
     @Test
     public void testFacetCountsWithMinCount() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "author\"]' 10 2)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "author\"]' 10 2)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -306,8 +314,8 @@ public class TestTextFacetPF {
     @Test
     public void testFacetCountsWithMaxValuesZero() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "author\"]' 0)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "author\"]' 0)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -329,8 +337,8 @@ public class TestTextFacetPF {
     @Test
     public void testFacetCountsWithMinCountAndMaxValues() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
-            "SELECT ?f ?v ?c WHERE {\n" +
-            "  (?f ?v ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "author\"]' 0 2)\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "author\"]' 0 2)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -346,6 +354,152 @@ public class TestTextFacetPF {
                     count++;
                 }
                 assertEquals("Only Smith should pass combined filter", 1, count);
+            }
+        } finally {
+            dataset.end();
+        }
+    }
+
+    @Test
+    public void testRangeFacetFiveSlotBindings() {
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"learning\" '[{\"field\":\"" + FP + "year\",\"ranges\":[null,2020,2023,null]}]' 10)\n" +
+            "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
+                ResultSet rs = qe.execSelect();
+                int rangeRows = 0;
+                while (rs.hasNext()) {
+                    QuerySolution sol = rs.next();
+                    assertEquals(FP + "year", sol.getResource("f").getURI());
+                    assertFalse(sol.contains("v"));
+                    assertTrue(sol.getLiteral("c").getLong() > 0);
+                    rangeRows++;
+                }
+                assertEquals(3, rangeRows);
+            }
+        } finally {
+            dataset.end();
+        }
+    }
+
+    @Test
+    public void testMixedFlatAndRangeFacets() {
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "category\", {\"field\":\"" + FP + "year\",\"ranges\":[null,2020,2023,null]}]' 10)\n" +
+            "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
+                ResultSet rs = qe.execSelect();
+                boolean foundCategory = false;
+                boolean foundRange = false;
+                while (rs.hasNext()) {
+                    QuerySolution sol = rs.next();
+                    String fieldUri = sol.getResource("f").getURI();
+                    if (fieldUri.endsWith("#category")) {
+                        assertTrue(sol.contains("v"));
+                        assertFalse(sol.contains("low"));
+                        assertFalse(sol.contains("high"));
+                        foundCategory = true;
+                    }
+                    if (fieldUri.endsWith("#year")) {
+                        assertFalse(sol.contains("v"));
+                        foundRange = true;
+                    }
+                }
+                assertTrue(foundCategory);
+                assertTrue(foundRange);
+            }
+        } finally {
+            dataset.end();
+        }
+    }
+
+    @Test
+    public void testNumericFacetFieldBareStringRejected() {
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "year\"]' 10)\n" +
+            "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
+                qe.execSelect().hasNext();
+                fail("Expected numeric facet request to be rejected");
+            } catch (QueryExecException ex) {
+                assertTrue(ex.getMessage().contains("requires a range object"));
+            }
+        } finally {
+            dataset.end();
+        }
+    }
+
+    @Test
+    public void testThreeSlotSubjectRejected() {
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT ?f ?v ?c WHERE {\n" +
+            "  (?f ?v ?c) luc:facet (\"default\" \"learning\" '[\"" + FP + "author\"]' 10)\n" +
+            "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            try {
+                try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
+                    qe.execSelect().hasNext();
+                    fail("Expected 3-slot facet request to be rejected");
+                }
+            } catch (QueryBuildException | QueryExecException ex) {
+                assertTrue(ex.getMessage().contains("exactly 5"));
+            }
+        } finally {
+            dataset.end();
+        }
+    }
+
+    @Test
+    public void testRangeObjectOnNonNumericFieldRejected() {
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"learning\" '[{\"field\":\"" + FP + "category\",\"ranges\":[1,2]}]' 10)\n" +
+            "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
+                qe.execSelect().hasNext();
+                fail("Expected non-numeric range request to be rejected");
+            } catch (QueryExecException ex) {
+                assertTrue(ex.getMessage().contains("is not numeric"));
+            }
+        } finally {
+            dataset.end();
+        }
+    }
+
+    @Test
+    public void testDifferentFacetRequestsDoNotReuseStaleCache() {
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT DISTINCT ?f1 ?f2 WHERE {\n" +
+            "  (?f1 ?v1 ?low1 ?high1 ?c1) luc:facet (\"default\" \"learning\" '[\"" + FP + "category\"]' 10) .\n" +
+            "  (?f2 ?v2 ?low2 ?high2 ?c2) luc:facet (\"default\" \"learning\" '[\"" + FP + "author\"]' 10)\n" +
+            "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
+                ResultSet rs = qe.execSelect();
+                while (rs.hasNext()) {
+                    QuerySolution sol = rs.next();
+                    assertEquals(FP + "category", sol.getResource("f1").getURI());
+                    assertEquals(FP + "author", sol.getResource("f2").getURI());
+                }
             }
         } finally {
             dataset.end();

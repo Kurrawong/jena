@@ -17,24 +17,24 @@ This documentation covers the faceted search and entity-per-document indexing fe
 | Inverse and sequence paths | Done | — | `sh:inversePath` and multi-hop sequence paths for cross-entity indexing |
 | Spatial filtering | Done | `luc:query`/`luc:facet` | Bounding-box and polygon filter via LatLonShape. See [Spatial Filtering](09-spatial.md) |
 | Field IRIs | Done | `luc:query`/`luc:facet` | Named field resources preserve their IRI; `?field` bindings return IRIs |
+| Hierarchical facets | Done | `luc:facet` | Taxonomy drill-down over ordered KEYWORD field hierarchies |
+| Range facets | Designed | `luc:facet` | Numeric bucket counts via range objects; range-capable queries use 5-slot facet rows |
 | DrillSideways | Proposed | `luc:facet` | Filtered dimension still shows all values (standard faceted UI pattern) |
-| Hierarchical facets | Proposed | `luc:facet` | Taxonomy drill-down (Science > Physics > Quantum) |
-| Range facets | Proposed | `luc:facetRange` | Bucket counts over numeric ranges (year bands, price tiers) |
 | Result grouping | Proposed | `luc:group` | Group search hits by field value |
 | Suggest / Autocomplete | Proposed | `luc:suggest` | Type-ahead completions via Lucene suggesters |
 | Bulk SHACL reindexer | Proposed | — | CLI tool for full reindex using SHACL shapes |
 
-All proposed extensions are additive — no breaking changes to existing query or response models.
+Range facets extend `luc:facet` rather than introducing a separate PF. Existing 3-slot flat facet queries remain valid; range-capable facet requests use a 5-slot subject form.
 
 Public API rule: external field references are always IRIs in `luc:query`, `luc:facet`, `luc:match`, CQL filter `property` entries, sort specs, and returned `?field` bindings. Internal Lucene field names from `idx:fieldName` remain implementation details, except for the special `"default"` fieldSpec shorthand and ordinary Lucene query strings supplied as search text.
 
-### Component Architecture (current implementation)
+### Component Architecture
 
 ```mermaid
 graph TB
     subgraph SPARQL["SPARQL Interface"]
         LQ["luc:query<br/><i>search + CQL2-JSON filters</i>"]
-        LF["luc:facet<br/><i>field value counts</i>"]
+        LF["luc:facet<br/><i>field value counts and range buckets</i>"]
     end
 
     subgraph Execution["Query Execution"]
@@ -45,7 +45,7 @@ graph TB
 
     subgraph Index["Lucene Index"]
         TIL["TextIndexLucene"]
-        FC["FacetsConfig<br/><i>SortedSetDocValues</i>"]
+        FC["FacetsConfig + DocValues<br/><i>facets and numeric bucket sources</i>"]
     end
 
     subgraph Indexing["Index Maintenance"]
@@ -100,10 +100,10 @@ timeline
         Inverse and sequence paths     : sh꞉inversePath and multi-hop sequence paths
         Spatial filtering              : LatLonShape with bbox and polygon filters
         Field IRIs                     : Named field resources, IRI bindings in query results
+        Hierarchical facets            : Taxonomy drill-down via luc꞉facet
     section Proposed
         DrillSideways                  : Standard faceted UI counting (opt-in on luc꞉facet)
-        Hierarchical facets            : Taxonomy drill-down paths
-        Range facets                   : Numeric bucket counts via luc꞉facetRange
+        Range facets                   : Numeric bucket counts via luc꞉facet range objects and 5-slot rows
         Result grouping                : Group hits by field via luc꞉group
         Suggest / Autocomplete         : Type-ahead via luc꞉suggest
         Bulk SHACL reindexer           : CLI tool for full reindex

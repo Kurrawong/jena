@@ -121,6 +121,8 @@ TextIndexLucene index = (TextIndexLucene) Assembler.general().open(indexSpec);
 
 ### Not yet covered (candidates for future tests)
 
+- Range facets on numeric fields: single-valued, multi-valued, open-ended buckets, mixed flat+range requests, and 5-slot `luc:facet` bindings
+- Multi-valued numeric sorting semantics (`MIN` for ascending, `MAX` for descending)
 - Named graph support in SHACL mode
 - Multiple shapes with overlapping predicates
 - Large-scale performance (10k+ entities)

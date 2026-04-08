@@ -175,6 +175,7 @@ SELECT ?entity ?score ?field ?value WHERE {
 
 ```
 (?field ?value ?count) luc:facet (fieldSpec queryString facetFields filter? maxValues? minCount?)
+(?field ?value ?low ?high ?count) luc:facet (fieldSpec queryString facetFields filter? maxValues? minCount?)
 ```
 
 ### Arguments (positional, left to right)
@@ -183,18 +184,63 @@ SELECT ?entity ?score ?field ?value WHERE {
 |----------|------|----------|-------------|
 | fieldSpec | String literal | No | Which indexed fields to scope the text query (same as luc:query). Default: `"default"` |
 | queryString | String literal | Yes | Lucene query string |
-| facetFields | JSON array literal | Yes | Field IRIs to facet on: `'["urn:jena:lucene:field#category"]'` |
+| facetFields | JSON array literal | Yes | Field IRIs and/or range specs to facet on (see below) |
 | filter | JSON object literal | No | CQL filter (same format as luc:query) |
 | maxValues | Integer | No | Max facet values per field. Default: 10. `0` = all values |
 | minCount | Integer | No | Exclude values with count below this. Default: 0 |
+
+### Facet fields array
+
+The `facetFields` JSON array accepts two element types, which can be mixed freely:
+
+| Element type | Format | Use case |
+|-------------|--------|----------|
+| **String** | `"urn:jena:lucene:field#category"` | Flat facet on a KEYWORD field, or hierarchical facet on a hierarchy level field |
+| **Range object** | `{"field": "urn:jena:lucene:field#year", "ranges": [2020, 2022, 2024, 2026]}` | Bucketed counts on a numeric field (INT, LONG, DOUBLE) |
+
+**Range object properties:**
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `field` | String | Yes | Field IRI of a numeric field (INT, LONG, or DOUBLE) |
+| `ranges` | Array of numbers/nulls | Yes | Bucket boundaries (bin edges). Adjacent pairs define `[low, high)` buckets |
+
+**Boundary semantics:** Boundaries are contiguous, lower-inclusive, upper-exclusive (`[low, high)`). For example, `[2020, 2022, 2024, 2026]` produces three buckets: `[2020, 2022)`, `[2022, 2024)`, `[2024, 2026)`.
+
+**Open-ended ranges:** Use `null` at the start or end to create unbounded buckets:
+- `[null, 2020, 2024, null]` → `(-∞, 2020)`, `[2020, 2024)`, `[2024, +∞)`
+
+**Wildcard behaviour:** The `"*"` wildcard expands to all flat and hierarchical facetable fields. It does not include numeric fields, since range facets require explicit boundaries.
+
+**Validation:**
+
+- Requesting a numeric field (INT/LONG/DOUBLE) as a bare string produces an error — numeric fields require range boundaries
+- Range objects targeting non-numeric fields produce an error
+- Non-null boundaries must be strictly increasing
+- `null` is only valid at the start and/or end of the boundary array
+
+### Subject forms
+
+Use the subject form that matches the request:
+
+- `(?field ?value ?count)` for flat and hierarchical facets only
+- `(?field ?value ?low ?high ?count)` for any request that includes a range object
+
+Rules:
+
+- the legacy 3-slot form remains valid for flat and hierarchical facets
+- the 5-slot form is required for range-only and mixed flat+range requests
+- the 5-slot form also works for flat-only requests
 
 ### Return bindings
 
 | Variable | Required | Type | Description |
 |----------|----------|------|-------------|
 | ?field | Yes | IRI | Field IRI identifying the facet field |
-| ?value | No | IRI or literal | Facet value. KEYWORD fields return IRIs, TEXT fields return string literals |
-| ?count | No | xsd:integer | Number of matching documents |
+| ?value | No | IRI or literal | Flat or hierarchical facet value. For KEYWORD fields, values that look like URIs are returned as IRIs; otherwise as string literals |
+| ?low | No | typed numeric literal | Lower bound of a range bucket. Unbound for flat/hierarchical facets and open-ended low bounds |
+| ?high | No | typed numeric literal | Upper bound of a range bucket. Unbound for flat/hierarchical facets and open-ended high bounds |
+| ?count | No | xsd:long | Number of matching documents |
 
 ### Examples
 
@@ -219,6 +265,84 @@ PREFIX luc: <urn:jena:lucene:index#>
 # Combine maxValues=0 with minCount
 (?f ?v ?c) luc:facet ("default" "learning" '["urn:jena:lucene:field#author"]' 0 2) .
 ```
+
+### Range Facets
+
+Range facets provide bucketed counts for numeric fields. Mark the field `idx:facetable true` in the configuration, then include a range object in the `facetFields` array.
+
+```sparql
+PREFIX luc: <urn:jena:lucene:index#>
+
+# Range facets on year field
+(?f ?v ?low ?high ?c) luc:facet ("default" "learning"
+    '[{"field":"urn:jena:lucene:field#year", "ranges":[2020, 2022, 2024, 2026]}]'
+    10) .
+```
+
+Returns:
+
+| ?field | ?value | ?low | ?high | ?count |
+|--------|--------|------|-------|--------|
+| `<urn:jena:lucene:field#year>` | — | `"2020"^^xsd:integer` | `"2022"^^xsd:integer` | 35 |
+| `<urn:jena:lucene:field#year>` | — | `"2022"^^xsd:integer` | `"2024"^^xsd:integer` | 28 |
+| `<urn:jena:lucene:field#year>` | — | `"2024"^^xsd:integer` | `"2026"^^xsd:integer` | 18 |
+
+**Mixed flat and range facets** in a single call:
+
+```sparql
+# Category facets + year range buckets in one request
+(?f ?v ?low ?high ?c) luc:facet ("default" "learning"
+    '["urn:jena:lucene:field#category", {"field":"urn:jena:lucene:field#year", "ranges":[2020, 2022, 2024, 2026]}]'
+    10) .
+```
+
+Flat rows bind `?value` and leave `?low` / `?high` unbound. Range rows bind `?low` / `?high` and leave `?value` unbound.
+
+**Open-ended ranges** with `null` boundaries:
+
+```sparql
+# Include "before 2020" and "2026+" buckets
+(?f ?v ?low ?high ?c) luc:facet ("default" "learning"
+    '[{"field":"urn:jena:lucene:field#year", "ranges":[null, 2020, 2022, 2024, 2026, null]}]'
+    10) .
+```
+
+Open-ended buckets leave the missing bound unbound:
+
+- `(-∞, 2020)` => `?low` unbound, `?high = "2020"^^xsd:integer`
+- `[2026, +∞)` => `?low = "2026"^^xsd:integer`, `?high` unbound
+
+**With CQL filters:**
+
+```sparql
+# Year ranges for Technology books only
+(?f ?v ?low ?high ?c) luc:facet ("default" "learning"
+    '[{"field":"urn:jena:lucene:field#year", "ranges":[2020, 2022, 2024, 2026]}]'
+    '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}'
+    10) .
+```
+
+**Date fields:** Lucene has no native date type. Store dates as epoch milliseconds in a LONG field (`idx:fieldType idx:LongField ; idx:facetable true`). Range boundaries are then epoch millis values:
+
+```sparql
+# Date range facets (epoch millis for 2020-01-01, 2022-01-01, 2024-01-01, 2026-01-01)
+(?f ?v ?low ?high ?c) luc:facet ("default" "*"
+    '[{"field":"urn:jena:lucene:field#publishDate", "ranges":[1577836800000, 1640995200000, 1704067200000, 1767225600000]}]'
+    10) .
+```
+
+### Hierarchical vs Range Facets for Dates
+
+Dates can be faceted using either approach, serving different navigation patterns:
+
+| Approach | Fields | Facet type | Navigation pattern |
+|----------|--------|------------|-------------------|
+| **Hierarchical** | Separate KEYWORD fields per level (e.g. `field:year`, `field:month`, `field:day`) | Taxonomy drill-down | "Drill into 2024 → March → 15th" |
+| **Range** | Single LONG field with epoch millis | Numeric bucketing | "How many per 2-year band?" |
+
+Both approaches can coexist on the same underlying data — they use different Lucene fields and different facet mechanisms. A hierarchical date facet uses KEYWORD fields indexed via the taxonomy, while a range date facet uses a single numeric LONG field with numeric docvalues. There is no conflict because they are separate fields, even if they derive from the same RDF property.
+
+You cannot use both hierarchical and range faceting on the *same* Lucene field — hierarchical requires KEYWORD/taxonomy data while range requires numeric doc values.
 
 ### Hierarchy Drill-Down
 
@@ -311,7 +435,9 @@ SELECT ?entity ?score ?totalHits ?field ?value ?count WHERE {
 }
 ```
 
-This returns N + M rows (not N × M). Hit rows have `?field`, `?value`, `?count` unbound; facet rows have `?entity`, `?score`, `?totalHits` unbound. The consumer splits results by checking which columns are present. `?totalHits` appears on every hit row with the same value — read it from the first row. Both PFs share a single Lucene execution via `SearchExecution` (see below).
+This returns N + M rows (not N × M). Hit rows have facet variables unbound; facet rows have `?entity`, `?score`, `?totalHits` unbound. The consumer splits results by checking which columns are present. `?totalHits` appears on every hit row with the same value — read it from the first row. Both PFs share a single Lucene execution via `SearchExecution` (see below).
+
+If the facet branch requests range buckets, include `?low` and `?high` in the projection and use the 5-slot `luc:facet` subject form in that branch.
 
 ### Avoid: Combined BGP (cartesian product)
 
@@ -332,9 +458,9 @@ With 100 hits and 10 facet values, this returns 1,000 rows — every hit paired 
 
 ## Shared Execution
 
-When `luc:query`, `luc:facet`, and `luc:match` appear in the same SPARQL query (whether in a BGP, UNION, or subquery) with matching parameters, they share a single Lucene execution internally. One Lucene query, one index reader snapshot, consistent results.
+When `luc:query`, `luc:facet`, and `luc:match` appear in the same SPARQL query (whether in a BGP, UNION, or subquery) with matching search parameters, they share a single Lucene execution internally. One Lucene query, one index reader snapshot, consistent results.
 
-The match is based on normalised keys — search field IRIs are sorted, CQL filter maps are sorted by field. If parameters differ, each PF executes independently.
+The shared search key is based on normalised search parameters — search field IRIs, query string, filters, and sort. Facet request details such as requested fields, range boundaries, `maxValues`, and `minCount` are applied after the shared search collection step.
 
 This optimisation is transparent. It reduces Lucene index access but does not change SPARQL result semantics — the cartesian product concern (above) is a SPARQL join issue, not a Lucene execution issue.
 
@@ -364,19 +490,19 @@ For programmatic access via `ShaclTextIndexLucene`. The Java API accepts Lucene 
 
 ```java
 // Open facets (all documents)
-Map<String, List<FacetValue>> counts =
+Map<String, List<FacetBucket>> counts =
     textIndex.getFacetCounts(Arrays.asList("category"), 10);
 
 // Filtered by query
-Map<String, List<FacetValue>> filtered =
+Map<String, List<FacetBucket>> filtered =
     textIndex.getFacetCounts("machine learning", Arrays.asList("category"), 10);
 
 // With minCount
-Map<String, List<FacetValue>> rare =
+Map<String, List<FacetBucket>> rare =
     textIndex.getFacetCounts("learning", Arrays.asList("author"), 10, 2);
 
 // With search fields scoping
-Map<String, List<FacetValue>> scoped =
+Map<String, List<FacetBucket>> scoped =
     textIndex.getFacetCounts("learning", List.of("title"),
         Arrays.asList("author"), 10);
 
@@ -388,12 +514,7 @@ List<TextHit> hits =
 long total = textIndex.countQueryWithCql("learning", null, null);
 ```
 
-`FacetValue` is an immutable pair:
-
-```java
-facetValue.getValue()   // "Technology"
-facetValue.getCount()   // 42
-```
+For flat facets, programmatic results expose a field value plus count. For range facets, programmatic results follow the same model as SPARQL: explicit typed low/high bounds plus count, not a display label string.
 
 ### Checking Facet Support
 
@@ -403,4 +524,4 @@ if (textIndex.isFacetingEnabled()) {
 }
 ```
 
-`isFacetingEnabled()` returns `true` when the index has facetable fields configured (`idx:facetable true` on one or more fields).
+`isFacetingEnabled()` returns `true` when the index has facetable fields configured, including numeric fields marked `idx:facetable true`.

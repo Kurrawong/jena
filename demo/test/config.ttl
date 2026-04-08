@@ -88,6 +88,7 @@ field:year
     idx:fieldName "year" ;
     idx:fieldType idx:IntField ;
     idx:sortable true ;
+    idx:facetable true ;
     sh:path ex:year .
 
 field:authorName
@@ -106,6 +107,7 @@ field:depth
     idx:fieldName "depth" ;
     idx:fieldType idx:IntField ;
     idx:sortable true ;
+    idx:facetable true ;
     sh:path ex:depth .
 
 field:identifier
