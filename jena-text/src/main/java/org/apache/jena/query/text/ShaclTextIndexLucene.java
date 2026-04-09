@@ -31,6 +31,7 @@ import org.apache.jena.geosparql.implementation.vocabulary.SRS_URI;
 import org.apache.jena.datatypes.xsd.XSDDatatype;
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
+import org.apache.jena.query.text.assembler.IndexVocab;
 import org.apache.jena.query.text.cql.CqlExpression;
 import org.apache.jena.query.text.cql.CqlToLuceneCompiler;
 import org.apache.lucene.document.*;
@@ -90,6 +91,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
     /** Index field name for taxonomy facet ordinals (kept separate from SSDV's $facets). */
     private static final String TAXO_INDEX_FIELD = "$taxo_facets";
+    private static final String MULTI_VALUED_CONFIG_IRI = IndexVocab.NS + "multiValued";
 
     private final ShaclIndexMapping shaclMapping;
     private final List<String> facetFields;
@@ -512,7 +514,13 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             if (value instanceof List) {
                 @SuppressWarnings("unchecked")
                 List<Object> values = (List<Object>) value;
-                for (Object v : values) {
+                List<Object> valuesToIndex = values;
+                if (!fieldDef.isMultiValued() && values.size() > 1) {
+                    log.warn("Multiple values found for non-multi-valued field '{}' on entity '{}'; only the first value will be indexed. To index all values, set <{}> true in the index configuration.",
+                        fieldDef.getFieldName(), entity.getId(), MULTI_VALUED_CONFIG_IRI);
+                    valuesToIndex = Collections.singletonList(values.get(0));
+                }
+                for (Object v : valuesToIndex) {
                     addFieldToDoc(doc, fieldDef, v);
                 }
             } else {

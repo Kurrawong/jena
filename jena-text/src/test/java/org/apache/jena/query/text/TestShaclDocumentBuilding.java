@@ -205,14 +205,37 @@ public class TestShaclDocumentBuilding {
 
     @Test
     public void testMultiValuedField() {
+        FieldDef multiTitleField = new FieldDef("title", FieldType.TEXT, null,
+            true, true, false, false, true, true,
+            Collections.singleton(TITLE_PRED));
+        IndexProfile multiValueProfile = new IndexProfile(
+            NodeFactory.createURI(NS + "BookShapeMulti"),
+            Collections.singleton(BOOK_CLASS),
+            "uri", "docType",
+            Collections.singletonList(multiTitleField));
+
         Entity entity = new Entity("http://example.org/book1", null);
         entity.addValue("title", "First Title");
         entity.addValue("title", "Second Title");
 
-        Document doc = textIndex.docFromMapping(entity, testProfile);
+        Document doc = textIndex.docFromMapping(entity, multiValueProfile);
 
         IndexableField[] titleFields = doc.getFields("title");
-        assertTrue("Should have 2 title fields for multi-valued", titleFields.length >= 2);
+        assertEquals("Should have 2 title fields for multi-valued", 2, titleFields.length);
+    }
+
+    @Test
+    public void testNonMultiValuedSortableFieldOnlyIndexesFirstValue() {
+        Entity entity = new Entity("http://example.org/book1", null);
+        entity.addValue("category", "Science");
+        entity.addValue("category", "Technology");
+
+        Document doc = textIndex.docFromMapping(entity, testProfile);
+
+        assertEquals("Science", doc.get("category"));
+        assertEquals("Should only index one category value for non-multi-valued field", 2,
+            doc.getFields("category").length);
+        textIndex.updateEntityForProfile(entity, testProfile);
     }
 
     @Test
