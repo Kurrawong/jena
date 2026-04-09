@@ -138,10 +138,10 @@ tasks:
   # ── Docker (Fuseki server image) ─────────────────────────
 
   image-build:
-    desc: "Build Docker image for linux/amd64 (optionally: task image-build IMAGE_NAME=myapp IMAGE_TAG=latest)"
+    desc: "Build Docker image locally (optionally: task image-build IMAGE_NAME=myapp IMAGE_TAG=latest)"
     dir: ..
     cmds:
-      - docker buildx build --platform linux/amd64 -f demo/test/Dockerfile -t {{.IMAGE_NAME}}:{{.IMAGE_TAG}} --load .
+      - docker build -f demo/test/Dockerfile -t {{.IMAGE_NAME}}:{{.IMAGE_TAG}} .
 
   image-push:
     desc: "Build and push image to ACR (usage: task image-push ACR_NAME=gswadevacr)"
@@ -223,7 +223,7 @@ tasks:
     deps: [image-build]
     dir: ..
     cmds:
-      - docker buildx build --platform linux/amd64 -f demo/loader/Dockerfile --build-arg BASE_IMAGE={{.IMAGE_NAME}} --build-arg BASE_TAG={{.IMAGE_TAG}} -t fuseki-loader:{{.IMAGE_TAG}} --load .
+      - docker build -f demo/loader/Dockerfile --build-arg BASE_IMAGE={{.IMAGE_NAME}} --build-arg BASE_TAG={{.IMAGE_TAG}} -t fuseki-loader:{{.IMAGE_TAG}} .
 
   loader-ghcr-push:
     desc: Build and push loader image to GitHub CR
@@ -243,3 +243,51 @@ tasks:
       - az acr login --name {{.ACR_NAME}}
       - docker tag fuseki-loader:{{.IMAGE_TAG}} {{.ACR_NAME}}.azurecr.io/fuseki-loader:{{.IMAGE_TAG}}
       - docker push {{.ACR_NAME}}.azurecr.io/fuseki-loader:{{.IMAGE_TAG}}
+
+  loader-index-build:
+    desc: Build the loader image with MODE=index as the default
+    deps: [image-build]
+    dir: ..
+    cmds:
+      - docker build -f demo/loader/Dockerfile --build-arg BASE_IMAGE={{.IMAGE_NAME}} --build-arg BASE_TAG={{.IMAGE_TAG}} --build-arg DEFAULT_MODE=index -t fuseki-loader-index:{{.IMAGE_TAG}} .
+
+  loader-index-ghcr-push:
+    desc: Build and push the index-only loader image to GitHub CR
+    deps: [loader-index-build]
+    cmds:
+      - gh auth token | docker login ghcr.io -u {{.GHCR_OWNER}} --password-stdin
+      - docker tag fuseki-loader-index:{{.IMAGE_TAG}} ghcr.io/{{.GHCR_OWNER}}/fuseki-loader-index:{{.IMAGE_TAG}}
+      - docker push ghcr.io/{{.GHCR_OWNER}}/fuseki-loader-index:{{.IMAGE_TAG}}
+
+  loader-index-acr-push:
+    desc: "Build and push the index-only loader image to ACR (usage: task loader-index-acr-push ACR_NAME=gswadevacr)"
+    requires:
+      vars: [ACR_NAME]
+    deps: [loader-index-build]
+    cmds:
+      - az account show > /dev/null 2>&1 || az login
+      - az acr login --name {{.ACR_NAME}}
+      - docker tag fuseki-loader-index:{{.IMAGE_TAG}} {{.ACR_NAME}}.azurecr.io/fuseki-loader-index:{{.IMAGE_TAG}}
+      - docker push {{.ACR_NAME}}.azurecr.io/fuseki-loader-index:{{.IMAGE_TAG}}
+
+  loader-index:
+    desc: Run the loader image in text-only reindex mode against an existing TDB2 store
+    deps: [loader-build]
+    dir: loader
+    env:
+      IMAGE_NAME: 'fuseki-loader'
+      IMAGE_TAG: '{{.IMAGE_TAG}}'
+      MODE: 'index'
+    cmds:
+      - docker compose run --rm -e MODE={{.MODE}} loader
+
+  loader-index-ghcr:
+    desc: Run the GHCR loader image in text-only reindex mode against an existing TDB2 store
+    dir: loader
+    env:
+      IMAGE_NAME: 'ghcr.io/{{.GHCR_OWNER}}/fuseki-loader'
+      IMAGE_TAG: '{{.IMAGE_TAG}}'
+      MODE: 'index'
+    cmds:
+      - docker compose pull loader
+      - docker compose run --rm -e MODE={{.MODE}} loader

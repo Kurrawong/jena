@@ -1,0 +1,59 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# https://taskfile.dev
+version: '3'
+
+vars:
+  VERSION: 6.1.0-SNAPSHOT
+  RUNTIME_IMAGE_NAME: '{{.RUNTIME_IMAGE_NAME | default "fuseki-ai"}}'
+  IMAGE_NAME: '{{.IMAGE_NAME | default "fuseki-loader"}}'
+  IMAGE_TAG: '{{.IMAGE_TAG | default .VERSION}}'
+  GHCR_OWNER: '{{.GHCR_OWNER | default "aiworkerjohns"}}'
+
+tasks:
+  runtime-build:
+    desc: Build the clean runtime Fuseki image from the repo root
+    cmds:
+      - docker build -f build-files/docker/Dockerfile.runtime -t {{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}} .
+
+  runtime-ghcr-push:
+    desc: Build and push the clean runtime Fuseki image to GitHub CR
+    deps: [runtime-build]
+    cmds:
+      - gh auth token | docker login ghcr.io -u {{.GHCR_OWNER}} --password-stdin
+      - docker tag {{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}} ghcr.io/{{.GHCR_OWNER}}/{{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}}
+      - docker push ghcr.io/{{.GHCR_OWNER}}/{{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}}
+
+  runtime-acr-push:
+    desc: "Build and push the clean runtime Fuseki image to ACR (usage: task runtime-acr-push ACR_NAME=gswadevacr)"
+    requires:
+      vars: [ACR_NAME]
+    deps: [runtime-build]
+    cmds:
+      - az account show > /dev/null 2>&1 || az login
+      - az acr login --name {{.ACR_NAME}}
+      - docker tag {{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}} {{.ACR_NAME}}.azurecr.io/{{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}}
+      - docker push {{.ACR_NAME}}.azurecr.io/{{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}}
+
+  loader-build:
+    desc: Build the text-only SHACL indexer image from the repo root
+    cmds:
+      - docker build -f build-files/docker/Dockerfile.loader -t {{.IMAGE_NAME}}:{{.IMAGE_TAG}} .
+
+  loader-ghcr-push:
+    desc: Build and push the text-only SHACL indexer image to GitHub CR
+    deps: [loader-build]
+    cmds:
+      - gh auth token | docker login ghcr.io -u {{.GHCR_OWNER}} --password-stdin
+      - docker tag {{.IMAGE_NAME}}:{{.IMAGE_TAG}} ghcr.io/{{.GHCR_OWNER}}/{{.IMAGE_NAME}}:{{.IMAGE_TAG}}
+      - docker push ghcr.io/{{.GHCR_OWNER}}/{{.IMAGE_NAME}}:{{.IMAGE_TAG}}
+
+  loader-acr-push:
+    desc: "Build and push the text-only SHACL indexer image to ACR (usage: task loader-acr-push ACR_NAME=gswadevacr)"
+    requires:
+      vars: [ACR_NAME]
+    deps: [loader-build]
+    cmds:
+      - az account show > /dev/null 2>&1 || az login
+      - az acr login --name {{.ACR_NAME}}
+      - docker tag {{.IMAGE_NAME}}:{{.IMAGE_TAG}} {{.ACR_NAME}}.azurecr.io/{{.IMAGE_NAME}}:{{.IMAGE_TAG}}
+      - docker push {{.ACR_NAME}}.azurecr.io/{{.IMAGE_NAME}}:{{.IMAGE_TAG}}

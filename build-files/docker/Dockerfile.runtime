@@ -14,9 +14,5 @@ FROM eclipse-temurin:21-jre-alpine
 WORKDIR /fuseki
 
 COPY --from=builder /build/jena-fuseki2/jena-fuseki-server/target/jena-fuseki-server-*.jar ./jena-fuseki-server.jar
-COPY demo/test/config.ttl ./config.ttl
-COPY demo/test/data/ ./data/
 
-EXPOSE 3030
-
-ENTRYPOINT ["java", "-jar", "jena-fuseki-server.jar", "--config", "config.ttl"]
+ENTRYPOINT ["java", "-jar", "/fuseki/jena-fuseki-server.jar", "--config", "/config/config.ttl"]
