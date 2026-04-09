@@ -187,7 +187,7 @@ Build the server Docker image locally:
 task image-build
 ```
 
-This produces `fuseki-ai:6.1.0-SNAPSHOT` by default. The image is built with a multi-stage Docker build, compiling the Fuseki server jar inside Docker rather than requiring a host-built jar. The runtime image is based on `eclipse-temurin:21-jre-alpine` and includes the server config and demo mining dataset.
+This produces `fuseki-ai:6.1.0-SNAPSHOT` by default. The image is built with a standard multi-stage `docker build`, compiling the Fuseki server jar inside Docker rather than requiring a host-built jar. The runtime image is based on `eclipse-temurin:21-jre-alpine` and includes the server config and demo mining dataset.
 
 Override the image name or tag:
 
@@ -272,6 +272,24 @@ docker run --rm \
 | `INPUT_DIR` | `/input` | Data files directory |
 | `JAVA_OPTS` | (none) | JVM flags, e.g. `-Xmx8g` for large datasets |
 
+If you already have a large TDB2 store and only need to rebuild the SHACL Lucene index, use the safe `MODE=index` task below instead of the loader image's default entrypoint.
+For a safe text-only reindex using the existing loader image:
+
+```bash
+task loader-index
+```
+
+This runs the loader container with `MODE=index`, so it skips `tdb2.tdbloader` and only runs `shacltextindexer`.
+
+If you want a published image whose default startup mode is already safe for reindex-only use:
+
+```bash
+task loader-index-build
+task loader-index-acr-push ACR_NAME=gswadevacr
+```
+
+This produces and pushes `fuseki-loader-index:6.1.0-SNAPSHOT`, which bakes in `MODE=index` as the default while still allowing overrides at runtime.
+
 ### Using with the server image
 
 The loader and server images share volumes, so you can bulk-load data offline then start the server:
@@ -304,6 +322,12 @@ task loader-ghcr-push
 
 # Azure Container Registry
 task loader-acr-push ACR_NAME=gswadevacr
+
+# Safe index-only loader image to ACR
+task loader-index-acr-push ACR_NAME=gswadevacr
+
+# Safe text-only reindex from GHCR
+task loader-index-ghcr
 ```
 
 ## Demo app (FastAPI + Bulma)
