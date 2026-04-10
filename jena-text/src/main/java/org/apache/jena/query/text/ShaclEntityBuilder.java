@@ -81,7 +81,7 @@ final class ShaclEntityBuilder {
         if (path != null && fieldDef.hasComplexPath()) {
             Iterator<Node> iter = PathEval.eval(graph, subject, path, null);
             while (iter.hasNext()) {
-                Object value = nodeToValue(iter.next(), fieldDef.getFieldType());
+                Object value = nodeToValue(iter.next(), fieldDef.getFieldType(), fieldDef.preservesLiteralMetadata());
                 if (value != null) {
                     values.add(value);
                 }
@@ -94,7 +94,7 @@ final class ShaclEntityBuilder {
                 .mapWith(t -> t.getObject());
             try {
                 while (iter.hasNext()) {
-                    Object value = nodeToValue(iter.next(), fieldDef.getFieldType());
+                    Object value = nodeToValue(iter.next(), fieldDef.getFieldType(), fieldDef.preservesLiteralMetadata());
                     if (value != null) {
                         values.add(value);
                     }
@@ -110,7 +110,7 @@ final class ShaclEntityBuilder {
                 .mapWith(t -> t.getObject());
             try {
                 while (iter.hasNext()) {
-                    Object value = nodeToValue(iter.next(), fieldDef.getFieldType());
+                    Object value = nodeToValue(iter.next(), fieldDef.getFieldType(), fieldDef.preservesLiteralMetadata());
                     if (value != null) {
                         values.add(value);
                     }
@@ -135,7 +135,14 @@ final class ShaclEntityBuilder {
     }
 
     static Object nodeToValue(Node obj, FieldType fieldType) {
+        return nodeToValue(obj, fieldType, false);
+    }
+
+    static Object nodeToValue(Node obj, FieldType fieldType, boolean preserveLiteralMetadata) {
         if (obj.isLiteral()) {
+            if (preserveLiteralMetadata || fieldType == FieldType.DATE || fieldType == FieldType.DATETIME) {
+                return obj;
+            }
             return switch (fieldType) {
                 case INT -> {
                     try {

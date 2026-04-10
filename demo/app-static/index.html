@@ -170,6 +170,67 @@
                 </details>
               </template>
 
+              <template x-if="temporalFields.length > 0">
+                <details class="facet-group" open>
+                  <summary class="facet-group-label">temporal range</summary>
+                  <div class="temporal-panel">
+                    <template x-for="fieldName in temporalFields" :key="fieldName">
+                      <div class="temporal-card">
+                        <div class="temporal-card-header">
+                          <span class="temporal-title" x-text="temporalFieldLabel(fieldName)"></span>
+                          <button class="temporal-clear-btn"
+                                  type="button"
+                                  x-show="temporalRangeSelection(fieldName).low || temporalRangeSelection(fieldName).high"
+                                  @click="clearTemporalRange(fieldName)">clear</button>
+                        </div>
+
+                        <div class="temporal-input-row">
+                          <label class="temporal-input-group">
+                            <span>from</span>
+                            <input class="input temporal-input"
+                                   :type="temporalInputType(fieldName)"
+                                   :value="temporalInputValue(fieldName, 'low')"
+                                   @change="updateTemporalInput(fieldName, 'low', $event.target.value)">
+                          </label>
+                          <label class="temporal-input-group">
+                            <span>to</span>
+                            <input class="input temporal-input"
+                                   :type="temporalInputType(fieldName)"
+                                   :value="temporalInputValue(fieldName, 'high')"
+                                   @change="updateTemporalInput(fieldName, 'high', $event.target.value)">
+                          </label>
+                        </div>
+
+                        <div class="temporal-slider-dual">
+                          <div class="temporal-slider-track"></div>
+                          <div class="temporal-slider-range"
+                               :style="temporalSliderRangeStyle(fieldName)"></div>
+                          <input class="temporal-slider temporal-slider-low"
+                                 type="range"
+                                 :min="temporalSliderMin(fieldName)"
+                                 :max="temporalSliderMax(fieldName)"
+                                 :step="temporalSliderStep(fieldName)"
+                                 :value="temporalSliderValue(fieldName, 'low')"
+                                 @input="updateTemporalSlider(fieldName, 'low', $event.target.value)">
+                          <input class="temporal-slider temporal-slider-high"
+                                 type="range"
+                                 :min="temporalSliderMin(fieldName)"
+                                 :max="temporalSliderMax(fieldName)"
+                                 :step="temporalSliderStep(fieldName)"
+                                 :value="temporalSliderValue(fieldName, 'high')"
+                                 @input="updateTemporalSlider(fieldName, 'high', $event.target.value)">
+                        </div>
+
+                        <div class="temporal-bound-row">
+                          <span x-text="temporalBounds(fieldName).min"></span>
+                          <span x-text="temporalBounds(fieldName).max"></span>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </details>
+              </template>
+
               <template x-for="fieldName in facetFields" :key="fieldName">
                 <div>
                   <template x-if="(facets[fieldName] || []).length > 0">
@@ -265,10 +326,18 @@
                  :class="{ 'is-highlighted': $store.app.highlightUri === card.uri }">
               <div class="result-card-header">
                 <span class="result-card-label" x-text="card.label"></span>
-                <span class="result-card-score">
-                  <span class="score-label">score</span>
-                  <span class="score-value" x-text="card.score.toFixed(2)"></span>
-                </span>
+                <div class="result-card-actions">
+                  <button class="result-card-ttl-toggle"
+                          type="button"
+                          :class="{ 'is-active': card.turtleOpen }"
+                          @click="toggleCardTurtle(card)"
+                          x-text="cardTurtleButtonLabel(card)">
+                  </button>
+                  <span class="result-card-score">
+                    <span class="score-label">score</span>
+                    <span class="score-value" x-text="card.score.toFixed(2)"></span>
+                  </span>
+                </div>
               </div>
 
               <template x-if="card.description">
@@ -303,6 +372,18 @@
                   </tbody>
                 </table>
               </template>
+
+              <div class="result-turtle-panel" x-show="card.turtleOpen">
+                <template x-if="card.turtleLoading">
+                  <div class="result-turtle-status">Loading Turtle...</div>
+                </template>
+                <template x-if="card.turtleError">
+                  <div class="result-turtle-error" x-text="card.turtleError"></div>
+                </template>
+                <template x-if="card.turtleText && !card.turtleLoading">
+                  <pre class="result-turtle-pre"><code x-text="card.turtleText"></code></pre>
+                </template>
+              </div>
             </div>
           </template>
 

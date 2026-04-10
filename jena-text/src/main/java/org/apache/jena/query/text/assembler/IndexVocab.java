@@ -48,6 +48,8 @@ public class IndexVocab {
     public static final Resource IntField       = Vocab.resource(NS, "IntField");
     public static final Resource LongField      = Vocab.resource(NS, "LongField");
     public static final Resource DoubleField    = Vocab.resource(NS, "DoubleField");
+    public static final Resource DateField      = Vocab.resource(NS, "DateField");
+    public static final Resource DateTimeField  = Vocab.resource(NS, "DateTimeField");
     public static final Resource LatLonField    = Vocab.resource(NS, "LatLonField");
 
     // Shape-level properties
@@ -67,6 +69,7 @@ public class IndexVocab {
     public static final Property pSortable      = Vocab.property(NS, "sortable");
     public static final Property pMultiValued   = Vocab.property(NS, "multiValued");
     public static final Property pDefaultSearch = Vocab.property(NS, "defaultSearch");
+    public static final Property pStoreLiteralMetadata = Vocab.property(NS, "storeLiteralMetadata");
     public static final Property pPath          = Vocab.property(NS, "path");
     public static final Property pJoinPath      = Vocab.property(NS, "joinPath");
     public static final Property pProperty      = Vocab.property(NS, "property");

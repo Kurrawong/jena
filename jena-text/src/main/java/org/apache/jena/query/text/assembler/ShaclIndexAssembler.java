@@ -381,6 +381,7 @@ public class ShaclIndexAssembler {
         boolean sortable = getOptionalBoolean(fieldRes, IndexVocab.pSortable, false);
         boolean multiValued = getOptionalBoolean(fieldRes, IndexVocab.pMultiValued, false);
         boolean defaultSearch = getOptionalBoolean(fieldRes, IndexVocab.pDefaultSearch, false);
+        boolean storeLiteralMetadata = getOptionalBoolean(fieldRes, IndexVocab.pStoreLiteralMetadata, false);
 
         // Parse path: from sh:path or idx:path
         Path path = extractPath(fieldRes);
@@ -396,7 +397,8 @@ public class ShaclIndexAssembler {
 
         log.debug("Parsed field: {} type={} path={} facetable={}", fieldName, fieldType, path, facetable);
         return new FieldDef(fieldName, fieldType, analyzer, queryAnalyzer, stored, indexed,
-                           facetable, sortable, multiValued, defaultSearch, predicates, path, fieldIRI);
+                           facetable, sortable, multiValued, defaultSearch, storeLiteralMetadata,
+                           predicates, path, fieldIRI);
     }
 
     /**
@@ -600,6 +602,8 @@ public class ShaclIndexAssembler {
         if (IndexVocab.IntField.getURI().equals(uri)) return FieldType.INT;
         if (IndexVocab.LongField.getURI().equals(uri)) return FieldType.LONG;
         if (IndexVocab.DoubleField.getURI().equals(uri)) return FieldType.DOUBLE;
+        if (IndexVocab.DateField.getURI().equals(uri)) return FieldType.DATE;
+        if (IndexVocab.DateTimeField.getURI().equals(uri)) return FieldType.DATETIME;
         if (IndexVocab.LatLonField.getURI().equals(uri)) return FieldType.LATLON;
         throw new TextIndexException("Unknown idx:fieldType: " + uri);
     }

@@ -127,13 +127,20 @@ public class TestCqlParser {
     @Test
     public void testParseBetween() {
         CqlExpression expr = CqlParser.parse(
-            "{\"op\":\"between\",\"args\":[{\"property\":\"year\"},[2020,2025]]}");
+            "{\"op\":\"between\",\"args\":[{\"property\":\"year\"},2020,2025]}");
 
         assertInstanceOf(CqlExpression.CqlBetween.class, expr);
         CqlExpression.CqlBetween btw = (CqlExpression.CqlBetween) expr;
         assertEquals("year", btw.property());
         assertEquals(2020, btw.lower());
         assertEquals(2025, btw.upper());
+    }
+
+    @Test
+    public void testParseBetweenArrayFormRejected() {
+        TextIndexException ex = assertThrows(TextIndexException.class, () ->
+            CqlParser.parse("{\"op\":\"between\",\"args\":[{\"property\":\"year\"},[2020,2025]]}"));
+        assertTrue(ex.getMessage().contains("requires exactly 3 arguments"));
     }
 
     @Test

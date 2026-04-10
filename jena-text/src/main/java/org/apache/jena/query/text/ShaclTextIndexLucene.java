@@ -28,6 +28,7 @@ import org.apache.jena.geosparql.implementation.GeometryWrapper;
 import org.apache.jena.geosparql.implementation.datatype.WKTDatatype;
 import org.apache.jena.geosparql.implementation.parsers.wkt.WKTReader;
 import org.apache.jena.geosparql.implementation.vocabulary.SRS_URI;
+import org.apache.jena.datatypes.RDFDatatype;
 import org.apache.jena.datatypes.xsd.XSDDatatype;
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
@@ -246,7 +247,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     private static boolean isNumericField(ShaclIndexMapping.FieldDef fieldDef) {
         if (fieldDef == null) return false;
         return switch (fieldDef.getFieldType()) {
-            case INT, LONG, DOUBLE -> true;
+            case INT, LONG, DOUBLE, DATE, DATETIME -> true;
             default -> false;
         };
     }
@@ -440,8 +441,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 if (fd != null) {
                     String[] storedValues = doc.getValues(fd.getFieldName());
                     if (storedValues != null && storedValues.length > 0) {
-                        String selected = selectStoredValue(fd.getFieldName(), storedValues, textQuery);
-                        valueNode = fieldValueToNode(fd, selected);
+                        SelectedStoredValue selected = selectStoredValue(fd.getFieldName(), storedValues, textQuery);
+                        valueNode = fieldValueToNode(doc, fd, selected);
                     }
                 }
 
@@ -460,8 +461,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                         if (fd != null) {
                             String[] storedValues = doc.getValues(fieldName);
                             if (storedValues != null && storedValues.length > 0) {
-                                String selected = selectStoredValue(fieldName, storedValues, textQuery);
-                                valueNode = fieldValueToNode(fd, selected);
+                                SelectedStoredValue selected = selectStoredValue(fieldName, storedValues, textQuery);
+                                valueNode = fieldValueToNode(doc, fd, selected);
                             }
                         }
                         fieldMatches.add(new FieldMatch(fieldIRI, valueNode, null));
@@ -476,18 +477,11 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     /**
      * Convert a stored field value to an appropriate RDF node based on field type.
      */
-    private Node fieldValueToNode(ShaclIndexMapping.FieldDef fd, String value) {
-        if (value == null || fd == null) return null;
-        return switch (fd.getFieldType()) {
-            case KEYWORD -> looksLikeUri(value)
-                ? NodeFactory.createURI(value)
-                : NodeFactory.createLiteralString(value);
-            case TEXT    -> NodeFactory.createLiteralString(value);
-            case INT     -> NodeFactory.createLiteralDT(value, XSDDatatype.XSDinteger);
-            case LONG    -> NodeFactory.createLiteralDT(value, XSDDatatype.XSDlong);
-            case DOUBLE  -> NodeFactory.createLiteralDT(value, XSDDatatype.XSDdouble);
-            case LATLON  -> null;
-        };
+    private Node fieldValueToNode(Document doc, ShaclIndexMapping.FieldDef fd, SelectedStoredValue selectedValue) {
+        if (selectedValue == null || selectedValue.value() == null || fd == null) return null;
+        return LiteralFieldSupport.reconstructNode(fd, selectedValue.value(),
+            alignedStoredValue(doc, LiteralFieldSupport.datatypeField(fd.getFieldName()), selectedValue.index()),
+            alignedStoredValue(doc, LiteralFieldSupport.langField(fd.getFieldName()), selectedValue.index()));
     }
 
     // ---- Document building ----
@@ -620,6 +614,11 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     }
 
     private void addFieldToDoc(Document doc, ShaclIndexMapping.FieldDef fieldDef, Object value) {
+        if (value instanceof Node node) {
+            addNodeFieldToDoc(doc, fieldDef, node);
+            return;
+        }
+
         String fieldName = fieldDef.getFieldName();
         Field.Store store =
             fieldDef.isStored() ? Field.Store.YES : Field.Store.NO;
@@ -691,6 +690,13 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 break;
             }
 
+            case DATE:
+            case DATETIME:
+                if (fieldDef.isStored()) {
+                    doc.add(new StoredField(fieldName, value.toString()));
+                }
+                break;
+
             case LATLON: {
                 String wktValue = value.toString();
                 List<IndexableField> spatialFields = parseWktToLuceneFields(fieldName, wktValue, fieldDef.isStored());
@@ -699,6 +705,134 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 }
                 break;
             }
+        }
+    }
+
+    private void addNodeFieldToDoc(Document doc, ShaclIndexMapping.FieldDef fieldDef, Node node) {
+        if (!node.isLiteral()) {
+            addFieldToDoc(doc, fieldDef, node.isURI() ? node.getURI() : node.toString());
+            return;
+        }
+
+        String fieldName = fieldDef.getFieldName();
+        String lexical = node.getLiteralLexicalForm();
+        if (fieldDef.preservesLiteralMetadata()) {
+            doc.add(new StoredField(LiteralFieldSupport.datatypeField(fieldName),
+                Optional.ofNullable(node.getLiteralDatatypeURI()).orElse("")));
+            doc.add(new StoredField(LiteralFieldSupport.langField(fieldName), node.getLiteralLanguage()));
+        }
+
+        switch (fieldDef.getFieldType()) {
+            case TEXT -> {
+                if (fieldDef.isIndexed()) {
+                    FieldType ft = fieldDef.isStored() ? TextField.TYPE_STORED : TextField.TYPE_NOT_STORED;
+                    doc.add(new Field(fieldName, lexical, ft));
+                } else if (fieldDef.isStored()) {
+                    doc.add(new StoredField(fieldName, lexical));
+                }
+            }
+            case KEYWORD -> {
+                Field.Store store = fieldDef.isStored() ? Field.Store.YES : Field.Store.NO;
+                if (fieldDef.isIndexed()) {
+                    doc.add(new StringField(fieldName, lexical, store));
+                } else if (fieldDef.isStored()) {
+                    doc.add(new StoredField(fieldName, lexical));
+                }
+                if (fieldDef.isFacetable() && !lexical.isEmpty()) {
+                    doc.add(new SortedSetDocValuesFacetField(fieldName, lexical));
+                }
+                if (fieldDef.isSortable()) {
+                    doc.add(new SortedDocValuesField(fieldName, new BytesRef(lexical)));
+                }
+            }
+            case INT -> addIntegerLiteralField(doc, fieldDef, lexical);
+            case LONG -> addLongLiteralField(doc, fieldDef, lexical);
+            case DOUBLE -> addDoubleLiteralField(doc, fieldDef, lexical);
+            case DATE, DATETIME -> addTemporalLiteralField(doc, fieldDef, lexical);
+            case LATLON -> {
+                List<IndexableField> spatialFields = parseWktToLuceneFields(fieldName, lexical, fieldDef.isStored());
+                for (IndexableField f : spatialFields) {
+                    doc.add(f);
+                }
+            }
+        }
+    }
+
+    private void addIntegerLiteralField(Document doc, ShaclIndexMapping.FieldDef fieldDef, String lexical) {
+        Integer intVal = parseInteger(lexical);
+        if (intVal == null) {
+            log.warn("Failed to parse INT literal for field '{}': {}", fieldDef.getFieldName(), lexical);
+            if (fieldDef.isStored()) {
+                doc.add(new StoredField(fieldDef.getFieldName(), lexical));
+            }
+            return;
+        }
+        if (fieldDef.isIndexed()) {
+            doc.add(new IntPoint(fieldDef.getFieldName(), intVal));
+        }
+        if (fieldDef.isStored()) {
+            doc.add(new StoredField(fieldDef.getFieldName(), lexical));
+        }
+        if (fieldDef.isFacetable() || fieldDef.isSortable()) {
+            doc.add(new SortedNumericDocValuesField(fieldDef.getFieldName(), intVal));
+        }
+    }
+
+    private void addLongLiteralField(Document doc, ShaclIndexMapping.FieldDef fieldDef, String lexical) {
+        Long longVal = parseLong(lexical);
+        if (longVal == null) {
+            log.warn("Failed to parse LONG literal for field '{}': {}", fieldDef.getFieldName(), lexical);
+            if (fieldDef.isStored()) {
+                doc.add(new StoredField(fieldDef.getFieldName(), lexical));
+            }
+            return;
+        }
+        if (fieldDef.isIndexed()) {
+            doc.add(new LongPoint(fieldDef.getFieldName(), longVal));
+        }
+        if (fieldDef.isStored()) {
+            doc.add(new StoredField(fieldDef.getFieldName(), lexical));
+        }
+        if (fieldDef.isFacetable() || fieldDef.isSortable()) {
+            doc.add(new SortedNumericDocValuesField(fieldDef.getFieldName(), longVal));
+        }
+    }
+
+    private void addDoubleLiteralField(Document doc, ShaclIndexMapping.FieldDef fieldDef, String lexical) {
+        Double dblVal = parseDouble(lexical);
+        if (dblVal == null) {
+            log.warn("Failed to parse DOUBLE literal for field '{}': {}", fieldDef.getFieldName(), lexical);
+            if (fieldDef.isStored()) {
+                doc.add(new StoredField(fieldDef.getFieldName(), lexical));
+            }
+            return;
+        }
+        if (fieldDef.isIndexed()) {
+            doc.add(new DoublePoint(fieldDef.getFieldName(), dblVal));
+        }
+        if (fieldDef.isStored()) {
+            doc.add(new StoredField(fieldDef.getFieldName(), lexical));
+        }
+        if (fieldDef.isFacetable() || fieldDef.isSortable()) {
+            doc.add(new SortedNumericDocValuesField(fieldDef.getFieldName(), NumericUtils.doubleToSortableLong(dblVal)));
+        }
+    }
+
+    private void addTemporalLiteralField(Document doc, ShaclIndexMapping.FieldDef fieldDef, String lexical) {
+        if (fieldDef.isStored()) {
+            doc.add(new StoredField(fieldDef.getFieldName(), lexical));
+        }
+        Long epoch = LiteralFieldSupport.toEpochMillis(fieldDef.getFieldType(), lexical);
+        if (epoch == null) {
+            log.warn("Failed to parse {} literal for field '{}': {}", fieldDef.getFieldType(), fieldDef.getFieldName(), lexical);
+            return;
+        }
+        String epochFieldName = LiteralFieldSupport.epochField(fieldDef.getFieldName());
+        if (fieldDef.isIndexed()) {
+            doc.add(new LongPoint(epochFieldName, epoch));
+        }
+        if (fieldDef.isFacetable() || fieldDef.isSortable()) {
+            doc.add(new SortedNumericDocValuesField(epochFieldName, epoch));
         }
     }
 
@@ -997,14 +1131,17 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             if (fieldDef == null) {
                 throw new TextIndexException("Unknown range facet field: " + spec.fieldIri());
             }
-            String fieldName = fieldDef.getFieldName();
+            String fieldName = fieldDef.isDateLike()
+                ? LiteralFieldSupport.epochField(fieldDef.getFieldName())
+                : fieldDef.getFieldName();
             List<FacetValue> buckets = switch (fieldDef.getFieldType()) {
                 case INT -> collectIntRangeFacetResults(fieldName, spec.boundaries(), collector, maxValues, minCount);
                 case LONG -> collectLongRangeFacetResults(fieldName, spec.boundaries(), collector, maxValues, minCount);
                 case DOUBLE -> collectDoubleRangeFacetResults(fieldName, spec.boundaries(), collector, maxValues, minCount);
+                case DATE, DATETIME -> collectDateRangeFacetResults(fieldDef, collector, spec.boundaries(), maxValues, minCount);
                 default -> throw new TextIndexException("Range facet field '" + spec.fieldIri() + "' is not numeric");
             };
-            result.put(fieldName, buckets);
+            result.put(fieldDef.getFieldName(), buckets);
         }
     }
 
@@ -1035,6 +1172,15 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         return extractRangeBuckets(counts.getAllChildren(fieldName), boundaries, maxValues, minCount);
     }
 
+    private List<FacetValue> collectDateRangeFacetResults(ShaclIndexMapping.FieldDef fieldDef,
+            FacetsCollector fc, List<String> boundaries, int maxValues, int minCount) throws IOException {
+        String fieldName = LiteralFieldSupport.epochField(fieldDef.getFieldName());
+        List<LongRange> ranges = buildTemporalRanges(boundaries, fieldDef.getFieldType());
+        LongRangeFacetCounts counts = new LongRangeFacetCounts(
+            fieldName, MultiLongValuesSource.fromLongField(fieldName), fc, ranges.toArray(LongRange[]::new));
+        return extractRangeBuckets(counts.getAllChildren(fieldName), boundaries, maxValues, minCount);
+    }
+
     private static List<LongRange> buildLongRanges(List<String> boundaries, boolean intField) {
         List<LongRange> ranges = new ArrayList<>();
         for (int i = 0; i < boundaries.size() - 1; i++) {
@@ -1059,6 +1205,20 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             boolean minInclusive = true;
             boolean maxInclusive = high == null;
             ranges.add(new DoubleRange(Integer.toString(i), min, minInclusive, max, maxInclusive));
+        }
+        return ranges;
+    }
+
+    private static List<LongRange> buildTemporalRanges(List<String> boundaries, ShaclIndexMapping.FieldType fieldType) {
+        List<LongRange> ranges = new ArrayList<>();
+        for (int i = 0; i < boundaries.size() - 1; i++) {
+            String low = boundaries.get(i);
+            String high = boundaries.get(i + 1);
+            long min = low != null ? requireEpoch(fieldType, low) : Long.MIN_VALUE;
+            long max = high != null ? requireEpoch(fieldType, high) : Long.MAX_VALUE;
+            boolean minInclusive = true;
+            boolean maxInclusive = high == null;
+            ranges.add(new LongRange(Integer.toString(i), min, minInclusive, max, maxInclusive));
         }
         return ranges;
     }
@@ -1301,33 +1461,27 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         for (String fieldName : resolvedFields) {
             String[] storedValues = doc.getValues(fieldName);
             if (storedValues == null || storedValues.length == 0) continue;
-            String storedValue = selectStoredValue(fieldName, storedValues, valueQuery);
+            SelectedStoredValue storedValue = selectStoredValue(fieldName, storedValues, valueQuery);
             ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
             if (fd == null) continue;
-            return switch (fd.getFieldType()) {
-                case KEYWORD -> looksLikeUri(storedValue)
-                    ? NodeFactory.createURI(storedValue)
-                    : NodeFactory.createLiteralString(storedValue);
-                case TEXT    -> NodeFactory.createLiteralString(storedValue);
-                case INT     -> NodeFactory.createLiteralDT(storedValue, XSDDatatype.XSDinteger);
-                case LONG    -> NodeFactory.createLiteralDT(storedValue, XSDDatatype.XSDlong);
-                case DOUBLE  -> NodeFactory.createLiteralDT(storedValue, XSDDatatype.XSDdouble);
-                case LATLON  -> null;
-            };
+            return LiteralFieldSupport.reconstructNode(fd, storedValue.value(),
+                alignedStoredValue(doc, LiteralFieldSupport.datatypeField(fieldName), storedValue.index()),
+                alignedStoredValue(doc, LiteralFieldSupport.langField(fieldName), storedValue.index()));
         }
         return null;
     }
 
-    private String selectStoredValue(String fieldName, String[] storedValues, Query valueQuery) {
+    private SelectedStoredValue selectStoredValue(String fieldName, String[] storedValues, Query valueQuery) {
         if (storedValues.length == 1 || valueQuery == null) {
-            return storedValues[0];
+            return new SelectedStoredValue(0, storedValues[0]);
         }
-        for (String storedValue : storedValues) {
+        for (int i = 0; i < storedValues.length; i++) {
+            String storedValue = storedValues[i];
             if (storedValue != null && matchesStoredValue(fieldName, storedValue, valueQuery)) {
-                return storedValue;
+                return new SelectedStoredValue(i, storedValue);
             }
         }
-        return storedValues[0];
+        return new SelectedStoredValue(0, storedValues[0]);
     }
 
     private boolean matchesStoredValue(String fieldName, String storedValue, Query valueQuery) {
@@ -1348,8 +1502,50 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         }
     }
 
-    private static boolean looksLikeUri(String value) {
+    static boolean looksLikeUri(String value) {
         return value.contains("://") || value.startsWith("urn:");
+    }
+
+    private record SelectedStoredValue(int index, String value) {}
+
+    private static String alignedStoredValue(Document doc, String fieldName, int index) {
+        String[] values = doc.getValues(fieldName);
+        if (values == null || index < 0 || index >= values.length) {
+            return null;
+        }
+        return values[index];
+    }
+
+    private static Integer parseInteger(String lexical) {
+        try {
+            return Integer.parseInt(lexical);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private static Long parseLong(String lexical) {
+        try {
+            return Long.parseLong(lexical);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private static Double parseDouble(String lexical) {
+        try {
+            return Double.parseDouble(lexical);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private static long requireEpoch(ShaclIndexMapping.FieldType fieldType, String lexical) {
+        Long epoch = LiteralFieldSupport.toEpochMillis(fieldType, lexical);
+        if (epoch == null) {
+            throw new TextIndexException("Failed to parse " + fieldType + " value: " + lexical);
+        }
+        return epoch;
     }
 
     private Node resolveFieldNode(List<String> resolvedFields) {
@@ -1675,13 +1871,14 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
             // Resolve field identifier (IRI) to Lucene field name
             ShaclIndexMapping.FieldDef fd = shaclMapping.findField(spec.field());
-            String luceneFieldName = fd != null ? fd.getFieldName() : spec.field();
+            String luceneFieldName = fd != null ? LiteralFieldSupport.queryFieldName(fd) : spec.field();
             if (fd != null) {
                 sortType = switch (fd.getFieldType()) {
                     case KEYWORD -> SortField.Type.STRING;
                     case INT -> SortField.Type.INT;
                     case LONG -> SortField.Type.LONG;
                     case DOUBLE -> SortField.Type.DOUBLE;
+                    case DATE, DATETIME -> SortField.Type.LONG;
                     case TEXT -> throw new TextIndexException(
                         "Cannot sort on TEXT field '" + spec.field() + "'. Use KEYWORD for sortable fields.");
                     case LATLON -> throw new TextIndexException(

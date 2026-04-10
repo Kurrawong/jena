@@ -32,6 +32,7 @@ import java.util.Set;
 import org.apache.jena.atlas.json.JSON;
 import org.apache.jena.atlas.json.JsonArray;
 import org.apache.jena.atlas.json.JsonObject;
+import org.apache.jena.query.text.LiteralFieldSupport;
 import org.apache.jena.query.text.ShaclIndexMapping;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
@@ -257,18 +258,18 @@ public class CqlToLuceneCompiler {
         FieldType ft = field.getFieldType();
 
         Query q = switch (op) {
-            case "=" -> buildEqualQuery(field.getFieldName(), ft, value);
+            case "=" -> buildEqualQuery(field, value);
             case "<>" -> {
-                Query eq = buildEqualQuery(field.getFieldName(), ft, value);
+                Query eq = buildEqualQuery(field, value);
                 yield new BooleanQuery.Builder()
                     .add(new MatchAllDocsQuery(), BooleanClause.Occur.MUST)
                     .add(eq, BooleanClause.Occur.MUST_NOT)
                     .build();
             }
-            case "<" -> buildRangeQuery(field.getFieldName(), ft, null, value, false, false);
-            case "<=" -> buildRangeQuery(field.getFieldName(), ft, null, value, false, true);
-            case ">" -> buildRangeQuery(field.getFieldName(), ft, value, null, false, false);
-            case ">=" -> buildRangeQuery(field.getFieldName(), ft, value, null, true, false);
+            case "<" -> buildRangeQuery(field, null, value, false, false);
+            case "<=" -> buildRangeQuery(field, null, value, false, true);
+            case ">" -> buildRangeQuery(field, value, null, false, false);
+            case ">=" -> buildRangeQuery(field, value, null, true, false);
             default -> null;
         };
 
@@ -322,7 +323,7 @@ public class CqlToLuceneCompiler {
 
         BooleanQuery.Builder bq = new BooleanQuery.Builder();
         for (Object v : in.values()) {
-            Query eq = buildEqualQuery(fieldName, ft, v);
+            Query eq = buildEqualQuery(field, v);
             bq.add(eq, BooleanClause.Occur.SHOULD);
         }
         bq.setMinimumNumberShouldMatch(1);
@@ -335,8 +336,7 @@ public class CqlToLuceneCompiler {
             return new CompileResult(null, btw);
         }
 
-        Query q = buildRangeQuery(field.getFieldName(), field.getFieldType(),
-            btw.lower(), btw.upper(), true, true);
+        Query q = buildRangeQuery(field, btw.lower(), btw.upper(), true, true);
         if (q == null) {
             return new CompileResult(null, btw);
         }
@@ -421,19 +421,25 @@ public class CqlToLuceneCompiler {
         }
     }
 
-    private Query buildEqualQuery(String fieldName, FieldType ft, Object value) {
+    private Query buildEqualQuery(FieldDef field, Object value) {
+        String fieldName = field.getFieldName();
+        FieldType ft = field.getFieldType();
         return switch (ft) {
             case KEYWORD, TEXT -> new TermQuery(new Term(fieldName, String.valueOf(value)));
             case INT -> IntPoint.newExactQuery(fieldName, toInt(value));
             case LONG -> LongPoint.newExactQuery(fieldName, toLong(value));
             case DOUBLE -> DoublePoint.newExactQuery(fieldName, toDouble(value));
+            case DATE, DATETIME -> LongPoint.newExactQuery(
+                LiteralFieldSupport.epochField(fieldName),
+                toEpochMillis(ft, value));
             case LATLON -> throw new TextIndexException("Equality queries not supported on LATLON field '" + fieldName + "'");
         };
     }
 
-    private Query buildRangeQuery(String fieldName, FieldType ft,
-                                  Object lower, Object upper,
+    private Query buildRangeQuery(FieldDef field, Object lower, Object upper,
                                   boolean lowerInclusive, boolean upperInclusive) {
+        String fieldName = field.getFieldName();
+        FieldType ft = field.getFieldType();
         return switch (ft) {
             case INT -> {
                 int lo = lower != null ? (lowerInclusive ? toInt(lower) : Math.addExact(toInt(lower), 1)) : Integer.MIN_VALUE;
@@ -453,6 +459,15 @@ public class CqlToLuceneCompiler {
                     ? (upperInclusive ? toDouble(upper) : Math.nextDown(toDouble(upper)))
                     : Double.POSITIVE_INFINITY;
                 yield DoublePoint.newRangeQuery(fieldName, lo, hi);
+            }
+            case DATE, DATETIME -> {
+                long lo = lower != null
+                    ? (lowerInclusive ? toEpochMillis(ft, lower) : Math.addExact(toEpochMillis(ft, lower), 1L))
+                    : Long.MIN_VALUE;
+                long hi = upper != null
+                    ? (upperInclusive ? toEpochMillis(ft, upper) : Math.addExact(toEpochMillis(ft, upper), -1L))
+                    : Long.MAX_VALUE;
+                yield LongPoint.newRangeQuery(LiteralFieldSupport.epochField(fieldName), lo, hi);
             }
             case KEYWORD, TEXT -> null; // Range queries on keywords not supported
             case LATLON -> null; // Range queries not applicable to spatial fields
@@ -476,5 +491,13 @@ public class CqlToLuceneCompiler {
     private static double toDouble(Object v) {
         if (v instanceof Number n) return n.doubleValue();
         return Double.parseDouble(String.valueOf(v));
+    }
+
+    private static long toEpochMillis(FieldType fieldType, Object value) {
+        Long epoch = LiteralFieldSupport.toEpochMillis(fieldType, value);
+        if (epoch == null) {
+            throw new TextIndexException("Could not normalize temporal value '" + value + "' for " + fieldType);
+        }
+        return epoch;
     }
 }
