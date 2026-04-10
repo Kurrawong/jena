@@ -64,13 +64,13 @@ public class TestDateLiteralRoundTrip {
     @Before
     public void setUp() {
         FieldDef labelField = new FieldDef("label", FieldType.TEXT, null,
-            true, true, false, false, false, true, Collections.singleton(LABEL_PRED));
+            true, true, false, false, false, true);
         FieldDef dateField = new FieldDef("eventDate", FieldType.DATE, null, null,
-            true, true, false, true, false, false, true, Collections.singleton(EVENT_DATE_PRED), null, null);
+            true, true, false, true, false, false, true);
         FieldDef tsField = new FieldDef("eventTimestamp", FieldType.DATETIME, null, null,
-            true, true, false, true, false, false, true, Collections.singleton(EVENT_TS_PRED), null, null);
+            true, true, false, true, false, false, true);
         FieldDef noteField = new FieldDef("note", FieldType.TEXT, null, null,
-            true, true, false, false, false, false, true, Collections.singleton(NOTE_PRED), null, null);
+            true, true, false, false, false, false, true);
 
         List<FieldOccurrence> rootOccurrences = Arrays.asList(
             occurrence(labelField, PathFactory.pathLink(LABEL_PRED), Collections.singleton(LABEL_PRED)),

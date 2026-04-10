@@ -60,12 +60,10 @@ public class TestShaclTextDocProducer {
     @Before
     public void setUp() {
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(TITLE_PRED));
+            true, true, false, false, false, true);
 
         FieldDef categoryField = new FieldDef("category", FieldType.KEYWORD, null,
-            true, true, true, false, true, false,
-            Collections.singleton(CATEGORY_PRED));
+            true, true, true, false, true, false);
 
         List<FieldOccurrence> rootOccurrences = Arrays.asList(
             occurrence(titleField, TITLE_PRED),

@@ -64,20 +64,16 @@ public class TestTextQueryPFFilters {
         TextQuery.init();
 
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(TITLE_PRED));
+            true, true, false, false, false, true);
 
         FieldDef categoryField = new FieldDef("category", FieldType.KEYWORD, null,
-            true, true, true, false, true, false,
-            Collections.singleton(CATEGORY_PRED));
+            true, true, true, false, true, false);
 
         FieldDef authorField = new FieldDef("author", FieldType.KEYWORD, null,
-            true, true, true, false, false, false,
-            Collections.singleton(AUTHOR_PRED));
+            true, true, true, false, false, false);
 
         FieldDef yearField = new FieldDef("year", FieldType.INT, null,
-            true, true, false, true, false, false,
-            Collections.singleton(YEAR_PRED));
+            true, true, false, true, false, false);
 
         List<FieldOccurrence> rootOccurrences = Arrays.asList(
             occurrence(titleField, PathFactory.pathLink(TITLE_PRED), Collections.singleton(TITLE_PRED)),

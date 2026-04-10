@@ -508,6 +508,76 @@ public class TestShaclAssembler {
         assertTrue(ex.getMessage().contains("mixes occurrence data with canonical field metadata"));
     }
 
+    @Test
+    public void testRootHierarchyCannotReferenceNestedOnlyField() {
+        Model model = createModel();
+
+        Resource titleField = model.createResource(EX + "titleField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "title")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField);
+        Resource identifierType = model.createResource(EX + "identifierTypeField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifierType")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField);
+
+        Resource nested = model.createResource()
+            .addProperty(model.createProperty(IndexVocab.NS, "joinPath"),
+                model.createResource("https://schema.org/identifier"))
+            .addProperty(model.createProperty(IndexVocab.NS, "property"),
+                occurrence(model, identifierType, model.createResource("https://schema.org/propertyID")));
+
+        Resource shape = model.createResource(EX + "BoreholeShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Borehole"))
+            .addProperty(model.createProperty(SH, "property"), occurrence(model, titleField, RDFS.label))
+            .addProperty(model.createProperty(IndexVocab.NS, "nested"), nested)
+            .addProperty(model.createProperty(IndexVocab.NS, "facetHierarchy"),
+                model.createList(new RDFNode[] { titleField, identifierType }));
+
+        RDFNode shapesList = model.createList(new RDFNode[] { shape });
+        Resource indexSpec = model.createResource(EX + "index")
+            .addProperty(RDF.type, TextVocab.textIndexShacl)
+            .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+            .addProperty(TextVocab.pShapes, shapesList);
+
+        AssemblerException ex = assertThrows(AssemblerException.class,
+            () -> Assembler.general().open(indexSpec));
+        assertTrue(ex.getCause() instanceof TextIndexException);
+        assertTrue(ex.getCause().getMessage().contains("same scope"));
+    }
+
+    @Test
+    public void testConflictingCanonicalFieldAnalyzersRejected() {
+        Model model = createModel();
+
+        Resource identifierFieldA = model.createResource()
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifier")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField)
+            .addProperty(model.createProperty(IndexVocab.NS, "analyzer"),
+                model.createResource().addProperty(RDF.type, TextVocab.edgeNGramAnalyzer));
+        Resource identifierFieldB = model.createResource()
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifier")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField)
+            .addProperty(model.createProperty(IndexVocab.NS, "analyzer"),
+                model.createResource().addProperty(RDF.type, TextVocab.lowerCaseKeywordAnalyzer));
+
+        Resource shape = model.createResource(EX + "SpecimenShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Specimen"))
+            .addProperty(model.createProperty(SH, "property"),
+                occurrence(model, identifierFieldA, model.createResource(EX + "identifierA")))
+            .addProperty(model.createProperty(SH, "property"),
+                occurrence(model, identifierFieldB, model.createResource(EX + "identifierB")));
+
+        RDFNode shapesList = model.createList(new RDFNode[] { shape });
+        Resource indexSpec = model.createResource(EX + "index")
+            .addProperty(RDF.type, TextVocab.textIndexShacl)
+            .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+            .addProperty(TextVocab.pShapes, shapesList);
+
+        AssemblerException ex = assertThrows(AssemblerException.class,
+            () -> Assembler.general().open(indexSpec));
+        assertTrue(ex.getCause() instanceof TextIndexException);
+        assertTrue(ex.getCause().getMessage().contains("defined inconsistently"));
+    }
+
     private static FieldOccurrence findRootOccurrence(IndexProfile profile, String fieldName) {
         return profile.getRootOccurrences().stream()
             .filter(o -> fieldName.equals(o.getField().getFieldName()))

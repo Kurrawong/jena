@@ -69,16 +69,13 @@ public class TestShaclBulkIndexer {
     public void setUp() {
         // Book profile
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(TITLE_PRED));
+            true, true, false, false, false, true);
 
         FieldDef categoryField = new FieldDef("category", FieldType.KEYWORD, null,
-            true, true, true, false, true, false,
-            Collections.singleton(CATEGORY_PRED));
+            true, true, true, false, true, false);
 
         FieldDef authorField = new FieldDef("author", FieldType.KEYWORD, null,
-            true, true, true, false, false, false,
-            Collections.singleton(AUTHOR_PRED));
+            true, true, true, false, false, false);
 
         List<FieldOccurrence> bookOccurrences = Arrays.asList(
             occurrence(titleField, PathFactory.pathLink(TITLE_PRED), Collections.singleton(TITLE_PRED)),
@@ -96,12 +93,10 @@ public class TestShaclBulkIndexer {
 
         // Article profile (different shape, shared title field)
         FieldDef articleTitleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(TITLE_PRED));
+            true, true, false, false, false, true);
 
         FieldDef topicField = new FieldDef("topic", FieldType.KEYWORD, null,
-            true, true, true, false, false, false,
-            Collections.singleton(TOPIC_PRED));
+            true, true, true, false, false, false);
 
         List<FieldOccurrence> articleOccurrences = Arrays.asList(
             occurrence(articleTitleField, PathFactory.pathLink(TITLE_PRED), Collections.singleton(TITLE_PRED)),

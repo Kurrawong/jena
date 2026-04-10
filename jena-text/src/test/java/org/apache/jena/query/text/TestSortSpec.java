@@ -104,9 +104,9 @@ public class TestSortSpec {
         Node yearPred = NodeFactory.createURI("http://example.org/year");
         Node statePred = NodeFactory.createURI("http://example.org/state");
         FieldDef yearField = new FieldDef("year", FieldType.INT, null,
-            true, true, false, true, false, false, Collections.emptySet());
+            true, true, false, true, false, false);
         FieldDef stateField = new FieldDef("state", FieldType.KEYWORD, null,
-            true, true, true, true, false, false, Collections.emptySet());
+            true, true, true, true, false, false);
 
         List<FieldOccurrence> rootOccurrences = Arrays.asList(
             occurrence(yearField, PathFactory.pathLink(yearPred), Collections.singleton(yearPred)),
@@ -156,7 +156,7 @@ public class TestSortSpec {
     public void testBuildLuceneSortNull() {
         Node yearPred = NodeFactory.createURI("http://example.org/year");
         FieldDef yearField = new FieldDef("year", FieldType.INT, null,
-            true, true, false, true, false, false, Collections.emptySet());
+            true, true, false, true, false, false);
 
         List<FieldOccurrence> rootOccurrences = Collections.singletonList(
             occurrence(yearField, PathFactory.pathLink(yearPred), Collections.singleton(yearPred)));
@@ -189,7 +189,7 @@ public class TestSortSpec {
     public void testBuildLuceneSortAscendingUsesMinSelector() {
         Node yearPred = NodeFactory.createURI("http://example.org/year");
         FieldDef yearField = new FieldDef("year", FieldType.INT, null,
-            true, true, false, true, true, false, Collections.emptySet());
+            true, true, false, true, true, false);
 
         List<FieldOccurrence> rootOccurrences = Collections.singletonList(
             occurrence(yearField, PathFactory.pathLink(yearPred), Collections.singleton(yearPred)));
@@ -226,7 +226,7 @@ public class TestSortSpec {
     public void testBuildLuceneSortTextFieldThrows() {
         Node titlePred = NodeFactory.createURI("http://example.org/title");
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true, Collections.emptySet());
+            true, true, false, false, false, true);
 
         List<FieldOccurrence> rootOccurrences = Collections.singletonList(
             occurrence(titleField, PathFactory.pathLink(titlePred), Collections.singleton(titlePred)));

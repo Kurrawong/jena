@@ -25,12 +25,16 @@ import static org.junit.Assert.*;
 
 import java.util.*;
 
+import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.text.ShaclIndexMapping;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.HierarchyDef;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
+import org.apache.jena.query.text.ShaclIndexMapping.JoinStep;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.lucene.facet.DrillDownQuery;
 import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.search.*;
@@ -49,24 +53,31 @@ public class TestCqlToLuceneCompiler {
     @Before
     public void setUp() {
         FieldDef stateField = new FieldDef("state", FieldType.KEYWORD, null,
-            true, true, true, false, false, false, Collections.emptySet());
+            true, true, true, false, false, false);
         FieldDef yearField = new FieldDef("year", FieldType.INT, null,
-            true, true, false, true, false, false, Collections.emptySet());
+            true, true, false, true, false, false);
         FieldDef depthField = new FieldDef("depth", FieldType.DOUBLE, null,
-            true, true, false, true, false, false, Collections.emptySet());
+            true, true, false, true, false, false);
         FieldDef nameField = new FieldDef("name", FieldType.KEYWORD, null,
-            true, true, false, false, false, false, Collections.emptySet());
+            true, true, false, false, false, false);
         FieldDef locationField = new FieldDef("location", FieldType.LATLON, null,
-            true, true, false, false, false, false, Collections.emptySet());
+            true, true, false, false, false, false);
         FieldDef notIndexedField = new FieldDef("notes", FieldType.TEXT, null,
-            true, false, false, false, false, false, Collections.emptySet());
+            true, false, false, false, false, false);
+        List<FieldOccurrence> rootOccurrences = List.of(
+            occurrence(stateField, "http://example.org/state"),
+            occurrence(yearField, "http://example.org/year"),
+            occurrence(depthField, "http://example.org/depth"),
+            occurrence(nameField, "http://example.org/name"),
+            occurrence(locationField, "http://example.org/location"),
+            occurrence(notIndexedField, "http://example.org/notes"));
 
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI("http://example.org/Shape"),
             Collections.singleton(NodeFactory.createURI("http://example.org/Thing")),
             "uri", "docType",
             Arrays.asList(stateField, yearField, depthField, nameField, locationField, notIndexedField),
-            Collections.emptyList(),
+            rootOccurrences,
             Collections.emptyList(),
             Collections.emptyList());
 
@@ -251,13 +262,13 @@ public class TestCqlToLuceneCompiler {
     @Test
     public void testDateEqualityUsesTemporalCompanionField() {
         FieldDef eventDateField = new FieldDef("eventDate", FieldType.DATE, null, null,
-            true, true, false, true, false, false, true, Collections.emptySet(), null, null);
+            true, true, false, true, false, false, true);
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI("http://example.org/DateShape"),
             Collections.singleton(NodeFactory.createURI("http://example.org/Event")),
             "uri", "docType",
             Collections.singletonList(eventDateField),
-            Collections.emptyList(),
+            Collections.singletonList(occurrence(eventDateField, "http://example.org/eventDate")),
             Collections.emptyList(),
             Collections.emptyList());
 
@@ -275,13 +286,13 @@ public class TestCqlToLuceneCompiler {
     @Test
     public void testDateBetweenUsesTemporalCompanionField() {
         FieldDef eventDateField = new FieldDef("eventDate", FieldType.DATE, null, null,
-            true, true, false, true, false, false, true, Collections.emptySet(), null, null);
+            true, true, false, true, false, false, true);
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI("http://example.org/DateShape"),
             Collections.singleton(NodeFactory.createURI("http://example.org/Event")),
             "uri", "docType",
             Collections.singletonList(eventDateField),
-            Collections.emptyList(),
+            Collections.singletonList(occurrence(eventDateField, "http://example.org/eventDate")),
             Collections.emptyList(),
             Collections.emptyList());
 
@@ -329,16 +340,20 @@ public class TestCqlToLuceneCompiler {
     @Test
     public void testSingleHierarchyLevelEqualityUsesDrillDownQuery() {
         FieldDef stateField = new FieldDef("state", FieldType.KEYWORD, null,
-            true, true, true, false, false, false, Collections.emptySet());
+            true, true, true, false, false, false);
         FieldDef commodityField = new FieldDef("commodity", FieldType.KEYWORD, null,
-            true, true, true, false, false, false, Collections.emptySet());
+            true, true, true, false, false, false);
         HierarchyDef hierarchy = new HierarchyDef("state_commodity", List.of(stateField, commodityField));
+        List<FieldOccurrence> rootOccurrences = List.of(
+            occurrence(stateField, "http://example.org/state"),
+            occurrence(commodityField, "http://example.org/commodity"));
 
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI("http://example.org/Shape"),
             Collections.singleton(NodeFactory.createURI("http://example.org/Thing")),
             "uri", "docType",
             List.of(stateField, commodityField),
+            rootOccurrences,
             List.of(hierarchy),
             Collections.emptyList());
 
@@ -351,5 +366,18 @@ public class TestCqlToLuceneCompiler {
         assertNotNull(r.pushed());
         assertNull(r.residual());
         assertTrue(r.pushed() instanceof DrillDownQuery);
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, String predicateUri) {
+        Node predicate = NodeFactory.createURI(predicateUri);
+        return new FieldOccurrence(
+            field,
+            PathFactory.pathLink(predicate),
+            List.of(List.of(new JoinStep(predicate, false))),
+            Collections.singleton(predicate),
+            null,
+            null,
+            null,
+            null);
     }
 }

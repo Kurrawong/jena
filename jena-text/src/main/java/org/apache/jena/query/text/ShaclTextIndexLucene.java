@@ -538,31 +538,34 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     private void addHierarchyFacetFields(Document doc, Entity entity,
             ShaclIndexMapping.IndexProfile profile) {
         for (ShaclIndexMapping.HierarchyDef hierarchy : profile.getHierarchies()) {
-            addDirectHierarchyFacetFields(doc, entity, hierarchy);
+            addDirectHierarchyFacetFields(doc, entity, profile, hierarchy);
         }
         for (ShaclIndexMapping.NestedDef nestedDef : profile.getNestedDefs()) {
             for (ShaclIndexMapping.HierarchyDef hierarchy : nestedDef.getHierarchies()) {
-                addNestedHierarchyFacetFields(doc, entity, nestedDef, hierarchy);
+                addNestedHierarchyFacetFields(doc, entity, profile, nestedDef, hierarchy);
             }
         }
     }
 
     private void addDirectHierarchyFacetFields(Document doc, Entity entity,
-            ShaclIndexMapping.HierarchyDef hierarchy) {
+            ShaclIndexMapping.IndexProfile profile, ShaclIndexMapping.HierarchyDef hierarchy) {
         List<List<String>> levelValues = new ArrayList<>();
         for (ShaclIndexMapping.FieldDef levelField : hierarchy.getLevels()) {
-            levelValues.add(asStringValues(entity.get(levelField.getFieldName())));
+            levelValues.add(asHierarchyFacetValues(entity.get(levelField.getFieldName()),
+                profile, entity, hierarchy, levelField));
         }
         addFacetPaths(doc, hierarchy.getDimensionName(), levelValues, 0, new ArrayList<>());
     }
 
     private void addNestedHierarchyFacetFields(Document doc, Entity entity,
-            ShaclIndexMapping.NestedDef nestedDef, ShaclIndexMapping.HierarchyDef hierarchy) {
+            ShaclIndexMapping.IndexProfile profile, ShaclIndexMapping.NestedDef nestedDef,
+            ShaclIndexMapping.HierarchyDef hierarchy) {
         for (Entity.NestedRecord record : entity.getNestedRecords(nestedDef.getNestedName())) {
             List<List<String>> levelValues = new ArrayList<>();
             boolean hasAnyValue = false;
             for (ShaclIndexMapping.FieldDef levelField : hierarchy.getLevels()) {
-                List<String> values = asStringValues(record.get(levelField.getFieldName()));
+                List<String> values = asHierarchyFacetValues(record.get(levelField.getFieldName()),
+                    profile, entity, hierarchy, levelField);
                 if (!values.isEmpty()) {
                     hasAnyValue = true;
                 }
@@ -590,6 +593,37 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         return values;
     }
 
+    private List<String> asHierarchyFacetValues(Object value, ShaclIndexMapping.IndexProfile profile,
+            Entity entity, ShaclIndexMapping.HierarchyDef hierarchy, ShaclIndexMapping.FieldDef levelField) {
+        List<String> values = new ArrayList<>();
+        if (value instanceof List) {
+            @SuppressWarnings("unchecked")
+            List<Object> list = (List<Object>) value;
+            for (Object rawValue : list) {
+                addHierarchyFacetValue(values, rawValue, profile, entity, hierarchy, levelField);
+            }
+        } else {
+            addHierarchyFacetValue(values, value, profile, entity, hierarchy, levelField);
+        }
+        return values;
+    }
+
+    private void addHierarchyFacetValue(List<String> values, Object rawValue,
+            ShaclIndexMapping.IndexProfile profile, Entity entity,
+            ShaclIndexMapping.HierarchyDef hierarchy, ShaclIndexMapping.FieldDef levelField) {
+        if (rawValue == null) {
+            return;
+        }
+        String stringValue = rawValue.toString();
+        if (stringValue.isBlank()) {
+            log.warn("Skipping blank hierarchy facet component: profile='{}', entity='{}', dimension='{}', field='{}', rawValue='{}'",
+                profile.getShapeNode(), entity.getId(), hierarchy.getDimensionName(),
+                levelField.getFieldName(), rawValue);
+            return;
+        }
+        values.add(stringValue);
+    }
+
     private void addFacetPaths(Document doc, String dim, List<List<String>> levelValues,
             int level, List<String> currentPath) {
         if (level >= levelValues.size()) {
@@ -606,7 +640,19 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
             return;
         }
-        for (String val : values) {
+        List<String> usableValues = new ArrayList<>();
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                usableValues.add(value);
+            }
+        }
+        if (usableValues.isEmpty()) {
+            if (!currentPath.isEmpty()) {
+                doc.add(new FacetField(dim, currentPath.toArray(new String[0])));
+            }
+            return;
+        }
+        for (String val : usableValues) {
             currentPath.add(val);
             addFacetPaths(doc, dim, levelValues, level + 1, currentPath);
             currentPath.remove(currentPath.size() - 1);
@@ -1429,7 +1475,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             searcher.search(new MatchAllDocsQuery(), fc);
         }
 
-        TaxonomyReader taxoReader = new DirectoryTaxonomyReader(taxoDirectory);
+        TaxonomyReader taxoReader = new DirectoryTaxonomyReader(taxoWriter);
         Facets taxoFacets = new FastTaxonomyFacetCounts(TAXO_INDEX_FIELD, taxoReader, facetsConfig, fc);
 
         Map<String, Facets> dimToFacets = new HashMap<>();

@@ -64,16 +64,13 @@ public class TestHierarchicalFacetsSparql {
         Node subtypeIRI = NodeFactory.createURI(FIELD_NS + "subtype");
 
         FieldDef nameField = new FieldDef("name", FieldType.TEXT, null, null,
-            true, true, false, false, false, true,
-            Collections.singleton(NAME_PRED), null, nameIRI);
+            true, true, false, false, false, true, nameIRI);
 
         FieldDef typeField = new FieldDef("type", FieldType.KEYWORD, null, null,
-            true, true, true, false, false, false,
-            Collections.singleton(TYPE_PRED), null, typeIRI);
+            true, true, true, false, false, false, typeIRI);
 
         FieldDef subtypeField = new FieldDef("subtype", FieldType.KEYWORD, null, null,
-            true, true, true, false, false, false,
-            Collections.singleton(SUBTYPE_PRED), null, subtypeIRI);
+            true, true, true, false, false, false, subtypeIRI);
 
         HierarchyDef typeHierarchy = new HierarchyDef("type_subtype",
             Arrays.asList(typeField, subtypeField));

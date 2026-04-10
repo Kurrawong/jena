@@ -86,23 +86,7 @@ public class ShaclIndexMapping {
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
                         boolean stored, boolean indexed, boolean facetable,
                         boolean sortable, boolean multiValued, boolean defaultSearch,
-                        Set<Node> ignoredPredicates) {
-            this(fieldName, fieldType, analyzer, null, stored, indexed, facetable,
-                sortable, multiValued, defaultSearch, false, null);
-        }
-
-        public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
-                        boolean stored, boolean indexed, boolean facetable,
-                        boolean sortable, boolean multiValued, boolean defaultSearch,
-                        Set<Node> ignoredPredicates, Path ignoredPath) {
-            this(fieldName, fieldType, analyzer, null, stored, indexed, facetable,
-                sortable, multiValued, defaultSearch, false, null);
-        }
-
-        public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
-                        boolean stored, boolean indexed, boolean facetable,
-                        boolean sortable, boolean multiValued, boolean defaultSearch,
-                        Set<Node> ignoredPredicates, Path ignoredPath, Node fieldIRI) {
+                        Node fieldIRI) {
             this(fieldName, fieldType, analyzer, null, stored, indexed, facetable,
                 sortable, multiValued, defaultSearch, false, fieldIRI);
         }
@@ -119,18 +103,33 @@ public class ShaclIndexMapping {
                         Analyzer queryAnalyzer,
                         boolean stored, boolean indexed, boolean facetable,
                         boolean sortable, boolean multiValued, boolean defaultSearch,
-                        Set<Node> ignoredPredicates, Path ignoredPath, Node fieldIRI) {
+                        Node fieldIRI) {
             this(fieldName, fieldType, analyzer, queryAnalyzer, stored, indexed, facetable,
                 sortable, multiValued, defaultSearch, false, fieldIRI);
+        }
+
+        public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
+                        boolean stored, boolean indexed, boolean facetable,
+                        boolean sortable, boolean multiValued, boolean defaultSearch,
+                        boolean storeLiteralMetadata) {
+            this(fieldName, fieldType, analyzer, null, stored, indexed, facetable,
+                sortable, multiValued, defaultSearch, storeLiteralMetadata, null);
         }
 
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
                         Analyzer queryAnalyzer,
                         boolean stored, boolean indexed, boolean facetable,
                         boolean sortable, boolean multiValued, boolean defaultSearch,
-                        boolean storeLiteralMetadata,
-                        Set<Node> ignoredPredicates, Path ignoredPath, Node fieldIRI) {
+                        boolean storeLiteralMetadata) {
             this(fieldName, fieldType, analyzer, queryAnalyzer, stored, indexed, facetable,
+                sortable, multiValued, defaultSearch, storeLiteralMetadata, null);
+        }
+
+        public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
+                        boolean stored, boolean indexed, boolean facetable,
+                        boolean sortable, boolean multiValued, boolean defaultSearch,
+                        boolean storeLiteralMetadata, Node fieldIRI) {
+            this(fieldName, fieldType, analyzer, null, stored, indexed, facetable,
                 sortable, multiValued, defaultSearch, storeLiteralMetadata, fieldIRI);
         }
 
@@ -358,24 +357,17 @@ public class ShaclIndexMapping {
 
         public IndexProfile(Node shapeNode, Set<Node> targetClasses,
                             String docIdField, String discriminatorField,
-                            List<FieldDef> fields) {
+                            List<FieldDef> fields, List<FieldOccurrence> rootOccurrences) {
             this(shapeNode, targetClasses, docIdField, discriminatorField, fields,
-                Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+                rootOccurrences, Collections.emptyList(), Collections.emptyList());
         }
 
         public IndexProfile(Node shapeNode, Set<Node> targetClasses,
                             String docIdField, String discriminatorField,
-                            List<FieldDef> fields, List<HierarchyDef> hierarchies) {
+                            List<FieldDef> fields, List<FieldOccurrence> rootOccurrences,
+                            List<HierarchyDef> hierarchies) {
             this(shapeNode, targetClasses, docIdField, discriminatorField, fields,
-                Collections.emptyList(), hierarchies, Collections.emptyList());
-        }
-
-        public IndexProfile(Node shapeNode, Set<Node> targetClasses,
-                            String docIdField, String discriminatorField,
-                            List<FieldDef> fields, List<HierarchyDef> hierarchies,
-                            List<NestedDef> nestedDefs) {
-            this(shapeNode, targetClasses, docIdField, discriminatorField, fields,
-                Collections.emptyList(), hierarchies, nestedDefs);
+                rootOccurrences, hierarchies, Collections.emptyList());
         }
 
         public IndexProfile(Node shapeNode, Set<Node> targetClasses,
@@ -446,8 +438,10 @@ public class ShaclIndexMapping {
 
     public ShaclIndexMapping(List<IndexProfile> profiles) {
         this.profiles = Collections.unmodifiableList(new ArrayList<>(profiles));
+        validateProfilesHaveOccurrences();
         validateLiteralMetadataRequirements();
         validateFieldNameUniqueness();
+        validateHierarchyScopeConsistency();
 
         this.predicateLookup = Collections.unmodifiableMap(buildPredicateLookup(this.profiles));
         this.classConstraintLookup = Collections.unmodifiableMap(buildClassConstraintLookup(this.profiles));
@@ -650,6 +644,15 @@ public class ShaclIndexMapping {
         }
     }
 
+    private void validateProfilesHaveOccurrences() {
+        for (IndexProfile profile : profiles) {
+            if (profile.getRootOccurrences().isEmpty() && profile.getNestedDefs().isEmpty()) {
+                throw new TextIndexException(
+                    "Profile " + profile.getShapeNode() + " has no root or nested field occurrences");
+            }
+        }
+    }
+
     private void validateFieldNameUniqueness() {
         Map<String, FieldType> seen = new HashMap<>();
         for (IndexProfile profile : profiles) {
@@ -659,6 +662,30 @@ public class ShaclIndexMapping {
                     throw new TextIndexException(
                         "Field name '" + field.getFieldName()
                         + "' has conflicting types: " + prev + " vs " + field.getFieldType());
+                }
+            }
+        }
+    }
+
+    private void validateHierarchyScopeConsistency() {
+        for (IndexProfile profile : profiles) {
+            Set<FieldDef> rootFields = new LinkedHashSet<>(distinctFields(profile.getRootOccurrences()));
+            validateHierarchyScope(profile.getShapeNode(), profile.getHierarchies(), rootFields);
+            for (NestedDef nestedDef : profile.getNestedDefs()) {
+                validateHierarchyScope(profile.getShapeNode(), nestedDef.getHierarchies(),
+                    new LinkedHashSet<>(nestedDef.getFields()));
+            }
+        }
+    }
+
+    private void validateHierarchyScope(Node owner, List<HierarchyDef> hierarchies, Set<FieldDef> scopeFields) {
+        for (HierarchyDef hierarchy : hierarchies) {
+            for (FieldDef field : hierarchy.getLevels()) {
+                if (!scopeFields.contains(field)) {
+                    throw new TextIndexException(
+                        "Hierarchy '" + hierarchy.getDimensionName() + "' on " + owner
+                        + " references field " + field.getFieldIRI().getURI()
+                        + " outside its populated scope");
                 }
             }
         }

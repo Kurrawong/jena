@@ -92,12 +92,10 @@ public class TestPerFieldQueryAnalyzer {
     public void setUp() {
         FieldDef identifierField = new FieldDef("identifier", FieldType.TEXT,
             edgeNgramIndexAnalyzer(), lowercaseKeywordAnalyzer(),
-            true, true, false, false, false, true,
-            Collections.singleton(IDENTIFIER_PRED), null, null);
+            true, true, false, false, false, true);
 
         FieldDef labelField = new FieldDef("label", FieldType.TEXT, null,
-            true, true, false, false, false, false,
-            Collections.singleton(LABEL_PRED));
+            true, true, false, false, false, false);
 
         List<FieldOccurrence> rootOccurrences = Arrays.asList(
             occurrence(identifierField, PathFactory.pathLink(IDENTIFIER_PRED), Collections.singleton(IDENTIFIER_PRED)),
@@ -275,8 +273,7 @@ public class TestPerFieldQueryAnalyzer {
         // the system falls back to using the index analyzer for queries.
         FieldDef noOverride = new FieldDef("test", FieldType.TEXT,
             edgeNgramIndexAnalyzer(),
-            true, true, false, false, false, false,
-            Collections.singleton(LABEL_PRED));
+            true, true, false, false, false, false);
         assertNull("queryAnalyzer should be null when not set", noOverride.getQueryAnalyzer());
         assertNotNull("index analyzer should be present", noOverride.getAnalyzer());
     }
@@ -287,8 +284,7 @@ public class TestPerFieldQueryAnalyzer {
         // from FieldDef into EntityDefinition
         FieldDef idField = new FieldDef("identifier", FieldType.TEXT,
             edgeNgramIndexAnalyzer(), lowercaseKeywordAnalyzer(),
-            true, true, false, false, false, true,
-            Collections.singleton(IDENTIFIER_PRED), null, null);
+            true, true, false, false, false, true);
 
         List<FieldOccurrence> profileOccurrences = Collections.singletonList(
             occurrence(idField, PathFactory.pathLink(IDENTIFIER_PRED), Collections.singleton(IDENTIFIER_PRED)));

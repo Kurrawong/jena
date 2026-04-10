@@ -67,17 +67,13 @@ public class TestRangeFacetCounts {
         Node scorePred = NodeFactory.createURI(NS + "score");
 
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(titlePred));
+            true, true, false, false, false, true);
         FieldDef yearField = new FieldDef("year", FieldType.INT, null,
-            true, true, true, true, true, false,
-            Collections.singleton(yearPred));
+            true, true, true, true, true, false);
         FieldDef eventTimeField = new FieldDef("eventTime", FieldType.LONG, null,
-            true, true, true, true, false, false,
-            Collections.singleton(eventTimePred));
+            true, true, true, true, false, false);
         FieldDef scoreField = new FieldDef("score", FieldType.DOUBLE, null,
-            true, true, true, true, false, false,
-            Collections.singleton(scorePred));
+            true, true, true, true, false, false);
 
         List<FieldOccurrence> rootOccurrences = Arrays.asList(
             occurrence(titleField, PathFactory.pathLink(titlePred), Collections.singleton(titlePred)),

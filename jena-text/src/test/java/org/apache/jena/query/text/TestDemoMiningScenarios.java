@@ -80,34 +80,22 @@ public class TestDemoMiningScenarios {
 
         // --- Field definitions ---
         FieldDef entityType = new FieldDef("entityType", FieldType.KEYWORD, null,
-            true, true, true, false, false, false,
-            Collections.singleton(RDF.type.asNode()),
-            PathFactory.pathLink(RDF.type.asNode()));
+            true, true, true, false, false, false);
 
         FieldDef title = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(LABEL),
-            PathFactory.pathLink(LABEL));
+            true, true, false, false, false, true);
 
         FieldDef commodity = new FieldDef("commodity", FieldType.KEYWORD, null,
-            true, true, true, false, true, false,
-            Collections.singleton(COMMODITY),
-            PathFactory.pathLink(COMMODITY));
+            true, true, true, false, true, false);
 
         FieldDef state = new FieldDef("state", FieldType.KEYWORD, null,
-            true, true, true, false, false, false,
-            Collections.singleton(STATE),
-            PathFactory.pathLink(STATE));
+            true, true, true, false, false, false);
 
         FieldDef operator = new FieldDef("operator", FieldType.KEYWORD, null,
-            true, true, true, false, false, false,
-            Collections.singleton(OPERATOR),
-            PathFactory.pathLink(OPERATOR));
+            true, true, true, false, false, false);
 
         FieldDef status = new FieldDef("status", FieldType.KEYWORD, null,
-            true, true, true, false, false, false,
-            Collections.singleton(STATUS),
-            PathFactory.pathLink(STATUS));
+            true, true, true, false, false, false);
 
         // Sequence path: (ex:authoredBy / ex:name)
         Path authorNamePath = PathFactory.pathSeq(
@@ -117,19 +105,15 @@ public class TestDemoMiningScenarios {
         authorNamePreds.add(AUTHORED_BY);
         authorNamePreds.add(NAME);
         FieldDef authorName = new FieldDef("authorName", FieldType.KEYWORD, null,
-            true, true, true, false, false, false,
-            authorNamePreds, authorNamePath);
+            true, true, true, false, false, false);
 
         // Inverse path: ^ex:authored
         Path authoredByUriPath = PathFactory.pathInverse(PathFactory.pathLink(AUTHORED));
         FieldDef authoredByUri = new FieldDef("authoredByUri", FieldType.KEYWORD, null,
-            true, true, false, false, true, false,
-            Collections.singleton(AUTHORED), authoredByUriPath);
+            true, true, false, false, true, false);
 
         FieldDef depth = new FieldDef("depth", FieldType.INT, null,
-            true, true, false, true, false, false,
-            Collections.singleton(DEPTH),
-            PathFactory.pathLink(DEPTH));
+            true, true, false, true, false, false);
 
         // --- Profiles (shapes) ---
         List<FieldOccurrence> reportOccurrences = Arrays.asList(

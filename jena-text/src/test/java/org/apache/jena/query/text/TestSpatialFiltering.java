@@ -66,12 +66,10 @@ public class TestSpatialFiltering {
     @Before
     public void setUp() {
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(TITLE_PRED));
+            true, true, false, false, false, true);
 
         FieldDef locationField = new FieldDef("location", FieldType.LATLON, null,
-            true, true, false, false, false, false,
-            Collections.singleton(ASWKT_PRED));
+            true, true, false, false, false, false);
 
         List<FieldOccurrence> rootOccurrences = Arrays.asList(
             occurrence(titleField, PathFactory.pathLink(TITLE_PRED), Collections.singleton(TITLE_PRED)),

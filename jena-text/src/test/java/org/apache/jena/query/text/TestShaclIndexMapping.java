@@ -148,7 +148,8 @@ public class TestShaclIndexMapping {
             NodeFactory.createURI(NS + "TestShape"),
             Collections.singleton(BOOK_CLASS),
             null, null,
-            Collections.singletonList(field));
+            Collections.singletonList(field),
+            Collections.singletonList(occurrence(field, TITLE_PRED)));
 
         assertEquals("uri", profile.getDocIdField());
         assertEquals("docType", profile.getDiscriminatorField());
@@ -215,6 +216,48 @@ public class TestShaclIndexMapping {
             Collections.emptyList());
 
         new ShaclIndexMapping(Arrays.asList(p1, p2));
+    }
+
+    @Test(expected = TextIndexException.class)
+    public void testRootHierarchyCannotReferenceNestedOnlyField() {
+        FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
+            true, true, false, false, false, true,
+            NodeFactory.createURI(NS + "titleField"));
+        FieldDef nestedOnlyField = new FieldDef("identifierType", FieldType.KEYWORD, null,
+            true, true, true, false, false, false,
+            NodeFactory.createURI(NS + "identifierTypeField"));
+
+        FieldOccurrence rootTitle = occurrence(titleField, TITLE_PRED);
+        FieldOccurrence nestedOccurrence = new FieldOccurrence(
+            nestedOnlyField,
+            PathFactory.pathLink(CATEGORY_PRED),
+            List.of(List.of(new JoinStep(CATEGORY_PRED, false))),
+            Collections.singleton(CATEGORY_PRED),
+            null,
+            null,
+            null,
+            "nested");
+        NestedDef nestedDef = new NestedDef(
+            "nested",
+            PathFactory.pathLink(LABEL_PRED),
+            List.of(new JoinStep(LABEL_PRED, false)),
+            Collections.singleton(LABEL_PRED),
+            Collections.singletonList(nestedOccurrence),
+            Collections.emptyList());
+        HierarchyDef invalidHierarchy = new HierarchyDef(
+            "title_identifierType",
+            Arrays.asList(titleField, nestedOnlyField));
+
+        IndexProfile profile = new IndexProfile(
+            NodeFactory.createURI(NS + "Shape"),
+            Collections.singleton(BOOK_CLASS),
+            "uri", "docType",
+            Arrays.asList(titleField, nestedOnlyField),
+            Collections.singletonList(rootTitle),
+            Collections.singletonList(invalidHierarchy),
+            Collections.singletonList(nestedDef));
+
+        new ShaclIndexMapping(Collections.singletonList(profile));
     }
 
     private static FieldOccurrence occurrence(FieldDef field, Node predicate) {

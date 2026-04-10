@@ -77,15 +77,11 @@ public class TestShaclPathSupport {
     public void setUp() {
         // title: direct predicate (rdfs:label)
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(LABEL_PRED),
-            PathFactory.pathLink(LABEL_PRED));
+            true, true, false, false, false, true);
 
         // category: direct predicate (keyword, facetable)
         FieldDef categoryField = new FieldDef("category", FieldType.KEYWORD, null,
-            true, true, true, false, false, false,
-            Collections.singleton(CATEGORY_PRED),
-            PathFactory.pathLink(CATEGORY_PRED));
+            true, true, true, false, false, false);
 
         // authorName: sequence path (ex:author / ex:name)
         Path authorNamePath = PathFactory.pathSeq(
@@ -95,15 +91,13 @@ public class TestShaclPathSupport {
         authorNamePreds.add(AUTHOR_PRED);
         authorNamePreds.add(NAME_PRED);
         FieldDef authorNameField = new FieldDef("authorName", FieldType.KEYWORD, null,
-            true, true, true, false, false, false,
-            authorNamePreds, authorNamePath);
+            true, true, true, false, false, false);
 
         // wroteBy: inverse path (^ex:wrote) — indexes who wrote this book
         Path wroteByPath = PathFactory.pathInverse(PathFactory.pathLink(WROTE_PRED));
         Set<Node> wroteByPreds = Collections.singleton(WROTE_PRED);
         FieldDef wroteByField = new FieldDef("wroteBy", FieldType.KEYWORD, null,
-            true, true, false, false, true, false,
-            wroteByPreds, wroteByPath);
+            true, true, false, false, true, false);
 
         List<FieldOccurrence> rootOccurrences = Arrays.asList(
             occurrence(titleField, PathFactory.pathLink(LABEL_PRED), Collections.singleton(LABEL_PRED)),

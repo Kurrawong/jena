@@ -261,6 +261,39 @@ public class TestNestedHierarchicalFacets {
     }
 
     @Test
+    public void testBlankNestedHierarchyComponentIsTreatedAsMissing() {
+        dataset.begin(ReadWrite.WRITE);
+        try {
+            addBorehole(dataset.getDefaultModel(), "bhBlank", "Delta Bore",
+                "WA", new String[] {"Gold"},
+                new String[][] {
+                    {"Company", "   "},
+                    {"HoleNumber", "4444"}
+                });
+            dataset.commit();
+        } finally {
+            dataset.end();
+        }
+
+        Map<String, List<FacetValue>> topLevelCounts = textIndex.getFacetCounts(
+            null, null, Collections.singletonList(IDENTIFIER_DIM), 10, 0);
+        Map<String, Long> topLevelValues = toFacetMap(topLevelCounts.get(IDENTIFIER_DIM));
+        assertEquals(Long.valueOf(4), topLevelValues.get("Company"));
+        assertEquals(Long.valueOf(4), topLevelValues.get("HoleNumber"));
+
+        Map<String, String[]> drillDown = new HashMap<>();
+        drillDown.put(IDENTIFIER_DIM, new String[] {"Company"});
+        Map<String, List<FacetValue>> drillDownCounts = textIndex.getFacetCounts(
+            null, null, Collections.singletonList(IDENTIFIER_DIM), 10, 0, drillDown);
+        Map<String, Long> drillDownValues = toFacetMap(drillDownCounts.get(IDENTIFIER_DIM));
+        assertEquals(Long.valueOf(1), drillDownValues.get("Acme"));
+        assertEquals(Long.valueOf(1), drillDownValues.get("8412"));
+        assertEquals(Long.valueOf(1), drillDownValues.get("Rio"));
+        assertFalse(drillDownValues.containsKey(""));
+        assertFalse(drillDownValues.containsKey("   "));
+    }
+
+    @Test
     public void testExactHierarchyFiltersUseCorrelatedPathQuery() {
         CqlExpression cql = CqlParser.parse("""
             {"op":"and","args":[

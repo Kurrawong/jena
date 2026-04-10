@@ -68,8 +68,7 @@ public class TestShaclLucQueryRawValueOnMultiValuedField {
         TextQuery.init();
 
         FieldDef identifierField = new FieldDef("identifier", FieldType.KEYWORD, null,
-            true, true, false, false, true, false,
-            Collections.singleton(IDENTIFIER_PRED));
+            true, true, false, false, true, false);
 
         List<FieldOccurrence> rootOccurrences = Arrays.asList(
             occurrence(identifierField, PathFactory.pathLink(IDENTIFIER_PRED), Collections.singleton(IDENTIFIER_PRED)));

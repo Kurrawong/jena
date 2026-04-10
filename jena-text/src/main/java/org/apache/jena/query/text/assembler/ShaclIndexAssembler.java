@@ -65,9 +65,11 @@ public class ShaclIndexAssembler {
 
     private ShaclIndexAssembler() {}
 
+    private record CanonicalFieldSpec(FieldDef field, Node analyzerNode, Node queryAnalyzerNode) {}
+
     public static ShaclIndexMapping parseShapes(Assembler a, Resource shapesList) {
         List<IndexProfile> profiles = new ArrayList<>();
-        Map<String, FieldDef> canonicalFields = new LinkedHashMap<>();
+        Map<String, CanonicalFieldSpec> canonicalFields = new LinkedHashMap<>();
 
         RDFList rdfList = shapesList.as(RDFList.class);
         for (RDFNode item : rdfList.asJavaList()) {
@@ -85,7 +87,7 @@ public class ShaclIndexAssembler {
     }
 
     private static IndexProfile parseProfile(Assembler a, Resource shape,
-                                             Map<String, FieldDef> canonicalFields) {
+                                             Map<String, CanonicalFieldSpec> canonicalFields) {
         Node shapeNode = shape.asNode();
         rejectLegacyShapeFieldList(shape);
 
@@ -107,13 +109,14 @@ public class ShaclIndexAssembler {
         Map<String, FieldDef> reachableFields = new LinkedHashMap<>();
         List<FieldOccurrence> rootOccurrences = parseRootOccurrences(a, shape, canonicalFields, reachableFields);
         List<NestedDef> nestedDefs = parseNestedDefs(a, shape, canonicalFields, reachableFields);
+        List<FieldDef> rootFields = distinctFields(rootOccurrences);
         List<FieldDef> fields = new ArrayList<>(reachableFields.values());
 
         if (rootOccurrences.isEmpty() && nestedDefs.isEmpty()) {
             throw new TextIndexException("Shape " + shape + " has no field occurrences");
         }
 
-        List<HierarchyDef> hierarchies = parseHierarchies(shape, fields);
+        List<HierarchyDef> hierarchies = parseHierarchies(shape, rootFields);
         return new IndexProfile(shapeNode, targetClasses, docIdField, discriminatorField,
             fields, rootOccurrences, hierarchies, nestedDefs);
     }
@@ -126,7 +129,7 @@ public class ShaclIndexAssembler {
     }
 
     private static List<FieldOccurrence> parseRootOccurrences(Assembler a, Resource shape,
-                                                              Map<String, FieldDef> canonicalFields,
+                                                              Map<String, CanonicalFieldSpec> canonicalFields,
                                                               Map<String, FieldDef> reachableFields) {
         List<FieldOccurrence> occurrences = new ArrayList<>();
         StmtIterator propIter = shape.listProperties(shProperty);
@@ -141,7 +144,7 @@ public class ShaclIndexAssembler {
     }
 
     private static List<NestedDef> parseNestedDefs(Assembler a, Resource shape,
-                                                   Map<String, FieldDef> canonicalFields,
+                                                   Map<String, CanonicalFieldSpec> canonicalFields,
                                                    Map<String, FieldDef> reachableFields) {
         List<NestedDef> nestedDefs = new ArrayList<>();
 
@@ -238,7 +241,7 @@ public class ShaclIndexAssembler {
     }
 
     private static FieldOccurrence parseOccurrence(Assembler a, Resource occurrenceRes,
-                                                   Map<String, FieldDef> canonicalFields,
+                                                   Map<String, CanonicalFieldSpec> canonicalFields,
                                                    Map<String, FieldDef> reachableFields,
                                                    String nestedName) {
         rejectCanonicalFieldPropertiesOnOccurrence(occurrenceRes);
@@ -293,42 +296,47 @@ public class ShaclIndexAssembler {
     }
 
     private static FieldDef resolveCanonicalField(Assembler a, Resource fieldRes,
-                                                  Map<String, FieldDef> canonicalFields) {
+                                                  Map<String, CanonicalFieldSpec> canonicalFields) {
         String directKey = fieldRes.isURIResource() ? fieldRes.getURI() : null;
         if (directKey != null) {
-            FieldDef existing = canonicalFields.get(directKey);
+            CanonicalFieldSpec existing = canonicalFields.get(directKey);
             if (existing != null) {
-                return existing;
+                return existing.field();
             }
         }
 
-        FieldDef parsed = parseCanonicalField(a, fieldRes);
-        String iri = parsed.getFieldIRI().getURI();
-        FieldDef existing = canonicalFields.get(iri);
+        CanonicalFieldSpec parsed = parseCanonicalField(a, fieldRes);
+        String iri = parsed.field().getFieldIRI().getURI();
+        CanonicalFieldSpec existing = canonicalFields.get(iri);
         if (existing == null) {
             canonicalFields.put(iri, parsed);
-            return parsed;
+            return parsed.field();
         }
         validateSameCanonicalField(existing, parsed);
-        return existing;
+        return existing.field();
     }
 
-    private static void validateSameCanonicalField(FieldDef existing, FieldDef parsed) {
-        if (!Objects.equals(existing.getFieldName(), parsed.getFieldName())
-                || existing.getFieldType() != parsed.getFieldType()
-                || existing.isStored() != parsed.isStored()
-                || existing.isIndexed() != parsed.isIndexed()
-                || existing.isFacetable() != parsed.isFacetable()
-                || existing.isSortable() != parsed.isSortable()
-                || existing.isMultiValued() != parsed.isMultiValued()
-                || existing.isDefaultSearch() != parsed.isDefaultSearch()
-                || existing.isStoreLiteralMetadata() != parsed.isStoreLiteralMetadata()) {
+    private static void validateSameCanonicalField(CanonicalFieldSpec existing, CanonicalFieldSpec parsed) {
+        FieldDef existingField = existing.field();
+        FieldDef parsedField = parsed.field();
+        if (!Objects.equals(existingField.getFieldName(), parsedField.getFieldName())
+                || existingField.getFieldType() != parsedField.getFieldType()
+                || existingField.isStored() != parsedField.isStored()
+                || existingField.isIndexed() != parsedField.isIndexed()
+                || existingField.isFacetable() != parsedField.isFacetable()
+                || existingField.isSortable() != parsedField.isSortable()
+                || existingField.isMultiValued() != parsedField.isMultiValued()
+                || existingField.isDefaultSearch() != parsedField.isDefaultSearch()
+                || existingField.isStoreLiteralMetadata() != parsedField.isStoreLiteralMetadata()
+                || !Objects.equals(existing.analyzerNode(), parsed.analyzerNode())
+                || !Objects.equals(existing.queryAnalyzerNode(), parsed.queryAnalyzerNode())) {
             throw new TextIndexException(
-                "Canonical field " + existing.getFieldIRI().getURI() + " is defined inconsistently across occurrences");
+                "Canonical field " + existingField.getFieldIRI().getURI()
+                + " is defined inconsistently across occurrences");
         }
     }
 
-    private static FieldDef parseCanonicalField(Assembler a, Resource fieldRes) {
+    private static CanonicalFieldSpec parseCanonicalField(Assembler a, Resource fieldRes) {
         rejectOccurrencePropertiesOnCanonicalField(fieldRes);
 
         String fieldName = getRequiredString(fieldRes, IndexVocab.pFieldName,
@@ -345,12 +353,18 @@ public class ShaclIndexAssembler {
         if (analyzerStmt != null && analyzerStmt.getObject().isResource()) {
             analyzer = (Analyzer) a.open(analyzerStmt.getObject().asResource());
         }
+        Node analyzerNode = analyzerStmt != null && analyzerStmt.getObject().isResource()
+            ? analyzerStmt.getObject().asNode()
+            : null;
 
         Analyzer queryAnalyzer = null;
         Statement queryAnalyzerStmt = fieldRes.getProperty(IndexVocab.pQueryAnalyzer);
         if (queryAnalyzerStmt != null && queryAnalyzerStmt.getObject().isResource()) {
             queryAnalyzer = (Analyzer) a.open(queryAnalyzerStmt.getObject().asResource());
         }
+        Node queryAnalyzerNode = queryAnalyzerStmt != null && queryAnalyzerStmt.getObject().isResource()
+            ? queryAnalyzerStmt.getObject().asNode()
+            : null;
 
         boolean stored = getOptionalBoolean(fieldRes, IndexVocab.pStored, true);
         boolean indexed = getOptionalBoolean(fieldRes, IndexVocab.pIndexed, true);
@@ -366,7 +380,7 @@ public class ShaclIndexAssembler {
             storeLiteralMetadata, fieldIRI);
         log.debug("Parsed canonical field: {} type={} facetable={}", fieldDef.getFieldName(),
             fieldDef.getFieldType(), fieldDef.isFacetable());
-        return fieldDef;
+        return new CanonicalFieldSpec(fieldDef, analyzerNode, queryAnalyzerNode);
     }
 
     private static void rejectOccurrencePropertiesOnCanonicalField(Resource fieldRes) {

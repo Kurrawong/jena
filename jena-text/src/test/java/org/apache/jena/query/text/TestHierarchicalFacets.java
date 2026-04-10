@@ -69,20 +69,16 @@ public class TestHierarchicalFacets {
         Node stateIRI = NodeFactory.createURI(FIELD_NS + "state");
 
         FieldDef nameField = new FieldDef("name", FieldType.TEXT, null, null,
-            true, true, false, false, false, true,
-            Collections.singleton(NAME_PRED), null, nameIRI);
+            true, true, false, false, false, true, nameIRI);
 
         FieldDef typeField = new FieldDef("type", FieldType.KEYWORD, null, null,
-            true, true, true, false, false, false,
-            Collections.singleton(TYPE_PRED), null, typeIRI);
+            true, true, true, false, false, false, typeIRI);
 
         FieldDef subtypeField = new FieldDef("subtype", FieldType.KEYWORD, null, null,
-            true, true, true, false, false, false,
-            Collections.singleton(SUBTYPE_PRED), null, subtypeIRI);
+            true, true, true, false, false, false, subtypeIRI);
 
         FieldDef stateField = new FieldDef("state", FieldType.KEYWORD, null, null,
-            true, true, true, false, false, false,
-            Collections.singleton(STATE_PRED), null, stateIRI);
+            true, true, true, false, false, false, stateIRI);
 
         // Hierarchy: type → subtype
         HierarchyDef typeHierarchy = new HierarchyDef("type_subtype",
@@ -218,6 +214,32 @@ public class TestHierarchicalFacets {
         Map<String, Long> facetMap = toMap(facets);
         assertEquals("Gold count under Mineral", Long.valueOf(2), facetMap.get("Gold"));
         assertEquals("Iron count under Mineral", Long.valueOf(1), facetMap.get("Iron"));
+    }
+
+    @Test
+    public void testBlankHierarchyComponentIsTreatedAsMissing() {
+        dataset.begin(ReadWrite.WRITE);
+        try {
+            addBorehole(dataset.getDefaultModel(), "bhBlank", "Blank Subtype Well", "Water", "   ", "WA");
+            dataset.commit();
+        } finally {
+            dataset.end();
+        }
+
+        Map<String, List<FacetValue>> topLevelCounts = textIndex.getFacetCounts(
+            null, null, Collections.singletonList("type_subtype"), 10, 0);
+        Map<String, Long> topLevelFacetMap = toMap(topLevelCounts.get("type_subtype"));
+        assertEquals("Water count should include partial path with blank child", Long.valueOf(4), topLevelFacetMap.get("Water"));
+
+        Map<String, String[]> drillDown = new HashMap<>();
+        drillDown.put("type_subtype", new String[]{"Water"});
+        Map<String, List<FacetValue>> drillDownCounts = textIndex.getFacetCounts(
+            null, null, Collections.singletonList("type_subtype"), 10, 0, drillDown);
+        Map<String, Long> drillDownFacetMap = toMap(drillDownCounts.get("type_subtype"));
+        assertEquals("Shallow count under Water", Long.valueOf(2), drillDownFacetMap.get("Shallow"));
+        assertEquals("Deep count under Water", Long.valueOf(1), drillDownFacetMap.get("Deep"));
+        assertFalse("Blank subtype should not become a facet label", drillDownFacetMap.containsKey(""));
+        assertFalse("Whitespace subtype should not become a facet label", drillDownFacetMap.containsKey("   "));
     }
 
     @Test

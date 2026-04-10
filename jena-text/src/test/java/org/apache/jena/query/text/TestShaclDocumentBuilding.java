@@ -61,24 +61,19 @@ public class TestShaclDocumentBuilding {
     @Before
     public void setUp() {
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(TITLE_PRED));
+            true, true, false, false, false, true);
 
         FieldDef categoryField = new FieldDef("category", FieldType.KEYWORD, null,
-            true, true, true, true, false, false,
-            Collections.singleton(CATEGORY_PRED));
+            true, true, true, true, false, false);
 
         FieldDef yearField = new FieldDef("year", FieldType.INT, null,
-            true, true, false, true, false, false,
-            Collections.singleton(YEAR_PRED));
+            true, true, false, true, false, false);
 
         FieldDef pagesField = new FieldDef("pages", FieldType.LONG, null,
-            true, true, false, false, false, false,
-            Collections.singleton(PAGES_PRED));
+            true, true, false, false, false, false);
 
         FieldDef ratingField = new FieldDef("rating", FieldType.DOUBLE, null,
-            true, true, false, true, false, false,
-            Collections.singleton(RATING_PRED));
+            true, true, false, true, false, false);
 
         List<FieldOccurrence> rootOccurrences = Arrays.asList(
             occurrence(titleField, PathFactory.pathLink(TITLE_PRED), Collections.singleton(TITLE_PRED)),
@@ -229,8 +224,7 @@ public class TestShaclDocumentBuilding {
     @Test
     public void testMultiValuedField() {
         FieldDef multiTitleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, true, true,
-            Collections.singleton(TITLE_PRED));
+            true, true, false, false, true, true);
         List<FieldOccurrence> multiRootOccurrences = Collections.singletonList(
             occurrence(multiTitleField, PathFactory.pathLink(TITLE_PRED), Collections.singleton(TITLE_PRED)));
         IndexProfile multiValueProfile = new IndexProfile(
