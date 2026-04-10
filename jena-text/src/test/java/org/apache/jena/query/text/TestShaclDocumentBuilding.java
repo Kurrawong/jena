@@ -28,8 +28,12 @@ import java.util.*;
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
+import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
+import org.apache.jena.sparql.path.Path;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.store.ByteBuffersDirectory;
@@ -76,11 +80,21 @@ public class TestShaclDocumentBuilding {
             true, true, false, true, false, false,
             Collections.singleton(RATING_PRED));
 
+        List<FieldOccurrence> rootOccurrences = Arrays.asList(
+            occurrence(titleField, PathFactory.pathLink(TITLE_PRED), Collections.singleton(TITLE_PRED)),
+            occurrence(categoryField, PathFactory.pathLink(CATEGORY_PRED), Collections.singleton(CATEGORY_PRED)),
+            occurrence(yearField, PathFactory.pathLink(YEAR_PRED), Collections.singleton(YEAR_PRED)),
+            occurrence(pagesField, PathFactory.pathLink(PAGES_PRED), Collections.singleton(PAGES_PRED)),
+            occurrence(ratingField, PathFactory.pathLink(RATING_PRED), Collections.singleton(RATING_PRED)));
+
         testProfile = new IndexProfile(
             NodeFactory.createURI(NS + "BookShape"),
             Collections.singleton(BOOK_CLASS),
             "uri", "docType",
-            Arrays.asList(titleField, categoryField, yearField, pagesField, ratingField));
+            Arrays.asList(titleField, categoryField, yearField, pagesField, ratingField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(testProfile));
 
@@ -95,6 +109,15 @@ public class TestShaclDocumentBuilding {
         config.setFacetFields(Collections.singletonList("category"));
 
         textIndex = new ShaclTextIndexLucene(new ByteBuffersDirectory(), config);
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
+        return new FieldOccurrence(
+            field,
+            path,
+            ShaclIndexAssembler.extractPathVariants(path),
+            predicates,
+            null, null, null, null);
     }
 
     @After
@@ -208,11 +231,16 @@ public class TestShaclDocumentBuilding {
         FieldDef multiTitleField = new FieldDef("title", FieldType.TEXT, null,
             true, true, false, false, true, true,
             Collections.singleton(TITLE_PRED));
+        List<FieldOccurrence> multiRootOccurrences = Collections.singletonList(
+            occurrence(multiTitleField, PathFactory.pathLink(TITLE_PRED), Collections.singleton(TITLE_PRED)));
         IndexProfile multiValueProfile = new IndexProfile(
             NodeFactory.createURI(NS + "BookShapeMulti"),
             Collections.singleton(BOOK_CLASS),
             "uri", "docType",
-            Collections.singletonList(multiTitleField));
+            Collections.singletonList(multiTitleField),
+            multiRootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         Entity entity = new Entity("http://example.org/book1", null);
         entity.addValue("title", "First Title");

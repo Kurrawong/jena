@@ -1,6 +1,7 @@
 ## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
 
 PREFIX :        <#>
+PREFIX field:   <urn:jena:lucene:field#>
 PREFIX fuseki:  <http://jena.apache.org/fuseki#>
 PREFIX rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
@@ -40,52 +41,49 @@ PREFIX exg:     <http://example.com/>
     text:storeValues true ;
     text:maxFacetHits 100000 .
 
+## --- Field definitions (canonical, path-free) ---
+
+## Entity type label via sequence path: rdf:type -> rdfs:label
+field:entityType
+    idx:fieldName "entityType" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true .
+
+## Observation label (site + sample ID)
+field:title
+    idx:fieldName "title" ;
+    idx:fieldType idx:TextField ;
+    idx:defaultSearch true .
+
+## Element being measured via sequence path: sosa:observedProperty -> rdfs:label
+## e.g. "Au", "Cu", "Fe", "Pb" (122 unique values)
+field:element
+    idx:fieldName "element" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true .
+
+## Analytical method via sequence path: sosa:usedProcedure -> rdfs:label
+## e.g. "XRF", "ICP-MS", "Fire Assay" (765 unique values)
+field:procedure
+    idx:fieldName "procedure" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true .
+
+## Laboratory via sequence path: sosa:madeBySensor -> rdfs:label
+## e.g. "ALS", "Genalysis", "SGS" (293 unique values)
+field:lab
+    idx:fieldName "lab" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true .
+
 ## --- GSWA Geochemistry Analysis Shape ---
 ## Each entity is a sosa:Observation typed as exg:GeochemistryAnalysis.
 ## 100K entities per file, 200 files available.
 
 :GeochemAnalysisShape
     sh:targetClass exg:GeochemistryAnalysis ;
-
-    ## Entity type label via sequence path: rdf:type -> rdfs:label
-    sh:property [
-        idx:fieldName "entityType" ;
-        idx:fieldType idx:KeywordField ;
-        idx:facetable true ;
-        sh:path ( rdf:type rdfs:label ) ;
-    ] ;
-
-    ## Observation label (site + sample ID)
-    sh:property [
-        idx:fieldName "title" ;
-        idx:fieldType idx:TextField ;
-        idx:defaultSearch true ;
-        sh:path rdfs:label ;
-    ] ;
-
-    ## Element being measured via sequence path: sosa:observedProperty -> rdfs:label
-    ## e.g. "Au", "Cu", "Fe", "Pb" (122 unique values)
-    sh:property [
-        idx:fieldName "element" ;
-        idx:fieldType idx:KeywordField ;
-        idx:facetable true ;
-        sh:path ( sosa:observedProperty rdfs:label ) ;
-    ] ;
-
-    ## Analytical method via sequence path: sosa:usedProcedure -> rdfs:label
-    ## e.g. "XRF", "ICP-MS", "Fire Assay" (765 unique values)
-    sh:property [
-        idx:fieldName "procedure" ;
-        idx:fieldType idx:KeywordField ;
-        idx:facetable true ;
-        sh:path ( sosa:usedProcedure rdfs:label ) ;
-    ] ;
-
-    ## Laboratory via sequence path: sosa:madeBySensor -> rdfs:label
-    ## e.g. "ALS", "Genalysis", "SGS" (293 unique values)
-    sh:property [
-        idx:fieldName "lab" ;
-        idx:fieldType idx:KeywordField ;
-        idx:facetable true ;
-        sh:path ( sosa:madeBySensor rdfs:label ) ;
-    ] .
+    sh:property [ idx:field field:entityType ; sh:path ( rdf:type rdfs:label ) ] ;
+    sh:property [ idx:field field:title ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:element ; sh:path ( sosa:observedProperty rdfs:label ) ] ;
+    sh:property [ idx:field field:procedure ; sh:path ( sosa:usedProcedure rdfs:label ) ] ;
+    sh:property [ idx:field field:lab ; sh:path ( sosa:madeBySensor rdfs:label ) ] .

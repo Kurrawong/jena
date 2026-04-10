@@ -35,6 +35,7 @@ import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.ResourceFactory;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.jena.vocabulary.RDF;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.junit.After;
@@ -66,11 +67,18 @@ public class TestShaclTextDocProducer {
             true, true, true, false, true, false,
             Collections.singleton(CATEGORY_PRED));
 
+        List<FieldOccurrence> rootOccurrences = Arrays.asList(
+            occurrence(titleField, TITLE_PRED),
+            occurrence(categoryField, CATEGORY_PRED));
+
         IndexProfile bookProfile = new IndexProfile(
             NodeFactory.createURI(NS + "BookShape"),
             Collections.singleton(BOOK_CLASS),
             "uri", "docType",
-            Arrays.asList(titleField, categoryField));
+            Arrays.asList(titleField, categoryField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(bookProfile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -95,6 +103,18 @@ public class TestShaclTextDocProducer {
         if (dataset != null) {
             dataset.close();
         }
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Node predicate) {
+        return new FieldOccurrence(
+            field,
+            PathFactory.pathLink(predicate),
+            List.of(List.of(new JoinStep(predicate, false))),
+            Collections.singleton(predicate),
+            null,
+            null,
+            null,
+            null);
     }
 
     @Test

@@ -29,12 +29,15 @@ import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.*;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
+import org.apache.jena.query.text.ShaclIndexMapping.JoinStep;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.ResourceFactory;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.jena.vocabulary.RDF;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.junit.After;
@@ -70,11 +73,19 @@ public class TestShaclEntityPerDocument {
             true, true, true, false, false, false,
             Collections.singleton(AUTHOR_PRED));
 
+        List<FieldOccurrence> rootOccurrences = Arrays.asList(
+            occurrence(titleField, TITLE_PRED),
+            occurrence(categoryField, CATEGORY_PRED),
+            occurrence(authorField, AUTHOR_PRED));
+
         IndexProfile bookProfile = new IndexProfile(
             NodeFactory.createURI(NS + "BookShape"),
             Collections.singleton(BOOK_CLASS),
             "uri", "docType",
-            Arrays.asList(titleField, categoryField, authorField));
+            Arrays.asList(titleField, categoryField, authorField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(bookProfile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -119,6 +130,18 @@ public class TestShaclEntityPerDocument {
         model.add(book, ResourceFactory.createProperty(NS + "title"), title);
         model.add(book, ResourceFactory.createProperty(NS + "category"), category);
         model.add(book, ResourceFactory.createProperty(NS + "author"), author);
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Node predicate) {
+        return new FieldOccurrence(
+            field,
+            PathFactory.pathLink(predicate),
+            List.of(List.of(new JoinStep(predicate, false))),
+            Collections.singleton(predicate),
+            null,
+            null,
+            null,
+            null);
     }
 
     @After

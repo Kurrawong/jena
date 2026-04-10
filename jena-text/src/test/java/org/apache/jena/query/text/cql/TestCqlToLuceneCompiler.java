@@ -65,7 +65,10 @@ public class TestCqlToLuceneCompiler {
             NodeFactory.createURI("http://example.org/Shape"),
             Collections.singleton(NodeFactory.createURI("http://example.org/Thing")),
             "uri", "docType",
-            Arrays.asList(stateField, yearField, depthField, nameField, locationField, notIndexedField));
+            Arrays.asList(stateField, yearField, depthField, nameField, locationField, notIndexedField),
+            Collections.emptyList(),
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
         compiler = new CqlToLuceneCompiler(mapping);
@@ -253,7 +256,10 @@ public class TestCqlToLuceneCompiler {
             NodeFactory.createURI("http://example.org/DateShape"),
             Collections.singleton(NodeFactory.createURI("http://example.org/Event")),
             "uri", "docType",
-            Collections.singletonList(eventDateField));
+            Collections.singletonList(eventDateField),
+            Collections.emptyList(),
+            Collections.emptyList(),
+            Collections.emptyList());
 
         CqlToLuceneCompiler dateCompiler =
             new CqlToLuceneCompiler(new ShaclIndexMapping(Collections.singletonList(profile)));
@@ -274,7 +280,10 @@ public class TestCqlToLuceneCompiler {
             NodeFactory.createURI("http://example.org/DateShape"),
             Collections.singleton(NodeFactory.createURI("http://example.org/Event")),
             "uri", "docType",
-            Collections.singletonList(eventDateField));
+            Collections.singletonList(eventDateField),
+            Collections.emptyList(),
+            Collections.emptyList(),
+            Collections.emptyList());
 
         CqlToLuceneCompiler dateCompiler =
             new CqlToLuceneCompiler(new ShaclIndexMapping(Collections.singletonList(profile)));

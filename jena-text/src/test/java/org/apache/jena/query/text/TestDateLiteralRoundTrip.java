@@ -31,9 +31,12 @@ import org.apache.jena.query.Dataset;
 import org.apache.jena.query.DatasetFactory;
 import org.apache.jena.query.ReadWrite;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
+import org.apache.jena.sparql.path.Path;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.jena.query.text.cql.CqlExpression;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
@@ -69,11 +72,20 @@ public class TestDateLiteralRoundTrip {
         FieldDef noteField = new FieldDef("note", FieldType.TEXT, null, null,
             true, true, false, false, false, false, true, Collections.singleton(NOTE_PRED), null, null);
 
+        List<FieldOccurrence> rootOccurrences = Arrays.asList(
+            occurrence(labelField, PathFactory.pathLink(LABEL_PRED), Collections.singleton(LABEL_PRED)),
+            occurrence(dateField, PathFactory.pathLink(EVENT_DATE_PRED), Collections.singleton(EVENT_DATE_PRED)),
+            occurrence(tsField, PathFactory.pathLink(EVENT_TS_PRED), Collections.singleton(EVENT_TS_PRED)),
+            occurrence(noteField, PathFactory.pathLink(NOTE_PRED), Collections.singleton(NOTE_PRED)));
+
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI(NS + "EventShape"),
             Collections.singleton(EVENT_CLASS),
             "uri", "docType",
-            Arrays.asList(labelField, dateField, tsField, noteField));
+            Arrays.asList(labelField, dateField, tsField, noteField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -97,6 +109,15 @@ public class TestDateLiteralRoundTrip {
         } finally {
             dataset.end();
         }
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
+        return new FieldOccurrence(
+            field,
+            path,
+            ShaclIndexAssembler.extractPathVariants(path),
+            predicates,
+            null, null, null, null);
     }
 
     @After

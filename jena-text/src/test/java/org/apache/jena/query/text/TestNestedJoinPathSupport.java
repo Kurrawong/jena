@@ -35,6 +35,7 @@ import org.apache.jena.query.Dataset;
 import org.apache.jena.query.DatasetFactory;
 import org.apache.jena.query.ReadWrite;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.HierarchyDef;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
@@ -219,20 +220,20 @@ public class TestNestedJoinPathSupport {
         Node valueExactIRI = NodeFactory.createURI(FIELD_NS + "identifierValueExact");
 
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null, null,
-            true, true, false, false, false, true,
-            Collections.singleton(LABEL_PRED), PathFactory.pathLink(LABEL_PRED), titleIRI);
+            true, true, false, false, false, true, false, titleIRI);
 
         FieldDef typeField = new FieldDef("identifierType", FieldType.KEYWORD, null, null,
-            true, true, true, false, true, false,
-            Collections.singleton(IDENTIFIER_TYPE_PRED),
-            PathFactory.pathLink(IDENTIFIER_TYPE_PRED), typeIRI)
-            .withNestedName(joinPath.toString());
+            true, true, true, false, true, false, false, typeIRI);
 
         FieldDef valueExactField = new FieldDef("identifierValueExact", FieldType.KEYWORD, null, null,
-            true, true, true, false, true, false,
-            Collections.singleton(IDENTIFIER_VALUE_PRED),
-            PathFactory.pathLink(IDENTIFIER_VALUE_PRED), valueExactIRI)
-            .withNestedName(joinPath.toString());
+            true, true, true, false, true, false, false, valueExactIRI);
+
+        List<FieldOccurrence> rootOccurrences = Collections.singletonList(
+            occurrence(titleField, LABEL_PRED, null));
+
+        List<FieldOccurrence> nestedOccurrences = Arrays.asList(
+            occurrence(typeField, IDENTIFIER_TYPE_PRED, joinPath.toString()),
+            occurrence(valueExactField, IDENTIFIER_VALUE_PRED, joinPath.toString()));
 
         HierarchyDef identifierHierarchy = new HierarchyDef(IDENTIFIER_DIM, Arrays.asList(typeField, valueExactField));
         NestedDef nestedDef = new NestedDef(
@@ -240,7 +241,7 @@ public class TestNestedJoinPathSupport {
             joinPath,
             joinSteps,
             collectJoinPredicates(joinSteps),
-            Arrays.asList(typeField, valueExactField),
+            nestedOccurrences,
             Collections.singletonList(identifierHierarchy));
 
         IndexProfile profile = new IndexProfile(
@@ -248,6 +249,7 @@ public class TestNestedJoinPathSupport {
             Collections.singleton(BOREHOLE_CLASS),
             "uri", "docType",
             Arrays.asList(titleField, typeField, valueExactField),
+            rootOccurrences,
             Collections.emptyList(),
             Collections.singletonList(nestedDef));
 
@@ -288,6 +290,18 @@ public class TestNestedJoinPathSupport {
             predicates.add(joinStep.getPredicate());
         }
         return predicates;
+    }
+
+    private FieldOccurrence occurrence(FieldDef field, Node predicate, String nestedName) {
+        return new FieldOccurrence(
+            field,
+            PathFactory.pathLink(predicate),
+            List.of(List.of(new JoinStep(predicate, false))),
+            Collections.singleton(predicate),
+            null,
+            null,
+            null,
+            nestedName);
     }
 
     private static final class Harness implements AutoCloseable {

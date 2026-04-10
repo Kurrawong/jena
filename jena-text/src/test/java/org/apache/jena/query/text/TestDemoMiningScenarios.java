@@ -29,6 +29,7 @@ import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.*;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
@@ -131,23 +132,56 @@ public class TestDemoMiningScenarios {
             PathFactory.pathLink(DEPTH));
 
         // --- Profiles (shapes) ---
+        List<FieldOccurrence> reportOccurrences = Arrays.asList(
+            occurrence(entityType, PathFactory.pathLink(RDF.type.asNode()), Collections.singleton(RDF.type.asNode())),
+            occurrence(title, PathFactory.pathLink(LABEL), Collections.singleton(LABEL)),
+            occurrence(commodity, PathFactory.pathLink(COMMODITY), Collections.singleton(COMMODITY)),
+            occurrence(state, PathFactory.pathLink(STATE), Collections.singleton(STATE)),
+            occurrence(operator, PathFactory.pathLink(OPERATOR), Collections.singleton(OPERATOR)),
+            occurrence(status, PathFactory.pathLink(STATUS), Collections.singleton(STATUS)),
+            occurrence(authorName, authorNamePath, authorNamePreds),
+            occurrence(authoredByUri, authoredByUriPath, Collections.singleton(AUTHORED)));
+
         IndexProfile reportProfile = new IndexProfile(
             NodeFactory.createURI(EX + "MiningReportShape"),
             Collections.singleton(REPORT_CLASS),
             "uri", "docType",
-            Arrays.asList(entityType, title, commodity, state, operator, status, authorName, authoredByUri));
+            Arrays.asList(entityType, title, commodity, state, operator, status, authorName, authoredByUri),
+            reportOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
+
+        List<FieldOccurrence> boreholeOccurrences = Arrays.asList(
+            occurrence(entityType, PathFactory.pathLink(RDF.type.asNode()), Collections.singleton(RDF.type.asNode())),
+            occurrence(title, PathFactory.pathLink(LABEL), Collections.singleton(LABEL)),
+            occurrence(commodity, PathFactory.pathLink(COMMODITY), Collections.singleton(COMMODITY)),
+            occurrence(state, PathFactory.pathLink(STATE), Collections.singleton(STATE)),
+            occurrence(depth, PathFactory.pathLink(DEPTH), Collections.singleton(DEPTH)));
 
         IndexProfile boreholeProfile = new IndexProfile(
             NodeFactory.createURI(EX + "BoreholeShape"),
             Collections.singleton(BOREHOLE_CLASS),
             "uri", "docType",
-            Arrays.asList(entityType, title, commodity, state, depth));
+            Arrays.asList(entityType, title, commodity, state, depth),
+            boreholeOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
+
+        List<FieldOccurrence> siteOccurrences = Arrays.asList(
+            occurrence(entityType, PathFactory.pathLink(RDF.type.asNode()), Collections.singleton(RDF.type.asNode())),
+            occurrence(title, PathFactory.pathLink(LABEL), Collections.singleton(LABEL)),
+            occurrence(commodity, PathFactory.pathLink(COMMODITY), Collections.singleton(COMMODITY)),
+            occurrence(state, PathFactory.pathLink(STATE), Collections.singleton(STATE)),
+            occurrence(status, PathFactory.pathLink(STATUS), Collections.singleton(STATUS)));
 
         IndexProfile siteProfile = new IndexProfile(
             NodeFactory.createURI(EX + "SiteShape"),
             Collections.singleton(SITE_CLASS),
             "uri", "docType",
-            Arrays.asList(entityType, title, commodity, state, status));
+            Arrays.asList(entityType, title, commodity, state, status),
+            siteOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(
             Arrays.asList(reportProfile, boreholeProfile, siteProfile));
@@ -318,6 +352,15 @@ public class TestDemoMiningScenarios {
             ResourceFactory.createResource(EX + statusId));
         m.add(report, ResourceFactory.createProperty(EX + "authoredBy"),
             ResourceFactory.createResource(EX + authorId));
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
+        return new FieldOccurrence(
+            field,
+            path,
+            ShaclIndexAssembler.extractPathVariants(path),
+            predicates,
+            null, null, null, null);
     }
 
     @After

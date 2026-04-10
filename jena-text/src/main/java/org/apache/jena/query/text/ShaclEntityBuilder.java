@@ -26,13 +26,12 @@ import java.util.*;
 import org.apache.jena.graph.Graph;
 import org.apache.jena.graph.Node;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.ShaclIndexMapping.NestedDef;
-import org.apache.jena.sparql.path.P_Link;
-import org.apache.jena.sparql.path.Path;
 import org.apache.jena.sparql.path.eval.PathEval;
-import org.apache.jena.util.iterator.ExtendedIterator;
+import org.apache.jena.vocabulary.RDF;
 
 /**
  * Builds parent entities and nested child records from a graph and a parsed index profile.
@@ -43,95 +42,99 @@ final class ShaclEntityBuilder {
 
     static Entity buildEntity(Graph graph, Node subject, String entityUri, IndexProfile profile) {
         Entity entity = new Entity(entityUri, null);
+        Map<String, LinkedHashSet<Object>> docValues = new LinkedHashMap<>();
 
-        for (FieldDef fieldDef : profile.getFields()) {
-            if (fieldDef.isNestedScoped()) {
-                continue;
-            }
-            addFieldValues(entity, fieldDef.getFieldName(), extractFieldValues(graph, subject, fieldDef));
+        for (FieldOccurrence occurrence : profile.getRootOccurrences()) {
+            addValues(docValues, occurrence.getField().getFieldName(),
+                extractOccurrenceValues(graph, subject, occurrence));
         }
 
         for (NestedDef nestedDef : profile.getNestedDefs()) {
             Iterator<Node> childIter = PathEval.eval(graph, subject, nestedDef.getJoinPath(), null);
             while (childIter.hasNext()) {
                 Node child = childIter.next();
-                Entity.NestedRecord record = new Entity.NestedRecord();
-                boolean hasValues = false;
-                for (FieldDef fieldDef : nestedDef.getFields()) {
-                    List<Object> values = extractFieldValues(graph, child, fieldDef);
+                Map<String, LinkedHashSet<Object>> recordValues = new LinkedHashMap<>();
+
+                for (FieldOccurrence occurrence : nestedDef.getOccurrences()) {
+                    List<Object> values = extractOccurrenceValues(graph, child, occurrence);
                     if (!values.isEmpty()) {
-                        hasValues = true;
-                        addFieldValues(entity, fieldDef.getFieldName(), values);
-                        addFieldValues(record, fieldDef.getFieldName(), values);
+                        addValues(docValues, occurrence.getField().getFieldName(), values);
+                        addValues(recordValues, occurrence.getField().getFieldName(), values);
                     }
                 }
-                if (hasValues) {
-                    entity.addNestedRecord(nestedDef.getNestedName(), record);
+
+                if (!recordValues.isEmpty()) {
+                    entity.addNestedRecord(nestedDef.getNestedName(), toNestedRecord(recordValues));
                 }
+            }
+        }
+
+        for (Map.Entry<String, LinkedHashSet<Object>> entry : docValues.entrySet()) {
+            for (Object value : entry.getValue()) {
+                entity.addValue(entry.getKey(), value);
             }
         }
 
         return entity;
     }
 
-    private static List<Object> extractFieldValues(Graph graph, Node subject, FieldDef fieldDef) {
-        List<Object> values = new ArrayList<>();
-        Path path = fieldDef.getPath();
-
-        if (path != null && fieldDef.hasComplexPath()) {
-            Iterator<Node> iter = PathEval.eval(graph, subject, path, null);
-            while (iter.hasNext()) {
-                Object value = nodeToValue(iter.next(), fieldDef.getFieldType(), fieldDef.preservesLiteralMetadata());
-                if (value != null) {
-                    values.add(value);
-                }
-            }
-            return values;
-        }
-
-        if (path instanceof P_Link pLink) {
-            ExtendedIterator<Node> iter = graph.find(subject, pLink.getNode(), Node.ANY)
-                .mapWith(t -> t.getObject());
-            try {
-                while (iter.hasNext()) {
-                    Object value = nodeToValue(iter.next(), fieldDef.getFieldType(), fieldDef.preservesLiteralMetadata());
-                    if (value != null) {
-                        values.add(value);
-                    }
-                }
-            } finally {
-                iter.close();
-            }
-            return values;
-        }
-
-        for (Node predicate : fieldDef.getPredicates()) {
-            ExtendedIterator<Node> iter = graph.find(subject, predicate, Node.ANY)
-                .mapWith(t -> t.getObject());
-            try {
-                while (iter.hasNext()) {
-                    Object value = nodeToValue(iter.next(), fieldDef.getFieldType(), fieldDef.preservesLiteralMetadata());
-                    if (value != null) {
-                        values.add(value);
-                    }
-                }
-            } finally {
-                iter.close();
+    private static Entity.NestedRecord toNestedRecord(Map<String, LinkedHashSet<Object>> recordValues) {
+        Entity.NestedRecord record = new Entity.NestedRecord();
+        for (Map.Entry<String, LinkedHashSet<Object>> entry : recordValues.entrySet()) {
+            for (Object value : entry.getValue()) {
+                record.addValue(entry.getKey(), value);
             }
         }
-        return values;
+        return record;
     }
 
-    private static void addFieldValues(Entity entity, String fieldName, List<Object> values) {
-        for (Object value : values) {
-            entity.addValue(fieldName, value);
+    private static void addValues(Map<String, LinkedHashSet<Object>> target, String fieldName, List<Object> values) {
+        if (values.isEmpty()) {
+            return;
         }
+        target.computeIfAbsent(fieldName, key -> new LinkedHashSet<>()).addAll(values);
     }
 
-    private static void addFieldValues(Entity.NestedRecord record, String fieldName, List<Object> values) {
-        for (Object value : values) {
-            record.addValue(fieldName, value);
+    private static List<Object> extractOccurrenceValues(Graph graph, Node subject, FieldOccurrence occurrence) {
+        LinkedHashSet<Object> values = new LinkedHashSet<>();
+        Iterator<Node> iter = PathEval.eval(graph, subject, occurrence.getPath(), null);
+        while (iter.hasNext()) {
+            Node endpoint = iter.next();
+            if (!satisfiesConstraints(graph, endpoint, occurrence)) {
+                continue;
+            }
+            Object value = nodeToValue(endpoint, occurrence.getField().getFieldType(),
+                occurrence.getField().preservesLiteralMetadata());
+            if (value != null) {
+                values.add(value);
+            }
         }
+        return new ArrayList<>(values);
+    }
+
+    private static boolean satisfiesConstraints(Graph graph, Node endpoint, FieldOccurrence occurrence) {
+        if (occurrence.getRequiredClass() != null) {
+            if (!endpoint.isBlank() && !endpoint.isURI()) {
+                return false;
+            }
+            if (!graph.find(endpoint, RDF.type.asNode(), occurrence.getRequiredClass()).hasNext()) {
+                return false;
+            }
+        }
+        if (occurrence.getNodeKindConstraint() != null
+                && !occurrence.getNodeKindConstraint().matches(endpoint)) {
+            return false;
+        }
+        if (occurrence.getDatatype() != null) {
+            if (!endpoint.isLiteral()) {
+                return false;
+            }
+            String datatypeUri = endpoint.getLiteralDatatypeURI();
+            if (!Objects.equals(datatypeUri, occurrence.getDatatype().getURI())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     static Object nodeToValue(Node obj, FieldType fieldType) {

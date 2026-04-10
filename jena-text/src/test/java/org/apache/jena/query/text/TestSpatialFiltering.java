@@ -31,9 +31,12 @@ import org.apache.jena.query.Dataset;
 import org.apache.jena.query.DatasetFactory;
 import org.apache.jena.query.ReadWrite;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
+import org.apache.jena.sparql.path.Path;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.jena.query.text.cql.CqlExpression;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
@@ -70,11 +73,18 @@ public class TestSpatialFiltering {
             true, true, false, false, false, false,
             Collections.singleton(ASWKT_PRED));
 
+        List<FieldOccurrence> rootOccurrences = Arrays.asList(
+            occurrence(titleField, PathFactory.pathLink(TITLE_PRED), Collections.singleton(TITLE_PRED)),
+            occurrence(locationField, PathFactory.pathLink(ASWKT_PRED), Collections.singleton(ASWKT_PRED)));
+
         IndexProfile siteProfile = new IndexProfile(
             NodeFactory.createURI(NS + "SiteShape"),
             Collections.singleton(SITE_CLASS),
             "uri", "docType",
-            Arrays.asList(titleField, locationField));
+            Arrays.asList(titleField, locationField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         mapping = new ShaclIndexMapping(Collections.singletonList(siteProfile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -138,6 +148,15 @@ public class TestSpatialFiltering {
             ResourceFactory.createTypedLiteral(wkt,
                 org.apache.jena.datatypes.TypeMapper.getInstance()
                     .getSafeTypeByName(GEO + "wktLiteral")));
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
+        return new FieldOccurrence(
+            field,
+            path,
+            ShaclIndexAssembler.extractPathVariants(path),
+            predicates,
+            null, null, null, null);
     }
 
     @After

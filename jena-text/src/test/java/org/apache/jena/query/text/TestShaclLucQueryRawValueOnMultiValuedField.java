@@ -26,6 +26,8 @@ import static org.junit.Assert.assertTrue;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
+import java.util.Set;
 
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
@@ -37,9 +39,12 @@ import org.apache.jena.query.QuerySolution;
 import org.apache.jena.query.ReadWrite;
 import org.apache.jena.query.ResultSet;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
+import org.apache.jena.sparql.path.Path;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.ResourceFactory;
@@ -66,11 +71,17 @@ public class TestShaclLucQueryRawValueOnMultiValuedField {
             true, true, false, false, true, false,
             Collections.singleton(IDENTIFIER_PRED));
 
+        List<FieldOccurrence> rootOccurrences = Arrays.asList(
+            occurrence(identifierField, PathFactory.pathLink(IDENTIFIER_PRED), Collections.singleton(IDENTIFIER_PRED)));
+
         IndexProfile recordProfile = new IndexProfile(
             NodeFactory.createURI(NS + "RecordShape"),
             Collections.singleton(RECORD_CLASS),
             "uri", "docType",
-            Arrays.asList(identifierField));
+            Arrays.asList(identifierField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(recordProfile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -101,6 +112,15 @@ public class TestShaclLucQueryRawValueOnMultiValuedField {
         } finally {
             dataset.end();
         }
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
+        return new FieldOccurrence(
+            field,
+            path,
+            ShaclIndexAssembler.extractPathVariants(path),
+            predicates,
+            null, null, null, null);
     }
 
     @After

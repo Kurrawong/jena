@@ -36,47 +36,45 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Parses SHACL-like shape definitions from an RDF config into a {@link ShaclIndexMapping}.
- * <p>
- * Not an {@code AssemblerBase} subclass — called from {@link TextIndexLuceneAssembler}.
- * <p>
- * Uses standard Jena RDF API to read {@code sh:targetClass}, {@code sh:path},
- * {@code sh:alternativePath} — no jena-shacl dependency.
+ * Parses SHACL-like shape definitions from RDF into a {@link ShaclIndexMapping}.
  */
 public class ShaclIndexAssembler {
     private static final Logger log = LoggerFactory.getLogger(ShaclIndexAssembler.class);
 
-    // SHACL namespace — we only read config, not run validation
     private static final String SH = "http://www.w3.org/ns/shacl#";
+    private static final String SH_BLANK_NODE = SH + "BlankNode";
+    private static final String SH_IRI = SH + "IRI";
+    private static final String SH_LITERAL = SH + "Literal";
+    private static final String SH_BLANK_NODE_OR_IRI = SH + "BlankNodeOrIRI";
+    private static final String SH_BLANK_NODE_OR_LITERAL = SH + "BlankNodeOrLiteral";
+    private static final String SH_IRI_OR_LITERAL = SH + "IRIOrLiteral";
+
     private static final Property shTargetClass     = ResourceFactory.createProperty(SH, "targetClass");
     private static final Property shProperty        = ResourceFactory.createProperty(SH, "property");
     private static final Property shPath            = ResourceFactory.createProperty(SH, "path");
     private static final Property shAlternativePath = ResourceFactory.createProperty(SH, "alternativePath");
-    private static final Property shInversePath    = ResourceFactory.createProperty(SH, "inversePath");
+    private static final Property shInversePath     = ResourceFactory.createProperty(SH, "inversePath");
+    private static final Property shClass           = ResourceFactory.createProperty(SH, "class");
+    private static final Property shNodeKind        = ResourceFactory.createProperty(SH, "nodeKind");
+    private static final Property shDatatype        = ResourceFactory.createProperty(SH, "datatype");
 
-    private static final Node SH_INVERSE_PATH     = shInversePath.asNode();
-    private static final Node SH_ALTERNATIVE_PATH  = shAlternativePath.asNode();
+    private static final Node SH_INVERSE_PATH = shInversePath.asNode();
+    private static final Node SH_ALTERNATIVE_PATH = shAlternativePath.asNode();
     private static final Node RDF_FIRST = org.apache.jena.vocabulary.RDF.first.asNode();
-    private static final Node RDF_NIL  = org.apache.jena.vocabulary.RDF.nil.asNode();
+    private static final Node RDF_NIL = org.apache.jena.vocabulary.RDF.nil.asNode();
 
     private ShaclIndexAssembler() {}
 
-    /**
-     * Parse an RDF list of shape resources into a {@link ShaclIndexMapping}.
-     *
-     * @param a the assembler context (for resolving analyzer resources)
-     * @param shapesList the RDF resource that is the head of the shapes list
-     * @return parsed mapping
-     */
     public static ShaclIndexMapping parseShapes(Assembler a, Resource shapesList) {
         List<IndexProfile> profiles = new ArrayList<>();
+        Map<String, FieldDef> canonicalFields = new LinkedHashMap<>();
 
         RDFList rdfList = shapesList.as(RDFList.class);
         for (RDFNode item : rdfList.asJavaList()) {
             if (!item.isResource()) {
                 throw new TextIndexException("text:shapes list item is not a resource: " + item);
             }
-            profiles.add(parseProfile(a, item.asResource()));
+            profiles.add(parseProfile(a, item.asResource(), canonicalFields));
         }
 
         if (profiles.isEmpty()) {
@@ -86,10 +84,11 @@ public class ShaclIndexAssembler {
         return new ShaclIndexMapping(profiles);
     }
 
-    private static IndexProfile parseProfile(Assembler a, Resource shape) {
+    private static IndexProfile parseProfile(Assembler a, Resource shape,
+                                             Map<String, FieldDef> canonicalFields) {
         Node shapeNode = shape.asNode();
+        rejectLegacyShapeFieldList(shape);
 
-        // sh:targetClass
         Set<Node> targetClasses = new LinkedHashSet<>();
         StmtIterator tcIter = shape.listProperties(shTargetClass);
         while (tcIter.hasNext()) {
@@ -102,59 +101,48 @@ public class ShaclIndexAssembler {
             throw new TextIndexException("Shape " + shape + " has no sh:targetClass");
         }
 
-        // idx:docIdField (optional, default "uri")
         String docIdField = getOptionalString(shape, IndexVocab.pDocIdField);
-
-        // idx:discriminatorField (optional, default "docType")
         String discriminatorField = getOptionalString(shape, IndexVocab.pDiscriminatorField);
 
-        // Parse fields from idx:field list or sh:property
-        Map<String, FieldDef> fieldsByIRI = new LinkedHashMap<>();
+        Map<String, FieldDef> reachableFields = new LinkedHashMap<>();
+        List<FieldOccurrence> rootOccurrences = parseRootOccurrences(a, shape, canonicalFields, reachableFields);
+        List<NestedDef> nestedDefs = parseNestedDefs(a, shape, canonicalFields, reachableFields);
+        List<FieldDef> fields = new ArrayList<>(reachableFields.values());
 
-        // idx:field — an RDF list of field resources
-        Statement fieldStmt = shape.getProperty(IndexVocab.pField);
-        if (fieldStmt != null) {
-            RDFNode fieldNode = fieldStmt.getObject();
-            if (fieldNode.isResource()) {
-                try {
-                    RDFList fieldList = fieldNode.asResource().as(RDFList.class);
-                    for (RDFNode fn : fieldList.asJavaList()) {
-                        if (fn.isResource()) {
-                            resolveRootFieldDef(a, fn.asResource(), fieldsByIRI);
-                        }
-                    }
-                } catch (Exception e) {
-                    throw new TextIndexException("idx:field on " + shape + " is not a valid RDF list: " + e.getMessage());
-                }
-            }
+        if (rootOccurrences.isEmpty() && nestedDefs.isEmpty()) {
+            throw new TextIndexException("Shape " + shape + " has no field occurrences");
         }
 
-        // Also parse sh:property nodes (for shapes that use SHACL property shapes directly)
-        StmtIterator propIter = shape.listProperties(shProperty);
-        while (propIter.hasNext()) {
-            Resource propShape = propIter.next().getObject().asResource();
-            resolveRootFieldDef(a, propShape, fieldsByIRI);
-        }
-
-        List<NestedDef> nestedDefs = parseNestedDefs(a, shape, fieldsByIRI);
-        List<FieldDef> fields = new ArrayList<>(fieldsByIRI.values());
-
-        if (fields.isEmpty()) {
-            throw new TextIndexException("Shape " + shape + " has no fields (idx:field, sh:property, or idx:nested/idx:property)");
-        }
-
-        // Parse direct hierarchical facet definitions: idx:facetHierarchy
         List<HierarchyDef> hierarchies = parseHierarchies(shape, fields);
-
         return new IndexProfile(shapeNode, targetClasses, docIdField, discriminatorField,
-            fields, hierarchies, nestedDefs);
+            fields, rootOccurrences, hierarchies, nestedDefs);
     }
 
-    /**
-     * Parse {@code idx:nested} declarations on a shape.
-     */
+    private static void rejectLegacyShapeFieldList(Resource shape) {
+        if (shape.hasProperty(IndexVocab.pField)) {
+            throw new TextIndexException(
+                "Shape " + shape + " uses legacy idx:field. Root fields must now be declared as sh:property occurrences.");
+        }
+    }
+
+    private static List<FieldOccurrence> parseRootOccurrences(Assembler a, Resource shape,
+                                                              Map<String, FieldDef> canonicalFields,
+                                                              Map<String, FieldDef> reachableFields) {
+        List<FieldOccurrence> occurrences = new ArrayList<>();
+        StmtIterator propIter = shape.listProperties(shProperty);
+        while (propIter.hasNext()) {
+            RDFNode propNode = propIter.next().getObject();
+            if (!propNode.isResource()) {
+                throw new TextIndexException("sh:property on " + shape + " must be a resource");
+            }
+            occurrences.add(parseOccurrence(a, propNode.asResource(), canonicalFields, reachableFields, null));
+        }
+        return Collections.unmodifiableList(occurrences);
+    }
+
     private static List<NestedDef> parseNestedDefs(Assembler a, Resource shape,
-            Map<String, FieldDef> fieldsByIRI) {
+                                                   Map<String, FieldDef> canonicalFields,
+                                                   Map<String, FieldDef> reachableFields) {
         List<NestedDef> nestedDefs = new ArrayList<>();
 
         StmtIterator nestedIter = shape.listProperties(IndexVocab.pNested);
@@ -177,39 +165,32 @@ public class ShaclIndexAssembler {
                 throw new TextIndexException("Invalid idx:joinPath on " + shape + ": " + ex.getMessage(), ex);
             }
 
-            List<FieldDef> nestedFields = new ArrayList<>();
-            Set<String> seenFieldIRIs = new LinkedHashSet<>();
-
-            StmtIterator nestedFieldIter = nestedRes.listProperties(IndexVocab.pProperty);
-            while (nestedFieldIter.hasNext()) {
-                RDFNode fieldNode = nestedFieldIter.next().getObject();
-                if (!fieldNode.isResource()) {
+            List<FieldOccurrence> nestedOccurrences = new ArrayList<>();
+            StmtIterator occurrenceIter = nestedRes.listProperties(IndexVocab.pProperty);
+            while (occurrenceIter.hasNext()) {
+                RDFNode occurrenceNode = occurrenceIter.next().getObject();
+                if (!occurrenceNode.isResource()) {
                     throw new TextIndexException("idx:property inside idx:nested must be a resource on " + shape);
                 }
-                FieldDef fieldDef = resolveNestedFieldDef(a, fieldNode.asResource(), fieldsByIRI, nestedName);
-                if (seenFieldIRIs.add(fieldDef.getFieldIRI().getURI())) {
-                    nestedFields.add(fieldDef);
-                }
+                nestedOccurrences.add(parseOccurrence(
+                    a, occurrenceNode.asResource(), canonicalFields, reachableFields, nestedName));
             }
 
-            if (nestedFields.isEmpty()) {
-                throw new TextIndexException("idx:nested on " + shape + " must reference at least one idx:property");
+            if (nestedOccurrences.isEmpty()) {
+                throw new TextIndexException("idx:nested on " + shape + " must define at least one idx:property occurrence");
             }
 
+            List<FieldDef> nestedFields = distinctFields(nestedOccurrences);
             List<HierarchyDef> nestedHierarchies = parseHierarchies(nestedRes, nestedFields);
             nestedDefs.add(new NestedDef(nestedName, joinPath, joinSteps, extractJoinPredicates(joinSteps),
-                nestedFields, nestedHierarchies));
-            log.debug("Parsed nested definition: {} joinPath={} fields={}", nestedName, joinPath, nestedFields);
+                nestedOccurrences, nestedHierarchies));
+            log.debug("Parsed nested definition: {} joinPath={} occurrences={}",
+                nestedName, joinPath, nestedOccurrences);
         }
 
-        return nestedDefs;
+        return Collections.unmodifiableList(nestedDefs);
     }
 
-    /**
-     * Parse {@code idx:facetHierarchy} declarations on a shape or nested block.
-     * Each hierarchy is an RDF list of field resource IRIs that define the ordered levels.
-     * The dimension name is derived from the field names joined by "_".
-     */
     private static List<HierarchyDef> parseHierarchies(Resource owner, List<FieldDef> fields) {
         List<HierarchyDef> hierarchies = new ArrayList<>();
 
@@ -235,15 +216,17 @@ public class ShaclIndexAssembler {
                         "idx:facetHierarchy level must be a URI resource, got " + levelNode);
                 }
                 String levelIRI = levelNode.asResource().getURI();
-                FieldDef fd = findFieldByIRI(fields, levelIRI);
-                if (fd == null) {
+                FieldDef field = findFieldByIRI(fields, levelIRI);
+                if (field == null) {
                     throw new TextIndexException(
-                        "idx:facetHierarchy references unknown field IRI: " + levelIRI
-                        + ". All hierarchy levels must be declared on the same shape or nested block.");
+                        "idx:facetHierarchy references unknown canonical field IRI: " + levelIRI
+                        + ". Hierarchy levels must reference fields populated in the same scope.");
                 }
-                levels.add(fd);
-                if (dimNameBuilder.length() > 0) dimNameBuilder.append("_");
-                dimNameBuilder.append(fd.getFieldName());
+                levels.add(field);
+                if (dimNameBuilder.length() > 0) {
+                    dimNameBuilder.append("_");
+                }
+                dimNameBuilder.append(field.getFieldName());
             }
 
             String dimensionName = dimNameBuilder.toString();
@@ -251,46 +234,151 @@ public class ShaclIndexAssembler {
             log.debug("Parsed hierarchy: {} levels={}", dimensionName, levels);
         }
 
-        return hierarchies;
+        return Collections.unmodifiableList(hierarchies);
     }
 
-    private static FieldDef resolveRootFieldDef(Assembler a, Resource fieldRes,
-            Map<String, FieldDef> fieldsByIRI) {
-        FieldDef parsed = parseFieldDef(a, fieldRes).withNestedName(null);
+    private static FieldOccurrence parseOccurrence(Assembler a, Resource occurrenceRes,
+                                                   Map<String, FieldDef> canonicalFields,
+                                                   Map<String, FieldDef> reachableFields,
+                                                   String nestedName) {
+        rejectCanonicalFieldPropertiesOnOccurrence(occurrenceRes);
+
+        Statement fieldStmt = occurrenceRes.getProperty(IndexVocab.pField);
+        if (fieldStmt == null || !fieldStmt.getObject().isResource()) {
+            throw new TextIndexException("Field occurrence " + occurrenceRes + " is missing idx:field");
+        }
+
+        FieldDef field = resolveCanonicalField(a, fieldStmt.getObject().asResource(), canonicalFields);
+        reachableFields.putIfAbsent(field.getFieldIRI().getURI(), field);
+
+        Path path = extractOccurrencePath(occurrenceRes);
+        if (path == null) {
+            throw new TextIndexException("Field occurrence " + occurrenceRes + " is missing sh:path");
+        }
+
+        Node requiredClass = getOptionalResourceNode(occurrenceRes, shClass);
+        NodeKindConstraint nodeKindConstraint = getOptionalNodeKindConstraint(occurrenceRes);
+        Node datatype = getOptionalResourceNode(occurrenceRes, shDatatype);
+
+        List<List<JoinStep>> pathVariants = extractPathVariants(path);
+        Set<Node> predicates = extractLeafPredicates(path);
+
+        return new FieldOccurrence(field, path, pathVariants, predicates,
+            requiredClass, nodeKindConstraint, datatype, nestedName);
+    }
+
+    private static void rejectCanonicalFieldPropertiesOnOccurrence(Resource occurrenceRes) {
+        List<Property> forbidden = List.of(
+            IndexVocab.pFieldName,
+            IndexVocab.pFieldType,
+            IndexVocab.pAnalyzer,
+            IndexVocab.pQueryAnalyzer,
+            IndexVocab.pStored,
+            IndexVocab.pIndexed,
+            IndexVocab.pFacetable,
+            IndexVocab.pSortable,
+            IndexVocab.pMultiValued,
+            IndexVocab.pDefaultSearch,
+            IndexVocab.pStoreLiteralMetadata,
+            IndexVocab.pJoinPath,
+            IndexVocab.pNested,
+            IndexVocab.pPath
+        );
+        for (Property property : forbidden) {
+            if (occurrenceRes.hasProperty(property)) {
+                throw new TextIndexException(
+                    "Field occurrence " + occurrenceRes + " mixes occurrence data with canonical field metadata via " + property);
+            }
+        }
+    }
+
+    private static FieldDef resolveCanonicalField(Assembler a, Resource fieldRes,
+                                                  Map<String, FieldDef> canonicalFields) {
+        String directKey = fieldRes.isURIResource() ? fieldRes.getURI() : null;
+        if (directKey != null) {
+            FieldDef existing = canonicalFields.get(directKey);
+            if (existing != null) {
+                return existing;
+            }
+        }
+
+        FieldDef parsed = parseCanonicalField(a, fieldRes);
         String iri = parsed.getFieldIRI().getURI();
-        FieldDef existing = fieldsByIRI.get(iri);
+        FieldDef existing = canonicalFields.get(iri);
         if (existing == null) {
-            fieldsByIRI.put(iri, parsed);
+            canonicalFields.put(iri, parsed);
             return parsed;
         }
-        if (existing.isNestedScoped()) {
-            throw new TextIndexException(
-                "Field " + iri + " cannot be used both as a root field and as an idx:nested property. "
-                + "Define separate field IRIs for parent and nested scopes.");
-        }
+        validateSameCanonicalField(existing, parsed);
         return existing;
     }
 
-    private static FieldDef resolveNestedFieldDef(Assembler a, Resource fieldRes,
-            Map<String, FieldDef> fieldsByIRI, String nestedName) {
-        FieldDef parsed = parseFieldDef(a, fieldRes).withNestedName(nestedName);
-        String iri = parsed.getFieldIRI().getURI();
-        FieldDef existing = fieldsByIRI.get(iri);
-        if (existing == null) {
-            fieldsByIRI.put(iri, parsed);
-            return parsed;
-        }
-        if (existing.isRootScoped()) {
+    private static void validateSameCanonicalField(FieldDef existing, FieldDef parsed) {
+        if (!Objects.equals(existing.getFieldName(), parsed.getFieldName())
+                || existing.getFieldType() != parsed.getFieldType()
+                || existing.isStored() != parsed.isStored()
+                || existing.isIndexed() != parsed.isIndexed()
+                || existing.isFacetable() != parsed.isFacetable()
+                || existing.isSortable() != parsed.isSortable()
+                || existing.isMultiValued() != parsed.isMultiValued()
+                || existing.isDefaultSearch() != parsed.isDefaultSearch()
+                || existing.isStoreLiteralMetadata() != parsed.isStoreLiteralMetadata()) {
             throw new TextIndexException(
-                "Field " + iri + " cannot be used both as a root field and as an idx:nested property. "
-                + "Define separate field IRIs for parent and nested scopes.");
+                "Canonical field " + existing.getFieldIRI().getURI() + " is defined inconsistently across occurrences");
         }
-        if (!nestedName.equals(existing.getNestedName())) {
+    }
+
+    private static FieldDef parseCanonicalField(Assembler a, Resource fieldRes) {
+        rejectOccurrencePropertiesOnCanonicalField(fieldRes);
+
+        String fieldName = getRequiredString(fieldRes, IndexVocab.pFieldName,
+            "Canonical field " + fieldRes + " is missing idx:fieldName");
+
+        FieldType fieldType = FieldType.TEXT;
+        Statement ftStmt = fieldRes.getProperty(IndexVocab.pFieldType);
+        if (ftStmt != null) {
+            fieldType = parseFieldType(ftStmt.getObject());
+        }
+
+        Analyzer analyzer = null;
+        Statement analyzerStmt = fieldRes.getProperty(IndexVocab.pAnalyzer);
+        if (analyzerStmt != null && analyzerStmt.getObject().isResource()) {
+            analyzer = (Analyzer) a.open(analyzerStmt.getObject().asResource());
+        }
+
+        Analyzer queryAnalyzer = null;
+        Statement queryAnalyzerStmt = fieldRes.getProperty(IndexVocab.pQueryAnalyzer);
+        if (queryAnalyzerStmt != null && queryAnalyzerStmt.getObject().isResource()) {
+            queryAnalyzer = (Analyzer) a.open(queryAnalyzerStmt.getObject().asResource());
+        }
+
+        boolean stored = getOptionalBoolean(fieldRes, IndexVocab.pStored, true);
+        boolean indexed = getOptionalBoolean(fieldRes, IndexVocab.pIndexed, true);
+        boolean facetable = getOptionalBoolean(fieldRes, IndexVocab.pFacetable, false);
+        boolean sortable = getOptionalBoolean(fieldRes, IndexVocab.pSortable, false);
+        boolean multiValued = getOptionalBoolean(fieldRes, IndexVocab.pMultiValued, false);
+        boolean defaultSearch = getOptionalBoolean(fieldRes, IndexVocab.pDefaultSearch, false);
+        boolean storeLiteralMetadata = getOptionalBoolean(fieldRes, IndexVocab.pStoreLiteralMetadata, false);
+
+        Node fieldIRI = fieldRes.isURIResource() ? fieldRes.asNode() : null;
+        FieldDef fieldDef = new FieldDef(fieldName, fieldType, analyzer, queryAnalyzer,
+            stored, indexed, facetable, sortable, multiValued, defaultSearch,
+            storeLiteralMetadata, fieldIRI);
+        log.debug("Parsed canonical field: {} type={} facetable={}", fieldDef.getFieldName(),
+            fieldDef.getFieldType(), fieldDef.isFacetable());
+        return fieldDef;
+    }
+
+    private static void rejectOccurrencePropertiesOnCanonicalField(Resource fieldRes) {
+        if (fieldRes.hasProperty(shPath)
+                || fieldRes.hasProperty(IndexVocab.pPath)
+                || fieldRes.hasProperty(shClass)
+                || fieldRes.hasProperty(shNodeKind)
+                || fieldRes.hasProperty(shDatatype)
+                || fieldRes.hasProperty(IndexVocab.pField)) {
             throw new TextIndexException(
-                "Field " + iri + " cannot be reused across multiple idx:nested scopes. "
-                + "Define a separate field IRI for each nested collection.");
+                "Canonical field " + fieldRes + " must not carry occurrence properties such as sh:path or idx:field");
         }
-        return existing;
     }
 
     private static String deriveNestedName(Path joinPath) {
@@ -301,8 +389,7 @@ public class ShaclIndexAssembler {
         List<JoinStep> steps = new ArrayList<>();
         collectJoinSteps(joinPath, steps);
         if (steps.isEmpty()) {
-            throw new TextIndexException(
-                "idx:joinPath must contain at least one predicate step: " + joinPath);
+            throw new TextIndexException("idx:joinPath must contain at least one predicate step: " + joinPath);
         }
         return Collections.unmodifiableList(steps);
     }
@@ -331,108 +418,99 @@ public class ShaclIndexAssembler {
             + "and sequences composed from them: " + joinPath);
     }
 
+    public static List<List<JoinStep>> extractPathVariants(Path path) {
+        List<List<JoinStep>> variants = collectPathVariants(path);
+        if (variants.isEmpty()) {
+            throw new TextIndexException("sh:path must contain at least one predicate step: " + path);
+        }
+        return Collections.unmodifiableList(variants);
+    }
+
+    private static List<List<JoinStep>> collectPathVariants(Path path) {
+        if (path instanceof P_Link link) {
+            return List.of(List.of(new JoinStep(link.getNode(), false)));
+        }
+        if (path instanceof P_Inverse inverse) {
+            return invertVariants(collectPathVariants(inverse.getSubPath()));
+        }
+        if (path instanceof P_Seq seq) {
+            return combineVariants(collectPathVariants(seq.getLeft()), collectPathVariants(seq.getRight()));
+        }
+        if (path instanceof P_Alt alt) {
+            List<List<JoinStep>> variants = new ArrayList<>();
+            variants.addAll(collectPathVariants(alt.getLeft()));
+            variants.addAll(collectPathVariants(alt.getRight()));
+            return variants;
+        }
+        throw new TextIndexException(
+            "sh:path supports only simple predicate steps, inverse predicate steps, "
+            + "sequences, and alternatives composed from them: " + path);
+    }
+
+    private static List<List<JoinStep>> invertVariants(List<List<JoinStep>> variants) {
+        List<List<JoinStep>> inverted = new ArrayList<>();
+        for (List<JoinStep> variant : variants) {
+            List<JoinStep> copy = new ArrayList<>(variant.size());
+            for (int i = variant.size() - 1; i >= 0; i--) {
+                JoinStep step = variant.get(i);
+                copy.add(new JoinStep(step.getPredicate(), !step.isInverse()));
+            }
+            inverted.add(Collections.unmodifiableList(copy));
+        }
+        return Collections.unmodifiableList(inverted);
+    }
+
+    private static List<List<JoinStep>> combineVariants(List<List<JoinStep>> left, List<List<JoinStep>> right) {
+        List<List<JoinStep>> combined = new ArrayList<>();
+        for (List<JoinStep> lhs : left) {
+            for (List<JoinStep> rhs : right) {
+                List<JoinStep> seq = new ArrayList<>(lhs.size() + rhs.size());
+                seq.addAll(lhs);
+                seq.addAll(rhs);
+                combined.add(Collections.unmodifiableList(seq));
+            }
+        }
+        return Collections.unmodifiableList(combined);
+    }
+
     private static Set<Node> extractJoinPredicates(List<JoinStep> joinSteps) {
         Set<Node> predicates = new LinkedHashSet<>();
-        for (JoinStep joinStep : joinSteps) {
-            predicates.add(joinStep.getPredicate());
+        for (JoinStep step : joinSteps) {
+            predicates.add(step.getPredicate());
         }
         return Collections.unmodifiableSet(predicates);
     }
 
     private static FieldDef findFieldByIRI(List<FieldDef> fields, String iri) {
-        for (FieldDef fd : fields) {
-            if (fd.getFieldIRI().getURI().equals(iri)) {
-                return fd;
+        for (FieldDef field : fields) {
+            if (field.getFieldIRI().getURI().equals(iri)) {
+                return field;
             }
         }
         return null;
     }
 
-    private static FieldDef parseFieldDef(Assembler a, Resource fieldRes) {
-        // idx:fieldName (required)
-        String fieldName = getRequiredString(fieldRes, IndexVocab.pFieldName,
-            "Field " + fieldRes + " missing idx:fieldName");
-
-        // idx:fieldType (optional, default TEXT)
-        FieldType fieldType = FieldType.TEXT;
-        Statement ftStmt = fieldRes.getProperty(IndexVocab.pFieldType);
-        if (ftStmt != null) {
-            fieldType = parseFieldType(ftStmt.getObject());
+    private static List<FieldDef> distinctFields(List<FieldOccurrence> occurrences) {
+        Map<String, FieldDef> fieldsByIri = new LinkedHashMap<>();
+        for (FieldOccurrence occurrence : occurrences) {
+            FieldDef field = occurrence.getField();
+            fieldsByIri.putIfAbsent(field.getFieldIRI().getURI(), field);
         }
-
-        // idx:analyzer (optional — used for indexing; also used for querying if idx:queryAnalyzer is not set)
-        Analyzer analyzer = null;
-        Statement analyzerStmt = fieldRes.getProperty(IndexVocab.pAnalyzer);
-        if (analyzerStmt != null && analyzerStmt.getObject().isResource()) {
-            analyzer = (Analyzer) a.open(analyzerStmt.getObject().asResource());
-        }
-
-        // idx:queryAnalyzer (optional — overrides idx:analyzer at query time)
-        Analyzer queryAnalyzer = null;
-        Statement queryAnalyzerStmt = fieldRes.getProperty(IndexVocab.pQueryAnalyzer);
-        if (queryAnalyzerStmt != null && queryAnalyzerStmt.getObject().isResource()) {
-            queryAnalyzer = (Analyzer) a.open(queryAnalyzerStmt.getObject().asResource());
-        }
-
-        // Boolean flags with defaults
-        boolean stored = getOptionalBoolean(fieldRes, IndexVocab.pStored, true);
-        boolean indexed = getOptionalBoolean(fieldRes, IndexVocab.pIndexed, true);
-        boolean facetable = getOptionalBoolean(fieldRes, IndexVocab.pFacetable, false);
-        boolean sortable = getOptionalBoolean(fieldRes, IndexVocab.pSortable, false);
-        boolean multiValued = getOptionalBoolean(fieldRes, IndexVocab.pMultiValued, false);
-        boolean defaultSearch = getOptionalBoolean(fieldRes, IndexVocab.pDefaultSearch, false);
-        boolean storeLiteralMetadata = getOptionalBoolean(fieldRes, IndexVocab.pStoreLiteralMetadata, false);
-
-        // Parse path: from sh:path or idx:path
-        Path path = extractPath(fieldRes);
-        if (path == null) {
-            throw new TextIndexException("Field " + fieldRes + " (" + fieldName + ") has no path/predicate");
-        }
-
-        // Extract leaf predicates for change listener compatibility
-        Set<Node> predicates = extractLeafPredicates(path);
-
-        // Use the field resource's URI as the field IRI if it's a named resource
-        Node fieldIRI = fieldRes.isURIResource() ? fieldRes.asNode() : null;
-
-        log.debug("Parsed field: {} type={} path={} facetable={}", fieldName, fieldType, path, facetable);
-        return new FieldDef(fieldName, fieldType, analyzer, queryAnalyzer, stored, indexed,
-                           facetable, sortable, multiValued, defaultSearch, storeLiteralMetadata,
-                           predicates, path, fieldIRI);
+        return new ArrayList<>(fieldsByIri.values());
     }
 
-    /**
-     * Extract a {@link Path} from sh:path or idx:path on a field/property-shape resource.
-     * <p>
-     * Supports the SHACL property path subset:
-     * <ul>
-     *   <li>{@code sh:path <uri>} — predicate path</li>
-     *   <li>{@code sh:path [ sh:alternativePath (<uri1> <uri2> ...) ]} — alternative path</li>
-     *   <li>{@code sh:path [ sh:inversePath <uri> ]} — inverse path</li>
-     *   <li>{@code sh:path ( <uri1> <uri2> )} — sequence path</li>
-     *   <li>Nesting of the above types</li>
-     *   <li>{@code idx:path <uri>} — single predicate (convenience)</li>
-     * </ul>
-     */
-    static Path extractPath(Resource fieldRes) {
-        // Try sh:path first
-        Statement pathStmt = fieldRes.getProperty(shPath);
-        if (pathStmt != null) {
-            Node pathNode = pathStmt.getObject().asNode();
-            Graph graph = fieldRes.getModel().getGraph();
-            return parseShaclPath(graph, pathNode);
-        }
-
-        // Also try idx:path as a convenience (single predicate only)
-        Statement idxPathStmt = fieldRes.getProperty(IndexVocab.pPath);
-        if (idxPathStmt != null) {
-            RDFNode pathNode = idxPathStmt.getObject();
-            if (pathNode.isURIResource()) {
-                return PathFactory.pathLink(pathNode.asNode());
+    static Path extractOccurrencePath(Resource occurrenceRes) {
+        Statement pathStmt = occurrenceRes.getProperty(shPath);
+        if (pathStmt == null) {
+            if (occurrenceRes.hasProperty(IndexVocab.pPath)) {
+                throw new TextIndexException(
+                    "Field occurrence " + occurrenceRes + " uses legacy idx:path. Use sh:path instead.");
             }
+            return null;
         }
-
-        return null;
+        Node pathNode = pathStmt.getObject().asNode();
+        Graph graph = occurrenceRes.getModel().getGraph();
+        return parseShaclPath(graph, pathNode);
     }
 
     static Path extractJoinPath(Resource nestedRes) {
@@ -445,21 +523,11 @@ public class ShaclIndexAssembler {
         return parseShaclPath(graph, pathNode);
     }
 
-    /**
-     * Parse a SHACL property path from an RDF graph into a jena-arq {@link Path} object.
-     * Supports predicate, alternative, inverse, and sequence paths (and nesting of these).
-     * Does not support zeroOrMore, oneOrMore, or zeroOrOne paths.
-     * <p>
-     * Logic adapted from {@code org.apache.jena.shacl.engine.ShaclPaths.path()} to avoid
-     * a jena-shacl dependency.
-     */
     static Path parseShaclPath(Graph graph, Node node) {
-        // Predicate path: a URI node
         if (node.isURI() && !RDF_NIL.equals(node)) {
             return PathFactory.pathLink(node);
         }
 
-        // Sequence path: an RDF list ( p1 p2 ... )
         if (isList(graph, node)) {
             List<Node> nodes = G.rdfList(graph, node);
             if (nodes.isEmpty()) {
@@ -467,37 +535,25 @@ public class ShaclIndexAssembler {
             }
             Path path = null;
             for (Node n : nodes) {
-                Path p = parseShaclPath(graph, n);
-                if (path == null) {
-                    path = p;
-                } else {
-                    path = PathFactory.pathSeq(path, p);
-                }
+                Path next = parseShaclPath(graph, n);
+                path = path == null ? next : PathFactory.pathSeq(path, next);
             }
             return path;
         }
 
-        // Blank node: inverse or alternative path
         if (node.isBlank()) {
-            // sh:inversePath
             if (G.hasProperty(graph, node, SH_INVERSE_PATH)) {
-                Node x = G.getOneSP(graph, node, SH_INVERSE_PATH);
-                Path p = parseShaclPath(graph, x);
-                return PathFactory.pathInverse(p);
+                Node subPath = G.getOneSP(graph, node, SH_INVERSE_PATH);
+                return PathFactory.pathInverse(parseShaclPath(graph, subPath));
             }
 
-            // sh:alternativePath
             if (G.hasProperty(graph, node, SH_ALTERNATIVE_PATH)) {
-                Node x = G.getOneSP(graph, node, SH_ALTERNATIVE_PATH);
-                List<Node> nodes = G.rdfList(graph, x);
+                Node pathList = G.getOneSP(graph, node, SH_ALTERNATIVE_PATH);
+                List<Node> nodes = G.rdfList(graph, pathList);
                 Path path = null;
                 for (Node n : nodes) {
-                    Path p = parseShaclPath(graph, n);
-                    if (path == null) {
-                        path = p;
-                    } else {
-                        path = PathFactory.pathAlt(path, p);
-                    }
+                    Path next = parseShaclPath(graph, n);
+                    path = path == null ? next : PathFactory.pathAlt(path, next);
                 }
                 return path;
             }
@@ -507,45 +563,34 @@ public class ShaclIndexAssembler {
             + ". Only predicate, alternative, inverse, and sequence paths are supported.");
     }
 
-    /** Check if a node is the head of an RDF list. */
     private static boolean isList(Graph graph, Node node) {
         return RDF_NIL.equals(node) || G.contains(graph, node, RDF_FIRST, null);
     }
 
-    /**
-     * Extract all leaf predicate URIs from a {@link Path} for change listener compatibility.
-     * For simple paths, returns the single predicate. For complex paths, collects all
-     * predicate URIs that appear anywhere in the path structure.
-     */
     static Set<Node> extractLeafPredicates(Path path) {
         Set<Node> predicates = new LinkedHashSet<>();
         collectPredicates(path, predicates);
-        return predicates;
+        return Collections.unmodifiableSet(predicates);
     }
 
     private static void collectPredicates(Path path, Set<Node> predicates) {
-        if (path instanceof P_Link pLink) {
-            predicates.add(pLink.getNode());
-        } else if (path instanceof P_Inverse pInv) {
-            collectPredicates(pInv.getSubPath(), predicates);
-        } else if (path instanceof P_Seq pSeq) {
-            collectPredicates(pSeq.getLeft(), predicates);
-            collectPredicates(pSeq.getRight(), predicates);
-        } else if (path instanceof P_Alt pAlt) {
-            collectPredicates(pAlt.getLeft(), predicates);
-            collectPredicates(pAlt.getRight(), predicates);
+        if (path instanceof P_Link link) {
+            predicates.add(link.getNode());
+        } else if (path instanceof P_Inverse inverse) {
+            collectPredicates(inverse.getSubPath(), predicates);
+        } else if (path instanceof P_Seq seq) {
+            collectPredicates(seq.getLeft(), predicates);
+            collectPredicates(seq.getRight(), predicates);
+        } else if (path instanceof P_Alt alt) {
+            collectPredicates(alt.getLeft(), predicates);
+            collectPredicates(alt.getRight(), predicates);
         }
     }
 
-    /**
-     * Build an {@link EntityDefinition} from a {@link ShaclIndexMapping} for backward
-     * compatibility with existing query methods ({@code text:query}, {@code text:facet}).
-     */
     public static EntityDefinition deriveEntityDefinition(ShaclIndexMapping mapping) {
         IndexProfile firstProfile = mapping.getProfiles().get(0);
         String entityField = firstProfile.getDocIdField();
 
-        // Find the first defaultSearch field
         String primaryField = null;
         for (IndexProfile profile : mapping.getProfiles()) {
             for (FieldDef field : profile.getFields()) {
@@ -554,9 +599,10 @@ public class ShaclIndexAssembler {
                     break;
                 }
             }
-            if (primaryField != null) break;
+            if (primaryField != null) {
+                break;
+            }
         }
-        // Fallback: use first TEXT field
         if (primaryField == null) {
             for (FieldDef field : firstProfile.getFields()) {
                 if (field.getFieldType() == FieldType.TEXT) {
@@ -565,7 +611,6 @@ public class ShaclIndexAssembler {
                 }
             }
         }
-        // Last resort: first field
         if (primaryField == null) {
             primaryField = firstProfile.getFields().get(0).getFieldName();
         }
@@ -574,12 +619,16 @@ public class ShaclIndexAssembler {
         defn.setLangField("lang");
         defn.setUidField("uid");
 
-        // Register all fields and their predicates
         for (IndexProfile profile : mapping.getProfiles()) {
-            for (FieldDef field : profile.getFields()) {
-                for (Node pred : field.getPredicates()) {
-                    defn.set(field.getFieldName(), pred);
+            for (FieldOccurrence occurrence : profile.getRootOccurrences()) {
+                registerOccurrence(defn, occurrence);
+            }
+            for (NestedDef nestedDef : profile.getNestedDefs()) {
+                for (FieldOccurrence occurrence : nestedDef.getOccurrences()) {
+                    registerOccurrence(defn, occurrence);
                 }
+            }
+            for (FieldDef field : profile.getFields()) {
                 if (field.getAnalyzer() != null) {
                     defn.setAnalyzer(field.getFieldName(), field.getAnalyzer());
                 }
@@ -590,6 +639,12 @@ public class ShaclIndexAssembler {
         }
 
         return defn;
+    }
+
+    private static void registerOccurrence(EntityDefinition defn, FieldOccurrence occurrence) {
+        for (Node predicate : occurrence.getPredicates()) {
+            defn.set(occurrence.getField().getFieldName(), predicate);
+        }
     }
 
     private static FieldType parseFieldType(RDFNode node) {
@@ -608,21 +663,53 @@ public class ShaclIndexAssembler {
         throw new TextIndexException("Unknown idx:fieldType: " + uri);
     }
 
-    private static String getRequiredString(Resource r, Property p, String errorMsg) {
-        Statement s = r.getProperty(p);
-        if (s == null) throw new TextIndexException(errorMsg);
-        return s.getObject().asLiteral().getString();
+    private static String getRequiredString(Resource resource, Property property, String errorMsg) {
+        Statement stmt = resource.getProperty(property);
+        if (stmt == null) {
+            throw new TextIndexException(errorMsg);
+        }
+        return stmt.getObject().asLiteral().getString();
     }
 
-    private static String getOptionalString(Resource r, Property p) {
-        Statement s = r.getProperty(p);
-        if (s == null) return null;
-        return s.getObject().asLiteral().getString();
+    private static String getOptionalString(Resource resource, Property property) {
+        Statement stmt = resource.getProperty(property);
+        if (stmt == null) {
+            return null;
+        }
+        return stmt.getObject().asLiteral().getString();
     }
 
-    private static boolean getOptionalBoolean(Resource r, Property p, boolean defaultValue) {
-        Statement s = r.getProperty(p);
-        if (s == null) return defaultValue;
-        return s.getObject().asLiteral().getBoolean();
+    private static boolean getOptionalBoolean(Resource resource, Property property, boolean defaultValue) {
+        Statement stmt = resource.getProperty(property);
+        if (stmt == null) {
+            return defaultValue;
+        }
+        return stmt.getObject().asLiteral().getBoolean();
+    }
+
+    private static Node getOptionalResourceNode(Resource resource, Property property) {
+        Statement stmt = resource.getProperty(property);
+        if (stmt == null) {
+            return null;
+        }
+        if (!stmt.getObject().isResource()) {
+            throw new TextIndexException(property + " on " + resource + " must be a resource");
+        }
+        return stmt.getObject().asNode();
+    }
+
+    private static NodeKindConstraint getOptionalNodeKindConstraint(Resource occurrenceRes) {
+        Node nodeKind = getOptionalResourceNode(occurrenceRes, shNodeKind);
+        if (nodeKind == null) {
+            return null;
+        }
+        String uri = nodeKind.getURI();
+        if (SH_BLANK_NODE.equals(uri)) return NodeKindConstraint.BLANK_NODE;
+        if (SH_IRI.equals(uri)) return NodeKindConstraint.IRI;
+        if (SH_LITERAL.equals(uri)) return NodeKindConstraint.LITERAL;
+        if (SH_BLANK_NODE_OR_IRI.equals(uri)) return NodeKindConstraint.BLANK_NODE_OR_IRI;
+        if (SH_BLANK_NODE_OR_LITERAL.equals(uri)) return NodeKindConstraint.BLANK_NODE_OR_LITERAL;
+        if (SH_IRI_OR_LITERAL.equals(uri)) return NodeKindConstraint.IRI_OR_LITERAL;
+        throw new TextIndexException("Unsupported sh:nodeKind on " + occurrenceRes + ": " + nodeKind);
     }
 }
