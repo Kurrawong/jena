@@ -36,7 +36,7 @@ import org.apache.lucene.analysis.Analyzer;
 public class ShaclIndexMapping {
 
     public enum FieldType {
-        TEXT, KEYWORD, INT, LONG, DOUBLE, LATLON
+        TEXT, KEYWORD, INT, LONG, DOUBLE, DATE, DATETIME, LATLON
     }
 
     private static final String FIELD_IRI_PREFIX = "urn:jena:lucene:field#";
@@ -52,6 +52,7 @@ public class ShaclIndexMapping {
         private final boolean sortable;
         private final boolean multiValued;
         private final boolean defaultSearch;
+        private final boolean storeLiteralMetadata;
         private final Set<Node> predicates;
         private final Path path;
         private final Node fieldIRI;
@@ -62,7 +63,7 @@ public class ShaclIndexMapping {
                         boolean sortable, boolean multiValued, boolean defaultSearch,
                         Set<Node> predicates) {
             this(fieldName, fieldType, analyzer, null, stored, indexed, facetable,
-                 sortable, multiValued, defaultSearch, predicates, null, null, null);
+                 sortable, multiValued, defaultSearch, false, predicates, null, null, null);
         }
 
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
@@ -70,7 +71,7 @@ public class ShaclIndexMapping {
                         boolean sortable, boolean multiValued, boolean defaultSearch,
                         Set<Node> predicates, Path path) {
             this(fieldName, fieldType, analyzer, null, stored, indexed, facetable,
-                 sortable, multiValued, defaultSearch, predicates, path, null, null);
+                 sortable, multiValued, defaultSearch, false, predicates, path, null, null);
         }
 
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
@@ -78,7 +79,7 @@ public class ShaclIndexMapping {
                         boolean sortable, boolean multiValued, boolean defaultSearch,
                         Set<Node> predicates, Path path, Node fieldIRI) {
             this(fieldName, fieldType, analyzer, null, stored, indexed, facetable,
-                 sortable, multiValued, defaultSearch, predicates, path, fieldIRI, null);
+                 sortable, multiValued, defaultSearch, false, predicates, path, fieldIRI, null);
         }
 
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
@@ -87,13 +88,24 @@ public class ShaclIndexMapping {
                         boolean sortable, boolean multiValued, boolean defaultSearch,
                         Set<Node> predicates, Path path, Node fieldIRI) {
             this(fieldName, fieldType, analyzer, queryAnalyzer, stored, indexed, facetable,
-                sortable, multiValued, defaultSearch, predicates, path, fieldIRI, null);
+                sortable, multiValued, defaultSearch, false, predicates, path, fieldIRI, null);
         }
 
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
                         Analyzer queryAnalyzer,
                         boolean stored, boolean indexed, boolean facetable,
                         boolean sortable, boolean multiValued, boolean defaultSearch,
+                        boolean storeLiteralMetadata,
+                        Set<Node> predicates, Path path, Node fieldIRI) {
+            this(fieldName, fieldType, analyzer, queryAnalyzer, stored, indexed, facetable,
+                sortable, multiValued, defaultSearch, storeLiteralMetadata, predicates, path, fieldIRI, null);
+        }
+
+        public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
+                        Analyzer queryAnalyzer,
+                        boolean stored, boolean indexed, boolean facetable,
+                        boolean sortable, boolean multiValued, boolean defaultSearch,
+                        boolean storeLiteralMetadata,
                         Set<Node> predicates, Path path, Node fieldIRI, String nestedName) {
             this.fieldName = Objects.requireNonNull(fieldName);
             this.fieldType = fieldType != null ? fieldType : FieldType.TEXT;
@@ -105,6 +117,7 @@ public class ShaclIndexMapping {
             this.sortable = sortable;
             this.multiValued = multiValued;
             this.defaultSearch = defaultSearch;
+            this.storeLiteralMetadata = storeLiteralMetadata;
             this.predicates = predicates != null ? Collections.unmodifiableSet(new LinkedHashSet<>(predicates)) : Collections.emptySet();
             this.path = path;
             this.fieldIRI = fieldIRI != null ? fieldIRI
@@ -122,11 +135,14 @@ public class ShaclIndexMapping {
         public boolean isSortable()         { return sortable; }
         public boolean isMultiValued()      { return multiValued; }
         public boolean isDefaultSearch()    { return defaultSearch; }
+        public boolean isStoreLiteralMetadata() { return storeLiteralMetadata; }
         public Set<Node> getPredicates()    { return predicates; }
         public Node getFieldIRI()            { return fieldIRI; }
         public String getNestedName()       { return nestedName; }
         public boolean isNestedScoped()     { return nestedName != null; }
         public boolean isRootScoped()       { return nestedName == null; }
+        public boolean isDateLike()         { return fieldType == FieldType.DATE || fieldType == FieldType.DATETIME; }
+        public boolean preservesLiteralMetadata() { return storeLiteralMetadata || isDateLike(); }
 
         /** The structured path for this field. Null for simple predicate fields (backward compat). */
         public Path getPath()              { return path; }
@@ -141,7 +157,8 @@ public class ShaclIndexMapping {
                 return this;
             }
             return new FieldDef(fieldName, fieldType, analyzer, queryAnalyzer, stored, indexed,
-                facetable, sortable, multiValued, defaultSearch, predicates, path, fieldIRI, nestedName);
+                facetable, sortable, multiValued, defaultSearch, storeLiteralMetadata,
+                predicates, path, fieldIRI, nestedName);
         }
 
         @Override
@@ -353,6 +370,7 @@ public class ShaclIndexMapping {
 
     public ShaclIndexMapping(List<IndexProfile> profiles) {
         this.profiles = Collections.unmodifiableList(new ArrayList<>(profiles));
+        validateLiteralMetadataRequirements();
         validateFieldNameUniqueness();
         validateFieldScopeUniqueness();
 
@@ -385,6 +403,18 @@ public class ShaclIndexMapping {
 
     public List<IndexProfile> getProfiles() {
         return profiles;
+    }
+
+    private void validateLiteralMetadataRequirements() {
+        for (IndexProfile profile : profiles) {
+            for (FieldDef field : profile.getFields()) {
+                if (field.isDateLike() && !field.isStoreLiteralMetadata()) {
+                    throw new TextIndexException(
+                        "Field " + field.getFieldIRI().getURI() + " uses " + field.getFieldType()
+                        + " and requires idx:storeLiteralMetadata true");
+                }
+            }
+        }
     }
 
     public boolean isRelevantPredicate(Node p) {

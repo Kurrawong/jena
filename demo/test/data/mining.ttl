@@ -247,6 +247,11 @@ ex:report-mia-2023 a ex:MiningReport ;
     ex:operator operator:Glencore ;
     ex:status status:Current ;
     ex:year 2023 ;
+    ex:publishedOn "2023-11-18"^^xsd:date ;
+    ex:indexedAt "2024-01-09T09:15:00+10:00"^^xsd:dateTime ;
+    ex:reviewNote "QA validated by Brisbane modelling team."@en, "Validado por el equipo de modelado de Brisbane."@es ;
+    ex:qaPassed true ;
+    ex:confidenceScore "0.94"^^xsd:double ;
     ex:authoredBy ex:author-jones .
 
 ex:report-mia-2021 a ex:MiningReport ;
@@ -258,6 +263,11 @@ ex:report-mia-2021 a ex:MiningReport ;
     ex:operator operator:Glencore ;
     ex:status status:Current ;
     ex:year 2021 ;
+    ex:publishedOn "2021-08-04"^^xsd:date ;
+    ex:indexedAt "2024-01-10T08:00:00Z"^^xsd:dateTime ;
+    ex:reviewNote "Legacy exploration summary retained for reference."@en, "Conservé pour référence."@fr ;
+    ex:qaPassed true ;
+    ex:confidenceScore "0.81"^^xsd:double ;
     ex:authoredBy ex:author-chen .
 
 ex:report-od-2024 a ex:MiningReport ;
@@ -269,6 +279,11 @@ ex:report-od-2024 a ex:MiningReport ;
     ex:operator operator:BHP ;
     ex:status status:Current ;
     ex:year 2024 ;
+    ex:publishedOn "2024-02-15"^^xsd:date ;
+    ex:indexedAt "2024-02-20T14:45:00+09:30"^^xsd:dateTime ;
+    ex:reviewNote "Board review draft approved."@en, "Aprobado para revisión del directorio."@es ;
+    ex:qaPassed true ;
+    ex:confidenceScore "0.97"^^xsd:double ;
     ex:authoredBy ex:author-jones .
 
 ex:report-bod-2022 a ex:MiningReport ;
@@ -280,6 +295,11 @@ ex:report-bod-2022 a ex:MiningReport ;
     ex:operator operator:Newmont ;
     ex:status status:Current ;
     ex:year 2022 ;
+    ex:publishedOn "2022-12-01"^^xsd:date ;
+    ex:indexedAt "2024-01-07T06:30:00Z"^^xsd:dateTime ;
+    ex:reviewNote "Production commentary reconciled against plant records."@en ;
+    ex:qaPassed true ;
+    ex:confidenceScore "0.89"^^xsd:double ;
     ex:authoredBy ex:author-patel .
 
 ex:report-bh-1985 a ex:MiningReport ;
@@ -291,6 +311,11 @@ ex:report-bh-1985 a ex:MiningReport ;
     ex:operator operator:BHP ;
     ex:status status:Historical ;
     ex:year 1985 ;
+    ex:publishedOn "1985-06-30"^^xsd:date ;
+    ex:indexedAt "2024-01-03T11:10:00+10:00"^^xsd:dateTime ;
+    ex:reviewNote "Historical scan; OCR confidence lower than modern reports."@en ;
+    ex:qaPassed false ;
+    ex:confidenceScore "0.58"^^xsd:double ;
     ex:authoredBy ex:author-chen .
 
 ex:report-cad-2023 a ex:MiningReport ;
@@ -302,6 +327,11 @@ ex:report-cad-2023 a ex:MiningReport ;
     ex:operator operator:Newcrest ;
     ex:status status:Current ;
     ex:year 2023 ;
+    ex:publishedOn "2023-09-21"^^xsd:date ;
+    ex:indexedAt "2024-01-11T17:20:00+11:00"^^xsd:dateTime ;
+    ex:reviewNote "Peer reviewed for reserve committee."@en, "Examiné pour le comité des réserves."@fr ;
+    ex:qaPassed true ;
+    ex:confidenceScore "0.93"^^xsd:double ;
     ex:authoredBy ex:author-patel .
 
 ex:report-pil-2024 a ex:MiningReport ;
@@ -313,6 +343,11 @@ ex:report-pil-2024 a ex:MiningReport ;
     ex:operator operator:Rio-Tinto ;
     ex:status status:Current ;
     ex:year 2024 ;
+    ex:publishedOn "2024-03-04"^^xsd:date ;
+    ex:indexedAt "2024-03-05T07:05:00+08:00"^^xsd:dateTime ;
+    ex:reviewNote "Reserves statement translated for regional investor brief."@en, "Resumo revisado para investidores regionais."@pt ;
+    ex:qaPassed true ;
+    ex:confidenceScore "0.96"^^xsd:double ;
     ex:authoredBy ex:author-williams .
 
 ex:report-pil-exploration a ex:MiningReport ;
@@ -324,6 +359,11 @@ ex:report-pil-exploration a ex:MiningReport ;
     ex:operator operator:Rio-Tinto ;
     ex:status status:Current ;
     ex:year 2023 ;
+    ex:publishedOn "2023-07-19"^^xsd:date ;
+    ex:indexedAt "2024-01-13T05:50:00Z"^^xsd:dateTime ;
+    ex:reviewNote "Early-stage targets only; not for reserve reporting."@en ;
+    ex:qaPassed false ;
+    ex:confidenceScore "0.66"^^xsd:double ;
     ex:authoredBy ex:author-williams .
 
 # Demo case for multi-valued identifier search.
@@ -337,4 +377,9 @@ ex:report-identifier-demo a ex:MiningReport ;
     ex:operator operator:Newmont ;
     ex:status status:Current ;
     ex:year 2011 ;
+    ex:publishedOn "2011-05-12"^^xsd:date ;
+    ex:indexedAt "2024-01-06T12:00:00+10:00"^^xsd:dateTime ;
+    ex:reviewNote "Metadata regression fixture for luc:match."@en ;
+    ex:qaPassed true ;
+    ex:confidenceScore "0.72"^^xsd:double ;
     ex:authoredBy ex:author-patel .

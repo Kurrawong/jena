@@ -93,6 +93,43 @@ field:year
     idx:facetable true ;
     sh:path ex:year .
 
+field:publishedOn
+    idx:fieldName "publishedOn" ;
+    idx:fieldType idx:DateField ;
+    idx:sortable true ;
+    idx:facetable true ;
+    idx:storeLiteralMetadata true ;
+    sh:path ex:publishedOn .
+
+field:indexedAt
+    idx:fieldName "indexedAt" ;
+    idx:fieldType idx:DateTimeField ;
+    idx:sortable true ;
+    idx:storeLiteralMetadata true ;
+    sh:path ex:indexedAt .
+
+field:reviewNote
+    idx:fieldName "reviewNote" ;
+    idx:fieldType idx:TextField ;
+    idx:multiValued true ;
+    idx:storeLiteralMetadata true ;
+    sh:path ex:reviewNote .
+
+field:qaPassed
+    idx:fieldName "qaPassed" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true ;
+    idx:storeLiteralMetadata true ;
+    sh:path ex:qaPassed .
+
+field:confidenceScore
+    idx:fieldName "confidenceScore" ;
+    idx:fieldType idx:DoubleField ;
+    idx:facetable true ;
+    idx:sortable true ;
+    idx:storeLiteralMetadata true ;
+    sh:path ex:confidenceScore .
+
 field:authorName
     idx:fieldName "authorName" ;
     idx:fieldType idx:KeywordField ;
@@ -161,6 +198,11 @@ field:location
     sh:property field:operator ;
     sh:property field:status ;
     sh:property field:year ;
+    sh:property field:publishedOn ;
+    sh:property field:indexedAt ;
+    sh:property field:reviewNote ;
+    sh:property field:qaPassed ;
+    sh:property field:confidenceScore ;
     sh:property field:authorName ;
     sh:property field:authoredByUri ;
     idx:facetHierarchy ( field:state field:commodity ) .

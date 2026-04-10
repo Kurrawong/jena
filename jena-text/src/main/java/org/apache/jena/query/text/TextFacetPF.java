@@ -235,6 +235,8 @@ public class TextFacetPF extends PropertyFunctionBase {
             case INT     -> NodeFactory.createLiteralDT(value, XSDDatatype.XSDinteger);
             case LONG    -> NodeFactory.createLiteralDT(value, XSDDatatype.XSDlong);
             case DOUBLE  -> NodeFactory.createLiteralDT(value, XSDDatatype.XSDdouble);
+            case DATE    -> NodeFactory.createLiteralDT(value, XSDDatatype.XSDdate);
+            case DATETIME -> NodeFactory.createLiteralDT(value, XSDDatatype.XSDdateTime);
             case LATLON  -> NodeFactory.createLiteralString(value);
         };
     }
@@ -334,8 +336,10 @@ public class TextFacetPF extends PropertyFunctionBase {
                     boundaries.add(null);
                 } else if (rangeValue.isNumber()) {
                     boundaries.add(rangeValue.getAsNumber().value().toString());
+                } else if (rangeValue.isString()) {
+                    boundaries.add(rangeValue.getAsString().value());
                 } else {
-                    throw new QueryExecException("Range boundaries must be numeric or null");
+                    throw new QueryExecException("Range boundaries must be numeric, string, or null");
                 }
             }
             rangeFields.add(new FacetRequest.RangeFacetSpec(field, boundaries));
@@ -399,6 +403,7 @@ public class TextFacetPF extends PropertyFunctionBase {
                         throw new QueryExecException("DOUBLE range boundaries must be finite");
                     }
                 }
+                case DATE, DATETIME -> LiteralFieldSupport.toEpochMillis(fd.getFieldType(), boundary);
                 default -> throw new QueryExecException("Range object field <" + spec.fieldIri() + "> is not numeric; use a string facet target instead");
             }
             if (i > 0 && boundaries.get(i - 1) != null) {
@@ -414,13 +419,16 @@ public class TextFacetPF extends PropertyFunctionBase {
             case INT -> Integer.compare(Integer.parseInt(left), Integer.parseInt(right));
             case LONG -> Long.compare(Long.parseLong(left), Long.parseLong(right));
             case DOUBLE -> Double.compare(Double.parseDouble(left), Double.parseDouble(right));
+            case DATE, DATETIME -> Long.compare(
+                LiteralFieldSupport.toEpochMillis(fd.getFieldType(), left),
+                LiteralFieldSupport.toEpochMillis(fd.getFieldType(), right));
             default -> throw new IllegalArgumentException("Field is not numeric: " + fd.getFieldName());
         };
     }
 
     private static boolean isNumericField(ShaclIndexMapping.FieldDef fd) {
         return switch (fd.getFieldType()) {
-            case INT, LONG, DOUBLE -> true;
+            case INT, LONG, DOUBLE, DATE, DATETIME -> true;
             default -> false;
         };
     }

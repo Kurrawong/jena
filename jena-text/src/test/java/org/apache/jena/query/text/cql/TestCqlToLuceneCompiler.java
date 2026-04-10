@@ -246,6 +246,48 @@ public class TestCqlToLuceneCompiler {
     }
 
     @Test
+    public void testDateEqualityUsesTemporalCompanionField() {
+        FieldDef eventDateField = new FieldDef("eventDate", FieldType.DATE, null, null,
+            true, true, false, true, false, false, true, Collections.emptySet(), null, null);
+        IndexProfile profile = new IndexProfile(
+            NodeFactory.createURI("http://example.org/DateShape"),
+            Collections.singleton(NodeFactory.createURI("http://example.org/Event")),
+            "uri", "docType",
+            Collections.singletonList(eventDateField));
+
+        CqlToLuceneCompiler dateCompiler =
+            new CqlToLuceneCompiler(new ShaclIndexMapping(Collections.singletonList(profile)));
+
+        CqlExpression expr = new CqlExpression.CqlComparison("=", FP + "eventDate", "2024-03-01");
+        CqlToLuceneCompiler.CompileResult r = dateCompiler.compile(expr);
+
+        assertNotNull(r.pushed());
+        assertNull(r.residual());
+        assertTrue(r.pushed().toString().contains("eventDate__epoch"));
+    }
+
+    @Test
+    public void testDateBetweenUsesTemporalCompanionField() {
+        FieldDef eventDateField = new FieldDef("eventDate", FieldType.DATE, null, null,
+            true, true, false, true, false, false, true, Collections.emptySet(), null, null);
+        IndexProfile profile = new IndexProfile(
+            NodeFactory.createURI("http://example.org/DateShape"),
+            Collections.singleton(NodeFactory.createURI("http://example.org/Event")),
+            "uri", "docType",
+            Collections.singletonList(eventDateField));
+
+        CqlToLuceneCompiler dateCompiler =
+            new CqlToLuceneCompiler(new ShaclIndexMapping(Collections.singletonList(profile)));
+
+        CqlExpression expr = new CqlExpression.CqlBetween(FP + "eventDate", "2024-01-01", "2024-12-31");
+        CqlToLuceneCompiler.CompileResult r = dateCompiler.compile(expr);
+
+        assertNotNull(r.pushed());
+        assertNull(r.residual());
+        assertTrue(r.pushed().toString().contains("eventDate__epoch"));
+    }
+
+    @Test
     public void testLikeKeyword() {
         CqlExpression like = new CqlExpression.CqlLike(FP + "name", "Gold%");
         CqlToLuceneCompiler.CompileResult r = compiler.compile(like);

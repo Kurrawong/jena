@@ -12,6 +12,8 @@ const DEFAULT_LIMIT = 10;
 const FACET_LIMITS = [10, 25, 50, 100, 500];
 const DEFAULT_FACET_LIMIT = 10;
 const DEFAULT_SORT_DIRECTION = 'asc';
+const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // RDF namespace constants
@@ -31,6 +33,19 @@ PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX ex:   <http://example.org/mining/>
 `;
 
+const TURTLE_PREFIXES = {
+    rdf: 'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+    rdfs: 'http://www.w3.org/2000/01/rdf-schema#',
+    xsd: 'http://www.w3.org/2001/XMLSchema#',
+    dct: 'http://purl.org/dc/terms/',
+    ex: 'http://example.org/mining/',
+    luc: 'urn:jena:lucene:index#',
+    idx: 'urn:jena:lucene:index#',
+    sh: 'http://www.w3.org/ns/shacl#',
+    schema: 'https://schema.org/',
+    geo: 'http://www.opengis.net/ont/geosparql#',
+};
+
 // ---------------------------------------------------------------------------
 // Utility functions
 // ---------------------------------------------------------------------------
@@ -44,7 +59,55 @@ function shortName(uri) {
 }
 
 function escapeSparql(text) {
-    return text.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return String(text)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n');
+}
+
+function sparqlQuote(text) {
+    return `'${escapeSparql(text)}'`;
+}
+
+async function parseSparqlJsonResponse(resp) {
+    const body = await resp.text();
+    if (!resp.ok) {
+        if (resp.status === 405 && resp.url && resp.url.includes('/fuseki/')) {
+            throw new Error("SPARQL proxy rejected POST at /fuseki. The demo app is probably being served by a plain static server instead of demo/serve_app.py. Start it with `task app`.");
+        }
+        const detail = body.trim().slice(0, 400);
+        throw new Error(`SPARQL error: ${resp.status} ${resp.statusText}${detail ? ` - ${detail}` : ''}`);
+    }
+    try {
+        return JSON.parse(body);
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        const match = msg.match(/position (\d+)/);
+        if (match) {
+            const pos = Number(match[1]);
+            const start = Math.max(0, pos - 160);
+            const end = Math.min(body.length, pos + 160);
+            const context = body.slice(start, end)
+                .replace(/\r/g, '\\r')
+                .replace(/\n/g, '\\n');
+            throw new Error(`Invalid JSON from Fuseki at position ${pos}: ${context}`);
+        }
+        const preview = body.trim().slice(0, 400) || '(empty response)';
+        throw new Error(`Non-JSON response from Fuseki: ${preview}`);
+    }
+}
+
+async function parseSparqlTextResponse(resp) {
+    const body = await resp.text();
+    if (!resp.ok) {
+        if (resp.status === 405 && resp.url && resp.url.includes('/fuseki/')) {
+            throw new Error("SPARQL proxy rejected POST at /fuseki. The demo app is probably being served by a plain static server instead of demo/serve_app.py. Start it with `task app`.");
+        }
+        const detail = body.trim().slice(0, 400);
+        throw new Error(`SPARQL error: ${resp.status} ${resp.statusText}${detail ? ` - ${detail}` : ''}`);
+    }
+    return body;
 }
 
 function escapeHtml(text) {
@@ -87,6 +150,90 @@ function parseSortParam(sortParam, fieldIRIs) {
     };
 }
 
+function isTemporalFieldType(fieldType) {
+    const t = String(fieldType || '').toLowerCase();
+    return t.includes('datefield') || t.includes('datetimefield');
+}
+
+function isNumericFieldType(fieldType) {
+    const t = String(fieldType || '').toLowerCase();
+    return t.includes('int') || t.includes('long') || t.includes('double');
+}
+
+function facetRangeSpec(fieldName, fieldInfo) {
+    if (fieldName === 'year') return [null, 2000, 2010, 2020, null];
+    if (fieldName === 'depth') return [0, 100, 250, 500, 1000];
+    if (fieldName === 'confidenceScore') return [0.5, 0.7, 0.85, 0.95, null];
+    if (fieldName === 'publishedOn') return [null, '2020-01-01', '2022-01-01', '2024-01-01', null];
+    if (fieldName === 'indexedAt') return [null, '2024-01-01T00:00:00Z', '2024-02-01T00:00:00Z', '2024-03-01T00:00:00Z', null];
+    if (fieldInfo?.isTemporal) return [null, '2020-01-01', '2022-01-01', '2024-01-01', null];
+    return null;
+}
+
+function formatSelectedValue(field, value) {
+    if (typeof value === 'string' && value.startsWith('__RANGE__')) {
+        const [low, high] = value.substring(9).split('|');
+        return `${escapeHtml(field)} in “${escapeHtml(low || '*')} to ${escapeHtml(high || '*')}”`;
+    }
+    return `${escapeHtml(field)} = “${escapeHtml(shortName(value))}”`;
+}
+
+function temporalFieldPresetBounds(fieldName, fieldInfo) {
+    if (fieldName === 'publishedOn') return { min: '1985-01-01', max: '2025-12-31' };
+    if (fieldName === 'indexedAt') return { min: '2024-01-01T00:00', max: '2024-03-31T23:00' };
+    const ranges = facetRangeSpec(fieldName, fieldInfo) || [];
+    const concrete = ranges.filter(v => v != null);
+    if (concrete.length >= 2) {
+        return { min: String(concrete[0]), max: String(concrete[concrete.length - 1]) };
+    }
+    return fieldInfo?.isTemporal && String(fieldInfo.fieldType || '').toLowerCase().includes('datetime')
+        ? { min: '2024-01-01T00:00', max: '2024-12-31T23:00' }
+        : { min: '2000-01-01', max: '2025-12-31' };
+}
+
+function normalizeDateInput(value) {
+    return value ? value.slice(0, 10) : '';
+}
+
+function normalizeDateTimeInput(value) {
+    if (!value) return '';
+    if (/[+-]\d\d:\d\d$/.test(value) || value.endsWith('Z')) return value;
+    if (value.length === 16) return `${value}:00Z`;
+    if (value.length === 19) return `${value}Z`;
+    return value;
+}
+
+function formatTemporalInputValue(fieldInfo, value) {
+    if (!value) return '';
+    if (fieldInfo?.isTemporal && String(fieldInfo.fieldType || '').toLowerCase().includes('datetime')) {
+        return value.replace(/Z$/, '').slice(0, 16);
+    }
+    return value.slice(0, 10);
+}
+
+function temporalToMillis(fieldInfo, value) {
+    if (!value) return NaN;
+    if (fieldInfo?.isTemporal && String(fieldInfo.fieldType || '').toLowerCase().includes('datetime')) {
+        return Date.parse(normalizeDateTimeInput(value));
+    }
+    return Date.parse(`${normalizeDateInput(value)}T00:00:00Z`);
+}
+
+function millisToTemporal(fieldInfo, value) {
+    if (!Number.isFinite(value)) return '';
+    const iso = new Date(value).toISOString();
+    if (fieldInfo?.isTemporal && String(fieldInfo.fieldType || '').toLowerCase().includes('datetime')) {
+        return iso.slice(0, 19) + 'Z';
+    }
+    return iso.slice(0, 10);
+}
+
+function decorateLiteralDisplay(raw, lang, datatype) {
+    if (lang) return `${raw} @${lang}`;
+    if (datatype) return `${raw} ^^${shortName(datatype)}`;
+    return raw;
+}
+
 function renderJsonTree(obj, indent) {
     indent = indent || 0;
     if (obj === null) return '<span class="jt-null">null</span>';
@@ -111,6 +258,20 @@ function renderJsonTree(obj, indent) {
         return `<details open><summary class="jt-brace">{<span class="jt-count">${keys.length}</span>}</summary><div class="jt-indent">${items}</div><span class="jt-brace">}</span></details>`;
     }
     return escapeHtml(String(obj));
+}
+
+function formatTurtle(quads, prefixes = TURTLE_PREFIXES) {
+    return new Promise((resolve, reject) => {
+        const writer = new N3.Writer({ prefixes });
+        writer.addQuads(quads);
+        writer.end((error, result) => {
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve(result);
+        });
+    });
 }
 
 /**
@@ -146,17 +307,14 @@ function buildCqlFilter(selected, bbox, polygon, fieldIRIs, extraClauses) {
 
         for (const rv of rangeVals) {
             const parts = rv.substring(9).split('|');
-            const low = parts[0] !== '' ? Number(parts[0]) : null;
-            const high = parts[1] !== '' ? Number(parts[1]) : null;
+            const rawLow = parts[0] !== '' ? parts[0] : null;
+            const rawHigh = parts[1] !== '' ? parts[1] : null;
+            const temporal = (rawLow && isNaN(Number(rawLow))) || (rawHigh && isNaN(Number(rawHigh)));
+            const low = rawLow === null ? null : (temporal ? rawLow : Number(rawLow));
+            const high = rawHigh === null ? null : (temporal ? rawHigh : Number(rawHigh));
 
             if (low !== null && high !== null) {
-                fieldClauses.push({
-                    op: 'and',
-                    args: [
-                        {op: '>=', args: [{property: prop}, low]},
-                        {op: '<', args: [{property: prop}, high]}
-                    ]
-                });
+                fieldClauses.push({ op: 'between', args: [{property: prop}, low, high] });
             } else if (low !== null) {
                 fieldClauses.push({op: '>=', args: [{property: prop}, low]});
             } else if (high !== null) {
@@ -216,16 +374,47 @@ function parseCqlFilter(cqlString, fieldIRIs) {
     let cql;
     try { cql = JSON.parse(cqlString); } catch { return { selected, bbox, polygon }; }
 
-    const clauses = (cql.op === 'and') ? cql.args : [cql];
-    for (const clause of clauses) {
-        if (!clause.op || !clause.args) continue;
+    function addSelected(field, value) {
+        if (!selected[field]) selected[field] = [];
+        if (!selected[field].includes(value)) selected[field].push(value);
+    }
+
+    function visit(clause) {
+        if (!clause || !clause.op || !clause.args) return;
+        if (clause.op === 'and' || clause.op === 'or') {
+            for (const child of clause.args) visit(child);
+            return;
+        }
         if (clause.op === '=' && clause.args[0]?.property) {
+            addSelected(resolve(clause.args[0].property), clause.args[1]);
+            return;
+        }
+        if (clause.op === 'in' && clause.args[0]?.property) {
             const field = resolve(clause.args[0].property);
-            selected[field] = [clause.args[1]];
-        } else if (clause.op === 'in' && clause.args[0]?.property) {
+            for (const value of clause.args[1] || []) addSelected(field, value);
+            return;
+        }
+        if (clause.op === 'between' && clause.args[0]?.property) {
             const field = resolve(clause.args[0].property);
-            selected[field] = clause.args[1];
-        } else if (clause.op === 's_intersects') {
+            const bounds = Array.isArray(clause.args[1]) ? clause.args[1] : [clause.args[1], clause.args[2]];
+            addSelected(field, `__RANGE__${bounds[0] ?? ''}|${bounds[1] ?? ''}`);
+            return;
+        }
+        if ((clause.op === '>=' || clause.op === '>' || clause.op === '<=' || clause.op === '<') && clause.args[0]?.property) {
+            const field = resolve(clause.args[0].property);
+            const current = (selected[field] || []).find(v => typeof v === 'string' && v.startsWith('__RANGE__'));
+            let low = '';
+            let high = '';
+            if (current) {
+                [low, high] = current.substring(9).split('|');
+                selected[field] = selected[field].filter(v => v !== current);
+            }
+            if (clause.op === '>=' || clause.op === '>') low = String(clause.args[1]);
+            if (clause.op === '<=' || clause.op === '<') high = String(clause.args[1]);
+            addSelected(field, `__RANGE__${low}|${high}`);
+            return;
+        }
+        if (clause.op === 's_intersects') {
             const geom = clause.args[1];
             if (geom?.bbox) {
                 bbox = geom.bbox;
@@ -234,6 +423,8 @@ function parseCqlFilter(cqlString, fieldIRIs) {
             }
         }
     }
+
+    visit(cql);
     return { selected, bbox, polygon };
 }
 
@@ -327,6 +518,7 @@ function extractConfig(store) {
     const facetFields = [];
     const sortableFields = [];
     const fieldIRIs = {};
+    const fieldInfo = {};
     const predicateToFacet = {};
     const seenFacets = new Set();
     const seenSortable = new Set();
@@ -347,8 +539,8 @@ function extractConfig(store) {
         const fieldIRI = propNode.termType === 'NamedNode' ? propNode.value : null;
 
         const fieldTypeShort = shortName(fieldType.value);
-        const typeStr = fieldType.value.toLowerCase();
-        const isNumeric = typeStr.includes('int') || typeStr.includes('long') || typeStr.includes('double');
+        const isNumeric = isNumericFieldType(fieldType.value);
+        const isTemporal = isTemporalFieldType(fieldType.value);
 
         shape.fields.push({
             name: fieldName,
@@ -360,9 +552,18 @@ function extractConfig(store) {
             defaultSearch,
             sortable,
             isNumeric,
+            isTemporal,
         });
 
         if (fieldIRI) fieldIRIs[fieldName] = fieldIRI;
+        fieldInfo[fieldName] = {
+            iri: fieldIRI || fieldName,
+            fieldType: fieldTypeShort,
+            isNumeric,
+            isTemporal,
+            facetable,
+            sortable,
+        };
 
         if (sortable && !seenSortable.has(fieldName)) {
             seenSortable.add(fieldName);
@@ -371,6 +572,7 @@ function extractConfig(store) {
                 iri: fieldIRI || fieldName,
                 fieldType: fieldTypeShort,
                 isNumeric,
+                isTemporal,
             });
         }
 
@@ -461,6 +663,7 @@ function extractConfig(store) {
         facetFields,
         sortableFields,
         fieldIRIs,
+        fieldInfo,
         predicateToFacet,
         hierarchyDimensions,
     };
@@ -542,11 +745,13 @@ function searchApp() {
         maxFacetValues: DEFAULT_FACET_LIMIT,
         facetLimits: FACET_LIMITS,
         sortableFields: [],
+        temporalFields: [],
         sortField: '',
         sortDirection: DEFAULT_SORT_DIRECTION,
         selected: {},
         facetFields: [],
         fieldIRIs: {},
+        fieldInfo: {},
         predicateToFacet: {},
         hierarchyDimensions: new Map(),
         hierarchyChildren: {},  // dim → { parentValue: [{value, label, count}] }
@@ -613,6 +818,8 @@ function searchApp() {
             this.facetFields = config.facetFields;
             this.sortableFields = config.sortableFields || [];
             this.fieldIRIs = config.fieldIRIs;
+            this.fieldInfo = config.fieldInfo || {};
+            this.temporalFields = Object.keys(this.fieldInfo).filter(name => this.fieldInfo[name]?.isTemporal);
             this.predicateToFacet = config.predicateToFacet;
             this.hierarchyDimensions = config.hierarchyDimensions || new Map();
 
@@ -867,6 +1074,114 @@ function searchApp() {
                     Object.values(parents || {}).some(values => (values || []).length > 0));
         },
 
+        temporalFieldLabel(fieldName) {
+            return this.facetLabel(fieldName);
+        },
+
+        temporalInputType(fieldName) {
+            const info = this.fieldInfo[fieldName];
+            return info && String(info.fieldType || '').toLowerCase().includes('datetime') ? 'datetime-local' : 'date';
+        },
+
+        temporalSliderStep(fieldName) {
+            const info = this.fieldInfo[fieldName];
+            return info && String(info.fieldType || '').toLowerCase().includes('datetime') ? HOUR_MS : DAY_MS;
+        },
+
+        temporalBounds(fieldName) {
+            return temporalFieldPresetBounds(fieldName, this.fieldInfo[fieldName]);
+        },
+
+        temporalRangeSelection(fieldName) {
+            const values = this.selected[fieldName] || [];
+            const current = values.find(v => typeof v === 'string' && v.startsWith('__RANGE__'));
+            if (!current) return { low: '', high: '' };
+            const [low, high] = current.substring(9).split('|');
+            return { low: low || '', high: high || '' };
+        },
+
+        temporalInputValue(fieldName, side) {
+            const value = this.temporalRangeSelection(fieldName)[side];
+            return formatTemporalInputValue(this.fieldInfo[fieldName], value);
+        },
+
+        temporalSliderMin(fieldName) {
+            return temporalToMillis(this.fieldInfo[fieldName], this.temporalBounds(fieldName).min);
+        },
+
+        temporalSliderMax(fieldName) {
+            return temporalToMillis(this.fieldInfo[fieldName], this.temporalBounds(fieldName).max);
+        },
+
+        temporalSliderValue(fieldName, side) {
+            const bounds = this.temporalBounds(fieldName);
+            const range = this.temporalRangeSelection(fieldName);
+            const raw = range[side] || bounds[side === 'low' ? 'min' : 'max'];
+            return temporalToMillis(this.fieldInfo[fieldName], raw);
+        },
+
+        temporalSliderPercent(fieldName, side) {
+            const min = this.temporalSliderMin(fieldName);
+            const max = this.temporalSliderMax(fieldName);
+            const value = this.temporalSliderValue(fieldName, side);
+            if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) {
+                return side === 'low' ? 0 : 100;
+            }
+            return ((value - min) / (max - min)) * 100;
+        },
+
+        temporalSliderRangeStyle(fieldName) {
+            const low = this.temporalSliderPercent(fieldName, 'low');
+            const high = this.temporalSliderPercent(fieldName, 'high');
+            return `left:${Math.min(low, high)}%; width:${Math.max(0, Math.abs(high - low))}%;`;
+        },
+
+        setTemporalRange(fieldName, low, high) {
+            if (!this.selected[fieldName]) this.selected[fieldName] = [];
+            this.selected[fieldName] = this.selected[fieldName]
+                .filter(v => !(typeof v === 'string' && v.startsWith('__RANGE__')));
+            if (low || high) {
+                this.selected[fieldName].push(`__RANGE__${low || ''}|${high || ''}`);
+            }
+        },
+
+        async updateTemporalInput(fieldName, side, rawValue) {
+            const info = this.fieldInfo[fieldName];
+            const current = this.temporalRangeSelection(fieldName);
+            const next = side === 'low'
+                ? { low: info?.isTemporal && String(info.fieldType || '').toLowerCase().includes('datetime') ? normalizeDateTimeInput(rawValue) : normalizeDateInput(rawValue), high: current.high }
+                : { low: current.low, high: info?.isTemporal && String(info.fieldType || '').toLowerCase().includes('datetime') ? normalizeDateTimeInput(rawValue) : normalizeDateInput(rawValue) };
+            if (next.low && next.high && temporalToMillis(info, next.low) > temporalToMillis(info, next.high)) {
+                if (side === 'low') next.high = next.low;
+                else next.low = next.high;
+            }
+            this.setTemporalRange(fieldName, next.low, next.high);
+            this.pushUrl();
+            await this.executeSearch();
+        },
+
+        async updateTemporalSlider(fieldName, side, sliderValue) {
+            const info = this.fieldInfo[fieldName];
+            const current = this.temporalRangeSelection(fieldName);
+            const nextValue = millisToTemporal(info, Number(sliderValue));
+            const next = side === 'low'
+                ? { low: nextValue, high: current.high }
+                : { low: current.low, high: nextValue };
+            if (next.low && next.high && temporalToMillis(info, next.low) > temporalToMillis(info, next.high)) {
+                if (side === 'low') next.high = next.low;
+                else next.low = next.high;
+            }
+            this.setTemporalRange(fieldName, next.low, next.high);
+            this.pushUrl();
+            await this.executeSearch();
+        },
+
+        async clearTemporalRange(fieldName) {
+            this.setTemporalRange(fieldName, '', '');
+            this.pushUrl();
+            await this.executeSearch();
+        },
+
         sortLabel() {
             if (!this.sortField) return 'relevance';
             return `${this.sortField} ${this.sortDirection === 'desc' ? 'desc' : 'asc'}`;
@@ -972,8 +1287,7 @@ function searchApp() {
                 const childLevelIRI = childLevel.iri;
 
                 const term = this.identifier.trim() || this.q.trim() || '*';
-                    const searchField = this.identifier.trim() ? this.identifierFieldSelector() : 'default';
-                const escaped = escapeSparql(term);
+                const searchField = this.identifier.trim() ? this.identifierFieldSelector() : 'default';
 
                 const hierFilter = JSON.stringify({
                     op: '=',
@@ -1003,7 +1317,7 @@ function searchApp() {
 
                 const query = `${SPARQL_PREFIXES}
 SELECT ?field ?value ?low ?high ?count WHERE {
-    (?field ?value ?low ?high ?count) luc:facet ('default' '${searchField}' '${escaped}' '${JSON.stringify([childLevelIRI])}' '${combinedFilter}' ${this.maxFacetValues} 0)
+    (?field ?value ?low ?high ?count) luc:facet ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${sparqlQuote(JSON.stringify([childLevelIRI]))} ${sparqlQuote(combinedFilter)} ${this.maxFacetValues} 0)
 }`;
                 const data = await this.runSparql(query);
                 const children = [];
@@ -1108,8 +1422,20 @@ SELECT ?field ?value ?low ?high ?count WHERE {
                 body: query,
                 signal,
             });
-            if (!resp.ok) throw new Error(`SPARQL error: ${resp.status} ${resp.statusText}`);
-            return resp.json();
+            return parseSparqlJsonResponse(resp);
+        },
+
+        async runSparqlText(query, accept = 'text/turtle', signal) {
+            const resp = await fetch(this.endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/sparql-query',
+                    'Accept': accept,
+                },
+                body: query,
+                signal,
+            });
+            return parseSparqlTextResponse(resp);
         },
 
         // --- Query builders ---
@@ -1126,15 +1452,15 @@ SELECT ?field ?value ?low ?high ?count WHERE {
                 this.fieldIRIs,
                 this.buildHierarchyParentClauses()
             );
-            const filterArg = cqlFilter ? `'${cqlFilter}'` : "''";
+            const filterArg = cqlFilter ? sparqlQuote(cqlFilter) : "''";
             const sortSpec = buildSortSpec(this.sortField, this.sortDirection, this.fieldIRIs);
-            const sortArg = sortSpec ? `'${escapeSparql(sortSpec)}'` : "''";
+            const sortArg = sortSpec ? sparqlQuote(sortSpec) : "''";
             const facetRequests = this.facetFields.map(f => {
                 // For hierarchy dimensions, use the first level's field IRI
                 const hier = this.hierarchyDimensions.get(f);
                 const iri = hier ? hier[0].iri : (this.fieldIRIs[f] || f);
-                if (f === 'year') return { field: iri, ranges: [null, 2000, 2010, 2020, null] };
-                if (f === 'depth') return { field: iri, ranges: [0, 100, 250, 500, 1000] };
+                const ranges = facetRangeSpec(f, this.fieldInfo[f]);
+                if (ranges) return { field: iri, ranges };
                 return iri;
             });
             const facetFieldsJson = JSON.stringify(facetRequests);
@@ -1142,19 +1468,18 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             return `${SPARQL_PREFIXES}
 SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
 WHERE {
-    { (?hit ?entity ?score ?totalHits) luc:query ('default' '${searchField}' '${escaped}' ${filterArg} ${sortArg} ${this.limit}) }
+    { (?hit ?entity ?score ?totalHits) luc:query ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${filterArg} ${sortArg} ${this.limit}) }
     UNION
-    { (?field ?value ?low ?high ?count) luc:facet ('default' '${searchField}' '${escaped}' '${facetFieldsJson}' ${filterArg} ${this.maxFacetValues} 0) }
+    { (?field ?value ?low ?high ?count) luc:facet ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${sparqlQuote(facetFieldsJson)} ${filterArg} ${this.maxFacetValues} 0) }
 }`;
         },
 
         buildIdentifierSuggestionQuery(identifier) {
-            const escaped = escapeSparql(identifier);
             const fieldSpec = this.identifierFieldSelector();
             return `${SPARQL_PREFIXES}
 SELECT DISTINCT ?identifier
 WHERE {
-    (?hit ?entity ?score) luc:query ('default' '${fieldSpec}' '${escaped}' '' '' 8) .
+    (?hit ?entity ?score) luc:query ('default' ${sparqlQuote(fieldSpec)} ${sparqlQuote(identifier)} '' '' 8) .
     ?entity ex:identifier ?identifier .
 }
 ORDER BY LCASE(STR(?identifier))
@@ -1174,6 +1499,11 @@ WHERE {
       OPTIONAL { ?o rdfs:label ?oLabel }
     }
 }`;
+        },
+
+        buildDescribeQuery(uri) {
+            return `${SPARQL_PREFIXES}
+DESCRIBE <${uri}>`;
         },
 
         // --- Result parsing ---
@@ -1240,7 +1570,13 @@ WHERE {
                 }
                 for (const sv of (this.selected[f] || [])) {
                     if (!values[sv]) {
-                        values[sv] = { value: sv, label: shortName(sv), count: 0 };
+                        values[sv] = {
+                            value: sv,
+                            label: typeof sv === 'string' && sv.startsWith('__RANGE__')
+                                ? formatSelectedValue(f, sv).replace(`${escapeHtml(f)} in `, '').replace(/<\/?[^>]+(>|$)/g, '')
+                                : shortName(sv),
+                            count: 0
+                        };
                     }
                 }
                 merged[f] = Object.values(values).sort((a, b) =>
@@ -1263,6 +1599,11 @@ WHERE {
                         description: null,
                         properties: {},
                         rows: [],
+                        turtleOpen: false,
+                        turtleLoading: false,
+                        turtleLoaded: false,
+                        turtleText: '',
+                        turtleError: null,
                     };
                 }
                 const card = entities[uri];
@@ -1270,11 +1611,13 @@ WHERE {
                     const pred = shortName(row.p.value);
                     const raw = row.o.value;
                     const isUri = row.o.type === 'uri';
+                    const lang = row.o['xml:lang'] || null;
+                    const datatype = row.o.datatype || null;
                     const label = row.oLabel?.value;
-                    const display = label || (isUri ? shortName(raw) : raw);
+                    const display = label || (isUri ? shortName(raw) : decorateLiteralDisplay(raw, lang, datatype));
                     if (!card.properties[pred]) card.properties[pred] = [];
                     if (!card.properties[pred].some(e => e.raw === raw)) {
-                        card.properties[pred].push({ display, raw, isUri });
+                        card.properties[pred].push({ display, raw, isUri, lang, datatype });
                     }
                 }
             }
@@ -1344,7 +1687,7 @@ WHERE {
                     }
                     const facetField = this.predicateToFacet[pred] || null;
                     // Skip non-facetable literal values that do not add much to the card.
-                    if (!facetField && !values.some(v => v.isUri)) continue;
+                    if (!facetField && !values.some(v => v.isUri || v.lang || v.datatype)) continue;
                     const rowValues = [];
                     for (const pv of values) {
                         // Find the matching facet value — match by label or raw IRI
@@ -1364,7 +1707,9 @@ WHERE {
                             isActive: active,
                             clickable: !!facetField,
                             mapUri: null,
-                            tooltip: '',
+                            tooltip: pv.datatype || pv.lang
+                                ? [pv.lang ? `lang: ${pv.lang}` : null, pv.datatype ? `datatype: ${shortName(pv.datatype)}` : null].filter(Boolean).join(' | ')
+                                : '',
                             cssClass: !facetField ? 'prop-chip-neutral'
                                 : active ? 'prop-chip-active'
                                 : 'prop-chip-clickable',
@@ -1386,6 +1731,34 @@ WHERE {
             return cards.sort((a, b) => b.score - a.score);
         },
 
+        cardTurtleButtonLabel(card) {
+            if (card.turtleLoading) return 'loading';
+            return card.turtleOpen ? 'hide ttl' : 'ttl';
+        },
+
+        async toggleCardTurtle(card) {
+            card.turtleOpen = !card.turtleOpen;
+            if (!card.turtleOpen || card.turtleLoaded || card.turtleLoading) return;
+            await this.loadCardTurtle(card);
+        },
+
+        async loadCardTurtle(card) {
+            card.turtleLoading = true;
+            card.turtleError = null;
+            try {
+                const describeQuery = this.buildDescribeQuery(card.uri);
+                const rawTurtle = await this.runSparqlText(describeQuery, 'text/turtle');
+                const store = await parseTurtle(rawTurtle);
+                const quads = store.getQuads(null, null, null, null);
+                card.turtleText = await formatTurtle(quads);
+                card.turtleLoaded = true;
+            } catch (e) {
+                card.turtleError = e.message || String(e);
+            } finally {
+                card.turtleLoading = false;
+            }
+        },
+
         // --- Description ---
 
         buildDescription(hitCount, totalHits, totalSec) {
@@ -1403,12 +1776,9 @@ WHERE {
             const filters = [];
             for (const [field, values] of Object.entries(this.selected)) {
                 if (!values || values.length === 0) continue;
-                const quoted = values.map(v => `\u201c${escapeHtml(shortName(v))}\u201d`);
-                if (quoted.length === 1) {
-                    filters.push(`${escapeHtml(field)} = ${quoted[0]}`);
-                } else {
-                    filters.push(`(${escapeHtml(field)} = ${quoted.join(' OR ')})`);
-                }
+                const rendered = values.map(v => formatSelectedValue(field, v));
+                if (rendered.length === 1) filters.push(rendered[0]);
+                else filters.push(`(${rendered.join(' OR ')})`);
             }
             if (this.spatialBbox) {
                 filters.push('bbox [' + this.spatialBbox.map(n => n.toFixed(1)).join(', ') + ']');
@@ -1469,7 +1839,7 @@ WHERE {
                     this.buildHierarchyParentClauses()
                 );
                 if (cqlFilter) {
-                    this.logQuery('CQL Filter', JSON.stringify(JSON.parse(cqlFilter), null, 2));
+                    this.logQuery('CQL Filter', cqlFilter, null, false);
                 }
 
                 let t0 = performance.now();
@@ -1920,8 +2290,8 @@ function statsApp() {
                 // 1. Total entities + facet counts in one query
                 const facetRequests = facetFields.map(f => {
                     const iri = fieldIRIs[f] || f;
-                    if (f === 'year') return { field: iri, ranges: [null, 2000, 2010, 2020, null] };
-                    if (f === 'depth') return { field: iri, ranges: [0, 100, 250, 500, 1000] };
+                    const ranges = facetRangeSpec(f, config.fieldInfo?.[f]);
+                    if (ranges) return { field: iri, ranges };
                     return iri;
                 });
                 const facetFieldsJson = JSON.stringify(facetRequests);
@@ -1930,7 +2300,7 @@ SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
 WHERE {
     { (?hit ?entity ?score ?totalHits) luc:query ('default' 'default' '*' '' '' 0) }
     UNION
-    { (?field ?value ?low ?high ?count) luc:facet ('default' 'default' '*' '${facetFieldsJson}' '' 0 0) }
+    { (?field ?value ?low ?high ?count) luc:facet ('default' 'default' '*' ${sparqlQuote(facetFieldsJson)} '' 0 0) }
 }`;
                 const statsData = await this.runSparql(endpoint, statsQuery);
                 const statsMs = performance.now() - t0;
@@ -2013,8 +2383,7 @@ WHERE {
                 },
                 body: query,
             });
-            if (!resp.ok) throw new Error(`SPARQL error: ${resp.status} ${resp.statusText}`);
-            return resp.json();
+            return parseSparqlJsonResponse(resp);
         },
     };
 }

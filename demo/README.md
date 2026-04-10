@@ -11,8 +11,9 @@ using an Australian mining domain with reports, boreholes, sites, and authors.
 
 For Docker workflows:
 - Docker Desktop
-- **GitHub CR**: `gh` CLI authenticated with `write:packages` scope (only for `task ghcr-push`)
-- **Azure CR**: `az` CLI authenticated (only for `task image-push`)
+- Root image tasks live in `../Taskfile.yml`
+- **GitHub CR**: `gh` CLI authenticated with `write:packages` scope (only if using the root GHCR push tasks)
+- **Azure CR**: `az` CLI authenticated (only if using the root ACR push tasks)
 
 ## Quick start
 
@@ -36,7 +37,8 @@ task stop
 ## Quick start (Docker)
 
 ```bash
-# Build the image with a multi-stage Docker build and start Fuseki locally
+# Build the runtime image from the repo root, then start Fuseki locally from demo/
+task -d .. runtime-build
 task docker-start
 
 # Load data and run queries (in a separate terminal)
@@ -179,55 +181,22 @@ year   2024       null  null  1
 
 ## Server image
 
-### Building
+Image build and publish tasks were moved to the repo root so the `demo/` task file stays focused on demo/test workflows.
 
-Build the server Docker image locally:
-
-```bash
-task image-build
-```
-
-This produces `fuseki-ai:6.1.0-SNAPSHOT` by default. The image is built with a standard multi-stage `docker build`, compiling the Fuseki server jar inside Docker rather than requiring a host-built jar. The runtime image is based on `eclipse-temurin:21-jre-alpine` and includes the server config and demo mining dataset.
-
-Override the image name or tag:
+Build the runtime image from the repo root:
 
 ```bash
-task image-build IMAGE_NAME=myapp IMAGE_TAG=latest
+task -d .. runtime-build
 ```
 
-### Pushing to GitHub Container Registry
+Push from the repo root if needed:
 
 ```bash
-task ghcr-push
+task -d .. runtime-ghcr-push
+task -d .. runtime-acr-push ACR_NAME=myregistry
 ```
 
-Pushes to `ghcr.io/aiworkerjohns/fuseki-ai:6.1.0-SNAPSHOT`. Override the owner:
-
-```bash
-task ghcr-push GHCR_OWNER=other-org
-```
-
-New packages default to private. Set visibility to public via GitHub > Package Settings > Change visibility.
-
-The `gh` CLI must have the `write:packages` scope. Add it with:
-
-```bash
-gh auth refresh -s write:packages
-```
-
-To run the published GHCR image with the demo `docker-compose.yml`:
-
-```bash
-task docker-start-ghcr
-```
-
-### Pushing to Azure Container Registry
-
-```bash
-task image-push ACR_NAME=myregistry
-```
-
-Pushes to `myregistry.azurecr.io/fuseki-ai:6.1.0-SNAPSHOT`. The task checks for an active Azure session and runs `az login` if needed, then authenticates with the ACR before pushing.
+The demo Docker tasks here (`docker-start`, `docker-serve`, `docker-start-ghcr`) still work; they now assume the relevant image already exists locally or in GHCR.
 
 ## Loader / reindexer image
 
@@ -239,11 +208,13 @@ The image runs two steps sequentially:
 
 ### Building
 
+Build the loader image from the repo root:
+
 ```bash
-task loader-build
+task -d .. loader-build
 ```
 
-Produces `fuseki-loader:6.1.0-SNAPSHOT`. Requires the Fuseki JAR to be built first (`task build`).
+This produces `fuseki-loader:6.1.0-SNAPSHOT`.
 
 ### Running
 
@@ -281,15 +252,6 @@ task loader-index
 
 This runs the loader container with `MODE=index`, so it skips `tdb2.tdbloader` and only runs `shacltextindexer`.
 
-If you want a published image whose default startup mode is already safe for reindex-only use:
-
-```bash
-task loader-index-build
-task loader-index-acr-push ACR_NAME=gswadevacr
-```
-
-This produces and pushes `fuseki-loader-index:6.1.0-SNAPSHOT`, which bakes in `MODE=index` as the default while still allowing overrides at runtime.
-
 ### Using with the server image
 
 The loader and server images share volumes, so you can bulk-load data offline then start the server:
@@ -316,17 +278,16 @@ A `docker-compose.yml` example is provided in `loader/`.
 
 ### Pushing
 
+Use the root task file for loader publishing:
+
 ```bash
-# GitHub Container Registry
-task loader-ghcr-push
+task -d .. loader-ghcr-push
+task -d .. loader-acr-push ACR_NAME=gswadevacr
+```
 
-# Azure Container Registry
-task loader-acr-push ACR_NAME=gswadevacr
+For safe text-only reindex from GHCR:
 
-# Safe index-only loader image to ACR
-task loader-index-acr-push ACR_NAME=gswadevacr
-
-# Safe text-only reindex from GHCR
+```bash
 task loader-index-ghcr
 ```
 

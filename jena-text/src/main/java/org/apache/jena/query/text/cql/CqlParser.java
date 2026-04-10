@@ -39,7 +39,7 @@ import org.apache.jena.query.text.TextIndexException;
  * {"op": "=", "args": [{"property": "state"}, "WA"]}
  * {"op": "and", "args": [{...}, {...}]}
  * {"op": "in", "args": [{"property": "state"}, ["WA","OR"]]}
- * {"op": "between", "args": [{"property": "year"}, [2020, 2025]]}
+ * {"op": "between", "args": [{"property": "year"}, 2020, 2025]}
  * {"op": "like", "args": [{"property": "name"}, "Gold%"]}
  * </pre>
  */
@@ -132,17 +132,13 @@ public class CqlParser {
     }
 
     private static CqlExpression.CqlBetween parseBetween(JsonArray args) {
-        if (args.size() != 2) {
-            throw new TextIndexException("CQL2 'between' requires exactly 2 arguments, got " + args.size());
+        if (args.size() == 3) {
+            String property = extractProperty(args.get(0));
+            Object lower = extractValue(args.get(1));
+            Object upper = extractValue(args.get(2));
+            return new CqlExpression.CqlBetween(property, lower, upper);
         }
-        String property = extractProperty(args.get(0));
-        JsonArray bounds = args.get(1).getAsArray();
-        if (bounds.size() != 2) {
-            throw new TextIndexException("CQL2 'between' bounds array must have exactly 2 elements");
-        }
-        Object lower = extractValue(bounds.get(0));
-        Object upper = extractValue(bounds.get(1));
-        return new CqlExpression.CqlBetween(property, lower, upper);
+        throw new TextIndexException("CQL2 'between' requires exactly 3 arguments, got " + args.size());
     }
 
     private static CqlExpression.CqlLike parseLike(JsonArray args) {

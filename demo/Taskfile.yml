@@ -21,6 +21,12 @@ tasks:
     cmds:
       - mvn clean install -pl jena-fuseki2/jena-fuseki-server -am -DskipTests
 
+  build-fast:
+    desc: Incremental Fuseki server build without clean
+    dir: ..
+    cmds:
+      - mvn install -pl jena-fuseki2/jena-fuseki-server -am -DskipTests
+
   stop:
     desc: Stop the running Fuseki server (sends SIGTERM for clean shutdown)
     cmds:
@@ -86,6 +92,9 @@ tasks:
           - queries/17-sort-boreholes-by-depth-asc.rq
           - queries/18-nested-identifier-company-drilldown.rq
           - queries/19-nested-identifier-exact-pair.rq
+          - queries/20-date-range-filter.rq
+          - queries/21-match-review-note-languages.rq
+          - queries/22-match-qa-passed-boolean.rq
         cmd: |
           echo "=== {{.ITEM}} ==="
           curl -s -X POST "{{.SERVER_URL}}/mining/query" \
@@ -128,39 +137,44 @@ tasks:
       - task load FUSEKI_PORT={{.FUSEKI_PORT}}
       - task app FUSEKI_PORT={{.FUSEKI_PORT}} APP_PORT={{.APP_PORT}}
 
+  refresh-fast:
+    desc: Restart Fuseki and app without deleting DB/Lucene or reloading data
+    cmds:
+      - pkill -f "serve_app.py --port {{.APP_PORT}}" || true
+      - pkill -f "jena-fuseki-server.*--port {{.FUSEKI_PORT}}" || true
+      - |
+        cd test
+        rm -f fuseki.log
+        nohup java -jar ../{{.FUSEKI_JAR}} --port {{.FUSEKI_PORT}} --config config.ttl > fuseki.log 2>&1 &
+      - |
+        for i in $(seq 1 30); do
+          if curl -sf "{{.SERVER_URL}}/$/ping" >/dev/null 2>&1; then
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "Fuseki failed to start; see demo/test/fuseki.log"
+        exit 1
+      - task app FUSEKI_PORT={{.FUSEKI_PORT}} APP_PORT={{.APP_PORT}}
+
+  rebuild-start:
+    desc: Rebuild Fuseki, restart the demo server, reload data, then launch the app
+    cmds:
+      - task build
+      - task refresh FUSEKI_PORT={{.FUSEKI_PORT}} APP_PORT={{.APP_PORT}}
+
+  rebuild-start-fast:
+    desc: Incremental rebuild and restart without clean reindex
+    cmds:
+      - task build-fast
+      - task refresh-fast FUSEKI_PORT={{.FUSEKI_PORT}} APP_PORT={{.APP_PORT}}
+
   clean:
     desc: Remove mining TDB2 and Lucene data directories
     dir: test
     cmds:
       - rm -rf DB Lucene
       - echo "Cleaned mining DB and Lucene directories"
-
-  # ── Docker (Fuseki server image) ─────────────────────────
-
-  image-build:
-    desc: "Build Docker image locally (optionally: task image-build IMAGE_NAME=myapp IMAGE_TAG=latest)"
-    dir: ..
-    cmds:
-      - docker build -f demo/test/Dockerfile -t {{.IMAGE_NAME}}:{{.IMAGE_TAG}} .
-
-  image-push:
-    desc: "Build and push image to ACR (usage: task image-push ACR_NAME=gswadevacr)"
-    requires:
-      vars: [ACR_NAME]
-    deps: [image-build]
-    cmds:
-      - az account show > /dev/null 2>&1 || az login
-      - az acr login --name {{.ACR_NAME}}
-      - docker tag {{.IMAGE_NAME}}:{{.IMAGE_TAG}} {{.ACR_NAME}}.azurecr.io/{{.IMAGE_NAME}}:{{.IMAGE_TAG}}
-      - docker push {{.ACR_NAME}}.azurecr.io/{{.IMAGE_NAME}}:{{.IMAGE_TAG}}
-
-  ghcr-push:
-    desc: "Build and push image to GitHub CR (usage: task ghcr-push)"
-    deps: [image-build]
-    cmds:
-      - gh auth token | docker login ghcr.io -u {{.GHCR_OWNER}} --password-stdin
-      - docker tag {{.IMAGE_NAME}}:{{.IMAGE_TAG}} ghcr.io/{{.GHCR_OWNER}}/{{.IMAGE_NAME}}:{{.IMAGE_TAG}}
-      - docker push ghcr.io/{{.GHCR_OWNER}}/{{.IMAGE_NAME}}:{{.IMAGE_TAG}}
 
   docker-start:
     desc: Start Fuseki in Docker (detached)
@@ -218,61 +232,8 @@ tasks:
 
   # ── Loader / Reindexer ──────────────────────────────────
 
-  loader-build:
-    desc: Build the loader/reindexer Docker image (extends fuseki-ai)
-    deps: [image-build]
-    dir: ..
-    cmds:
-      - docker build -f demo/loader/Dockerfile --build-arg BASE_IMAGE={{.IMAGE_NAME}} --build-arg BASE_TAG={{.IMAGE_TAG}} -t fuseki-loader:{{.IMAGE_TAG}} .
-
-  loader-ghcr-push:
-    desc: Build and push loader image to GitHub CR
-    deps: [loader-build]
-    cmds:
-      - gh auth token | docker login ghcr.io -u {{.GHCR_OWNER}} --password-stdin
-      - docker tag fuseki-loader:{{.IMAGE_TAG}} ghcr.io/{{.GHCR_OWNER}}/fuseki-loader:{{.IMAGE_TAG}}
-      - docker push ghcr.io/{{.GHCR_OWNER}}/fuseki-loader:{{.IMAGE_TAG}}
-
-  loader-acr-push:
-    desc: "Build and push loader image to ACR (usage: task loader-acr-push ACR_NAME=gswadevacr)"
-    requires:
-      vars: [ACR_NAME]
-    deps: [loader-build]
-    cmds:
-      - az account show > /dev/null 2>&1 || az login
-      - az acr login --name {{.ACR_NAME}}
-      - docker tag fuseki-loader:{{.IMAGE_TAG}} {{.ACR_NAME}}.azurecr.io/fuseki-loader:{{.IMAGE_TAG}}
-      - docker push {{.ACR_NAME}}.azurecr.io/fuseki-loader:{{.IMAGE_TAG}}
-
-  loader-index-build:
-    desc: Build the loader image with MODE=index as the default
-    deps: [image-build]
-    dir: ..
-    cmds:
-      - docker build -f demo/loader/Dockerfile --build-arg BASE_IMAGE={{.IMAGE_NAME}} --build-arg BASE_TAG={{.IMAGE_TAG}} --build-arg DEFAULT_MODE=index -t fuseki-loader-index:{{.IMAGE_TAG}} .
-
-  loader-index-ghcr-push:
-    desc: Build and push the index-only loader image to GitHub CR
-    deps: [loader-index-build]
-    cmds:
-      - gh auth token | docker login ghcr.io -u {{.GHCR_OWNER}} --password-stdin
-      - docker tag fuseki-loader-index:{{.IMAGE_TAG}} ghcr.io/{{.GHCR_OWNER}}/fuseki-loader-index:{{.IMAGE_TAG}}
-      - docker push ghcr.io/{{.GHCR_OWNER}}/fuseki-loader-index:{{.IMAGE_TAG}}
-
-  loader-index-acr-push:
-    desc: "Build and push the index-only loader image to ACR (usage: task loader-index-acr-push ACR_NAME=gswadevacr)"
-    requires:
-      vars: [ACR_NAME]
-    deps: [loader-index-build]
-    cmds:
-      - az account show > /dev/null 2>&1 || az login
-      - az acr login --name {{.ACR_NAME}}
-      - docker tag fuseki-loader-index:{{.IMAGE_TAG}} {{.ACR_NAME}}.azurecr.io/fuseki-loader-index:{{.IMAGE_TAG}}
-      - docker push {{.ACR_NAME}}.azurecr.io/fuseki-loader-index:{{.IMAGE_TAG}}
-
   loader-index:
     desc: Run the loader image in text-only reindex mode against an existing TDB2 store
-    deps: [loader-build]
     dir: loader
     env:
       IMAGE_NAME: 'fuseki-loader'

@@ -54,6 +54,7 @@ public class TestTextFacetPF {
     private static final Node CATEGORY_PRED = NodeFactory.createURI(NS + "category");
     private static final Node AUTHOR_PRED = NodeFactory.createURI(NS + "author");
     private static final Node YEAR_PRED = NodeFactory.createURI(NS + "year");
+    private static final Node PUBLISHED_ON_PRED = NodeFactory.createURI(NS + "publishedOn");
 
     private Dataset dataset;
 
@@ -76,12 +77,14 @@ public class TestTextFacetPF {
         FieldDef yearField = new FieldDef("year", FieldType.INT, null,
             true, true, true, true, true, false,
             Collections.singleton(YEAR_PRED));
+        FieldDef publishedOnField = new FieldDef("publishedOn", FieldType.DATE, null, null,
+            true, true, true, true, false, false, true, Collections.singleton(PUBLISHED_ON_PRED), null, null);
 
         IndexProfile bookProfile = new IndexProfile(
             NodeFactory.createURI(NS + "BookShape"),
             Collections.singleton(BOOK_CLASS),
             "uri", "docType",
-            Arrays.asList(titleField, categoryField, authorField, yearField));
+            Arrays.asList(titleField, categoryField, authorField, yearField, publishedOnField));
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(bookProfile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -107,23 +110,25 @@ public class TestTextFacetPF {
         dataset.begin(ReadWrite.WRITE);
         try {
             Model model = dataset.getDefaultModel();
-            addBook(model, "doc1", "Introduction to Machine Learning", NS + "category/technology", NS + "author/Smith", 2018, 2020);
-            addBook(model, "doc2", "Deep Learning Neural Networks", NS + "category/technology", NS + "author/Jones", 2021);
-            addBook(model, "doc3", "Machine Learning for Beginners", NS + "category/technology", NS + "author/Smith", 2022);
-            addBook(model, "doc4", "Learning About Quantum Physics", NS + "category/science", NS + "author/Wilson", 2019);
-            addBook(model, "doc5", "Machine Learning in Biology", NS + "category/science", NS + "author/Smith", 2024);
+            addBook(model, "doc1", "Introduction to Machine Learning", NS + "category/technology", NS + "author/Smith", "2018-03-02", 2018, 2020);
+            addBook(model, "doc2", "Deep Learning Neural Networks", NS + "category/technology", NS + "author/Jones", "2021-06-15", 2021);
+            addBook(model, "doc3", "Machine Learning for Beginners", NS + "category/technology", NS + "author/Smith", "2022-09-10", 2022);
+            addBook(model, "doc4", "Learning About Quantum Physics", NS + "category/science", NS + "author/Wilson", "2019-01-20", 2019);
+            addBook(model, "doc5", "Machine Learning in Biology", NS + "category/science", NS + "author/Smith", "2024-02-11", 2024);
             dataset.commit();
         } finally {
             dataset.end();
         }
     }
 
-    private void addBook(Model model, String id, String title, String categoryUri, String authorUri, int... years) {
+    private void addBook(Model model, String id, String title, String categoryUri, String authorUri, String publishedOn, int... years) {
         Resource book = ResourceFactory.createResource(NS + id);
         model.add(book, RDF.type, ResourceFactory.createResource(NS + "Book"));
         model.add(book, ResourceFactory.createProperty(NS + "title"), title);
         model.add(book, ResourceFactory.createProperty(NS + "category"), ResourceFactory.createResource(categoryUri));
         model.add(book, ResourceFactory.createProperty(NS + "author"), ResourceFactory.createResource(authorUri));
+        model.addLiteral(book, ResourceFactory.createProperty(NS + "publishedOn"),
+            ResourceFactory.createTypedLiteral(publishedOn, org.apache.jena.datatypes.xsd.XSDDatatype.XSDdate));
         for (int year : years) {
             model.add(book, ResourceFactory.createProperty(NS + "year"), ResourceFactory.createTypedLiteral(year));
         }
@@ -503,6 +508,33 @@ public class TestTextFacetPF {
                 fail("Expected non-numeric range request to be rejected");
             } catch (QueryExecException ex) {
                 assertTrue(ex.getMessage().contains("is not numeric"));
+            }
+        } finally {
+            dataset.end();
+        }
+    }
+
+    @Test
+    public void testTemporalRangeFacetStringBoundariesAccepted() {
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT ?f ?v ?low ?high ?c WHERE {\n" +
+            "  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"learning\" '[{\"field\":\"" + FP + "publishedOn\",\"ranges\":[null,\"2019-01-01\",\"2023-01-01\",null]}]' \"\" 10 0)\n" +
+            "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
+                ResultSet rs = qe.execSelect();
+                int rangeRows = 0;
+                while (rs.hasNext()) {
+                    QuerySolution sol = rs.next();
+                    assertEquals(FP + "publishedOn", sol.getResource("f").getURI());
+                    assertFalse(sol.contains("v"));
+                    assertTrue(sol.contains("low") || sol.contains("high"));
+                    assertTrue(sol.getLiteral("c").getLong() > 0);
+                    rangeRows++;
+                }
+                assertEquals(3, rangeRows);
             }
         } finally {
             dataset.end();

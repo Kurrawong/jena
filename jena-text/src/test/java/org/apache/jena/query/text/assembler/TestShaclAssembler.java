@@ -27,6 +27,7 @@ import org.apache.jena.assembler.Assembler;
 import org.apache.jena.assembler.exceptions.AssemblerException;
 import org.apache.jena.query.text.ShaclIndexMapping;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.TextIndexException;
 import org.apache.jena.query.text.ShaclTextIndexLucene;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.ModelFactory;
@@ -214,6 +215,32 @@ public class TestShaclAssembler {
         } finally {
             index.close();
         }
+    }
+
+    @Test
+    public void testDateFieldRequiresLiteralMetadata() {
+        Model model = createModel();
+
+        Resource bookShape = model.createResource(EX + "BookShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Book"))
+            .addProperty(
+                model.createProperty(SH, "property"),
+                model.createResource()
+                    .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "eventDate")
+                    .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.DateField)
+                    .addProperty(model.createProperty(SH, "path"), model.createResource(EX + "eventDate"))
+            );
+
+        RDFNode shapesList = model.createList(new RDFNode[]{ bookShape });
+        Resource indexSpec = model.createResource(EX + "index")
+            .addProperty(RDF.type, TextVocab.textIndexShacl)
+            .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+            .addProperty(TextVocab.pShapes, shapesList);
+
+        AssemblerException ex = assertThrows(AssemblerException.class,
+            () -> Assembler.general().open(indexSpec));
+        assertTrue(ex.getCause() instanceof TextIndexException);
+        assertTrue(ex.getCause().getMessage().contains("requires idx:storeLiteralMetadata true"));
     }
 
     @Test
