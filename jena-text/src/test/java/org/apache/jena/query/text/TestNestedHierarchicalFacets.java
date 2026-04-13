@@ -31,9 +31,11 @@ import org.apache.jena.query.Dataset;
 import org.apache.jena.query.DatasetFactory;
 import org.apache.jena.query.ReadWrite;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.HierarchyDef;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
+import org.apache.jena.query.text.ShaclIndexMapping.JoinStep;
 import org.apache.jena.query.text.ShaclIndexMapping.NestedDef;
 import org.apache.jena.query.text.analyzer.EdgeNGramAnalyzer;
 import org.apache.jena.query.text.analyzer.LowerCaseKeywordAnalyzer;
@@ -86,35 +88,23 @@ public class TestNestedHierarchicalFacets {
         Node valueTextIRI = NodeFactory.createURI(FIELD_NS + "identifierValueText");
 
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null, null,
-            true, true, false, false, false, true,
-            Collections.singleton(LABEL_PRED), PathFactory.pathLink(LABEL_PRED), titleIRI);
+            true, true, false, false, false, true, false, titleIRI);
 
         FieldDef stateField = new FieldDef("state", FieldType.KEYWORD, null, null,
-            true, true, true, false, false, false,
-            Collections.singleton(STATE_PRED), PathFactory.pathLink(STATE_PRED), stateIRI);
+            true, true, true, false, false, false, false, stateIRI);
 
         FieldDef commodityField = new FieldDef("commodity", FieldType.KEYWORD, null, null,
-            true, true, true, false, true, false,
-            Collections.singleton(COMMODITY_PRED), PathFactory.pathLink(COMMODITY_PRED), commodityIRI);
+            true, true, true, false, true, false, false, commodityIRI);
 
         FieldDef typeField = new FieldDef("identifierType", FieldType.KEYWORD, null, null,
-            true, true, true, false, true, false,
-            Collections.singleton(IDENTIFIER_TYPE_PRED),
-            PathFactory.pathLink(IDENTIFIER_TYPE_PRED), typeIRI)
-            .withNestedName(IDENTIFIER_SCOPE);
+            true, true, true, false, true, false, false, typeIRI);
 
         FieldDef valueExactField = new FieldDef("identifierValueExact", FieldType.KEYWORD, null, null,
-            true, true, true, false, true, false,
-            Collections.singleton(IDENTIFIER_VALUE_PRED),
-            PathFactory.pathLink(IDENTIFIER_VALUE_PRED), valueExactIRI)
-            .withNestedName(IDENTIFIER_SCOPE);
+            true, true, true, false, true, false, false, valueExactIRI);
 
         FieldDef valueTextField = new FieldDef("identifierValueText", FieldType.TEXT,
             new EdgeNGramAnalyzer(1, 20), new LowerCaseKeywordAnalyzer(),
-            true, true, false, false, true, false,
-            Collections.singleton(IDENTIFIER_VALUE_PRED),
-            PathFactory.pathLink(IDENTIFIER_VALUE_PRED), valueTextIRI)
-            .withNestedName(IDENTIFIER_SCOPE);
+            true, true, false, false, true, false, false, valueTextIRI);
 
         HierarchyDef stateCommodityHierarchy = new HierarchyDef(STATE_COMMODITY_DIM,
             Arrays.asList(stateField, commodityField));
@@ -122,11 +112,22 @@ public class TestNestedHierarchicalFacets {
         HierarchyDef identifierHierarchy = new HierarchyDef(IDENTIFIER_DIM,
             Arrays.asList(typeField, valueExactField));
 
+        List<FieldOccurrence> rootOccurrences = List.of(
+            rootOccurrence(titleField, LABEL_PRED),
+            rootOccurrence(stateField, STATE_PRED),
+            rootOccurrence(commodityField, COMMODITY_PRED));
+
+        List<FieldOccurrence> identifierOccurrences = List.of(
+            nestedOccurrence(typeField, IDENTIFIER_TYPE_PRED, IDENTIFIER_SCOPE),
+            nestedOccurrence(valueExactField, IDENTIFIER_VALUE_PRED, IDENTIFIER_SCOPE),
+            nestedOccurrence(valueTextField, IDENTIFIER_VALUE_PRED, IDENTIFIER_SCOPE));
+
         NestedDef identifiers = new NestedDef(
             IDENTIFIER_SCOPE,
             PathFactory.pathLink(IDENTIFIER_PRED),
+            List.of(new JoinStep(IDENTIFIER_PRED, false)),
             Collections.singleton(IDENTIFIER_PRED),
-            Arrays.asList(typeField, valueExactField, valueTextField),
+            identifierOccurrences,
             Collections.singletonList(identifierHierarchy));
 
         IndexProfile profile = new IndexProfile(
@@ -134,6 +135,7 @@ public class TestNestedHierarchicalFacets {
             Collections.singleton(BOREHOLE_CLASS),
             "uri", "docType",
             Arrays.asList(titleField, stateField, commodityField, typeField, valueExactField, valueTextField),
+            rootOccurrences,
             Collections.singletonList(stateCommodityHierarchy),
             Collections.singletonList(identifiers));
 
@@ -205,6 +207,26 @@ public class TestNestedHierarchicalFacets {
         }
     }
 
+    private static FieldOccurrence rootOccurrence(FieldDef field, Node predicate) {
+        return occurrence(field, predicate, null);
+    }
+
+    private static FieldOccurrence nestedOccurrence(FieldDef field, Node predicate, String nestedName) {
+        return occurrence(field, predicate, nestedName);
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Node predicate, String nestedName) {
+        return new FieldOccurrence(
+            field,
+            PathFactory.pathLink(predicate),
+            List.of(List.of(new JoinStep(predicate, false))),
+            Collections.singleton(predicate),
+            null,
+            null,
+            null,
+            nestedName);
+    }
+
     @After
     public void tearDown() {
         if (dataset != null) {
@@ -236,6 +258,39 @@ public class TestNestedHierarchicalFacets {
         assertEquals(Long.valueOf(1), values.get("Rio"));
         assertFalse(values.containsKey("B-17"));
         assertFalse(values.containsKey("9999"));
+    }
+
+    @Test
+    public void testBlankNestedHierarchyComponentIsTreatedAsMissing() {
+        dataset.begin(ReadWrite.WRITE);
+        try {
+            addBorehole(dataset.getDefaultModel(), "bhBlank", "Delta Bore",
+                "WA", new String[] {"Gold"},
+                new String[][] {
+                    {"Company", "   "},
+                    {"HoleNumber", "4444"}
+                });
+            dataset.commit();
+        } finally {
+            dataset.end();
+        }
+
+        Map<String, List<FacetValue>> topLevelCounts = textIndex.getFacetCounts(
+            null, null, Collections.singletonList(IDENTIFIER_DIM), 10, 0);
+        Map<String, Long> topLevelValues = toFacetMap(topLevelCounts.get(IDENTIFIER_DIM));
+        assertEquals(Long.valueOf(4), topLevelValues.get("Company"));
+        assertEquals(Long.valueOf(4), topLevelValues.get("HoleNumber"));
+
+        Map<String, String[]> drillDown = new HashMap<>();
+        drillDown.put(IDENTIFIER_DIM, new String[] {"Company"});
+        Map<String, List<FacetValue>> drillDownCounts = textIndex.getFacetCounts(
+            null, null, Collections.singletonList(IDENTIFIER_DIM), 10, 0, drillDown);
+        Map<String, Long> drillDownValues = toFacetMap(drillDownCounts.get(IDENTIFIER_DIM));
+        assertEquals(Long.valueOf(1), drillDownValues.get("Acme"));
+        assertEquals(Long.valueOf(1), drillDownValues.get("8412"));
+        assertEquals(Long.valueOf(1), drillDownValues.get("Rio"));
+        assertFalse(drillDownValues.containsKey(""));
+        assertFalse(drillDownValues.containsKey("   "));
     }
 
     @Test

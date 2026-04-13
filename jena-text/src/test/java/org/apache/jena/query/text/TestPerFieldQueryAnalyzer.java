@@ -29,9 +29,12 @@ import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.*;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
+import org.apache.jena.sparql.path.Path;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.ResourceFactory;
@@ -89,18 +92,23 @@ public class TestPerFieldQueryAnalyzer {
     public void setUp() {
         FieldDef identifierField = new FieldDef("identifier", FieldType.TEXT,
             edgeNgramIndexAnalyzer(), lowercaseKeywordAnalyzer(),
-            true, true, false, false, false, true,
-            Collections.singleton(IDENTIFIER_PRED), null, null);
+            true, true, false, false, false, true);
 
         FieldDef labelField = new FieldDef("label", FieldType.TEXT, null,
-            true, true, false, false, false, false,
-            Collections.singleton(LABEL_PRED));
+            true, true, false, false, false, false);
+
+        List<FieldOccurrence> rootOccurrences = Arrays.asList(
+            occurrence(identifierField, PathFactory.pathLink(IDENTIFIER_PRED), Collections.singleton(IDENTIFIER_PRED)),
+            occurrence(labelField, PathFactory.pathLink(LABEL_PRED), Collections.singleton(LABEL_PRED)));
 
         IndexProfile specimenProfile = new IndexProfile(
             NodeFactory.createURI(NS + "SpecimenShape"),
             Collections.singleton(SPECIMEN_CLASS),
             "uri", "docType",
-            Arrays.asList(identifierField, labelField));
+            Arrays.asList(identifierField, labelField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(specimenProfile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -140,6 +148,15 @@ public class TestPerFieldQueryAnalyzer {
         model.add(specimen, RDF.type, ResourceFactory.createResource(NS + "Specimen"));
         model.add(specimen, ResourceFactory.createProperty(NS + "identifier"), identifier);
         model.add(specimen, ResourceFactory.createProperty(NS + "label"), label);
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
+        return new FieldOccurrence(
+            field,
+            path,
+            ShaclIndexAssembler.extractPathVariants(path),
+            predicates,
+            null, null, null, null);
     }
 
     @After
@@ -256,8 +273,7 @@ public class TestPerFieldQueryAnalyzer {
         // the system falls back to using the index analyzer for queries.
         FieldDef noOverride = new FieldDef("test", FieldType.TEXT,
             edgeNgramIndexAnalyzer(),
-            true, true, false, false, false, false,
-            Collections.singleton(LABEL_PRED));
+            true, true, false, false, false, false);
         assertNull("queryAnalyzer should be null when not set", noOverride.getQueryAnalyzer());
         assertNotNull("index analyzer should be present", noOverride.getAnalyzer());
     }
@@ -268,14 +284,19 @@ public class TestPerFieldQueryAnalyzer {
         // from FieldDef into EntityDefinition
         FieldDef idField = new FieldDef("identifier", FieldType.TEXT,
             edgeNgramIndexAnalyzer(), lowercaseKeywordAnalyzer(),
-            true, true, false, false, false, true,
-            Collections.singleton(IDENTIFIER_PRED), null, null);
+            true, true, false, false, false, true);
+
+        List<FieldOccurrence> profileOccurrences = Collections.singletonList(
+            occurrence(idField, PathFactory.pathLink(IDENTIFIER_PRED), Collections.singleton(IDENTIFIER_PRED)));
 
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI(NS + "TestShape"),
             Collections.singleton(SPECIMEN_CLASS),
             "uri", "docType",
-            Collections.singletonList(idField));
+            Collections.singletonList(idField),
+            profileOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);

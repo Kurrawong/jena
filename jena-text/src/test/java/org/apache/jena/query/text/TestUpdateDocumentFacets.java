@@ -27,6 +27,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
@@ -35,6 +36,8 @@ import org.apache.jena.query.DatasetFactory;
 import org.apache.jena.query.ReadWrite;
 import org.apache.jena.query.text.ShaclIndexMapping.*;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
+import org.apache.jena.sparql.path.Path;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.ResourceFactory;
@@ -62,18 +65,23 @@ public class TestUpdateDocumentFacets {
     @Before
     public void setUp() {
         FieldDef titleField = new FieldDef("text", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(TITLE_PRED));
+            true, true, false, false, false, true);
 
         FieldDef categoryField = new FieldDef("category", FieldType.KEYWORD, null,
-            true, true, true, false, true, false,
-            Collections.singleton(CATEGORY_PRED));
+            true, true, true, false, true, false);
+
+        List<FieldOccurrence> rootOccurrences = Arrays.asList(
+            occurrence(titleField, PathFactory.pathLink(TITLE_PRED), Collections.singleton(TITLE_PRED)),
+            occurrence(categoryField, PathFactory.pathLink(CATEGORY_PRED), Collections.singleton(CATEGORY_PRED)));
 
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI(NS + "DocShape"),
             Collections.singleton(DOC_CLASS),
             "uri", "docType",
-            Arrays.asList(titleField, categoryField));
+            Arrays.asList(titleField, categoryField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -89,6 +97,15 @@ public class TestUpdateDocumentFacets {
         ShaclTextDocProducer producer = new ShaclTextDocProducer(
             baseDs.asDatasetGraph(), textIndex, mapping);
         dataset = TextDatasetFactory.create(baseDs, textIndex, true, producer);
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
+        return new FieldOccurrence(
+            field,
+            path,
+            ShaclIndexAssembler.extractPathVariants(path),
+            predicates,
+            null, null, null, null);
     }
 
     @After

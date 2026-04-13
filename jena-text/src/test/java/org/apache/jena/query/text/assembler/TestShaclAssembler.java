@@ -27,16 +27,19 @@ import org.apache.jena.assembler.Assembler;
 import org.apache.jena.assembler.exceptions.AssemblerException;
 import org.apache.jena.query.text.ShaclIndexMapping;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
-import org.apache.jena.query.text.TextIndexException;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
+import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
+import org.apache.jena.query.text.ShaclIndexMapping.NestedDef;
 import org.apache.jena.query.text.ShaclTextIndexLucene;
-import org.apache.jena.rdf.model.Model;
-import org.apache.jena.rdf.model.ModelFactory;
-import org.apache.jena.rdf.model.RDFNode;
-import org.apache.jena.rdf.model.Resource;
-import org.apache.jena.sparql.path.*;
+import org.apache.jena.query.text.TextIndexException;
+import org.apache.jena.rdf.model.*;
+import org.apache.jena.sparql.path.P_Inverse;
+import org.apache.jena.sparql.path.P_Link;
+import org.apache.jena.sparql.path.P_Seq;
 import org.apache.jena.sys.JenaSystem;
 import org.apache.jena.vocabulary.RDF;
 import org.apache.jena.vocabulary.RDFS;
+import org.apache.jena.datatypes.xsd.XSDDatatype;
 import org.junit.Test;
 
 /**
@@ -56,26 +59,23 @@ public class TestShaclAssembler {
         return ModelFactory.createDefaultModel();
     }
 
-    /**
-     * Build a valid text:shapes index spec in the model.
-     */
+    private Resource occurrence(Model model, Resource field, RDFNode pathNode) {
+        return model.createResource()
+            .addProperty(model.createProperty(IndexVocab.NS, "field"), field)
+            .addProperty(model.createProperty(SH, "path"), pathNode);
+    }
+
     private Resource buildShaclIndexSpec(Model model) {
-        // Define the shape
+        Resource labelField = model.createResource(EX + "labelField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "label")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField)
+            .addProperty(model.createProperty(IndexVocab.NS, "defaultSearch"), model.createTypedLiteral(true));
+
         Resource bookShape = model.createResource(EX + "BookShape")
             .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Book"))
-            .addProperty(
-                model.createProperty(SH, "property"),
-                model.createResource()
-                    .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "label")
-                    .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField)
-                    .addProperty(model.createProperty(IndexVocab.NS, "defaultSearch"), model.createTypedLiteral(true))
-                    .addProperty(model.createProperty(SH, "path"), RDFS.label)
-            );
+            .addProperty(model.createProperty(SH, "property"), occurrence(model, labelField, RDFS.label));
 
-        // Build the shapes list
         RDFNode shapesList = model.createList(new RDFNode[]{ bookShape });
-
-        // Build the index spec
         return model.createResource(EX + "index")
             .addProperty(RDF.type, TextVocab.textIndexShacl)
             .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
@@ -89,14 +89,15 @@ public class TestShaclAssembler {
 
         ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
         try {
-            assertTrue("Should be in SHACL mode", index.isShaclMode());
+            assertTrue(index.isShaclMode());
             ShaclIndexMapping mapping = index.getShaclMapping();
             assertNotNull(mapping);
             assertEquals(1, mapping.getProfiles().size());
 
-            ShaclIndexMapping.IndexProfile profile = mapping.getProfiles().get(0);
+            IndexProfile profile = mapping.getProfiles().get(0);
             assertEquals(1, profile.getFields().size());
             assertEquals("label", profile.getFields().get(0).getFieldName());
+            assertEquals(1, profile.getRootOccurrences().size());
         } finally {
             index.close();
         }
@@ -122,26 +123,20 @@ public class TestShaclAssembler {
     public void testInversePathParsed() {
         Model model = createModel();
 
-        // Shape with inverse path: sh:path [ sh:inversePath ex:wrote ]
+        Resource titleField = model.createResource(EX + "titleField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "title")
+            .addProperty(model.createProperty(IndexVocab.NS, "defaultSearch"), model.createTypedLiteral(true));
+        Resource wroteByField = model.createResource(EX + "wroteByField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "wroteBy")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField);
+
+        Resource inversePath = model.createResource()
+            .addProperty(model.createProperty(SH, "inversePath"), model.createResource(EX + "wrote"));
+
         Resource bookShape = model.createResource(EX + "BookShape")
             .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Book"))
-            .addProperty(
-                model.createProperty(SH, "property"),
-                model.createResource()
-                    .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "title")
-                    .addProperty(model.createProperty(IndexVocab.NS, "defaultSearch"), model.createTypedLiteral(true))
-                    .addProperty(model.createProperty(SH, "path"), RDFS.label)
-            )
-            .addProperty(
-                model.createProperty(SH, "property"),
-                model.createResource()
-                    .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "wroteBy")
-                    .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
-                    .addProperty(model.createProperty(SH, "path"),
-                        model.createResource()
-                            .addProperty(model.createProperty(SH, "inversePath"),
-                                model.createResource(EX + "wrote")))
-            );
+            .addProperty(model.createProperty(SH, "property"), occurrence(model, titleField, RDFS.label))
+            .addProperty(model.createProperty(SH, "property"), occurrence(model, wroteByField, inversePath));
 
         RDFNode shapesList = model.createList(new RDFNode[]{ bookShape });
         Resource indexSpec = model.createResource(EX + "index")
@@ -151,16 +146,9 @@ public class TestShaclAssembler {
 
         ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
         try {
-            ShaclIndexMapping mapping = index.getShaclMapping();
-            FieldDef wroteByField = null;
-            for (FieldDef f : mapping.getProfiles().get(0).getFields()) {
-                if ("wroteBy".equals(f.getFieldName())) {
-                    wroteByField = f;
-                }
-            }
-            assertNotNull("Should have wroteBy field", wroteByField);
-            assertTrue("wroteBy should have complex path", wroteByField.hasComplexPath());
-            assertTrue("wroteBy path should be P_Inverse", wroteByField.getPath() instanceof P_Inverse);
+            FieldOccurrence wroteBy = findRootOccurrence(index.getShaclMapping().getProfiles().get(0), "wroteBy");
+            assertNotNull(wroteBy);
+            assertTrue(wroteBy.getPath() instanceof P_Inverse);
         } finally {
             index.close();
         }
@@ -170,27 +158,22 @@ public class TestShaclAssembler {
     public void testQueryAnalyzerAssembled() {
         Model model = createModel();
 
-        // Shape with a field that has idx:analyzer (edge n-gram) and idx:queryAnalyzer (lowercase keyword)
+        Resource titleField = model.createResource(EX + "titleField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "title")
+            .addProperty(model.createProperty(IndexVocab.NS, "defaultSearch"), model.createTypedLiteral(true));
+        Resource identifierField = model.createResource(EX + "identifierField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifier")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField)
+            .addProperty(model.createProperty(IndexVocab.NS, "analyzer"),
+                model.createResource().addProperty(RDF.type, TextVocab.edgeNGramAnalyzer))
+            .addProperty(model.createProperty(IndexVocab.NS, "queryAnalyzer"),
+                model.createResource().addProperty(RDF.type, TextVocab.lowerCaseKeywordAnalyzer));
+
         Resource bookShape = model.createResource(EX + "BookShape")
             .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Book"))
-            .addProperty(
-                model.createProperty(SH, "property"),
-                model.createResource()
-                    .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "title")
-                    .addProperty(model.createProperty(IndexVocab.NS, "defaultSearch"), model.createTypedLiteral(true))
-                    .addProperty(model.createProperty(SH, "path"), RDFS.label)
-            )
-            .addProperty(
-                model.createProperty(SH, "property"),
-                model.createResource()
-                    .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifier")
-                    .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField)
-                    .addProperty(model.createProperty(IndexVocab.NS, "analyzer"),
-                        model.createResource().addProperty(RDF.type, TextVocab.edgeNGramAnalyzer))
-                    .addProperty(model.createProperty(IndexVocab.NS, "queryAnalyzer"),
-                        model.createResource().addProperty(RDF.type, TextVocab.lowerCaseKeywordAnalyzer))
-                    .addProperty(model.createProperty(SH, "path"), model.createResource(EX + "identifier"))
-            );
+            .addProperty(model.createProperty(SH, "property"), occurrence(model, titleField, RDFS.label))
+            .addProperty(model.createProperty(SH, "property"),
+                occurrence(model, identifierField, model.createResource(EX + "identifier")));
 
         RDFNode shapesList = model.createList(new RDFNode[]{ bookShape });
         Resource indexSpec = model.createResource(EX + "index")
@@ -200,18 +183,11 @@ public class TestShaclAssembler {
 
         ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
         try {
-            ShaclIndexMapping mapping = index.getShaclMapping();
-            FieldDef idField = null;
-            for (FieldDef f : mapping.getProfiles().get(0).getFields()) {
-                if ("identifier".equals(f.getFieldName())) {
-                    idField = f;
-                }
-            }
-            assertNotNull("Should have identifier field", idField);
-            assertNotNull("identifier should have index analyzer", idField.getAnalyzer());
-            assertNotNull("identifier should have query analyzer", idField.getQueryAnalyzer());
-            assertNotSame("index and query analyzers should be different instances",
-                idField.getAnalyzer(), idField.getQueryAnalyzer());
+            FieldDef idField = index.getShaclMapping().findField(identifierField.getURI());
+            assertNotNull(idField);
+            assertNotNull(idField.getAnalyzer());
+            assertNotNull(idField.getQueryAnalyzer());
+            assertNotSame(idField.getAnalyzer(), idField.getQueryAnalyzer());
         } finally {
             index.close();
         }
@@ -221,15 +197,14 @@ public class TestShaclAssembler {
     public void testDateFieldRequiresLiteralMetadata() {
         Model model = createModel();
 
+        Resource dateField = model.createResource(EX + "eventDateField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "eventDate")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.DateField);
+
         Resource bookShape = model.createResource(EX + "BookShape")
             .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Book"))
-            .addProperty(
-                model.createProperty(SH, "property"),
-                model.createResource()
-                    .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "eventDate")
-                    .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.DateField)
-                    .addProperty(model.createProperty(SH, "path"), model.createResource(EX + "eventDate"))
-            );
+            .addProperty(model.createProperty(SH, "property"),
+                occurrence(model, dateField, model.createResource(EX + "eventDate")));
 
         RDFNode shapesList = model.createList(new RDFNode[]{ bookShape });
         Resource indexSpec = model.createResource(EX + "index")
@@ -247,7 +222,13 @@ public class TestShaclAssembler {
     public void testSequencePathParsed() {
         Model model = createModel();
 
-        // Shape with sequence path: sh:path ( ex:author ex:name )
+        Resource titleField = model.createResource(EX + "titleField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "title")
+            .addProperty(model.createProperty(IndexVocab.NS, "defaultSearch"), model.createTypedLiteral(true));
+        Resource authorNameField = model.createResource(EX + "authorNameField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "authorName")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField);
+
         Resource authorPath = model.createList(new RDFNode[]{
             model.createResource(EX + "author"),
             model.createResource(EX + "name")
@@ -255,20 +236,8 @@ public class TestShaclAssembler {
 
         Resource bookShape = model.createResource(EX + "BookShape")
             .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Book"))
-            .addProperty(
-                model.createProperty(SH, "property"),
-                model.createResource()
-                    .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "title")
-                    .addProperty(model.createProperty(IndexVocab.NS, "defaultSearch"), model.createTypedLiteral(true))
-                    .addProperty(model.createProperty(SH, "path"), RDFS.label)
-            )
-            .addProperty(
-                model.createProperty(SH, "property"),
-                model.createResource()
-                    .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "authorName")
-                    .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
-                    .addProperty(model.createProperty(SH, "path"), authorPath)
-            );
+            .addProperty(model.createProperty(SH, "property"), occurrence(model, titleField, RDFS.label))
+            .addProperty(model.createProperty(SH, "property"), occurrence(model, authorNameField, authorPath));
 
         RDFNode shapesList = model.createList(new RDFNode[]{ bookShape });
         Resource indexSpec = model.createResource(EX + "index")
@@ -278,19 +247,10 @@ public class TestShaclAssembler {
 
         ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
         try {
-            ShaclIndexMapping mapping = index.getShaclMapping();
-            FieldDef authorNameField = null;
-            for (FieldDef f : mapping.getProfiles().get(0).getFields()) {
-                if ("authorName".equals(f.getFieldName())) {
-                    authorNameField = f;
-                }
-            }
-            assertNotNull("Should have authorName field", authorNameField);
-            assertTrue("authorName should have complex path", authorNameField.hasComplexPath());
-            assertTrue("authorName path should be P_Seq", authorNameField.getPath() instanceof P_Seq);
-
-            // Verify leaf predicates extracted for change listener
-            assertEquals("Should have 2 leaf predicates", 2, authorNameField.getPredicates().size());
+            FieldOccurrence authorName = findRootOccurrence(index.getShaclMapping().getProfiles().get(0), "authorName");
+            assertNotNull(authorName);
+            assertTrue(authorName.getPath() instanceof P_Seq);
+            assertEquals(2, authorName.getPredicates().size());
         } finally {
             index.close();
         }
@@ -300,42 +260,39 @@ public class TestShaclAssembler {
     public void testNestedHierarchyParsed() {
         Model model = createModel();
 
+        Resource titleField = model.createResource(EX + "titleField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "title")
+            .addProperty(model.createProperty(IndexVocab.NS, "defaultSearch"), model.createTypedLiteral(true));
         Resource identifierType = model.createResource("urn:jena:lucene:field#identifierType")
             .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifierType")
             .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
-            .addProperty(model.createProperty(IndexVocab.NS, "facetable"), model.createTypedLiteral(true))
-            .addProperty(model.createProperty(SH, "path"), model.createResource("https://schema.org/propertyID"));
-
+            .addProperty(model.createProperty(IndexVocab.NS, "facetable"), model.createTypedLiteral(true));
         Resource identifierValueExact = model.createResource("urn:jena:lucene:field#identifierValueExact")
             .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifierValueExact")
             .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
-            .addProperty(model.createProperty(IndexVocab.NS, "facetable"), model.createTypedLiteral(true))
-            .addProperty(model.createProperty(SH, "path"), model.createResource("https://schema.org/value"));
-
+            .addProperty(model.createProperty(IndexVocab.NS, "facetable"), model.createTypedLiteral(true));
         Resource identifierValueText = model.createResource("urn:jena:lucene:field#identifierValueText")
             .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifierValueText")
             .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField)
             .addProperty(model.createProperty(IndexVocab.NS, "analyzer"),
                 model.createResource().addProperty(RDF.type, TextVocab.edgeNGramAnalyzer))
             .addProperty(model.createProperty(IndexVocab.NS, "queryAnalyzer"),
-                model.createResource().addProperty(RDF.type, TextVocab.lowerCaseKeywordAnalyzer))
-            .addProperty(model.createProperty(SH, "path"), model.createResource("https://schema.org/value"));
+                model.createResource().addProperty(RDF.type, TextVocab.lowerCaseKeywordAnalyzer));
 
         Resource nested = model.createResource()
             .addProperty(model.createProperty(IndexVocab.NS, "joinPath"), model.createResource("https://schema.org/identifier"))
-            .addProperty(model.createProperty(IndexVocab.NS, "property"), identifierType)
-            .addProperty(model.createProperty(IndexVocab.NS, "property"), identifierValueExact)
-            .addProperty(model.createProperty(IndexVocab.NS, "property"), identifierValueText)
+            .addProperty(model.createProperty(IndexVocab.NS, "property"),
+                occurrence(model, identifierType, model.createResource("https://schema.org/propertyID")))
+            .addProperty(model.createProperty(IndexVocab.NS, "property"),
+                occurrence(model, identifierValueExact, model.createResource("https://schema.org/value")))
+            .addProperty(model.createProperty(IndexVocab.NS, "property"),
+                occurrence(model, identifierValueText, model.createResource("https://schema.org/value")))
             .addProperty(model.createProperty(IndexVocab.NS, "facetHierarchy"),
                 model.createList(new RDFNode[] { identifierType, identifierValueExact }));
 
         Resource boreholeShape = model.createResource(EX + "BoreholeShape")
             .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Borehole"))
-            .addProperty(model.createProperty(SH, "property"),
-                model.createResource()
-                    .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "title")
-                    .addProperty(model.createProperty(IndexVocab.NS, "defaultSearch"), model.createTypedLiteral(true))
-                    .addProperty(model.createProperty(SH, "path"), RDFS.label))
+            .addProperty(model.createProperty(SH, "property"), occurrence(model, titleField, RDFS.label))
             .addProperty(model.createProperty(IndexVocab.NS, "nested"), nested);
 
         RDFNode shapesList = model.createList(new RDFNode[] { boreholeShape });
@@ -346,26 +303,18 @@ public class TestShaclAssembler {
 
         ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
         try {
-            ShaclIndexMapping.IndexProfile profile = index.getShaclMapping().getProfiles().get(0);
-            assertEquals("Should parse nested definition", 1, profile.getNestedDefs().size());
-            ShaclIndexMapping.NestedDef nestedDef = profile.getNestedDefs().get(0);
-            assertTrue("joinPath should be a simple predicate", nestedDef.getJoinPath() instanceof P_Link);
-            assertEquals("Nested scope name should be derived from joinPath",
-                "<https://schema.org/identifier>", nestedDef.getNestedName());
-            assertEquals("Simple join path should produce one join step", 1, nestedDef.getJoinSteps().size());
-            assertFalse("Simple join step should be forward", nestedDef.getJoinSteps().get(0).isInverse());
-            assertTrue("join predicates should contain the join predicate",
-                nestedDef.getJoinPredicates().contains(model.createResource("https://schema.org/identifier").asNode()));
-            assertEquals("Nested fields should be available on the profile", 4, profile.getFields().size());
-            assertEquals("Nested block should define one hierarchy", 1, nestedDef.getHierarchies().size());
-            ShaclIndexMapping.HierarchyDef hierarchy = nestedDef.getHierarchies().get(0);
-            assertEquals("identifierType_identifierValueExact", hierarchy.getDimensionName());
-            assertEquals("First hierarchy level should be identifierType",
-                "urn:jena:lucene:field#identifierType", hierarchy.getLevel(0).getFieldIRI().getURI());
-            assertEquals("Second hierarchy level should be identifierValueExact",
-                "urn:jena:lucene:field#identifierValueExact", hierarchy.getLevel(1).getFieldIRI().getURI());
-            assertTrue("Nested fields should carry nested scope metadata",
-                hierarchy.getLevel(0).isNestedScoped());
+            IndexProfile profile = index.getShaclMapping().getProfiles().get(0);
+            assertEquals(1, profile.getNestedDefs().size());
+            NestedDef nestedDef = profile.getNestedDefs().get(0);
+            assertTrue(nestedDef.getJoinPath() instanceof P_Link);
+            assertEquals("<https://schema.org/identifier>", nestedDef.getNestedName());
+            assertEquals(1, nestedDef.getJoinSteps().size());
+            assertFalse(nestedDef.getJoinSteps().get(0).isInverse());
+            assertTrue(nestedDef.getJoinPredicates().contains(model.createResource("https://schema.org/identifier").asNode()));
+            assertEquals(4, profile.getFields().size());
+            assertEquals(1, nestedDef.getHierarchies().size());
+            assertEquals(3, nestedDef.getOccurrences().size());
+            assertEquals("identifierType_identifierValueExact", nestedDef.getHierarchies().get(0).getDimensionName());
         } finally {
             index.close();
         }
@@ -377,14 +326,14 @@ public class TestShaclAssembler {
 
         Resource identifierType = model.createResource("urn:jena:lucene:field#identifierType")
             .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifierType")
-            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
-            .addProperty(model.createProperty(SH, "path"), model.createResource("https://schema.org/propertyID"));
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField);
 
         Resource nested = model.createResource()
             .addProperty(model.createProperty(IndexVocab.NS, "joinPath"),
                 model.createResource().addProperty(model.createProperty(SH, "inversePath"),
                     model.createResource("https://schema.org/about")))
-            .addProperty(model.createProperty(IndexVocab.NS, "property"), identifierType);
+            .addProperty(model.createProperty(IndexVocab.NS, "property"),
+                occurrence(model, identifierType, model.createResource("https://schema.org/propertyID")));
 
         Resource boreholeShape = model.createResource(EX + "BoreholeShape")
             .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Borehole"))
@@ -398,7 +347,7 @@ public class TestShaclAssembler {
 
         ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
         try {
-            ShaclIndexMapping.NestedDef nestedDef = index.getShaclMapping().getProfiles().get(0).getNestedDefs().get(0);
+            NestedDef nestedDef = index.getShaclMapping().getProfiles().get(0).getNestedDefs().get(0);
             assertTrue(nestedDef.getJoinPath() instanceof P_Inverse);
             assertEquals(1, nestedDef.getJoinSteps().size());
             assertTrue(nestedDef.getJoinSteps().get(0).isInverse());
@@ -414,8 +363,7 @@ public class TestShaclAssembler {
 
         Resource identifierType = model.createResource("urn:jena:lucene:field#identifierType")
             .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifierType")
-            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
-            .addProperty(model.createProperty(SH, "path"), model.createResource("https://schema.org/propertyID"));
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField);
 
         Resource joinPath = model.createList(new RDFNode[] {
             model.createResource("https://example.org/hasIdentifierLink"),
@@ -424,7 +372,8 @@ public class TestShaclAssembler {
 
         Resource nested = model.createResource()
             .addProperty(model.createProperty(IndexVocab.NS, "joinPath"), joinPath)
-            .addProperty(model.createProperty(IndexVocab.NS, "property"), identifierType);
+            .addProperty(model.createProperty(IndexVocab.NS, "property"),
+                occurrence(model, identifierType, model.createResource("https://schema.org/propertyID")));
 
         Resource boreholeShape = model.createResource(EX + "BoreholeShape")
             .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Borehole"))
@@ -438,48 +387,201 @@ public class TestShaclAssembler {
 
         ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
         try {
-            ShaclIndexMapping.NestedDef nestedDef = index.getShaclMapping().getProfiles().get(0).getNestedDefs().get(0);
+            NestedDef nestedDef = index.getShaclMapping().getProfiles().get(0).getNestedDefs().get(0);
             assertTrue(nestedDef.getJoinPath() instanceof P_Seq);
             assertEquals(2, nestedDef.getJoinSteps().size());
             assertEquals("https://example.org/hasIdentifierLink", nestedDef.getJoinSteps().get(0).getPredicate().getURI());
             assertEquals("https://example.org/identifierNode", nestedDef.getJoinSteps().get(1).getPredicate().getURI());
-            assertFalse(nestedDef.getJoinSteps().get(0).isInverse());
-            assertFalse(nestedDef.getJoinSteps().get(1).isInverse());
         } finally {
             index.close();
         }
     }
 
     @Test
-    public void testFieldCannotBeUsedInBothRootAndNestedScope() {
+    public void testSharedCanonicalFieldCanAppearInMultipleRootOccurrences() {
         Model model = createModel();
 
-        Resource identifierType = model.createResource("urn:jena:lucene:field#identifierType")
-            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifierType")
+        Resource parentField = model.createResource("urn:jena:lucene:field#hasParent")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "hasParent")
             .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
-            .addProperty(model.createProperty(SH, "path"), model.createResource("https://schema.org/propertyID"));
+            .addProperty(model.createProperty(IndexVocab.NS, "multiValued"), model.createTypedLiteral(true));
 
-        Resource nested = model.createResource()
-            .addProperty(model.createProperty(IndexVocab.NS, "joinPath"), model.createResource("https://schema.org/identifier"))
-            .addProperty(model.createProperty(IndexVocab.NS, "property"), identifierType);
+        Resource surveyShape = model.createResource(EX + "SurveyShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Survey"))
+            .addProperty(model.createProperty(SH, "property"),
+                occurrence(model, parentField,
+                    model.createResource().addProperty(model.createProperty(SH, "inversePath"),
+                        model.createResource("https://schema.org/about"))));
 
-        Resource boreholeShape = model.createResource(EX + "BoreholeShape")
-            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Borehole"))
-            .addProperty(model.createProperty(SH, "property"), identifierType)
-            .addProperty(model.createProperty(IndexVocab.NS, "nested"), nested);
+        Resource wellShape = model.createResource(EX + "WellShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Well"))
+            .addProperty(model.createProperty(SH, "property"),
+                occurrence(model, parentField, model.createResource("http://purl.org/dc/terms/hasPart")));
 
-        RDFNode shapesList = model.createList(new RDFNode[] { boreholeShape });
+        RDFNode shapesList = model.createList(new RDFNode[] { surveyShape, wellShape });
         Resource indexSpec = model.createResource(EX + "index")
             .addProperty(RDF.type, TextVocab.textIndexShacl)
             .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
             .addProperty(TextVocab.pShapes, shapesList);
 
+        ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
         try {
-            Assembler.general().open(indexSpec);
-            fail("Expected root/nested field reuse to be rejected");
-        } catch (AssemblerException ex) {
-            assertTrue(ex.getMessage().contains("cannot be used both as a root field and as an idx:nested property"));
+            ShaclIndexMapping mapping = index.getShaclMapping();
+            assertNotNull(mapping.findField(parentField.getURI()));
+            assertEquals(2, mapping.getProfiles().size());
+        } finally {
+            index.close();
         }
     }
 
+    @Test
+    public void testOccurrenceConstraintsParsed() {
+        Model model = createModel();
+
+        Resource parentField = model.createResource("urn:jena:lucene:field#hasParent")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "hasParent")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField);
+        Resource valueField = model.createResource("urn:jena:lucene:field#sampleValue")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "sampleValue")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField);
+
+        Resource shape = model.createResource(EX + "SurveyShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Survey"))
+            .addProperty(model.createProperty(SH, "property"),
+                model.createResource()
+                    .addProperty(model.createProperty(IndexVocab.NS, "field"), parentField)
+                    .addProperty(model.createProperty(SH, "path"),
+                        model.createResource().addProperty(model.createProperty(SH, "inversePath"),
+                            model.createResource(EX + "about")))
+                    .addProperty(model.createProperty(SH, "class"), model.createResource(EX + "Borehole"))
+                    .addProperty(model.createProperty(SH, "nodeKind"), model.createResource(SH + "IRI")))
+            .addProperty(model.createProperty(SH, "property"),
+                model.createResource()
+                    .addProperty(model.createProperty(IndexVocab.NS, "field"), valueField)
+                    .addProperty(model.createProperty(SH, "path"), model.createResource(EX + "value"))
+                    .addProperty(model.createProperty(SH, "nodeKind"), model.createResource(SH + "Literal"))
+                    .addProperty(model.createProperty(SH, "datatype"),
+                        model.createResource(XSDDatatype.XSDinteger.getURI())));
+
+        RDFNode shapesList = model.createList(new RDFNode[] { shape });
+        Resource indexSpec = model.createResource(EX + "index")
+            .addProperty(RDF.type, TextVocab.textIndexShacl)
+            .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+            .addProperty(TextVocab.pShapes, shapesList);
+
+        ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
+        try {
+            IndexProfile profile = index.getShaclMapping().getProfiles().get(0);
+            FieldOccurrence parentOccurrence = findRootOccurrence(profile, "hasParent");
+            FieldOccurrence valueOccurrence = findRootOccurrence(profile, "sampleValue");
+
+            assertEquals(model.createResource(EX + "Borehole").asNode(), parentOccurrence.getRequiredClass());
+            assertEquals(ShaclIndexMapping.NodeKindConstraint.IRI, parentOccurrence.getNodeKindConstraint());
+            assertEquals(ShaclIndexMapping.NodeKindConstraint.LITERAL, valueOccurrence.getNodeKindConstraint());
+            assertEquals(XSDDatatype.XSDinteger.getURI(), valueOccurrence.getDatatype().getURI());
+        } finally {
+            index.close();
+        }
+    }
+
+    @Test
+    public void testLegacyFieldResourceSyntaxRejected() {
+        Model model = createModel();
+
+        Resource legacyField = model.createResource(EX + "legacyField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "title")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField)
+            .addProperty(model.createProperty(SH, "path"), RDFS.label);
+
+        Resource shape = model.createResource(EX + "BookShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Book"))
+            .addProperty(model.createProperty(SH, "property"), legacyField);
+
+        RDFNode shapesList = model.createList(new RDFNode[] { shape });
+        Resource indexSpec = model.createResource(EX + "index")
+            .addProperty(RDF.type, TextVocab.textIndexShacl)
+            .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+            .addProperty(TextVocab.pShapes, shapesList);
+
+        AssemblerException ex = assertThrows(AssemblerException.class,
+            () -> Assembler.general().open(indexSpec));
+        assertTrue(ex.getMessage().contains("mixes occurrence data with canonical field metadata"));
+    }
+
+    @Test
+    public void testRootHierarchyCannotReferenceNestedOnlyField() {
+        Model model = createModel();
+
+        Resource titleField = model.createResource(EX + "titleField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "title")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField);
+        Resource identifierType = model.createResource(EX + "identifierTypeField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifierType")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField);
+
+        Resource nested = model.createResource()
+            .addProperty(model.createProperty(IndexVocab.NS, "joinPath"),
+                model.createResource("https://schema.org/identifier"))
+            .addProperty(model.createProperty(IndexVocab.NS, "property"),
+                occurrence(model, identifierType, model.createResource("https://schema.org/propertyID")));
+
+        Resource shape = model.createResource(EX + "BoreholeShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Borehole"))
+            .addProperty(model.createProperty(SH, "property"), occurrence(model, titleField, RDFS.label))
+            .addProperty(model.createProperty(IndexVocab.NS, "nested"), nested)
+            .addProperty(model.createProperty(IndexVocab.NS, "facetHierarchy"),
+                model.createList(new RDFNode[] { titleField, identifierType }));
+
+        RDFNode shapesList = model.createList(new RDFNode[] { shape });
+        Resource indexSpec = model.createResource(EX + "index")
+            .addProperty(RDF.type, TextVocab.textIndexShacl)
+            .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+            .addProperty(TextVocab.pShapes, shapesList);
+
+        AssemblerException ex = assertThrows(AssemblerException.class,
+            () -> Assembler.general().open(indexSpec));
+        assertTrue(ex.getCause() instanceof TextIndexException);
+        assertTrue(ex.getCause().getMessage().contains("same scope"));
+    }
+
+    @Test
+    public void testConflictingCanonicalFieldAnalyzersRejected() {
+        Model model = createModel();
+
+        Resource identifierFieldA = model.createResource()
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifier")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField)
+            .addProperty(model.createProperty(IndexVocab.NS, "analyzer"),
+                model.createResource().addProperty(RDF.type, TextVocab.edgeNGramAnalyzer));
+        Resource identifierFieldB = model.createResource()
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifier")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField)
+            .addProperty(model.createProperty(IndexVocab.NS, "analyzer"),
+                model.createResource().addProperty(RDF.type, TextVocab.lowerCaseKeywordAnalyzer));
+
+        Resource shape = model.createResource(EX + "SpecimenShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Specimen"))
+            .addProperty(model.createProperty(SH, "property"),
+                occurrence(model, identifierFieldA, model.createResource(EX + "identifierA")))
+            .addProperty(model.createProperty(SH, "property"),
+                occurrence(model, identifierFieldB, model.createResource(EX + "identifierB")));
+
+        RDFNode shapesList = model.createList(new RDFNode[] { shape });
+        Resource indexSpec = model.createResource(EX + "index")
+            .addProperty(RDF.type, TextVocab.textIndexShacl)
+            .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+            .addProperty(TextVocab.pShapes, shapesList);
+
+        AssemblerException ex = assertThrows(AssemblerException.class,
+            () -> Assembler.general().open(indexSpec));
+        assertTrue(ex.getCause() instanceof TextIndexException);
+        assertTrue(ex.getCause().getMessage().contains("defined inconsistently"));
+    }
+
+    private static FieldOccurrence findRootOccurrence(IndexProfile profile, String fieldName) {
+        return profile.getRootOccurrences().stream()
+            .filter(o -> fieldName.equals(o.getField().getFieldName()))
+            .findFirst()
+            .orElse(null);
+    }
 }

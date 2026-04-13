@@ -525,18 +525,23 @@ function extractConfig(store) {
     const hierarchyDimensions = new Map();
 
     function registerField(shape, propNode, { includeFacetField = true, includePredicateMapping = true } = {}) {
-        const fieldName = getLiteral(store, propNode, IDX + 'fieldName');
-        const fieldType = getObject(store, propNode, IDX + 'fieldType');
+        // Support new occurrence model: blank node with idx:field reference to canonical field resource.
+        // Fall back to reading metadata directly from propNode for the old inline model.
+        const fieldRef = getObject(store, propNode, IDX + 'field');
+        const fieldNode = fieldRef || propNode;
+
+        const fieldName = getLiteral(store, fieldNode, IDX + 'fieldName');
+        const fieldType = getObject(store, fieldNode, IDX + 'fieldType');
         const pathNode = getObject(store, propNode, SH + 'path');
         if (!fieldName || !fieldType) return;
 
-        const facetable = getLiteral(store, propNode, IDX + 'facetable') === 'true';
-        const multiValued = getLiteral(store, propNode, IDX + 'multiValued') === 'true';
-        const defaultSearch = getLiteral(store, propNode, IDX + 'defaultSearch') === 'true';
-        const sortable = getLiteral(store, propNode, IDX + 'sortable') === 'true';
+        const facetable = getLiteral(store, fieldNode, IDX + 'facetable') === 'true';
+        const multiValued = getLiteral(store, fieldNode, IDX + 'multiValued') === 'true';
+        const defaultSearch = getLiteral(store, fieldNode, IDX + 'defaultSearch') === 'true';
+        const sortable = getLiteral(store, fieldNode, IDX + 'sortable') === 'true';
         const pathStr = pathNode ? pathToString(store, pathNode) : '?';
 
-        const fieldIRI = propNode.termType === 'NamedNode' ? propNode.value : null;
+        const fieldIRI = fieldNode.termType === 'NamedNode' ? fieldNode.value : null;
 
         const fieldTypeShort = shortName(fieldType.value);
         const isNumeric = isNumericFieldType(fieldType.value);

@@ -30,6 +30,8 @@ import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.*;
 import org.apache.jena.query.text.ShaclIndexMapping.*;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
+import org.apache.jena.sparql.path.Path;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.ResourceFactory;
@@ -62,26 +64,30 @@ public class TestHierarchicalFacetsSparql {
         Node subtypeIRI = NodeFactory.createURI(FIELD_NS + "subtype");
 
         FieldDef nameField = new FieldDef("name", FieldType.TEXT, null, null,
-            true, true, false, false, false, true,
-            Collections.singleton(NAME_PRED), null, nameIRI);
+            true, true, false, false, false, true, nameIRI);
 
         FieldDef typeField = new FieldDef("type", FieldType.KEYWORD, null, null,
-            true, true, true, false, false, false,
-            Collections.singleton(TYPE_PRED), null, typeIRI);
+            true, true, true, false, false, false, typeIRI);
 
         FieldDef subtypeField = new FieldDef("subtype", FieldType.KEYWORD, null, null,
-            true, true, true, false, false, false,
-            Collections.singleton(SUBTYPE_PRED), null, subtypeIRI);
+            true, true, true, false, false, false, subtypeIRI);
 
         HierarchyDef typeHierarchy = new HierarchyDef("type_subtype",
             Arrays.asList(typeField, subtypeField));
+
+        List<FieldOccurrence> rootOccurrences = Arrays.asList(
+            occurrence(nameField, PathFactory.pathLink(NAME_PRED), Collections.singleton(NAME_PRED)),
+            occurrence(typeField, PathFactory.pathLink(TYPE_PRED), Collections.singleton(TYPE_PRED)),
+            occurrence(subtypeField, PathFactory.pathLink(SUBTYPE_PRED), Collections.singleton(SUBTYPE_PRED)));
 
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI(NS + "BoreholeShape"),
             Collections.singleton(BOREHOLE_CLASS),
             "uri", "docType",
             Arrays.asList(nameField, typeField, subtypeField),
-            Collections.singletonList(typeHierarchy));
+            rootOccurrences,
+            Collections.singletonList(typeHierarchy),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -134,6 +140,15 @@ public class TestHierarchicalFacetsSparql {
             ResourceFactory.createPlainLiteral(type));
         model.add(bh, ResourceFactory.createProperty(NS + "subtype"),
             ResourceFactory.createPlainLiteral(subtype));
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
+        return new FieldOccurrence(
+            field,
+            path,
+            ShaclIndexAssembler.extractPathVariants(path),
+            predicates,
+            null, null, null, null);
     }
 
     @After

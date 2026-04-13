@@ -29,9 +29,12 @@ import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.*;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
+import org.apache.jena.sparql.path.Path;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.ResourceFactory;
@@ -61,26 +64,31 @@ public class TestTextQueryPFFilters {
         TextQuery.init();
 
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(TITLE_PRED));
+            true, true, false, false, false, true);
 
         FieldDef categoryField = new FieldDef("category", FieldType.KEYWORD, null,
-            true, true, true, false, true, false,
-            Collections.singleton(CATEGORY_PRED));
+            true, true, true, false, true, false);
 
         FieldDef authorField = new FieldDef("author", FieldType.KEYWORD, null,
-            true, true, true, false, false, false,
-            Collections.singleton(AUTHOR_PRED));
+            true, true, true, false, false, false);
 
         FieldDef yearField = new FieldDef("year", FieldType.INT, null,
-            true, true, false, true, false, false,
-            Collections.singleton(YEAR_PRED));
+            true, true, false, true, false, false);
+
+        List<FieldOccurrence> rootOccurrences = Arrays.asList(
+            occurrence(titleField, PathFactory.pathLink(TITLE_PRED), Collections.singleton(TITLE_PRED)),
+            occurrence(categoryField, PathFactory.pathLink(CATEGORY_PRED), Collections.singleton(CATEGORY_PRED)),
+            occurrence(authorField, PathFactory.pathLink(AUTHOR_PRED), Collections.singleton(AUTHOR_PRED)),
+            occurrence(yearField, PathFactory.pathLink(YEAR_PRED), Collections.singleton(YEAR_PRED)));
 
         IndexProfile bookProfile = new IndexProfile(
             NodeFactory.createURI(NS + "BookShape"),
             Collections.singleton(BOOK_CLASS),
             "uri", "docType",
-            Arrays.asList(titleField, categoryField, authorField, yearField));
+            Arrays.asList(titleField, categoryField, authorField, yearField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(bookProfile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -115,6 +123,15 @@ public class TestTextQueryPFFilters {
         } finally {
             dataset.end();
         }
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
+        return new FieldOccurrence(
+            field,
+            path,
+            ShaclIndexAssembler.extractPathVariants(path),
+            predicates,
+            null, null, null, null);
     }
 
     private void addBook(Model model, String id, String title, String categoryUri, String authorUri, int year) {

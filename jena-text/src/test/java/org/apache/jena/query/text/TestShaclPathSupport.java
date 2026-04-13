@@ -29,8 +29,10 @@ import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.*;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
+import org.apache.jena.query.text.ShaclIndexMapping.JoinStep;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
@@ -75,15 +77,11 @@ public class TestShaclPathSupport {
     public void setUp() {
         // title: direct predicate (rdfs:label)
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(LABEL_PRED),
-            PathFactory.pathLink(LABEL_PRED));
+            true, true, false, false, false, true);
 
         // category: direct predicate (keyword, facetable)
         FieldDef categoryField = new FieldDef("category", FieldType.KEYWORD, null,
-            true, true, true, false, false, false,
-            Collections.singleton(CATEGORY_PRED),
-            PathFactory.pathLink(CATEGORY_PRED));
+            true, true, true, false, false, false);
 
         // authorName: sequence path (ex:author / ex:name)
         Path authorNamePath = PathFactory.pathSeq(
@@ -93,21 +91,28 @@ public class TestShaclPathSupport {
         authorNamePreds.add(AUTHOR_PRED);
         authorNamePreds.add(NAME_PRED);
         FieldDef authorNameField = new FieldDef("authorName", FieldType.KEYWORD, null,
-            true, true, true, false, false, false,
-            authorNamePreds, authorNamePath);
+            true, true, true, false, false, false);
 
         // wroteBy: inverse path (^ex:wrote) — indexes who wrote this book
         Path wroteByPath = PathFactory.pathInverse(PathFactory.pathLink(WROTE_PRED));
         Set<Node> wroteByPreds = Collections.singleton(WROTE_PRED);
         FieldDef wroteByField = new FieldDef("wroteBy", FieldType.KEYWORD, null,
-            true, true, false, false, true, false,
-            wroteByPreds, wroteByPath);
+            true, true, false, false, true, false);
+
+        List<FieldOccurrence> rootOccurrences = Arrays.asList(
+            occurrence(titleField, PathFactory.pathLink(LABEL_PRED), Collections.singleton(LABEL_PRED)),
+            occurrence(categoryField, PathFactory.pathLink(CATEGORY_PRED), Collections.singleton(CATEGORY_PRED)),
+            occurrence(authorNameField, authorNamePath, authorNamePreds),
+            occurrence(wroteByField, wroteByPath, wroteByPreds));
 
         IndexProfile bookProfile = new IndexProfile(
             NodeFactory.createURI(NS + "BookShape"),
             Collections.singleton(BOOK_CLASS),
             "uri", "docType",
-            Arrays.asList(titleField, categoryField, authorNameField, wroteByField));
+            Arrays.asList(titleField, categoryField, authorNameField, wroteByField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(bookProfile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -180,6 +185,18 @@ public class TestShaclPathSupport {
         if (dataset != null) {
             dataset.close();
         }
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
+        return new FieldOccurrence(
+            field,
+            path,
+            ShaclIndexAssembler.extractPathVariants(path),
+            predicates,
+            null,
+            null,
+            null,
+            null);
     }
 
     // --- Sequence path tests ---

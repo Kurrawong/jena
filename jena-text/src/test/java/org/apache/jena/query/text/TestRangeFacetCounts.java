@@ -27,6 +27,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
@@ -34,9 +35,12 @@ import org.apache.jena.query.Dataset;
 import org.apache.jena.query.DatasetFactory;
 import org.apache.jena.query.ReadWrite;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
+import org.apache.jena.sparql.path.Path;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.ResourceFactory;
@@ -57,24 +61,34 @@ public class TestRangeFacetCounts {
     public void setUp() {
         TextQuery.init();
 
+        Node titlePred = NodeFactory.createURI(NS + "title");
+        Node yearPred = NodeFactory.createURI(NS + "year");
+        Node eventTimePred = NodeFactory.createURI(NS + "eventTime");
+        Node scorePred = NodeFactory.createURI(NS + "score");
+
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(NodeFactory.createURI(NS + "title")));
+            true, true, false, false, false, true);
         FieldDef yearField = new FieldDef("year", FieldType.INT, null,
-            true, true, true, true, true, false,
-            Collections.singleton(NodeFactory.createURI(NS + "year")));
+            true, true, true, true, true, false);
         FieldDef eventTimeField = new FieldDef("eventTime", FieldType.LONG, null,
-            true, true, true, true, false, false,
-            Collections.singleton(NodeFactory.createURI(NS + "eventTime")));
+            true, true, true, true, false, false);
         FieldDef scoreField = new FieldDef("score", FieldType.DOUBLE, null,
-            true, true, true, true, false, false,
-            Collections.singleton(NodeFactory.createURI(NS + "score")));
+            true, true, true, true, false, false);
+
+        List<FieldOccurrence> rootOccurrences = Arrays.asList(
+            occurrence(titleField, PathFactory.pathLink(titlePred), Collections.singleton(titlePred)),
+            occurrence(yearField, PathFactory.pathLink(yearPred), Collections.singleton(yearPred)),
+            occurrence(eventTimeField, PathFactory.pathLink(eventTimePred), Collections.singleton(eventTimePred)),
+            occurrence(scoreField, PathFactory.pathLink(scorePred), Collections.singleton(scorePred)));
 
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI(NS + "ThingShape"),
             Collections.singleton(NodeFactory.createURI(NS + "Thing")),
             "uri", "docType",
-            Arrays.asList(titleField, yearField, eventTimeField, scoreField));
+            Arrays.asList(titleField, yearField, eventTimeField, scoreField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -116,6 +130,15 @@ public class TestRangeFacetCounts {
         }
         model.add(thing, ResourceFactory.createProperty(NS + "eventTime"), ResourceFactory.createTypedLiteral(eventTime));
         model.add(thing, ResourceFactory.createProperty(NS + "score"), ResourceFactory.createTypedLiteral(score));
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
+        return new FieldOccurrence(
+            field,
+            path,
+            ShaclIndexAssembler.extractPathVariants(path),
+            predicates,
+            null, null, null, null);
     }
 
     @After

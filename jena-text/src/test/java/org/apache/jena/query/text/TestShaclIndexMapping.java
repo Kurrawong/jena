@@ -28,10 +28,11 @@ import java.util.*;
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.text.ShaclIndexMapping.*;
+import org.apache.jena.sparql.path.PathFactory;
 import org.junit.Test;
 
 /**
- * Unit tests for {@link ShaclIndexMapping} — predicate/class lookups, field types.
+ * Unit tests for {@link ShaclIndexMapping}.
  */
 public class TestShaclIndexMapping {
 
@@ -46,33 +47,37 @@ public class TestShaclIndexMapping {
 
     private ShaclIndexMapping createTestMapping() {
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            new LinkedHashSet<>(Arrays.asList(TITLE_PRED, LABEL_PRED)));
-
+            true, true, false, false, false, true);
         FieldDef categoryField = new FieldDef("category", FieldType.KEYWORD, null,
-            true, true, true, false, true, false,
-            Collections.singleton(CATEGORY_PRED));
-
+            true, true, true, false, true, false);
         FieldDef yearField = new FieldDef("year", FieldType.INT, null,
-            true, true, false, true, false, false,
-            Collections.singleton(YEAR_PRED));
+            true, true, false, true, false, false);
 
+        List<FieldOccurrence> bookOccurrences = List.of(
+            occurrence(titleField, TITLE_PRED),
+            occurrence(titleField, LABEL_PRED),
+            occurrence(categoryField, CATEGORY_PRED),
+            occurrence(yearField, YEAR_PRED)
+        );
         IndexProfile bookProfile = new IndexProfile(
             NodeFactory.createURI(NS + "BookShape"),
             Collections.singleton(BOOK_CLASS),
             "uri", "docType",
-            Arrays.asList(titleField, categoryField, yearField));
+            Arrays.asList(titleField, categoryField, yearField),
+            bookOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
-        // Second profile — Article has title only
         FieldDef articleTitle = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(TITLE_PRED));
-
+            true, true, false, false, false, true);
         IndexProfile articleProfile = new IndexProfile(
             NodeFactory.createURI(NS + "ArticleShape"),
             Collections.singleton(ARTICLE_CLASS),
             "uri", "docType",
-            Collections.singletonList(articleTitle));
+            Collections.singletonList(articleTitle),
+            Collections.singletonList(occurrence(articleTitle, TITLE_PRED)),
+            Collections.emptyList(),
+            Collections.emptyList());
 
         return new ShaclIndexMapping(Arrays.asList(bookProfile, articleProfile));
     }
@@ -89,43 +94,35 @@ public class TestShaclIndexMapping {
     }
 
     @Test
-    public void testPredicateReturnsCorrectProfiles() {
+    public void testPredicateReturnsCorrectOccurrences() {
         ShaclIndexMapping mapping = createTestMapping();
 
-        // TITLE_PRED should match both Book and Article profiles
-        List<ProfileField> titleMatches = mapping.getProfilesForPredicate(TITLE_PRED);
+        List<ProfileOccurrence> titleMatches = mapping.getOccurrencesForPredicate(TITLE_PRED);
         assertEquals(2, titleMatches.size());
 
-        // LABEL_PRED should match only Book profile (via alternativePath)
-        List<ProfileField> labelMatches = mapping.getProfilesForPredicate(LABEL_PRED);
+        List<ProfileOccurrence> labelMatches = mapping.getOccurrencesForPredicate(LABEL_PRED);
         assertEquals(1, labelMatches.size());
-        assertEquals("title", labelMatches.get(0).getField().getFieldName());
+        assertEquals("title", labelMatches.get(0).getOccurrence().getField().getFieldName());
 
-        // CATEGORY_PRED should match only Book
-        List<ProfileField> catMatches = mapping.getProfilesForPredicate(CATEGORY_PRED);
+        List<ProfileOccurrence> catMatches = mapping.getOccurrencesForPredicate(CATEGORY_PRED);
         assertEquals(1, catMatches.size());
-        assertEquals("category", catMatches.get(0).getField().getFieldName());
+        assertEquals("category", catMatches.get(0).getOccurrence().getField().getFieldName());
     }
 
     @Test
     public void testClassLookup() {
         ShaclIndexMapping mapping = createTestMapping();
 
-        List<IndexProfile> bookProfiles = mapping.getProfilesForClass(BOOK_CLASS);
-        assertEquals(1, bookProfiles.size());
-
-        List<IndexProfile> articleProfiles = mapping.getProfilesForClass(ARTICLE_CLASS);
-        assertEquals(1, articleProfiles.size());
-
-        List<IndexProfile> unknownProfiles = mapping.getProfilesForClass(IRRELEVANT_PRED);
-        assertTrue(unknownProfiles.isEmpty());
+        assertEquals(1, mapping.getProfilesForClass(BOOK_CLASS).size());
+        assertEquals(1, mapping.getProfilesForClass(ARTICLE_CLASS).size());
+        assertTrue(mapping.getProfilesForClass(IRRELEVANT_PRED).isEmpty());
     }
 
     @Test
     public void testIrrelevantPredicateReturnsEmpty() {
         ShaclIndexMapping mapping = createTestMapping();
 
-        List<ProfileField> results = mapping.getProfilesForPredicate(IRRELEVANT_PRED);
+        List<ProfileOccurrence> results = mapping.getOccurrencesForPredicate(IRRELEVANT_PRED);
         assertNotNull(results);
         assertTrue(results.isEmpty());
     }
@@ -133,31 +130,26 @@ public class TestShaclIndexMapping {
     @Test
     public void testGetFacetFieldNames() {
         ShaclIndexMapping mapping = createTestMapping();
-
-        List<String> facetFields = mapping.getFacetFieldNames();
-        assertEquals(1, facetFields.size());
-        assertTrue(facetFields.contains("category"));
+        assertEquals(List.of("category"), mapping.getFacetFieldNames());
     }
 
     @Test
     public void testFieldDefDefaults() {
-        // Test default field type
         FieldDef field = new FieldDef("test", null, null,
-            true, true, false, false, false, false,
-            Collections.singleton(TITLE_PRED));
+            true, true, false, false, false, false);
         assertEquals(FieldType.TEXT, field.getFieldType());
     }
 
     @Test
     public void testProfileDefaults() {
         FieldDef field = new FieldDef("test", FieldType.TEXT, null,
-            true, true, false, false, false, false,
-            Collections.singleton(TITLE_PRED));
+            true, true, false, false, false, false);
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI(NS + "TestShape"),
             Collections.singleton(BOOK_CLASS),
             null, null,
-            Collections.singletonList(field));
+            Collections.singletonList(field),
+            Collections.singletonList(occurrence(field, TITLE_PRED)));
 
         assertEquals("uri", profile.getDocIdField());
         assertEquals("docType", profile.getDiscriminatorField());
@@ -165,21 +157,18 @@ public class TestShaclIndexMapping {
 
     @Test
     public void testProfileCount() {
-        ShaclIndexMapping mapping = createTestMapping();
-        assertEquals(2, mapping.getProfiles().size());
+        assertEquals(2, createTestMapping().getProfiles().size());
     }
 
     @Test
     public void testGetDefaultSearchFieldNames() {
-        ShaclIndexMapping mapping = createTestMapping();
-        List<String> defaults = mapping.getDefaultSearchFieldNames();
-        assertTrue("title should be a default search field", defaults.contains("title"));
+        List<String> defaults = createTestMapping().getDefaultSearchFieldNames();
+        assertTrue(defaults.contains("title"));
     }
 
     @Test
     public void testFieldIRIAutoGenerated() {
-        ShaclIndexMapping mapping = createTestMapping();
-        FieldDef titleField = mapping.findField("urn:jena:lucene:field#title");
+        FieldDef titleField = createTestMapping().findField("urn:jena:lucene:field#title");
         assertNotNull(titleField.getFieldIRI());
         assertTrue(titleField.getFieldIRI().isURI());
         assertEquals("urn:jena:lucene:field#title", titleField.getFieldIRI().getURI());
@@ -188,16 +177,14 @@ public class TestShaclIndexMapping {
     @Test
     public void testFieldIRIExplicit() {
         Node customIRI = NodeFactory.createURI(NS + "myCustomField");
-        FieldDef field = new FieldDef("test", FieldType.TEXT, null,
-            true, true, false, false, false, false,
-            Collections.singleton(TITLE_PRED), null, customIRI);
+        FieldDef field = new FieldDef("test", FieldType.TEXT, null, null,
+            true, true, false, false, false, false, false, customIRI);
         assertEquals(customIRI, field.getFieldIRI());
     }
 
     @Test
     public void testGetAllFieldNames() {
-        ShaclIndexMapping mapping = createTestMapping();
-        Set<String> all = mapping.getAllFieldNames();
+        Set<String> all = createTestMapping().getAllFieldNames();
         assertTrue(all.contains("title"));
         assertTrue(all.contains("category"));
         assertTrue(all.contains("year"));
@@ -205,25 +192,83 @@ public class TestShaclIndexMapping {
 
     @Test(expected = TextIndexException.class)
     public void testConflictingFieldTypes() {
-        // Same field name with different types should throw
         FieldDef textTitle = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(TITLE_PRED));
+            true, true, false, false, false, true);
+        FieldDef keywordTitle = new FieldDef("title", FieldType.KEYWORD, null,
+            true, true, false, false, false, true);
+
         IndexProfile p1 = new IndexProfile(
             NodeFactory.createURI(NS + "Shape1"),
             Collections.singleton(BOOK_CLASS),
             "uri", "docType",
-            Collections.singletonList(textTitle));
+            Collections.singletonList(textTitle),
+            Collections.singletonList(occurrence(textTitle, TITLE_PRED)),
+            Collections.emptyList(),
+            Collections.emptyList());
 
-        FieldDef keywordTitle = new FieldDef("title", FieldType.KEYWORD, null,
-            true, true, false, false, false, true,
-            Collections.singleton(TITLE_PRED));
         IndexProfile p2 = new IndexProfile(
             NodeFactory.createURI(NS + "Shape2"),
             Collections.singleton(ARTICLE_CLASS),
             "uri", "docType",
-            Collections.singletonList(keywordTitle));
+            Collections.singletonList(keywordTitle),
+            Collections.singletonList(occurrence(keywordTitle, TITLE_PRED)),
+            Collections.emptyList(),
+            Collections.emptyList());
 
         new ShaclIndexMapping(Arrays.asList(p1, p2));
+    }
+
+    @Test(expected = TextIndexException.class)
+    public void testRootHierarchyCannotReferenceNestedOnlyField() {
+        FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
+            true, true, false, false, false, true,
+            NodeFactory.createURI(NS + "titleField"));
+        FieldDef nestedOnlyField = new FieldDef("identifierType", FieldType.KEYWORD, null,
+            true, true, true, false, false, false,
+            NodeFactory.createURI(NS + "identifierTypeField"));
+
+        FieldOccurrence rootTitle = occurrence(titleField, TITLE_PRED);
+        FieldOccurrence nestedOccurrence = new FieldOccurrence(
+            nestedOnlyField,
+            PathFactory.pathLink(CATEGORY_PRED),
+            List.of(List.of(new JoinStep(CATEGORY_PRED, false))),
+            Collections.singleton(CATEGORY_PRED),
+            null,
+            null,
+            null,
+            "nested");
+        NestedDef nestedDef = new NestedDef(
+            "nested",
+            PathFactory.pathLink(LABEL_PRED),
+            List.of(new JoinStep(LABEL_PRED, false)),
+            Collections.singleton(LABEL_PRED),
+            Collections.singletonList(nestedOccurrence),
+            Collections.emptyList());
+        HierarchyDef invalidHierarchy = new HierarchyDef(
+            "title_identifierType",
+            Arrays.asList(titleField, nestedOnlyField));
+
+        IndexProfile profile = new IndexProfile(
+            NodeFactory.createURI(NS + "Shape"),
+            Collections.singleton(BOOK_CLASS),
+            "uri", "docType",
+            Arrays.asList(titleField, nestedOnlyField),
+            Collections.singletonList(rootTitle),
+            Collections.singletonList(invalidHierarchy),
+            Collections.singletonList(nestedDef));
+
+        new ShaclIndexMapping(Collections.singletonList(profile));
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Node predicate) {
+        return new FieldOccurrence(
+            field,
+            PathFactory.pathLink(predicate),
+            List.of(List.of(new JoinStep(predicate, false))),
+            Collections.singleton(predicate),
+            null,
+            null,
+            null,
+            null);
     }
 }

@@ -25,10 +25,15 @@ import static org.junit.Assert.*;
 
 import java.util.*;
 
+import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
+import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
+import org.apache.jena.sparql.path.Path;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.SortedNumericSelector;
@@ -42,6 +47,15 @@ import org.junit.Test;
 public class TestSortSpec {
 
     private static final String FP = "urn:jena:lucene:field#";
+
+    private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
+        return new FieldOccurrence(
+            field,
+            path,
+            ShaclIndexAssembler.extractPathVariants(path),
+            predicates,
+            null, null, null, null);
+    }
 
     @Test
     public void testParseSingleAsc() {
@@ -87,16 +101,25 @@ public class TestSortSpec {
 
     @Test
     public void testBuildLuceneSort() {
+        Node yearPred = NodeFactory.createURI("http://example.org/year");
+        Node statePred = NodeFactory.createURI("http://example.org/state");
         FieldDef yearField = new FieldDef("year", FieldType.INT, null,
-            true, true, false, true, false, false, Collections.emptySet());
+            true, true, false, true, false, false);
         FieldDef stateField = new FieldDef("state", FieldType.KEYWORD, null,
-            true, true, true, true, false, false, Collections.emptySet());
+            true, true, true, true, false, false);
+
+        List<FieldOccurrence> rootOccurrences = Arrays.asList(
+            occurrence(yearField, PathFactory.pathLink(yearPred), Collections.singleton(yearPred)),
+            occurrence(stateField, PathFactory.pathLink(statePred), Collections.singleton(statePred)));
 
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI("http://example.org/Shape"),
             Collections.singleton(NodeFactory.createURI("http://example.org/Thing")),
             "uri", "docType",
-            Arrays.asList(yearField, stateField));
+            Arrays.asList(yearField, stateField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
         EntityDefinition defn = org.apache.jena.query.text.assembler.ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -131,14 +154,21 @@ public class TestSortSpec {
 
     @Test
     public void testBuildLuceneSortNull() {
+        Node yearPred = NodeFactory.createURI("http://example.org/year");
         FieldDef yearField = new FieldDef("year", FieldType.INT, null,
-            true, true, false, true, false, false, Collections.emptySet());
+            true, true, false, true, false, false);
+
+        List<FieldOccurrence> rootOccurrences = Collections.singletonList(
+            occurrence(yearField, PathFactory.pathLink(yearPred), Collections.singleton(yearPred)));
 
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI("http://example.org/Shape"),
             Collections.singleton(NodeFactory.createURI("http://example.org/Thing")),
             "uri", "docType",
-            Collections.singletonList(yearField));
+            Collections.singletonList(yearField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
         EntityDefinition defn = org.apache.jena.query.text.assembler.ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -157,14 +187,21 @@ public class TestSortSpec {
 
     @Test
     public void testBuildLuceneSortAscendingUsesMinSelector() {
+        Node yearPred = NodeFactory.createURI("http://example.org/year");
         FieldDef yearField = new FieldDef("year", FieldType.INT, null,
-            true, true, false, true, true, false, Collections.emptySet());
+            true, true, false, true, true, false);
+
+        List<FieldOccurrence> rootOccurrences = Collections.singletonList(
+            occurrence(yearField, PathFactory.pathLink(yearPred), Collections.singleton(yearPred)));
 
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI("http://example.org/Shape"),
             Collections.singleton(NodeFactory.createURI("http://example.org/Thing")),
             "uri", "docType",
-            Collections.singletonList(yearField));
+            Collections.singletonList(yearField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
         EntityDefinition defn = org.apache.jena.query.text.assembler.ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -187,14 +224,21 @@ public class TestSortSpec {
 
     @Test(expected = TextIndexException.class)
     public void testBuildLuceneSortTextFieldThrows() {
+        Node titlePred = NodeFactory.createURI("http://example.org/title");
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true, Collections.emptySet());
+            true, true, false, false, false, true);
+
+        List<FieldOccurrence> rootOccurrences = Collections.singletonList(
+            occurrence(titleField, PathFactory.pathLink(titlePred), Collections.singleton(titlePred)));
 
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI("http://example.org/Shape"),
             Collections.singleton(NodeFactory.createURI("http://example.org/Thing")),
             "uri", "docType",
-            Collections.singletonList(titleField));
+            Collections.singletonList(titleField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
         EntityDefinition defn = org.apache.jena.query.text.assembler.ShaclIndexAssembler.deriveEntityDefinition(mapping);

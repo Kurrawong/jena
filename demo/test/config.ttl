@@ -42,112 +42,96 @@ PREFIX schema:  <https://schema.org/>
     text:maxFacetHits 50000 ;
     idx:fusekiBase "http://localhost:3030" .
 
-## --- Field definitions (named resources — IRIs used in SPARQL bindings) ---
+## --- Field definitions (canonical, path-free) ---
 
 field:entityType
     idx:fieldName "entityType" ;
     idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path rdf:type .
+    idx:facetable true .
 
 field:title
     idx:fieldName "title" ;
     idx:fieldType idx:TextField ;
-    idx:defaultSearch true ;
-    sh:path rdfs:label .
+    idx:defaultSearch true .
 
 field:description
     idx:fieldName "description" ;
-    idx:fieldType idx:TextField ;
-    sh:path <http://purl.org/dc/terms/description> .
+    idx:fieldType idx:TextField .
 
 field:commodity
     idx:fieldName "commodity" ;
     idx:fieldType idx:KeywordField ;
     idx:facetable true ;
-    idx:multiValued true ;
-    sh:path ex:commodity .
+    idx:multiValued true .
 
 field:state
     idx:fieldName "state" ;
     idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path ex:state .
+    idx:facetable true .
 
 field:operator
     idx:fieldName "operator" ;
     idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path ex:operator .
+    idx:facetable true .
 
 field:status
     idx:fieldName "status" ;
     idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path ex:status .
+    idx:facetable true .
 
 field:year
     idx:fieldName "year" ;
     idx:fieldType idx:IntField ;
     idx:sortable true ;
-    idx:facetable true ;
-    sh:path ex:year .
+    idx:facetable true .
 
 field:publishedOn
     idx:fieldName "publishedOn" ;
     idx:fieldType idx:DateField ;
     idx:sortable true ;
     idx:facetable true ;
-    idx:storeLiteralMetadata true ;
-    sh:path ex:publishedOn .
+    idx:storeLiteralMetadata true .
 
 field:indexedAt
     idx:fieldName "indexedAt" ;
     idx:fieldType idx:DateTimeField ;
     idx:sortable true ;
-    idx:storeLiteralMetadata true ;
-    sh:path ex:indexedAt .
+    idx:storeLiteralMetadata true .
 
 field:reviewNote
     idx:fieldName "reviewNote" ;
     idx:fieldType idx:TextField ;
     idx:multiValued true ;
-    idx:storeLiteralMetadata true ;
-    sh:path ex:reviewNote .
+    idx:storeLiteralMetadata true .
 
 field:qaPassed
     idx:fieldName "qaPassed" ;
     idx:fieldType idx:KeywordField ;
     idx:facetable true ;
-    idx:storeLiteralMetadata true ;
-    sh:path ex:qaPassed .
+    idx:storeLiteralMetadata true .
 
 field:confidenceScore
     idx:fieldName "confidenceScore" ;
     idx:fieldType idx:DoubleField ;
     idx:facetable true ;
     idx:sortable true ;
-    idx:storeLiteralMetadata true ;
-    sh:path ex:confidenceScore .
+    idx:storeLiteralMetadata true .
 
 field:authorName
     idx:fieldName "authorName" ;
     idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path ( ex:authoredBy ex:name ) .
+    idx:facetable true .
 
 field:authoredByUri
     idx:fieldName "authoredByUri" ;
     idx:fieldType idx:KeywordField ;
-    idx:multiValued true ;
-    sh:path [ sh:inversePath ex:authored ] .
+    idx:multiValued true .
 
 field:depth
     idx:fieldName "depth" ;
     idx:fieldType idx:IntField ;
     idx:sortable true ;
-    idx:facetable true ;
-    sh:path ex:depth .
+    idx:facetable true .
 
 field:identifier
     idx:fieldName "identifier" ;
@@ -155,85 +139,80 @@ field:identifier
     idx:multiValued true ;
     idx:defaultSearch true ;
     idx:analyzer [ a text:EdgeNGramAnalyzer ] ;
-    idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] ;
-    sh:path ex:identifier .
+    idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] .
 
 field:identifierType
     idx:fieldName "identifierType" ;
     idx:fieldType idx:KeywordField ;
     idx:facetable true ;
-    idx:multiValued true ;
-    sh:path schema:propertyID .
+    idx:multiValued true .
 
 field:identifierValueExact
     idx:fieldName "identifierValueExact" ;
     idx:fieldType idx:KeywordField ;
     idx:facetable true ;
-    idx:multiValued true ;
-    sh:path schema:value .
+    idx:multiValued true .
 
 field:identifierValueText
     idx:fieldName "identifierValueText" ;
     idx:fieldType idx:TextField ;
     idx:multiValued true ;
     idx:analyzer [ a text:EdgeNGramAnalyzer ] ;
-    idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] ;
-    sh:path schema:value .
+    idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] .
 
 field:location
     idx:fieldName "location" ;
-    idx:fieldType idx:LatLonField ;
-    sh:path <http://www.opengis.net/ont/geosparql#asWKT> .
+    idx:fieldType idx:LatLonField .
 
 ## --- Shapes ---
 
 :MiningReportShape
     sh:targetClass ex:MiningReport ;
-    sh:property field:entityType ;
-    sh:property field:title ;
-    sh:property field:identifier ;
-    sh:property field:description ;
-    sh:property field:commodity ;
-    sh:property field:state ;
-    sh:property field:operator ;
-    sh:property field:status ;
-    sh:property field:year ;
-    sh:property field:publishedOn ;
-    sh:property field:indexedAt ;
-    sh:property field:reviewNote ;
-    sh:property field:qaPassed ;
-    sh:property field:confidenceScore ;
-    sh:property field:authorName ;
-    sh:property field:authoredByUri ;
+    sh:property [ idx:field field:entityType ; sh:path rdf:type ] ;
+    sh:property [ idx:field field:title ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:identifier ; sh:path ex:identifier ] ;
+    sh:property [ idx:field field:description ; sh:path <http://purl.org/dc/terms/description> ] ;
+    sh:property [ idx:field field:commodity ; sh:path ex:commodity ] ;
+    sh:property [ idx:field field:state ; sh:path ex:state ] ;
+    sh:property [ idx:field field:operator ; sh:path ex:operator ] ;
+    sh:property [ idx:field field:status ; sh:path ex:status ] ;
+    sh:property [ idx:field field:year ; sh:path ex:year ] ;
+    sh:property [ idx:field field:publishedOn ; sh:path ex:publishedOn ] ;
+    sh:property [ idx:field field:indexedAt ; sh:path ex:indexedAt ] ;
+    sh:property [ idx:field field:reviewNote ; sh:path ex:reviewNote ] ;
+    sh:property [ idx:field field:qaPassed ; sh:path ex:qaPassed ] ;
+    sh:property [ idx:field field:confidenceScore ; sh:path ex:confidenceScore ] ;
+    sh:property [ idx:field field:authorName ; sh:path ( ex:authoredBy ex:name ) ] ;
+    sh:property [ idx:field field:authoredByUri ; sh:path [ sh:inversePath ex:authored ] ] ;
     idx:facetHierarchy ( field:state field:commodity ) .
 
 :BoreholeShape
     sh:targetClass ex:Borehole ;
-    sh:property field:entityType ;
-    sh:property field:title ;
-    sh:property field:identifier ;
-    sh:property field:description ;
-    sh:property field:commodity ;
-    sh:property field:state ;
-    sh:property field:depth ;
-    sh:property field:location ;
+    sh:property [ idx:field field:entityType ; sh:path rdf:type ] ;
+    sh:property [ idx:field field:title ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:identifier ; sh:path ex:identifier ] ;
+    sh:property [ idx:field field:description ; sh:path <http://purl.org/dc/terms/description> ] ;
+    sh:property [ idx:field field:commodity ; sh:path ex:commodity ] ;
+    sh:property [ idx:field field:state ; sh:path ex:state ] ;
+    sh:property [ idx:field field:depth ; sh:path ex:depth ] ;
+    sh:property [ idx:field field:location ; sh:path <http://www.opengis.net/ont/geosparql#asWKT> ] ;
     idx:nested [
         idx:joinPath schema:identifier ;
-        idx:property field:identifierType ;
-        idx:property field:identifierValueExact ;
-        idx:property field:identifierValueText ;
+        idx:property [ idx:field field:identifierType ; sh:path schema:propertyID ] ;
+        idx:property [ idx:field field:identifierValueExact ; sh:path schema:value ] ;
+        idx:property [ idx:field field:identifierValueText ; sh:path schema:value ] ;
         idx:facetHierarchy ( field:identifierType field:identifierValueExact ) ;
     ] ;
     idx:facetHierarchy ( field:state field:commodity ) .
 
 :SiteShape
     sh:targetClass ex:Site ;
-    sh:property field:entityType ;
-    sh:property field:title ;
-    sh:property field:identifier ;
-    sh:property field:description ;
-    sh:property field:commodity ;
-    sh:property field:state ;
-    sh:property field:status ;
-    sh:property field:location ;
+    sh:property [ idx:field field:entityType ; sh:path rdf:type ] ;
+    sh:property [ idx:field field:title ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:identifier ; sh:path ex:identifier ] ;
+    sh:property [ idx:field field:description ; sh:path <http://purl.org/dc/terms/description> ] ;
+    sh:property [ idx:field field:commodity ; sh:path ex:commodity ] ;
+    sh:property [ idx:field field:state ; sh:path ex:state ] ;
+    sh:property [ idx:field field:status ; sh:path ex:status ] ;
+    sh:property [ idx:field field:location ; sh:path <http://www.opengis.net/ont/geosparql#asWKT> ] ;
     idx:facetHierarchy ( field:state field:commodity ) .

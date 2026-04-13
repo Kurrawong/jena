@@ -25,23 +25,22 @@ import java.util.*;
 
 import org.apache.jena.graph.Graph;
 import org.apache.jena.graph.Node;
-import org.apache.jena.query.text.ShaclIndexMapping.*;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
+import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
+import org.apache.jena.query.text.ShaclIndexMapping.JoinStep;
+import org.apache.jena.query.text.ShaclIndexMapping.NestedDef;
+import org.apache.jena.query.text.ShaclIndexMapping.ProfileOccurrence;
 import org.apache.jena.query.text.changes.TextQuadAction;
 import org.apache.jena.sparql.core.DatasetGraph;
 import org.apache.jena.sparql.core.Quad;
 import org.apache.jena.sparql.graph.GraphUnionRead;
+import org.apache.jena.sparql.path.eval.PathEval;
 import org.apache.jena.vocabulary.RDF;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Entity-per-document change listener for SHACL-driven index profiles.
- * <p>
- * When a relevant triple changes, this producer rebuilds the entire Lucene document
- * for the affected entity by reading all triples from the base dataset.
- * <p>
- * The base dataset is already updated when {@code change()} fires because
- * {@code DatasetGraphTextMonitor.add()} calls {@code super.add()} before {@code record()}.
  */
 public class ShaclTextDocProducer implements TextDocProducer {
     private static final Logger log = LoggerFactory.getLogger(ShaclTextDocProducer.class);
@@ -78,124 +77,105 @@ public class ShaclTextDocProducer implements TextDocProducer {
 
     @Override
     public void change(TextQuadAction qaction, Node g, Node s, Node p, Node o) {
-        if (qaction != TextQuadAction.ADD && qaction != TextQuadAction.DELETE)
+        if (qaction != TextQuadAction.ADD && qaction != TextQuadAction.DELETE) {
             return;
+        }
 
         if (RDF_TYPE.equals(p)) {
-            // rdf:type change → may add/remove entity from a profile
-            handleTypeChange(qaction, s, o);
+            handleTypeChange(s, o);
         } else if (mapping.isRelevantPredicate(p)) {
-            Set<Node> entitiesToRebuild = new LinkedHashSet<>();
-            if (mapping.isTopLevelPredicate(p)) {
-                entitiesToRebuild.add(s);
-            }
-            if (mapping.isNestedChildPredicate(p) || mapping.isNestedJoinPredicate(p)) {
-                entitiesToRebuild.addAll(findParentEntitiesForNestedChange(s, p, o));
-            }
-            for (Node entity : entitiesToRebuild) {
+            for (Node entity : findEntitiesForPredicateChange(s, p, o)) {
                 rebuildEntityDocuments(entity);
             }
         }
-        // Else: irrelevant predicate, ignore
 
         if (!inTransaction.get()) {
             indexer.commit();
         }
     }
 
-    private void handleTypeChange(TextQuadAction qaction, Node subject, Node typeNode) {
-        List<IndexProfile> profiles = mapping.getProfilesForClass(typeNode);
-        if (profiles.isEmpty()) {
-            return; // Not a type we care about
+    private void handleTypeChange(Node subject, Node typeNode) {
+        Set<Node> entitiesToRebuild = new LinkedHashSet<>();
+        if (!mapping.getProfilesForClass(typeNode).isEmpty()) {
+            entitiesToRebuild.add(subject);
         }
 
-        if (qaction == TextQuadAction.ADD) {
-            // New type assertion → rebuild docs for matching profiles
-            rebuildEntityDocuments(subject);
-        } else if (qaction == TextQuadAction.DELETE) {
-            // Type removed — check if entity still has this type in the dataset
-            // If not, delete the corresponding profile document(s)
-            rebuildEntityDocuments(subject);
-        }
-    }
-
-    /**
-     * Rebuild all Lucene documents for the given entity by reading its current state
-     * from the base dataset.
-     */
-    private void rebuildEntityDocuments(Node subject) {
-        String entityUri = TextQueryFuncs.subjectToString(subject);
-        log.trace("rebuildEntityDocuments: {}", entityUri);
-
-        // Get rdf:type values for the entity across all graphs (default + named)
-        Set<Node> types = new HashSet<>();
-        Iterator<Quad> typeIter = baseDataset.find(Node.ANY, subject, RDF_TYPE, Node.ANY);
-        while (typeIter.hasNext()) {
-            types.add(typeIter.next().getObject());
-        }
-
-        // Find matching profiles
-        Set<IndexProfile> matchedProfiles = new LinkedHashSet<>();
-        for (Node type : types) {
-            matchedProfiles.addAll(mapping.getProfilesForClass(type));
-        }
-
-        if (matchedProfiles.isEmpty()) {
-            // No matching profiles — delete any existing docs for this entity
-            indexer.deleteEntityByUri(entityUri);
-            return;
-        }
-
-        // For each matching profile, build an Entity and update the index
-        for (IndexProfile profile : matchedProfiles) {
-            Entity entity = buildEntity(subject, entityUri, profile);
-            indexer.updateEntityForProfile(entity, profile);
-        }
-    }
-
-    /**
-     * Build an Entity by reading all relevant triples for the subject from the base dataset.
-     * Uses PathEval for complex paths (sequence, inverse); direct triple match for simple predicates.
-     */
-    private Entity buildEntity(Node subject, String entityUri, IndexProfile profile) {
-        return ShaclEntityBuilder.buildEntity(allGraphsView(), subject, entityUri, profile);
-    }
-
-    /**
-     * Return a read-only graph view that spans the default graph and all named graphs.
-     * This ensures the change listener finds data regardless of which graph it was added to.
-     */
-    private Graph allGraphsView() {
-        List<Node> graphNames = new ArrayList<>();
-        graphNames.add(Quad.defaultGraphIRI);
-        baseDataset.listGraphNodes().forEachRemaining(graphNames::add);
-        return new GraphUnionRead(baseDataset, graphNames);
-    }
-
-    private Set<Node> findParentEntitiesForNestedChange(Node changedSubject, Node changedPredicate, Node changedObject) {
         Graph graph = allGraphsView();
-        Set<Node> parents = new LinkedHashSet<>();
-        for (IndexProfile profile : mapping.getProfiles()) {
-            for (NestedDef nestedDef : profile.getNestedDefs()) {
-                boolean nestedChildPredicate = nestedDef.getFields().stream()
-                    .anyMatch(f -> f.getPredicates().contains(changedPredicate));
-                boolean nestedJoinPredicate = nestedDef.getJoinPredicates().contains(changedPredicate);
+        for (ProfileOccurrence profileOccurrence : mapping.getOccurrencesRequiringClass(typeNode)) {
+            Set<Node> scopeRoots = findScopeRootsForConstraintChange(graph, subject,
+                profileOccurrence.getOccurrence());
+            entitiesToRebuild.addAll(resolveEntityRoots(graph, profileOccurrence, scopeRoots));
+        }
 
-                if (nestedChildPredicate) {
-                    parents.addAll(reverseTraverseToParents(graph, Collections.singleton(changedSubject),
-                        nestedDef.getJoinSteps()));
-                }
-                if (nestedJoinPredicate) {
-                    parents.addAll(findParentsForJoinStepChange(graph, nestedDef, changedPredicate, changedSubject, changedObject));
+        for (Node entity : entitiesToRebuild) {
+            rebuildEntityDocuments(entity);
+        }
+    }
+
+    private Set<Node> findEntitiesForPredicateChange(Node changedSubject, Node changedPredicate, Node changedObject) {
+        Graph graph = allGraphsView();
+        Set<Node> entities = new LinkedHashSet<>();
+
+        for (ProfileOccurrence profileOccurrence : mapping.getOccurrencesForPredicate(changedPredicate)) {
+            Set<Node> scopeRoots = findScopeRootsForPredicateChange(
+                profileOccurrence.getOccurrence(), changedPredicate, changedSubject, changedObject, graph);
+            entities.addAll(resolveEntityRoots(graph, profileOccurrence, scopeRoots));
+        }
+
+        if (mapping.isNestedJoinPredicate(changedPredicate)) {
+            for (IndexProfile profile : mapping.getProfiles()) {
+                for (NestedDef nestedDef : profile.getNestedDefs()) {
+                    if (nestedDef.getJoinPredicates().contains(changedPredicate)) {
+                        entities.addAll(findParentsForJoinStepChange(
+                            graph, nestedDef, changedPredicate, changedSubject, changedObject));
+                    }
                 }
             }
         }
 
-        return parents;
+        return entities;
+    }
+
+    private Set<Node> resolveEntityRoots(Graph graph, ProfileOccurrence profileOccurrence, Set<Node> scopeRoots) {
+        if (scopeRoots.isEmpty()) {
+            return Collections.emptySet();
+        }
+        if (!profileOccurrence.isNestedScoped()) {
+            return scopeRoots;
+        }
+        return reverseTraverseToParents(graph, scopeRoots, profileOccurrence.getNestedDef().getJoinSteps());
+    }
+
+    private Set<Node> findScopeRootsForConstraintChange(Graph graph, Node endpoint, FieldOccurrence occurrence) {
+        Set<Node> roots = new LinkedHashSet<>();
+        Iterator<Node> iter = PathEval.evalReverse(graph, endpoint, occurrence.getPath(), null);
+        while (iter.hasNext()) {
+            roots.add(iter.next());
+        }
+        return roots;
+    }
+
+    private Set<Node> findScopeRootsForPredicateChange(FieldOccurrence occurrence, Node changedPredicate,
+                                                       Node changedSubject, Node changedObject, Graph graph) {
+        Set<Node> roots = new LinkedHashSet<>();
+        for (List<JoinStep> variant : occurrence.getPathVariants()) {
+            for (int i = 0; i < variant.size(); i++) {
+                JoinStep step = variant.get(i);
+                if (!step.getPredicate().equals(changedPredicate)) {
+                    continue;
+                }
+                Node stepStart = step.isInverse() ? changedObject : changedSubject;
+                if (stepStart == null) {
+                    continue;
+                }
+                roots.addAll(reverseTraverseToParents(graph, Collections.singleton(stepStart), variant.subList(0, i)));
+            }
+        }
+        return roots;
     }
 
     private Set<Node> findParentsForJoinStepChange(Graph graph, NestedDef nestedDef,
-            Node changedPredicate, Node changedSubject, Node changedObject) {
+                                                   Node changedPredicate, Node changedSubject, Node changedObject) {
         Set<Node> parents = new LinkedHashSet<>();
         List<JoinStep> joinSteps = nestedDef.getJoinSteps();
 
@@ -210,29 +190,65 @@ public class ShaclTextDocProducer implements TextDocProducer {
                 continue;
             }
 
-            parents.addAll(reverseTraverseToParents(graph, Collections.singleton(stepStart),
-                joinSteps.subList(0, i)));
+            parents.addAll(reverseTraverseToParents(graph, Collections.singleton(stepStart), joinSteps.subList(0, i)));
         }
 
         return parents;
     }
 
-    private Set<Node> reverseTraverseToParents(Graph graph, Collection<Node> startNodes, List<JoinStep> joinSteps) {
+    private Set<Node> reverseTraverseToParents(Graph graph, Collection<Node> startNodes, List<JoinStep> steps) {
         Set<Node> current = new LinkedHashSet<>(startNodes);
-        for (int i = joinSteps.size() - 1; i >= 0 && !current.isEmpty(); i--) {
-            JoinStep joinStep = joinSteps.get(i);
+        for (int i = steps.size() - 1; i >= 0 && !current.isEmpty(); i--) {
+            JoinStep step = steps.get(i);
             Set<Node> next = new LinkedHashSet<>();
             for (Node node : current) {
-                if (joinStep.isInverse()) {
-                    graph.find(node, joinStep.getPredicate(), Node.ANY)
+                if (step.isInverse()) {
+                    graph.find(node, step.getPredicate(), Node.ANY)
                         .forEachRemaining(t -> next.add(t.getObject()));
                 } else {
-                    graph.find(Node.ANY, joinStep.getPredicate(), node)
+                    graph.find(Node.ANY, step.getPredicate(), node)
                         .forEachRemaining(t -> next.add(t.getSubject()));
                 }
             }
             current = next;
         }
         return current;
+    }
+
+    private void rebuildEntityDocuments(Node subject) {
+        String entityUri = TextQueryFuncs.subjectToString(subject);
+        log.trace("rebuildEntityDocuments: {}", entityUri);
+
+        Set<Node> types = new HashSet<>();
+        Iterator<Quad> typeIter = baseDataset.find(Node.ANY, subject, RDF_TYPE, Node.ANY);
+        while (typeIter.hasNext()) {
+            types.add(typeIter.next().getObject());
+        }
+
+        Set<IndexProfile> matchedProfiles = new LinkedHashSet<>();
+        for (Node type : types) {
+            matchedProfiles.addAll(mapping.getProfilesForClass(type));
+        }
+
+        if (matchedProfiles.isEmpty()) {
+            indexer.deleteEntityByUri(entityUri);
+            return;
+        }
+
+        for (IndexProfile profile : matchedProfiles) {
+            Entity entity = buildEntity(subject, entityUri, profile);
+            indexer.updateEntityForProfile(entity, profile);
+        }
+    }
+
+    private Entity buildEntity(Node subject, String entityUri, IndexProfile profile) {
+        return ShaclEntityBuilder.buildEntity(allGraphsView(), subject, entityUri, profile);
+    }
+
+    private Graph allGraphsView() {
+        List<Node> graphNames = new ArrayList<>();
+        graphNames.add(Quad.defaultGraphIRI);
+        baseDataset.listGraphNodes().forEachRemaining(graphNames::add);
+        return new GraphUnionRead(baseDataset, graphNames);
     }
 }

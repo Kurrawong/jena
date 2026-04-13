@@ -29,9 +29,12 @@ import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.*;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
+import org.apache.jena.sparql.path.Path;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.ResourceFactory;
@@ -59,18 +62,23 @@ public class TestTextMatchPF {
         TextQuery.init();
 
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(TITLE_PRED));
+            true, true, false, false, false, true);
 
         FieldDef categoryField = new FieldDef("category", FieldType.KEYWORD, null,
-            true, true, true, false, true, false,
-            Collections.singleton(CATEGORY_PRED));
+            true, true, true, false, true, false);
+
+        List<FieldOccurrence> rootOccurrences = Arrays.asList(
+            occurrence(titleField, PathFactory.pathLink(TITLE_PRED), Collections.singleton(TITLE_PRED)),
+            occurrence(categoryField, PathFactory.pathLink(CATEGORY_PRED), Collections.singleton(CATEGORY_PRED)));
 
         IndexProfile bookProfile = new IndexProfile(
             NodeFactory.createURI(NS + "BookShape"),
             Collections.singleton(BOOK_CLASS),
             "uri", "docType",
-            Arrays.asList(titleField, categoryField));
+            Arrays.asList(titleField, categoryField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(bookProfile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -110,6 +118,15 @@ public class TestTextMatchPF {
         model.add(book, RDF.type, ResourceFactory.createResource(NS + "Book"));
         model.add(book, ResourceFactory.createProperty(NS + "title"), title);
         model.add(book, ResourceFactory.createProperty(NS + "category"), ResourceFactory.createResource(categoryUri));
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
+        return new FieldOccurrence(
+            field,
+            path,
+            ShaclIndexAssembler.extractPathVariants(path),
+            predicates,
+            null, null, null, null);
     }
 
     @After

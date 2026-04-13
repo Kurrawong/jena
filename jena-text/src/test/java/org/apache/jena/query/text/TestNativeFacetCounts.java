@@ -27,6 +27,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
@@ -34,9 +35,12 @@ import org.apache.jena.query.Dataset;
 import org.apache.jena.query.DatasetFactory;
 import org.apache.jena.query.ReadWrite;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
+import org.apache.jena.sparql.path.Path;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.ResourceFactory;
@@ -63,22 +67,27 @@ public class TestNativeFacetCounts {
     @Before
     public void setUp() {
         FieldDef titleField = new FieldDef("text", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(TITLE_PRED));
+            true, true, false, false, false, true);
 
         FieldDef categoryField = new FieldDef("category", FieldType.KEYWORD, null,
-            true, true, true, false, true, false,
-            Collections.singleton(CATEGORY_PRED));
+            true, true, true, false, true, false);
 
         FieldDef authorField = new FieldDef("author", FieldType.KEYWORD, null,
-            true, true, true, false, false, false,
-            Collections.singleton(AUTHOR_PRED));
+            true, true, true, false, false, false);
+
+        List<FieldOccurrence> rootOccurrences = Arrays.asList(
+            occurrence(titleField, PathFactory.pathLink(TITLE_PRED), Collections.singleton(TITLE_PRED)),
+            occurrence(categoryField, PathFactory.pathLink(CATEGORY_PRED), Collections.singleton(CATEGORY_PRED)),
+            occurrence(authorField, PathFactory.pathLink(AUTHOR_PRED), Collections.singleton(AUTHOR_PRED)));
 
         IndexProfile docProfile = new IndexProfile(
             NodeFactory.createURI(NS + "DocShape"),
             Collections.singleton(DOC_CLASS),
             "uri", "docType",
-            Arrays.asList(titleField, categoryField, authorField));
+            Arrays.asList(titleField, categoryField, authorField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(docProfile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -268,6 +277,15 @@ public class TestNativeFacetCounts {
         List<FacetValue> authorFacets = facets.get("author");
         assertNotNull(authorFacets);
         assertEquals("maxValues=0 should return all authors", 6, authorFacets.size());
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
+        return new FieldOccurrence(
+            field,
+            path,
+            ShaclIndexAssembler.extractPathVariants(path),
+            predicates,
+            null, null, null, null);
     }
 
     @Test

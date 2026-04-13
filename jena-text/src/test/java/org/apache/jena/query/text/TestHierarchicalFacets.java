@@ -32,6 +32,8 @@ import org.apache.jena.query.DatasetFactory;
 import org.apache.jena.query.ReadWrite;
 import org.apache.jena.query.text.ShaclIndexMapping.*;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
+import org.apache.jena.sparql.path.Path;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.jena.query.text.cql.CqlExpression;
 import org.apache.jena.query.text.cql.CqlParser;
 import org.apache.jena.rdf.model.Model;
@@ -67,31 +69,35 @@ public class TestHierarchicalFacets {
         Node stateIRI = NodeFactory.createURI(FIELD_NS + "state");
 
         FieldDef nameField = new FieldDef("name", FieldType.TEXT, null, null,
-            true, true, false, false, false, true,
-            Collections.singleton(NAME_PRED), null, nameIRI);
+            true, true, false, false, false, true, nameIRI);
 
         FieldDef typeField = new FieldDef("type", FieldType.KEYWORD, null, null,
-            true, true, true, false, false, false,
-            Collections.singleton(TYPE_PRED), null, typeIRI);
+            true, true, true, false, false, false, typeIRI);
 
         FieldDef subtypeField = new FieldDef("subtype", FieldType.KEYWORD, null, null,
-            true, true, true, false, false, false,
-            Collections.singleton(SUBTYPE_PRED), null, subtypeIRI);
+            true, true, true, false, false, false, subtypeIRI);
 
         FieldDef stateField = new FieldDef("state", FieldType.KEYWORD, null, null,
-            true, true, true, false, false, false,
-            Collections.singleton(STATE_PRED), null, stateIRI);
+            true, true, true, false, false, false, stateIRI);
 
         // Hierarchy: type → subtype
         HierarchyDef typeHierarchy = new HierarchyDef("type_subtype",
             Arrays.asList(typeField, subtypeField));
+
+        List<FieldOccurrence> rootOccurrences = Arrays.asList(
+            occurrence(nameField, PathFactory.pathLink(NAME_PRED), Collections.singleton(NAME_PRED)),
+            occurrence(typeField, PathFactory.pathLink(TYPE_PRED), Collections.singleton(TYPE_PRED)),
+            occurrence(subtypeField, PathFactory.pathLink(SUBTYPE_PRED), Collections.singleton(SUBTYPE_PRED)),
+            occurrence(stateField, PathFactory.pathLink(STATE_PRED), Collections.singleton(STATE_PRED)));
 
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI(NS + "BoreholeShape"),
             Collections.singleton(BOREHOLE_CLASS),
             "uri", "docType",
             Arrays.asList(nameField, typeField, subtypeField, stateField),
-            Collections.singletonList(typeHierarchy));
+            rootOccurrences,
+            Collections.singletonList(typeHierarchy),
+            Collections.emptyList());
 
         ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -211,6 +217,32 @@ public class TestHierarchicalFacets {
     }
 
     @Test
+    public void testBlankHierarchyComponentIsTreatedAsMissing() {
+        dataset.begin(ReadWrite.WRITE);
+        try {
+            addBorehole(dataset.getDefaultModel(), "bhBlank", "Blank Subtype Well", "Water", "   ", "WA");
+            dataset.commit();
+        } finally {
+            dataset.end();
+        }
+
+        Map<String, List<FacetValue>> topLevelCounts = textIndex.getFacetCounts(
+            null, null, Collections.singletonList("type_subtype"), 10, 0);
+        Map<String, Long> topLevelFacetMap = toMap(topLevelCounts.get("type_subtype"));
+        assertEquals("Water count should include partial path with blank child", Long.valueOf(4), topLevelFacetMap.get("Water"));
+
+        Map<String, String[]> drillDown = new HashMap<>();
+        drillDown.put("type_subtype", new String[]{"Water"});
+        Map<String, List<FacetValue>> drillDownCounts = textIndex.getFacetCounts(
+            null, null, Collections.singletonList("type_subtype"), 10, 0, drillDown);
+        Map<String, Long> drillDownFacetMap = toMap(drillDownCounts.get("type_subtype"));
+        assertEquals("Shallow count under Water", Long.valueOf(2), drillDownFacetMap.get("Shallow"));
+        assertEquals("Deep count under Water", Long.valueOf(1), drillDownFacetMap.get("Deep"));
+        assertFalse("Blank subtype should not become a facet label", drillDownFacetMap.containsKey(""));
+        assertFalse("Whitespace subtype should not become a facet label", drillDownFacetMap.containsKey("   "));
+    }
+
+    @Test
     public void testHierarchyWithTextSearch() {
         // Combine text search with hierarchy facets
         Map<String, List<FacetValue>> counts = textIndex.getFacetCounts(
@@ -291,6 +323,15 @@ public class TestHierarchicalFacets {
             uris.add(hit.getNode().getURI());
         }
         assertEquals(Set.of(NS + "bh4", NS + "bh5"), uris);
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
+        return new FieldOccurrence(
+            field,
+            path,
+            ShaclIndexAssembler.extractPathVariants(path),
+            predicates,
+            null, null, null, null);
     }
 
     private static Map<String, Long> toMap(List<FacetValue> facets) {

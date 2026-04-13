@@ -29,9 +29,12 @@ import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.*;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
+import org.apache.jena.sparql.path.Path;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.ResourceFactory;
@@ -66,37 +69,47 @@ public class TestShaclBulkIndexer {
     public void setUp() {
         // Book profile
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(TITLE_PRED));
+            true, true, false, false, false, true);
 
         FieldDef categoryField = new FieldDef("category", FieldType.KEYWORD, null,
-            true, true, true, false, true, false,
-            Collections.singleton(CATEGORY_PRED));
+            true, true, true, false, true, false);
 
         FieldDef authorField = new FieldDef("author", FieldType.KEYWORD, null,
-            true, true, true, false, false, false,
-            Collections.singleton(AUTHOR_PRED));
+            true, true, true, false, false, false);
+
+        List<FieldOccurrence> bookOccurrences = Arrays.asList(
+            occurrence(titleField, PathFactory.pathLink(TITLE_PRED), Collections.singleton(TITLE_PRED)),
+            occurrence(categoryField, PathFactory.pathLink(CATEGORY_PRED), Collections.singleton(CATEGORY_PRED)),
+            occurrence(authorField, PathFactory.pathLink(AUTHOR_PRED), Collections.singleton(AUTHOR_PRED)));
 
         IndexProfile bookProfile = new IndexProfile(
             NodeFactory.createURI(NS + "BookShape"),
             Collections.singleton(BOOK_CLASS),
             "uri", "docType",
-            Arrays.asList(titleField, categoryField, authorField));
+            Arrays.asList(titleField, categoryField, authorField),
+            bookOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         // Article profile (different shape, shared title field)
         FieldDef articleTitleField = new FieldDef("title", FieldType.TEXT, null,
-            true, true, false, false, false, true,
-            Collections.singleton(TITLE_PRED));
+            true, true, false, false, false, true);
 
         FieldDef topicField = new FieldDef("topic", FieldType.KEYWORD, null,
-            true, true, true, false, false, false,
-            Collections.singleton(TOPIC_PRED));
+            true, true, true, false, false, false);
+
+        List<FieldOccurrence> articleOccurrences = Arrays.asList(
+            occurrence(articleTitleField, PathFactory.pathLink(TITLE_PRED), Collections.singleton(TITLE_PRED)),
+            occurrence(topicField, PathFactory.pathLink(TOPIC_PRED), Collections.singleton(TOPIC_PRED)));
 
         IndexProfile articleProfile = new IndexProfile(
             NodeFactory.createURI(NS + "ArticleShape"),
             Collections.singleton(ARTICLE_CLASS),
             "uri", "docType",
-            Arrays.asList(articleTitleField, topicField));
+            Arrays.asList(articleTitleField, topicField),
+            articleOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
 
         mapping = new ShaclIndexMapping(Arrays.asList(bookProfile, articleProfile));
         EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
@@ -111,6 +124,15 @@ public class TestShaclBulkIndexer {
 
         // Create a plain dataset — NO text wrapper, simulating bulk load
         baseDataset = DatasetFactory.create();
+    }
+
+    private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
+        return new FieldOccurrence(
+            field,
+            path,
+            ShaclIndexAssembler.extractPathVariants(path),
+            predicates,
+            null, null, null, null);
     }
 
     @After
