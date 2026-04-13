@@ -28,6 +28,7 @@ import org.apache.jena.geosparql.assembler.GeoAssembler;
 import org.apache.jena.geosparql.assembler.VocabGeoSPARQL;
 import org.apache.jena.geosparql.configuration.GeoSPARQLConfig;
 import org.apache.jena.geosparql.implementation.datatype.GeometryDatatype;
+import org.apache.jena.geosparql.spatial.cmd.InitSpatialCmds;
 import org.apache.jena.sparql.core.assembler.AssemblerUtils;
 import org.apache.jena.sys.JenaSubsystemLifecycle;
 import org.apache.jena.sys.JenaSystem;
@@ -68,6 +69,10 @@ public class InitGeoSPARQL implements JenaSubsystemLifecycle {
 
             AssemblerUtils.registerDataset(VocabGeoSPARQL.tGeoDataset,    assembler);
             AssemblerUtils.registerDataset(VocabGeoSPARQL.tGeoDatasetAlt, assembler);
+            
+            // Register spatial index command-line tools
+            InitSpatialCmds.cmds();
+            
             JenaSystem.logLifecycle("InitGeoSPARQL - finish");
         }
     }
