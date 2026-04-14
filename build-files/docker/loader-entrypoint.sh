@@ -182,7 +182,7 @@ if { [ "$MODE" = "all" ] || [ "$MODE" = "tdb2" ] || [ "$MODE" = "tdb2.xloader" ]
   WARNING_FILES=""
   
   for file in $FILES; do
-    validation_output=$($RIOT_CMD --validate "$file" 2>&1)
+    validation_output="$($RIOT_CMD --validate "$file" 2>&1 || true)"
     
     if echo "$validation_output" | grep -q 'ERROR'; then
       echo "$file: ❌"
