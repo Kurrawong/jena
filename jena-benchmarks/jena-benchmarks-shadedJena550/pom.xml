@@ -99,6 +99,9 @@
                         <goals>
                             <goal>jar</goal>
                         </goals>
+                        <configuration>
+                            <classifier>early</classifier>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
@@ -108,7 +111,7 @@
                 <executions>
                     <execution>
                         <id>shade-benchmark-fixture</id>
-                        <phase>process-classes</phase>
+                        <phase>package</phase>
                         <goals>
                             <goal>shade</goal>
                         </goals>
@@ -156,7 +159,7 @@
                 <executions>
                     <execution>
                         <id>unpack-shaded-classes</id>
-                        <phase>process-classes</phase>
+                        <phase>package</phase>
                         <goals>
                             <goal>run</goal>
                         </goals>
