@@ -35,17 +35,22 @@ COPY jena-tdb1/ jena-tdb1/
 COPY jena-tdb2/ jena-tdb2/
 COPY jena-text/ jena-text/
 
-RUN mvn --batch-mode --quiet --no-transfer-progress -Dstyle.color=never \
-    clean package -pl jena-fuseki2/jena-fuseki-server -am -DskipTests -Dmaven.javadoc.skip=true
+RUN mvn clean package -Pcomplete -DskipTests -Dmaven.javadoc.skip=true
 
 # Copy remaining files
 COPY . .
 
 FROM eclipse-temurin:21-jre-ubi10-minimal
 
+RUN microdnf install jq -y
+
 WORKDIR /fuseki
 
-COPY --from=builder /build/jena-fuseki2/jena-fuseki-server/target/jena-fuseki-server-*.jar ./jena-fuseki-server.jar
 COPY build-files/docker/loader-entrypoint.sh ./entrypoint.sh
+COPY --from=builder /build/jena-fuseki2/jena-fuseki-server/target/jena-fuseki-server-*.jar ./jena-fuseki-server.jar
+COPY --from=builder /build/apache-jena/target/apache-jena-*-SNAPSHOT.tar.gz .
+RUN mkdir -p /fuseki/apache-jena && \
+    tar -xzf apache-jena-*-SNAPSHOT.tar.gz -C /fuseki/apache-jena --strip-components=1 && \
+    rm apache-jena-*-SNAPSHOT.tar.gz
 
 ENTRYPOINT ["/fuseki/entrypoint.sh"]

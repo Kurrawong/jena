@@ -17,7 +17,7 @@ JAVA_OPTS="${JAVA_OPTS:-}"
 SPARQL_CMD="java -cp /fuseki/jena-fuseki-server.jar arq.sparql"
 RIOT_CMD="java -cp /fuseki/jena-fuseki-server.jar riotcmd.riot"
 TDB2_LOADER_CMD="java -cp /fuseki/jena-fuseki-server.jar tdb2.tdbloader"
-TDB2_XLOADER_CMD="java -cp /fuseki/jena-fuseki-server.jar tdb2.xloader"
+TDB2_XLOADER_CMD="/fuseki/apache-jena/bin/tdb2.xloader"
 TDB2_STATS_CMD="java -cp /fuseki/jena-fuseki-server.jar tdb2.tdbstats"
 TEXT_INDEXER_CMD="java $JAVA_OPTS -cp /fuseki/jena-fuseki-server.jar org.apache.jena.query.text.cmd.shacltextindexer"
 SPATIAL_INDEXER_CMD="java $JAVA_OPTS -cp /fuseki/jena-fuseki-server.jar org.apache.jena.geosparql.spatial.cmd.SpatialIndexBuilder"
@@ -221,6 +221,8 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "tdb2" ] || [ "$MODE" = "tdb2.xloader" ]; 
   echo "=== TDB2 Dataset Build ==="
   
   if [ "$MODE" = "tdb2.xloader" ]; then
+    echo "Setting JENA_HOME to /fuseki/apache-jena"
+    export JENA_HOME="/fuseki/apache-jena"
     echo "Using tdb2.xloader"
     LOADER_CMD="$TDB2_XLOADER_CMD --loc $TDB2_LOCATION"
   else
