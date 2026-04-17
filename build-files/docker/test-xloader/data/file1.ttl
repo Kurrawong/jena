@@ -1,0 +1,11 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+@prefix ex: <http://example.org/> .
+
+ex:thing1 a ex:Widget ;
+    ex:label "Widget Alpha" ;
+    ex:count 10 .
+
+ex:thing2 a ex:Widget ;
+    ex:label "Widget Beta" ;
+    ex:count 20 .

@@ -1,0 +1,57 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# https://taskfile.dev
+#
+# Test: confirm xloader loads all files (not just the first).
+#
+# file1.ttl has ex:thing1, ex:thing2 (Widgets)
+# file2.ttl has ex:thing3, ex:thing4 (Gadgets)
+#
+# Expected: 4 subjects total. If xloader only loads the first file, we get 2.
+#
+version: '3'
+
+vars:
+  IMAGE_NAME: '{{.IMAGE_NAME | default "fuseki-loader"}}'
+  IMAGE_TAG: '{{.IMAGE_TAG | default "6.1.0-SNAPSHOT"}}'
+
+tasks:
+  clean:
+    desc: Remove volumes from previous runs
+    cmds:
+      - docker compose down -v 2>/dev/null || true
+
+  load:
+    desc: Run xloader with two input files
+    deps: [clean]
+    cmds:
+      - docker compose run --rm xloader
+
+  count:
+    desc: Count distinct subjects in the loaded TDB2 store
+    cmds:
+      - |
+        echo 'SELECT (COUNT(DISTINCT ?s) AS ?total) WHERE { ?s ?p ?o }' | \
+        docker compose run --rm -T query \
+          --loc /data/DB/ds --query=-
+    silent: false
+
+  count-by-type:
+    desc: Count subjects by rdf:type
+    cmds:
+      - |
+        echo 'PREFIX ex: <http://example.org/> SELECT ?type (COUNT(?s) AS ?n) WHERE { ?s a ?type } GROUP BY ?type ORDER BY ?type' | \
+        docker compose run --rm -T query \
+          --loc /data/DB/ds --query=-
+
+  test:
+    desc: "Load two files via xloader then verify all 4 subjects are present"
+    cmds:
+      - task: load
+      - echo ""
+      - echo "=== Subject count (expect 4) ==="
+      - task: count
+      - echo ""
+      - echo "=== By type (expect Widget=2, Gadget=2) ==="
+      - task: count-by-type
+      - echo ""
+      - task: clean

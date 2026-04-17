@@ -221,32 +221,61 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "tdb2" ] || [ "$MODE" = "tdb2.xloader" ]; 
   echo "=== TDB2 Dataset Build ==="
   
   if [ "$MODE" = "tdb2.xloader" ]; then
-    echo "Setting JENA_HOME to /fuseki/apache-jena"
+    echo "Using tdb2.xloader (shell script)"
+    if [ -n "$TARGET_GRAPH" ]; then
+      echo "WARNING: TARGET_GRAPH is set but tdb2.xloader does not support --graph."
+      echo "WARNING: To load into a named graph with xloader, convert data to .nq/.trig format."
+      echo "WARNING: TARGET_GRAPH will be ignored."
+    fi
+    XLOADER_TMPDIR="${XLOADER_TMPDIR:-/tmp}"
+    echo "WARNING: XLOADER TMPDIR IS SET TO $XLOADER_TMPDIR."
+    echo "WARNING: FOR LARGE DATASETS, SET XLOADER_TMPDIR TO A SEPARATE FAST DISK (NVME IF POSSIBLE)."
+
+    # xloader shell script requires --loc to not exist (it creates it).
+    # Mount Docker volumes at the PARENT of the tdb2:location, not the location
+    # itself, so xloader can create the leaf directory.
+    CLEAN_LOC=$(echo "$TDB2_LOCATION" | sed 's/^"//; s/"$//')
+    if [ -d "$CLEAN_LOC" ]; then
+      echo "ERROR: TDB2 location $CLEAN_LOC already exists."
+      echo "ERROR: xloader requires --loc to not exist. Mount the Docker volume at"
+      echo "ERROR: the PARENT directory and set tdb2:location to a subdirectory."
+      echo "ERROR: e.g. mount at /data/DB, set tdb2:location to /data/DB/ds"
+      exit 1
+    fi
+
     export JENA_HOME="/fuseki/apache-jena"
-    echo "Using tdb2.xloader"
-    LOADER_CMD="$TDB2_XLOADER_CMD --loc $TDB2_LOCATION"
+    export JVM_ARGS="${JAVA_OPTS:--Xmx4G}"
+    LOADER_CMD="$TDB2_XLOADER_CMD --loc $CLEAN_LOC --tmpdir $XLOADER_TMPDIR"
+    if [ -n "$THREADS" ]; then
+      LOADER_CMD="$LOADER_CMD --threads $THREADS"
+    fi
+
+    # Add all files to loader command
+    for file in $FILES; do
+      LOADER_CMD="$LOADER_CMD \"$file\""
+    done
+
+    echo "Loader command: $LOADER_CMD"
+    eval "$LOADER_CMD"
+
+    EFFECTIVE_TDB2_LOCATION="$CLEAN_LOC"
   else
     echo "Using tdb2.tdbloader with mode $TDB2_MODE"
     LOADER_CMD="$TDB2_LOADER_CMD --loader=$TDB2_MODE --loc $TDB2_LOCATION"
+    if [ -n "$TARGET_GRAPH" ]; then
+      LOADER_CMD="$LOADER_CMD --graph $TARGET_GRAPH"
+    fi
+
+    # Add all files to loader command
+    for file in $FILES; do
+      LOADER_CMD="$LOADER_CMD \"$file\""
+    done
+
+    echo "Loader command: $LOADER_CMD"
+    eval "$LOADER_CMD"
+
+    EFFECTIVE_TDB2_LOCATION=$(echo "$TDB2_LOCATION" | sed 's/^"//; s/"$//')
   fi
-  
-  # Add target graph if specified
-  if [ -n "$TARGET_GRAPH" ]; then
-    LOADER_CMD="$LOADER_CMD --graph $TARGET_GRAPH"
-  fi
-  
-  # Add threads if specified (only for xloader)
-  if [ "$MODE" = "tdb2.xloader" ] && [ -n "$THREADS" ]; then
-    LOADER_CMD="$LOADER_CMD --threads $THREADS"
-  fi
-  
-  # Add all files to loader command
-  for file in $FILES; do
-    LOADER_CMD="$LOADER_CMD \"$file\""
-  done
-  
-  echo "Loader command: $LOADER_CMD"
-  eval "$LOADER_CMD"
 fi
 
 # Text Indexing
@@ -278,28 +307,27 @@ fi
 # Statistics
 if [ -z "$NO_STATS" ] && { [ "$MODE" = "all" ] || [ "$MODE" = "tdb2" ] || [ "$MODE" = "tdb2.xloader" ]; }; then
   echo "=== Generating Statistics ==="
-  # Clean up TDB2_LOCATION in case it has extra quotes
-  CLEAN_TDB2_LOCATION=$(echo "$TDB2_LOCATION" | sed 's/^"//; s/"$//')
-  STATS_FILE="${CLEAN_TDB2_LOCATION}/stats.opt"
-  
-  echo "DEBUG: Clean TDB2 location: $CLEAN_TDB2_LOCATION"
-  echo "DEBUG: Stats file path: $STATS_FILE"
-  
+  STATS_LOC="${EFFECTIVE_TDB2_LOCATION}"
+  STATS_FILE="${STATS_LOC}/stats.opt"
+
+  echo "TDB2 location for stats: $STATS_LOC"
+  echo "Stats file path: $STATS_FILE"
+
   # Run stats command and capture both output and exit code
-  STATS_OUTPUT=$($TDB2_STATS_CMD --graph "urn:x-arq:UnionGraph" --loc "$CLEAN_TDB2_LOCATION" 2>&1)
-  
+  STATS_OUTPUT=$($TDB2_STATS_CMD --graph "urn:x-arq:UnionGraph" --loc "$STATS_LOC" 2>&1)
+
   # Show warnings to user but still create stats file
   echo "$STATS_OUTPUT" | grep -v "^WARN" > "$STATS_FILE"
-  
+
   # Show any warnings to the user
   echo "$STATS_OUTPUT" | grep "^WARN" | while read -r warning; do
     echo "$warning"
   done
-  
+
   # If stats file is empty, try without the UnionGraph
   if [ ! -s "$STATS_FILE" ]; then
-    echo "DEBUG: Stats file empty, trying without UnionGraph"
-    $TDB2_STATS_CMD --loc "$CLEAN_TDB2_LOCATION" > "$STATS_FILE" 2>&1
+    echo "Stats file empty, trying without UnionGraph"
+    $TDB2_STATS_CMD --loc "$STATS_LOC" > "$STATS_FILE" 2>&1
   fi
   
   # Show final result
