@@ -47,4 +47,4 @@ WORKDIR /fuseki
 
 COPY --from=builder /build/jena-fuseki2/jena-fuseki-server/target/jena-fuseki-server-*.jar ./jena-fuseki-server.jar
 
-ENTRYPOINT ["java", "-jar", "--add-modules", "jdk.incubator.vector", "--enable-native-access", "ALL-UNNAMED", "/fuseki/jena-fuseki-server.jar", "--config", "/config/config.ttl"]
+ENTRYPOINT ["java", "-jar", "--add-modules", "jdk.incubator.vector", "--enable-native-access", "ALL-UNNAMED", "/fuseki/jena-fuseki-server.jar", "--config", "/config.ttl"]
