@@ -387,6 +387,21 @@
             </div>
           </template>
 
+          <template x-if="totalPages() > 1">
+            <nav class="pagination-bar" aria-label="pagination">
+              <button class="pagination-btn" :disabled="currentPage <= 1"
+                      @click="goToPage(currentPage - 1)">&lsaquo; Prev</button>
+              <template x-for="p in paginationRange()" :key="p">
+                <button class="pagination-btn" :class="{ 'is-current': p === currentPage }"
+                        x-text="p === '...' ? '\u2026' : p"
+                        :disabled="p === '...'"
+                        @click="p !== '...' && goToPage(p)"></button>
+              </template>
+              <button class="pagination-btn" :disabled="currentPage >= totalPages()"
+                      @click="goToPage(currentPage + 1)">Next &rsaquo;</button>
+            </nav>
+          </template>
+
         </div>
 
         <!-- Resize handle -->

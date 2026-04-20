@@ -12,6 +12,7 @@ WHERE {
         ""
         ""
         10
+        0
     ) .
     (?hit ?field ?value) luc:match () .
 }

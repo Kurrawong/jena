@@ -6,5 +6,6 @@ SELECT ?entity ?score WHERE {
   (?hit ?entity ?score) luc:query ("default" "default" "*"
     '{"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[112,-44,154,-10]}]}'
     ""
-    20)
+    20
+    0)
 }

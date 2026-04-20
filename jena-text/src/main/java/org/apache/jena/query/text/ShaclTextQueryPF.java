@@ -47,7 +47,6 @@ import org.apache.jena.sparql.engine.QueryIterator;
 import org.apache.jena.sparql.engine.binding.Binding;
 import org.apache.jena.sparql.engine.binding.BindingBuilder;
 import org.apache.jena.sparql.engine.iterator.QueryIterPlainWrapper;
-import org.apache.jena.sparql.engine.iterator.QueryIterSlice;
 import org.apache.jena.sparql.pfunction.PropFuncArg;
 import org.apache.jena.sparql.pfunction.PropertyFunctionBase;
 import org.apache.jena.sparql.util.IterLib;
@@ -60,7 +59,7 @@ import org.slf4j.LoggerFactory;
  * <p>
  * Supported argument format:
  * <pre>
- * (?hit ?entity ?score ?totalHits ?graph) luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit)
+ * (?hit ?entity ?score ?totalHits ?graph) luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)
  * </pre>
  * <p>
  * {@code ?hit} is a query-scoped blank node identifier for joining with {@code luc:match}.
@@ -71,7 +70,7 @@ import org.slf4j.LoggerFactory;
  */
 public class ShaclTextQueryPF extends PropertyFunctionBase {
     private static final Logger log = LoggerFactory.getLogger(ShaclTextQueryPF.class);
-    private static final int QUERY_ARG_ARITY = 6;
+    private static final int QUERY_ARG_ARITY = 7;
 
     private ShaclTextIndexLucene textIndex = null;
     private boolean warningIssued = false;
@@ -92,12 +91,12 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
 
         if (!argObject.isList()) {
             throw new QueryBuildException("luc:query expects exactly " + QUERY_ARG_ARITY
-                + " object arguments: (indexSelector fieldSpec queryString cqlFilter sortSpec limit)");
+                + " object arguments: (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)");
         }
         int size = argObject.getArgListSize();
         if (size != QUERY_ARG_ARITY) {
             throw new QueryBuildException("luc:query expects exactly " + QUERY_ARG_ARITY
-                + " object arguments (indexSelector fieldSpec queryString cqlFilter sortSpec limit), got " + size);
+                + " object arguments (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset), got " + size);
         }
     }
 
@@ -203,26 +202,25 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
             args.cqlFilter, args.sortSpecs, textIndex, null, null);
 
         int limit = args.limit > 0 ? args.limit : 10000;
-        List<SearchHit> allHits = se.getSearchHits(limit);
+        int offset = args.offset;
+        List<SearchHit> pageHits = se.getSearchHits(offset, limit);
 
         Collection<SearchHit> hits;
         if (entity != null && !Var.isVar(entity)) {
             String entityStr = TextQueryFuncs.subjectToString(entity);
             hits = new ArrayList<>();
-            for (SearchHit sh : allHits) {
+            for (SearchHit sh : pageHits) {
                 if (entityStr.equals(TextQueryFuncs.subjectToString(sh.getEntityNode()))) {
                     hits.add(sh);
                 }
             }
         } else {
-            hits = allHits;
+            hits = pageHits;
         }
 
         long totalHits = totalHitsNode != null ? se.getTotalHits() : -1;
         QueryIterator qIter = resultsToQueryIterator(binding, hit, entity, score,
             totalHitsNode, totalHits, graph, hits, execCxt);
-        if (args.limit >= 0)
-            qIter = new QueryIterSlice(qIter, 0, args.limit, execCxt);
         return qIter;
     }
 
@@ -255,17 +253,17 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
     /**
      * Parse object arguments.
      * <p>
-     * Arg order: (indexSelector fieldSpec queryString cqlFilter sortSpec limit)
+     * Arg order: (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)
      */
     private QueryArgs parseArgs(PropFuncArg argObject) {
         if (!argObject.isList()) {
             throw new QueryExecException("luc:query expects exactly " + QUERY_ARG_ARITY
-                + " object arguments (indexSelector fieldSpec queryString cqlFilter sortSpec limit)");
+                + " object arguments (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)");
         }
         List<Node> list = argObject.getArgList();
         if (list.size() != QUERY_ARG_ARITY) {
             throw new QueryExecException("luc:query expects exactly " + QUERY_ARG_ARITY
-                + " object arguments (indexSelector fieldSpec queryString cqlFilter sortSpec limit), got " + list.size());
+                + " object arguments (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset), got " + list.size());
         }
 
         String indexSelector = requireLiteralString(list.get(0), "indexSelector");
@@ -275,8 +273,15 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         CqlExpression cqlFilter = parseCqlFilter(requireLiteralString(list.get(3), "cqlFilter"));
         List<SortSpec> sortSpecs = parseSortSpec(requireLiteralString(list.get(4), "sortSpec"));
         int limit = parseLimit(list.get(5));
+        int offset = parseOffset(list.get(6));
 
-        return new QueryArgs(indexSelector, searchFields, queryString, cqlFilter, sortSpecs, limit);
+        long windowSize = (long) offset + limit;
+        if (windowSize > Integer.MAX_VALUE) {
+            throw new QueryExecException("luc:query offset + limit exceeds maximum (" +
+                Integer.MAX_VALUE + "): offset=" + offset + ", limit=" + limit);
+        }
+
+        return new QueryArgs(indexSelector, searchFields, queryString, cqlFilter, sortSpecs, limit, offset);
     }
 
     private static String requireLiteralString(Node node, String label) {
@@ -323,6 +328,18 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         }
     }
 
+    private static int parseOffset(Node node) {
+        try {
+            int value = Integer.parseInt(requireLiteralString(node, "offset"));
+            if (value < 0) {
+                throw new QueryExecException("luc:query offset must be non-negative, got: " + value);
+            }
+            return value;
+        } catch (NumberFormatException ex) {
+            throw new QueryExecException("luc:query offset must be an integer literal, got: " + node);
+        }
+    }
+
     private static class QueryArgs {
         final String indexSelector;
         final List<String> searchFields;
@@ -330,16 +347,18 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         final CqlExpression cqlFilter;
         final List<SortSpec> sortSpecs;
         final int limit;
+        final int offset;
 
         QueryArgs(String indexSelector, List<String> searchFields, String queryString,
                   CqlExpression cqlFilter, List<SortSpec> sortSpecs,
-                  int limit) {
+                  int limit, int offset) {
             this.indexSelector = indexSelector;
             this.searchFields = searchFields;
             this.queryString = queryString;
             this.cqlFilter = cqlFilter;
             this.sortSpecs = sortSpecs;
             this.limit = limit;
+            this.offset = offset;
         }
     }
 }

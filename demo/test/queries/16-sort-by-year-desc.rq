@@ -13,6 +13,7 @@ WHERE {
         '{"op":"=","args":[{"property":"urn:jena:lucene:field#entityType"},"http://example.org/mining/MiningReport"]}'
         '{"field":"urn:jena:lucene:field#year","order":"desc"}'
         10
+        0
     ) .
     ?entity ex:year ?year .
 }

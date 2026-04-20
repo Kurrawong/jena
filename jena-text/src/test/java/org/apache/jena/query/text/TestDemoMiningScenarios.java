@@ -696,7 +696,7 @@ public class TestDemoMiningScenarios {
     public void testCombinedQueryAndFacet() {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?entity ?score ?f ?v ?low ?high ?c WHERE {\n" +
-            "  { (?hit ?entity ?score) luc:query (\"default\" \"default\" \"iron ore\" \"\" \"\" 20) }\n" +
+            "  { (?hit ?entity ?score) luc:query (\"default\" \"default\" \"iron ore\" \"\" \"\" 20 0) }\n" +
             "  UNION\n" +
             "  { (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"iron ore\" '[\"" + FP + "state\"]' \"\" 10 0) }\n" +
             "}";
@@ -763,7 +763,7 @@ public class TestDemoMiningScenarios {
         sb.append("SELECT ?s WHERE {\n");
         sb.append("  (?hit ?s ?score) luc:query (\"default\" \"default\" \"").append(queryText).append("\" ");
         sb.append(filter != null ? "'" + filter + "'" : "\"\"");
-        sb.append(" \"\" ").append(limit).append(")\n}");
+        sb.append(" \"\" ").append(limit).append(" 0)\n}");
 
         Set<String> results = new HashSet<>();
         dataset.begin(ReadWrite.READ);

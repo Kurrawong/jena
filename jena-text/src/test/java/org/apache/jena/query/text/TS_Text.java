@@ -117,6 +117,9 @@ import org.junit.runners.Suite.SuiteClasses;
     , TestNestedHierarchicalFacets.class
     , TestNestedJoinPathSupport.class
 
+    // Offset paging
+    , TestOffsetPaging.class
+
     // Range facets
     , TestRangeFacetCounts.class
 
