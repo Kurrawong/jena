@@ -319,6 +319,7 @@
         <span class="sync-star">★</span><span class="str" id="rq-cqlFilter">""</span>
         <span class="json" id="rq-sortSpec">'{"field":"urn:year","order":"desc"}'</span>
         <span class="num" id="rq-limit">20</span>
+        <span class="num" id="rq-offset">0</span>
     <span class="brc">)</span> .
     <span class="brc">(</span>
         <span class="var">?hit</span>
@@ -375,6 +376,7 @@
       <line class="rhs-link" data-target="rq-cqlFilter" x1="540" y1="280" x2="590" y2="280" stroke="#2a5d9f"/><circle class="rhs-dot" data-target="rq-cqlFilter" cx="540" cy="280" r="2.2" fill="#2a5d9f"/>
       <line class="rhs-link" data-target="rq-sortSpec" x1="760" y1="300" x2="810" y2="300" stroke="#2a5d9f"/><circle class="rhs-dot" data-target="rq-sortSpec" cx="760" cy="300" r="2.2" fill="#2a5d9f"/>
       <line class="rhs-link" data-target="rq-limit" x1="540" y1="320" x2="590" y2="320" stroke="#6a1b9a"/><circle class="rhs-dot" data-target="rq-limit" cx="540" cy="320" r="2.2" fill="#6a1b9a"/>
+      <line class="rhs-link" data-target="rq-offset" x1="540" y1="340" x2="590" y2="340" stroke="#6a1b9a"/><circle class="rhs-dot" data-target="rq-offset" cx="540" cy="340" r="2.2" fill="#6a1b9a"/>
       <line class="rhs-link" data-target="pf-match" x1="620" y1="460" x2="670" y2="460" stroke="#b94700"/><circle class="rhs-dot" data-target="pf-match" cx="620" cy="460" r="2.2" fill="#b94700"/>
       <line class="rhs-link" data-target="pf-facet" x1="620" y1="660" x2="670" y2="660" stroke="#b94700"/><circle class="rhs-dot" data-target="pf-facet" cx="620" cy="660" r="2.2" fill="#b94700"/>
       <line class="rhs-link" data-target="rf-indexSelector" x1="620" y1="680" x2="670" y2="680" stroke="#b94700"/><circle class="rhs-dot" data-target="rf-indexSelector" cx="620" cy="680" r="2.2" fill="#b94700"/>
@@ -410,6 +412,7 @@
   <div class="cal R b rhs-cal" data-target="rq-cqlFilter" style="top:270px;"><span class="lbl">cqlFilter</span><span class="desc">CQL2-JSON object, or <code>""</code> when intentionally absent</span></div>
   <div class="cal R b rhs-cal" data-target="rq-sortSpec" style="top:290px;"><span class="lbl">sortSpec</span><span class="desc">JSON sort object or array using field IRIs, or <code>""</code></span></div>
   <div class="cal R p rhs-cal" data-target="rq-limit" style="top:310px;"><span class="lbl">limit</span><span class="desc">integer literal cap; lexical forms like <code>"10"</code> are accepted; negative = unlimited</span></div>
+  <div class="cal R p rhs-cal" data-target="rq-offset" style="top:330px;"><span class="lbl">offset</span><span class="desc">number of leading hits to skip; <code>0</code> = first page; must be non-negative</span></div>
 
   <div class="cal R pred rhs-cal" data-target="pf-match" style="top:450px;"><span class="lbl">luc:match</span><span class="desc">the only per-hit match-detail API; object is always <code>()</code></span></div>
 
@@ -497,7 +500,7 @@
     <span><span class="sw" style="background:#e6f2ea;border:1px solid #2e7d4f;"></span>subject / bindings</span>
   </div>
   <div>
-    <strong>Fixed arity:</strong> <code>luc:query</code> takes 6 object args and <code>luc:facet</code> takes 7.
+    <strong>Fixed arity:</strong> <code>luc:query</code> takes 7 object args and <code>luc:facet</code> takes 7.
     &nbsp;&middot;&nbsp;
     <strong>Empty slots:</strong> use <code>""</code> for absent <code>cqlFilter</code> / <code>sortSpec</code>.
     &nbsp;&middot;&nbsp;

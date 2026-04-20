@@ -1038,6 +1038,42 @@ code {
   color: var(--amber);
 }
 
+.pagination-bar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 1rem 0;
+}
+
+.pagination-btn {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.pagination-btn:hover:not(:disabled):not(.is-current) {
+  background: var(--bg-hover);
+  border-color: var(--border-focus);
+}
+
+.pagination-btn.is-current {
+  background: var(--accent);
+  color: var(--bg-base);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .result-description {
   font-size: 0.8rem;
   color: var(--text-secondary);

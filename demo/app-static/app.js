@@ -746,6 +746,7 @@ function searchApp() {
         identifier: '',
         identifierSuggestions: [],
         limit: DEFAULT_LIMIT,
+        currentPage: 1,
         resultLimits: RESULT_LIMITS,
         maxFacetValues: DEFAULT_FACET_LIMIT,
         facetLimits: FACET_LIMITS,
@@ -771,6 +772,7 @@ function searchApp() {
         showLoading: false,
         _loadingTimer: null,
         description: '',
+        _lastTotalHits: 0,
         endpoint: '',
         queryLog: [],
         spatialBbox: null,
@@ -989,6 +991,7 @@ function searchApp() {
                 this.buildHierarchyParentClauses()
             );
             if (cql) params.set('filter', cql);
+            if (this.currentPage > 1) params.set('page', this.currentPage);
             const qs = params.toString();
             const url = qs ? '?' + qs : window.location.pathname;
             history.pushState(null, '', url);
@@ -1010,13 +1013,40 @@ function searchApp() {
             this.hierarchySelected = this.inferHierarchySelections(this.selected);
             this.spatialBbox = bbox;
             this.spatialPolygon = polygon;
+            this.currentPage = Math.max(1, parseInt(params.get('page'), 10) || 1);
         },
 
         // --- Actions ---
 
         async search() {
+            this.currentPage = 1;
             this.pushUrl();
             await this.executeSearch();
+        },
+
+        async goToPage(page) {
+            this.currentPage = page;
+            this.pushUrl();
+            await this.executeSearch();
+        },
+
+        totalPages() {
+            if (!this._lastTotalHits || this.limit <= 0) return 1;
+            return Math.ceil(this._lastTotalHits / this.limit);
+        },
+
+        paginationRange() {
+            const tp = this.totalPages();
+            const cur = this.currentPage;
+            if (tp <= 7) return Array.from({ length: tp }, (_, i) => i + 1);
+            const pages = [1];
+            if (cur > 3) pages.push('...');
+            for (let p = Math.max(2, cur - 1); p <= Math.min(tp - 1, cur + 1); p++) {
+                pages.push(p);
+            }
+            if (cur < tp - 2) pages.push('...');
+            pages.push(tp);
+            return pages;
         },
 
         updateIdentifierSuggestions() {
@@ -1473,7 +1503,7 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             return `${SPARQL_PREFIXES}
 SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
 WHERE {
-    { (?hit ?entity ?score ?totalHits) luc:query ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${filterArg} ${sortArg} ${this.limit}) }
+    { (?hit ?entity ?score ?totalHits) luc:query ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${filterArg} ${sortArg} ${this.limit} ${(this.currentPage - 1) * this.limit}) }
     UNION
     { (?field ?value ?low ?high ?count) luc:facet ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${sparqlQuote(facetFieldsJson)} ${filterArg} ${this.maxFacetValues} 0) }
 }`;
@@ -1484,7 +1514,7 @@ WHERE {
             return `${SPARQL_PREFIXES}
 SELECT DISTINCT ?identifier
 WHERE {
-    (?hit ?entity ?score) luc:query ('default' ${sparqlQuote(fieldSpec)} ${sparqlQuote(identifier)} '' '' 8) .
+    (?hit ?entity ?score) luc:query ('default' ${sparqlQuote(fieldSpec)} ${sparqlQuote(identifier)} '' '' 8 0) .
     ?entity ex:identifier ?identifier .
 }
 ORDER BY LCASE(STR(?identifier))
@@ -1799,10 +1829,15 @@ DESCRIBE <${uri}>`;
             }
 
             let result = parts.join(' ') + ' \u2014 ';
+            const total = totalHits || hitCount;
             if (totalHits != null && totalHits > hitCount) {
                 result += `<strong>${hitCount.toLocaleString()}</strong> of <strong>${totalHits.toLocaleString()}</strong> results`;
             } else {
-                result += `<strong>${(totalHits || hitCount).toLocaleString()}</strong> results`;
+                result += `<strong>${total.toLocaleString()}</strong> results`;
+            }
+            const tp = this.totalPages();
+            if (tp > 1) {
+                result += ` \u2014 page <strong>${this.currentPage}</strong> of <strong>${tp.toLocaleString()}</strong>`;
             }
             if (totalSec != null) {
                 result += ` in <strong>${totalSec.toFixed(2)}s</strong>`;
@@ -1853,10 +1888,11 @@ DESCRIBE <${uri}>`;
                 this.logQuery(`Search: ${searchLabel}`, searchQuery, searchMs);
 
                 const { hits, facets, totalHits } = this.parseUnionResults(data);
+                this._lastTotalHits = totalHits || hits.length;
                 this.facets = this.mergeFacets(facets);
 
                 if (hits.length > 0) {
-                    const uris = hits.slice(0, this.limit).map(h => h.uri);
+                    const uris = hits.map(h => h.uri);
                     const scores = Object.fromEntries(hits.map(h => [h.uri, h.score]));
                     const detailQuery = this.buildDetailQuery(uris);
 
@@ -2303,7 +2339,7 @@ function statsApp() {
                 const statsQuery = `${SPARQL_PREFIXES}
 SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
 WHERE {
-    { (?hit ?entity ?score ?totalHits) luc:query ('default' 'default' '*' '' '' 0) }
+    { (?hit ?entity ?score ?totalHits) luc:query ('default' 'default' '*' '' '' 0 0) }
     UNION
     { (?field ?value ?low ?high ?count) luc:facet ('default' 'default' '*' ${sparqlQuote(facetFieldsJson)} '' 0 0) }
 }`;
