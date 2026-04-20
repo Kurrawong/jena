@@ -29,7 +29,7 @@ Public API rules:
 
 ```sparql
 (?hit ?entity ?score ?totalHits)
-  luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit)
+  luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)
 ```
 
 Subject arity may be 1 to 4:
@@ -39,7 +39,7 @@ Subject arity may be 1 to 4:
 - `?hit ?entity ?score`
 - `?hit ?entity ?score ?totalHits`
 
-Object arity is always exactly 6.
+Object arity is always exactly 7.
 
 ### Arguments
 
@@ -50,7 +50,8 @@ Object arity is always exactly 6.
 | 3 | `queryString` | string literal | Yes | Lucene query string |
 | 4 | `cqlFilter` | string literal | Yes | CQL2-JSON object, or `""` |
 | 5 | `sortSpec` | string literal | Yes | JSON sort object/array, or `""` |
-| 6 | `limit` | integer literal | Yes | Negative means unlimited |
+| 6 | `limit` | integer literal | Yes | Page size. Negative means unlimited |
+| 7 | `offset` | integer literal | Yes | Number of leading hits to skip. `0` = first page. Must be non-negative. `offset + limit` must fit in a signed 32-bit int |
 
 ### `fieldSpec`
 
@@ -69,7 +70,7 @@ Unknown field IRIs fail fast.
 | `?hit` | blank node | Query-scoped join key for `luc:match` |
 | `?entity` | IRI | Matched entity |
 | `?score` | float | Lucene relevance score |
-| `?totalHits` | `xsd:integer` | Total matching hits before limit |
+| `?totalHits` | `xsd:integer` | Total matching hits across the whole result set, independent of `limit` and `offset` |
 
 `?match` is not part of `luc:query`.
 
@@ -79,7 +80,7 @@ Search all default-search fields:
 
 ```sparql
 (?hit ?entity ?score)
-  luc:query ("default" "default" "machine learning" "" "" 20) .
+  luc:query ("default" "default" "machine learning" "" "" 20 0) .
 ```
 
 Search a specific field IRI:
@@ -93,6 +94,7 @@ Search a specific field IRI:
     ""
     ""
     20
+    0
   ) .
 ```
 
@@ -107,6 +109,7 @@ Search with a CQL filter:
     '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}'
     ""
     20
+    0
   ) .
 ```
 
@@ -121,6 +124,7 @@ Search with sort:
     ""
     '{"field":"urn:jena:lucene:field#year","order":"desc"}'
     10
+    0
   ) .
 ```
 
@@ -135,8 +139,25 @@ Multi-sort:
     ""
     '[{"field":"urn:jena:lucene:field#year","order":"desc"},{"field":"urn:jena:lucene:field#title"}]'
     10
+    0
   ) .
 ```
+
+### Paging
+
+`limit` and `offset` form a page window. Fetch the second page of 10 results:
+
+```sparql
+(?hit ?entity ?score ?totalHits)
+  luc:query ("default" "default" "learning" "" "" 10 10) .
+```
+
+Notes:
+
+- `?totalHits` always reflects the full match count, not the page size. Use it to compute page counts.
+- Lucene fetches `offset + limit` hits internally and the PF exposes only the slice. Very deep offsets therefore cost proportionally more.
+- When `luc:query` and `luc:facet` share a search (same selector, field spec, query string, filter, sort), the cached hit list grows to the largest window seen in the query; each caller gets its own slice.
+- A negative `offset` is a query error. A negative `limit` is still accepted and means unlimited (offset then has no effect beyond skipping).
 
 ## luc:match
 
@@ -166,7 +187,7 @@ The object is always `()`.
 ```sparql
 SELECT ?entity ?score ?field ?value WHERE {
   (?hit ?entity ?score)
-    luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "" "" 10) .
+    luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "" "" 10 0) .
   (?hit ?field ?value) luc:match () .
 }
 ```

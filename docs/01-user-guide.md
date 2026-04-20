@@ -64,7 +64,7 @@ PREFIX luc: <urn:jena:lucene:index#>
 
 SELECT ?entity ?score WHERE {
   (?hit ?entity ?score)
-    luc:query ("default" "default" "machine learning" "" "" 20) .
+    luc:query ("default" "default" "machine learning" "" "" 20 0) .
 }
 ORDER BY DESC(?score)
 ```
@@ -82,7 +82,7 @@ These are separate on purpose.
 
 ```sparql
 (?hit ?entity ?score ?totalHits)
-  luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit)
+  luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)
 ```
 
 Example with filter:
@@ -96,6 +96,7 @@ Example with filter:
     '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}'
     ""
     20
+    0
   ) .
 ```
 
@@ -110,7 +111,15 @@ Example with sort:
     ""
     '{"field":"urn:jena:lucene:field#year","order":"desc"}'
     10
+    0
   ) .
+```
+
+Paging — second page of 10:
+
+```sparql
+(?hit ?entity ?score ?totalHits)
+  luc:query ("default" "default" "learning" "" "" 10 10) .
 ```
 
 Notes:
@@ -118,6 +127,8 @@ Notes:
 - `fieldSpec` is `"default"` or a JSON array of field IRIs.
 - `cqlFilter` is a JSON object or `""`.
 - `sortSpec` is a JSON object/array or `""`.
+- `limit` is the page size; negative means unlimited.
+- `offset` is the number of leading hits to skip; must be non-negative. `?totalHits` is independent of `offset`.
 - `?match` is not part of `luc:query`.
 
 ### Graph Scoping
@@ -139,6 +150,7 @@ Example target filter:
     '{"op":"=","args":[{"property":"urn:jena:lucene:field#sourceGraph"},"http://example.org/graph/A"]}'
     ""
     20
+    0
   ) .
 ```
 
@@ -159,7 +171,7 @@ Use it when you need to know which field matched:
 ```sparql
 SELECT ?entity ?field ?value WHERE {
   (?hit ?entity ?score)
-    luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "" "" 10) .
+    luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "" "" 10 0) .
   (?hit ?field ?value) luc:match () .
 }
 ```
@@ -219,7 +231,7 @@ External SPARQL always uses field IRIs:
 
 The SHACL API is strict:
 
-- `luc:query` object arity is exactly 6
+- `luc:query` object arity is exactly 7
 - `luc:facet` object arity is exactly 7
 - no argument-shape guessing
 - missing arguments fail fast
@@ -232,7 +244,7 @@ If you configure multiple indexes, use different `text:indexId` values and selec
 
 ```sparql
 (?hit ?entity ?score)
-  luc:query ("objects" "default" "gold" "" "" 20) .
+  luc:query ("objects" "default" "gold" "" "" 20 0) .
 ```
 
 The selector may also be the index resource IRI if the index was configured as a URI resource.
