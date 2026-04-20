@@ -8,7 +8,7 @@ PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
 SELECT ?entity ?score ?field ?value
 WHERE {
-    (?hit ?entity ?score) luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "" "" 10) .
+    (?hit ?entity ?score) luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "" "" 10 0) .
     (?hit ?field ?value) luc:match () .
 }
 ORDER BY DESC(?score)

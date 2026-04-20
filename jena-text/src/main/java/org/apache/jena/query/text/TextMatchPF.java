@@ -116,8 +116,8 @@ public class TextMatchPF extends PropertyFunctionBase {
             return IterLib.noResults(execCxt);
         }
 
-        // Get search hits (already computed by luc:query)
-        List<SearchHit> allHits = se.getSearchHits(10000);
+        // Get search hits (already computed and cached by luc:query)
+        List<SearchHit> allHits = se.getSearchHits(0, 10000);
 
         // Build result bindings
         Var hitVar = Var.isVar(hitNode) ? Var.alloc(hitNode) : null;

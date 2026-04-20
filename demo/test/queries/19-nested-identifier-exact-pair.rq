@@ -12,6 +12,7 @@ WHERE {
         '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#identifierType"},"company"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#identifierValueExact"},"Newmont"]}]}'
         ""
         10
+        0
     )
 }
 ORDER BY DESC(?score) ?s

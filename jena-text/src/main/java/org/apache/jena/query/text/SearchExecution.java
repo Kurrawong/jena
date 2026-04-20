@@ -54,10 +54,10 @@ public class SearchExecution {
     // Lazy results
     private List<TextHit> hits;
     private List<SearchHit> searchHits;
+    private int searchHitsFetchedWindow = 0;
     private final Map<FacetRequestKey, Map<String, List<FacetValue>>> facetCountsCache = new HashMap<>();
     private long totalHits = -1;
     private boolean hitsComputed = false;
-    private boolean searchHitsComputed = false;
 
     public SearchExecution(String indexIdentity, List<String> searchFields, String queryString,
                            CqlExpression filter, List<SortSpec> sortSpecs,
@@ -153,21 +153,31 @@ public class SearchExecution {
 
     /**
      * Get search hits with stable hit IDs and field match data.
-     * Uses NamedMatches for field-level match attribution.
+     * Caches the largest window seen so far and returns the requested page slice.
+     *
+     * @param offset number of leading hits to skip
+     * @param limit  maximum number of hits to return
+     * @return the page slice of search hits
      */
-    public synchronized List<SearchHit> getSearchHits(int limit) {
-        if (!searchHitsComputed) {
+    public synchronized List<SearchHit> getSearchHits(int offset, int limit) {
+        int requestedWindow = offset + limit;
+        if (searchHits == null || requestedWindow > searchHitsFetchedWindow) {
             try {
                 List<String> resolved = textIndex.resolveSearchFields(searchFields);
                 searchHits = textIndex.searchWithHitIds(resolved, queryString, filter,
-                    sortSpecs, graphURI, lang, limit);
+                    sortSpecs, graphURI, lang, requestedWindow);
+                searchHitsFetchedWindow = requestedWindow;
             } catch (Exception e) {
                 log.error("Error computing search hits: {}", e.getMessage());
                 searchHits = Collections.emptyList();
+                searchHitsFetchedWindow = 0;
             }
-            searchHitsComputed = true;
         }
-        return searchHits;
+        if (offset >= searchHits.size()) {
+            return Collections.emptyList();
+        }
+        int end = Math.min(offset + limit, searchHits.size());
+        return searchHits.subList(offset, end);
     }
 
     /**

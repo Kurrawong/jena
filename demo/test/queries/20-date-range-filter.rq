@@ -12,6 +12,7 @@ WHERE {
         '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#entityType"},"http://example.org/mining/MiningReport"]},{"op":"between","args":[{"property":"urn:jena:lucene:field#publishedOn"},"2024-01-01","2024-12-31"]}]}'
         '{"field":"urn:jena:lucene:field#publishedOn","order":"desc"}'
         10
+        0
     )
 }
 ORDER BY DESC(?score)

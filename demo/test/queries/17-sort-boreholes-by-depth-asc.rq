@@ -13,6 +13,7 @@ WHERE {
         '{"op":"=","args":[{"property":"urn:jena:lucene:field#entityType"},"http://example.org/mining/Borehole"]}'
         '{"field":"urn:jena:lucene:field#depth","order":"asc"}'
         10
+        0
     ) .
     ?entity ex:depth ?depth .
 }

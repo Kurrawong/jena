@@ -14,6 +14,7 @@ WHERE {
         '{"op":"=","args":[{"property":"urn:jena:lucene:field#state"},"http://example.org/mining/state/QLD"]}'
         ""
         10
+        0
     )
 }
 ORDER BY DESC(?score)
