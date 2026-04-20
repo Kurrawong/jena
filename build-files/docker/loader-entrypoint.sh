@@ -1,6 +1,5 @@
 #!/bin/sh
 # Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
-set -e
 
 # Configuration variables
 CONFIG="${CONFIG:-/config.ttl}"
@@ -14,11 +13,11 @@ THREADS="${THREADS:-$(($(nproc) > 1 ? $(nproc) - 1 : 1))}"
 JAVA_OPTS="${JAVA_OPTS:-}"
 
 # Define all Jena command variables
-SPARQL_CMD="java -cp /fuseki/jena-fuseki-server.jar arq.sparql"
-RIOT_CMD="java -cp /fuseki/jena-fuseki-server.jar riotcmd.riot"
-TDB2_LOADER_CMD="java -cp /fuseki/jena-fuseki-server.jar tdb2.tdbloader"
-TDB2_XLOADER_CMD="/fuseki/apache-jena/bin/tdb2.xloader"
-TDB2_STATS_CMD="java -cp /fuseki/jena-fuseki-server.jar tdb2.tdbstats"
+SPARQL_CMD="java $JAVA_OPTS -cp /fuseki/jena-fuseki-server.jar arq.sparql"
+RIOT_CMD="java $JAVA_OPTS -cp /fuseki/jena-fuseki-server.jar riotcmd.riot"
+TDB2_LOADER_CMD="java $JAVA_OPTS -cp /fuseki/jena-fuseki-server.jar tdb2.tdbloader"
+TDB2_XLOADER_CMD="JVM_ARGS=\"${JAVA_OPTS}\" /fuseki/apache-jena/bin/tdb2.xloader"
+TDB2_STATS_CMD="java $JAVA_OPTS -cp /fuseki/jena-fuseki-server.jar tdb2.tdbstats"
 TEXT_INDEXER_CMD="java $JAVA_OPTS -cp /fuseki/jena-fuseki-server.jar org.apache.jena.query.text.cmd.shacltextindexer"
 SPATIAL_INDEXER_CMD="java $JAVA_OPTS -cp /fuseki/jena-fuseki-server.jar org.apache.jena.geosparql.spatial.cmd.SpatialIndexBuilder"
 
@@ -55,7 +54,7 @@ SRS_QUERY="/tmp/srs_uri.rq"
   echo '  ?s a tdb2:DatasetTDB2 ;'
   echo '     tdb2:location ?tdb2Location .'
   echo '}'
-} > "$TDB2_QUERY"
+} >"$TDB2_QUERY"
 
 # Write text index location query
 {
@@ -64,7 +63,7 @@ SRS_QUERY="/tmp/srs_uri.rq"
   echo '  ?s a text:TextIndexShacl ;'
   echo '     text:directory ?shaclIndexDirectory .'
   echo '}'
-} > "$TEXT_QUERY"
+} >"$TEXT_QUERY"
 
 # Write spatial index location query
 {
@@ -73,7 +72,7 @@ SRS_QUERY="/tmp/srs_uri.rq"
   echo '  ?s a geosparql:geosparqlDataset ;'
   echo '     geosparql:spatialIndexFile ?spatialIndexFile .'
   echo '}'
-} > "$SPATIAL_QUERY"
+} >"$SPATIAL_QUERY"
 
 # Write SRS URI query
 {
@@ -82,19 +81,47 @@ SRS_QUERY="/tmp/srs_uri.rq"
   echo '  ?s a geosparql:geosparqlDataset ;'
   echo '     geosparql:srsUri ?srsUri .'
   echo '}'
-} > "$SRS_QUERY"
+} >"$SRS_QUERY"
 
 # Extract TDB2 location using Java-based SPARQL
-TDB2_LOCATION=$($SPARQL_CMD --query="$TDB2_QUERY" --data="$CONFIG" --results=tsv 2>/dev/null | awk 'NR==2 {print $1}')
+tdb2_result_and_status="$($SPARQL_CMD --query="$TDB2_QUERY" --data="$CONFIG" --results=tsv 2>&1)"
+tdb2_status=$?
+if [ "$tdb2_status" -ne 0 ]; then
+  echo "ERROR extracting TDB2 location:" >&2
+  echo "$tdb2_result_and_status" >&2
+  exit 1
+fi
+TDB2_LOCATION=$(echo "$tdb2_result_and_status" | awk 'NR==2 {print $1}')
 
 # Extract text index location using Java-based SPARQL
-TEXT_INDEX_LOCATION=$($SPARQL_CMD --query="$TEXT_QUERY" --data="$CONFIG" --results=tsv 2>/dev/null | awk 'NR==2 {print $1}')
+text_result_and_status="$($SPARQL_CMD --query="$TEXT_QUERY" --data="$CONFIG" --results=tsv 2>&1)"
+text_status=$?
+if [ "$text_status" -ne 0 ]; then
+  echo "ERROR extracting text index location:" >&2
+  echo "$text_result_and_status" >&2
+  exit 1
+fi
+TEXT_INDEX_LOCATION=$(echo "$text_result_and_status" | awk 'NR==2 {print $1}')
 
 # Extract spatial index location using Java-based SPARQL
-SPATIAL_INDEX_LOCATION=$($SPARQL_CMD --query="$SPATIAL_QUERY" --data="$CONFIG" --results=tsv 2>/dev/null | awk 'NR==2 {print $1}')
+spatial_result_and_status="$($SPARQL_CMD --query="$SPATIAL_QUERY" --data="$CONFIG" --results=tsv 2>&1)"
+spatial_status=$?
+if [ "$spatial_status" -ne 0 ]; then
+  echo "ERROR extracting spatial index location:" >&2
+  echo "$spatial_result_and_status" >&2
+  exit 1
+fi
+SPATIAL_INDEX_LOCATION=$(echo "$spatial_result_and_status" | awk 'NR==2 {print $1}')
 
 # Extract SRS URI for spatial indexing using Java-based SPARQL
-SRS_URI=$($SPARQL_CMD --query="$SRS_QUERY" --data="$CONFIG" --results=tsv 2>/dev/null | awk 'NR==2 {print $1}' | sed 's/^[<>]//g; s/[<>]$//g')
+srs_result_and_status="$($SPARQL_CMD --query="$SRS_QUERY" --data="$CONFIG" --results=tsv 2>&1)"
+srs_status=$?
+if [ "$srs_status" -ne 0 ]; then
+  echo "ERROR extracting SRS URI:" >&2
+  echo "$srs_result_and_status" >&2
+  exit 1
+fi
+SRS_URI=$(echo "$srs_result_and_status" | awk 'NR==2 {print $1}' | sed 's/^[<>]//g; s/[<>]$//g')
 
 # Clean up temporary query files
 rm -f "$TDB2_QUERY" "$TEXT_QUERY" "$SPATIAL_QUERY" "$SRS_QUERY"
@@ -108,7 +135,7 @@ echo "SRS_URI: ${SRS_URI:-Not specified in config (will use default behavior)}"
 check_volume_mount() {
   path="$1"
   parent_path=""
-  
+
   # Check if path or any parent is mounted
   while [ "$path" != "/" ]; do
     if grep -q " $path " /proc/mounts; then
@@ -120,7 +147,7 @@ check_volume_mount() {
     fi
     path="$parent_path"
   done
-  
+
   echo "WARNING: No volume mount found for $path or its parents"
   return 1
 }
@@ -176,14 +203,14 @@ fi
 # Validation (only for TDB2 loading modes and when not disabled)
 if { [ "$MODE" = "all" ] || [ "$MODE" = "tdb2" ] || [ "$MODE" = "tdb2.xloader" ]; } && [ -z "$NO_VALIDATION" ]; then
   echo "=== Validating RDF files ==="
-  
+
   VALID_FILES=""
   INVALID_FILES=""
   WARNING_FILES=""
-  
+
   for file in $FILES; do
     validation_output="$($RIOT_CMD --validate "$file" 2>&1 || true)"
-    
+
     if echo "$validation_output" | grep -q 'ERROR'; then
       echo "$file: ❌"
       INVALID_FILES="$INVALID_FILES $file"
@@ -196,8 +223,7 @@ if { [ "$MODE" = "all" ] || [ "$MODE" = "tdb2" ] || [ "$MODE" = "tdb2.xloader" ]
       VALID_FILES="$VALID_FILES $file"
     fi
   done
-  
-  
+
   echo "Validation Summary:"
   valid_count=$(echo "$VALID_FILES" | wc -w)
   echo "  Valid files: $valid_count"
@@ -205,7 +231,7 @@ if { [ "$MODE" = "all" ] || [ "$MODE" = "tdb2" ] || [ "$MODE" = "tdb2.xloader" ]
   echo "  Files with warnings: $warning_count"
   invalid_count=$(echo "$INVALID_FILES" | wc -w)
   echo "  Invalid files: $invalid_count"
-  
+
   # Exclude invalid files from processing
   FILES="$VALID_FILES"
   if [ -z "$FILES" ]; then
@@ -219,7 +245,7 @@ fi
 # TDB2 Loading
 if [ "$MODE" = "all" ] || [ "$MODE" = "tdb2" ] || [ "$MODE" = "tdb2.xloader" ]; then
   echo "=== TDB2 Dataset Build ==="
-  
+
   if [ "$MODE" = "tdb2.xloader" ]; then
     echo "Using tdb2.xloader (shell script)"
     if [ -n "$TARGET_GRAPH" ]; then
@@ -283,7 +309,7 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "index" ] || [ "$MODE" = "text" ]; then
   echo "=== SHACL Text Index Build ==="
   echo "Config: $CONFIG"
   echo "Text index location: $TEXT_INDEX_LOCATION"
-  
+
   $TEXT_INDEXER_CMD --desc="$CONFIG"
 fi
 
@@ -293,14 +319,14 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "index" ] || [ "$MODE" = "spatial" ]; then
   echo "Dataset: $TDB2_LOCATION"
   echo "Spatial index location: $SPATIAL_INDEX_LOCATION"
   echo "SRS_URI: ${SRS_URI:-auto-detect}"
-  
+
   SPATIAL_CMD="$SPATIAL_INDEXER_CMD --loc=\"$TDB2_LOCATION\" --output=\"$SPATIAL_INDEX_LOCATION\""
-  
+
   # Add SRS_URI if specified in config
   if [ -n "$SRS_URI" ]; then
     SPATIAL_CMD="$SPATIAL_CMD --srs=\"$SRS_URI\""
   fi
-  
+
   eval "$SPATIAL_CMD"
 fi
 
@@ -317,7 +343,7 @@ if [ -z "$NO_STATS" ] && { [ "$MODE" = "all" ] || [ "$MODE" = "tdb2" ] || [ "$MO
   STATS_OUTPUT=$($TDB2_STATS_CMD --graph "urn:x-arq:UnionGraph" --loc "$STATS_LOC" 2>&1)
 
   # Show warnings to user but still create stats file
-  echo "$STATS_OUTPUT" | grep -v "^WARN" > "$STATS_FILE"
+  echo "$STATS_OUTPUT" | grep -v "^WARN" >"$STATS_FILE"
 
   # Show any warnings to the user
   echo "$STATS_OUTPUT" | grep "^WARN" | while read -r warning; do
@@ -327,16 +353,16 @@ if [ -z "$NO_STATS" ] && { [ "$MODE" = "all" ] || [ "$MODE" = "tdb2" ] || [ "$MO
   # If stats file is empty, try without the UnionGraph
   if [ ! -s "$STATS_FILE" ]; then
     echo "Stats file empty, trying without UnionGraph"
-    $TDB2_STATS_CMD --loc "$STATS_LOC" > "$STATS_FILE" 2>&1
+    $TDB2_STATS_CMD --loc "$STATS_LOC" >"$STATS_FILE" 2>&1
   fi
-  
+
   # Show final result
   if [ -s "$STATS_FILE" ]; then
     echo "Statistics generated successfully at $STATS_FILE"
   else
     echo "WARNING: Statistics file is empty - dataset may be empty or have issues"
   fi
-  
+
   echo "Statistics generated at $STATS_FILE"
   echo "First 5 lines:"
   head -n 5 "$STATS_FILE"
