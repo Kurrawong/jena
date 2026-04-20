@@ -17,7 +17,7 @@ This doc set covers the SHACL/entity-per-document search model in `jena-text`.
 
 ## Core Rules
 
-- `luc:query` object arguments are exactly `(indexSelector fieldSpec queryString cqlFilter sortSpec limit)`.
+- `luc:query` object arguments are exactly `(indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)`.
 - `luc:facet` object arguments are exactly `(indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount)`.
 - `luc:query` does not expose `?match`.
 - `luc:match` is the only match-detail API.
@@ -33,7 +33,7 @@ PREFIX luc: <urn:jena:lucene:index#>
 
 SELECT ?entity ?score WHERE {
   (?hit ?entity ?score)
-    luc:query ("default" "default" "learning" "" "" 20) .
+    luc:query ("default" "default" "learning" "" "" 20 0) .
 }
 ```
 
@@ -42,7 +42,7 @@ PREFIX luc: <urn:jena:lucene:index#>
 
 SELECT ?entity ?field ?value WHERE {
   (?hit ?entity ?score)
-    luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "" "" 10) .
+    luc:query ("default" '["urn:jena:lucene:field#title"]' "copper" "" "" 10 0) .
   (?hit ?field ?value) luc:match () .
 }
 ```
