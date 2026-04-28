@@ -129,6 +129,11 @@ public class ShaclBulkIndexer {
                         }
                         Quad quad = quadIter.next();
                         Node subject = quad.getSubject();
+                        if (subject.isBlank()) {
+                            log.warn("Skipping blank-node entity (cannot be indexed): {} for shape {}",
+                                subject, profile.getShapeNode());
+                            continue;
+                        }
                         String entityUri = TextQueryFuncs.subjectToString(subject);
 
                         String dedupKey = entityUri + "|" + profile.getShapeNode().toString();
@@ -172,6 +177,11 @@ public class ShaclBulkIndexer {
                 }
                 Triple t = typeTriples.next();
                 Node subject = t.getSubject();
+                if (subject.isBlank()) {
+                    log.warn("Skipping blank-node entity (cannot be indexed): {} for shape {}",
+                        subject, profile.getShapeNode());
+                    continue;
+                }
                 String entityUri = TextQueryFuncs.subjectToString(subject);
 
                 String dedupKey = entityUri + "|" + profile.getShapeNode().toString();

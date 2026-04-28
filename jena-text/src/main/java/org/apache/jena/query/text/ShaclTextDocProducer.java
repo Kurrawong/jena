@@ -235,6 +235,15 @@ public class ShaclTextDocProducer implements TextDocProducer {
             return;
         }
 
+        if (subject.isBlank()) {
+            List<String> shapes = new ArrayList<>();
+            for (IndexProfile profile : matchedProfiles) {
+                shapes.add(profile.getShapeNode().toString());
+            }
+            log.warn("Skipping blank-node entity (cannot be indexed): {} matched shapes {}", entityUri, shapes);
+            return;
+        }
+
         for (IndexProfile profile : matchedProfiles) {
             Entity entity = buildEntity(subject, entityUri, profile);
             indexer.updateEntityForProfile(entity, profile);

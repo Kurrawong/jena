@@ -326,6 +326,39 @@ public class TestShaclBulkIndexer {
     }
 
     @Test
+    public void testBulkIndexSkipsBlankNodeEntities() {
+        Model model = baseDataset.getDefaultModel();
+
+        // URI-keyed book (should be indexed)
+        addBook(model, "book1", "Indexed URI Book", "Technology", "Smith");
+
+        // Blank-node book (should be skipped with a warning)
+        Resource bnodeBook = model.createResource();
+        bnodeBook.addProperty(RDF.type, ResourceFactory.createResource(NS + "Book"));
+        bnodeBook.addProperty(ResourceFactory.createProperty(NS + "title"), "Blank Node Book");
+        bnodeBook.addProperty(ResourceFactory.createProperty(NS + "category"), "Technology");
+        bnodeBook.addProperty(ResourceFactory.createProperty(NS + "author"), "Anonymous");
+
+        DatasetGraph dsg = baseDataset.asDatasetGraph();
+        ShaclBulkIndexer indexer = new ShaclBulkIndexer(dsg, textIndex, mapping);
+        indexer.index();
+
+        assertEquals("Blank-node entity must not count toward indexed entities",
+            1, indexer.getEntityCount());
+
+        List<TextHit> hits = textIndex.query(TITLE_PRED, "book", null, null);
+        Set<String> uris = new HashSet<>();
+        for (TextHit hit : hits) {
+            if (hit.getNode().isURI()) {
+                uris.add(hit.getNode().getURI());
+            } else {
+                fail("Blank-node subject should not have been indexed: " + hit.getNode());
+            }
+        }
+        assertTrue("URI book must still be indexed", uris.contains(NS + "book1"));
+    }
+
+    @Test
     public void testBulkIndexMultiValuedField() {
         Model model = baseDataset.getDefaultModel();
         Resource book = ResourceFactory.createResource(NS + "book1");
