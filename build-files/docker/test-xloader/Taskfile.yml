@@ -10,15 +10,15 @@
 #
 version: '3'
 
-vars:
-  IMAGE_NAME: '{{.IMAGE_NAME | default "fuseki-loader"}}'
-  IMAGE_TAG: '{{.IMAGE_TAG | default "6.1.0-SNAPSHOT"}}'
+includes:
+  rootTaskfile: ../../../Taskfile.yml
 
 tasks:
-  clean:
-    desc: Remove volumes from previous runs
+  build:
+    desc: Build the text-only SHACL indexer image from the repo root
+    dir: ../../../
     cmds:
-      - docker compose down -v 2>/dev/null || true
+      - docker build -f build-files/docker/Dockerfile.loader -t {{.IMAGE_NAME}}:{{.IMAGE_TAG}} .
 
   load:
     desc: Run xloader with two input files
@@ -43,9 +43,15 @@ tasks:
         docker compose run --rm -T query \
           --loc /data/DB/ds --query=-
 
+  clean:
+    desc: Remove volumes from previous runs
+    cmds:
+      - docker compose down -v 2>/dev/null || true
+
   test:
     desc: "Load two files via xloader then verify all 4 subjects are present"
     cmds:
+      - task: build
       - task: load
       - echo ""
       - echo "=== Subject count (expect 4) ==="
