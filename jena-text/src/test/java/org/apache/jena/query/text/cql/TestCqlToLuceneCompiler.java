@@ -368,6 +368,163 @@ public class TestCqlToLuceneCompiler {
         assertTrue(r.pushed() instanceof DrillDownQuery);
     }
 
+    // --- Reserved property: urn:jena:lucene:index#entityIri (issue #73) ---
+
+    private static final String ENTITY_IRI = ShaclIndexMapping.ENTITY_IRI_PROPERTY;
+    private static final String SAMPLE_IRI = "http://example.org/borehole/BH123456";
+
+    @Test
+    public void testEntityIriEqualityIsTermQueryOnDocIdField() {
+        CqlExpression expr = new CqlExpression.CqlComparison("=", ENTITY_IRI, SAMPLE_IRI);
+        CqlToLuceneCompiler.CompileResult r = compiler.compile(expr);
+
+        assertNotNull("=' on entityIri must push down", r.pushed());
+        assertNull("No residual for entityIri equality", r.residual());
+        assertTrue("Should be a TermQuery", r.pushed() instanceof TermQuery);
+        TermQuery tq = (TermQuery) r.pushed();
+        assertEquals("Field must be the configured docIdField (default 'uri')",
+            "uri", tq.getTerm().field());
+        assertEquals(SAMPLE_IRI, tq.getTerm().text());
+    }
+
+    @Test
+    public void testEntityIriNotEqualityIsMatchAllMinusTerm() {
+        CqlExpression expr = new CqlExpression.CqlComparison("<>", ENTITY_IRI, SAMPLE_IRI);
+        CqlToLuceneCompiler.CompileResult r = compiler.compile(expr);
+
+        assertNotNull(r.pushed());
+        assertNull(r.residual());
+        assertTrue(r.pushed() instanceof BooleanQuery);
+        BooleanQuery bq = (BooleanQuery) r.pushed();
+        boolean hasMatchAllMust = bq.clauses().stream()
+            .anyMatch(c -> c.occur() == BooleanClause.Occur.MUST
+                && c.query() instanceof MatchAllDocsQuery);
+        boolean hasTermMustNot = bq.clauses().stream()
+            .anyMatch(c -> c.occur() == BooleanClause.Occur.MUST_NOT
+                && c.query() instanceof TermQuery);
+        assertTrue("Should contain MatchAllDocsQuery as MUST", hasMatchAllMust);
+        assertTrue("Should contain TermQuery as MUST_NOT", hasTermMustNot);
+    }
+
+    @Test
+    public void testEntityIriInIsTermInSetQuery() {
+        CqlExpression in = new CqlExpression.CqlIn(ENTITY_IRI,
+            List.of("http://example.org/a", "http://example.org/b"));
+        CqlToLuceneCompiler.CompileResult r = compiler.compile(in);
+
+        assertNotNull(r.pushed());
+        assertNull(r.residual());
+        assertTrue(r.pushed() instanceof TermInSetQuery);
+    }
+
+    @Test
+    public void testEntityIriEmptyInIsMatchNoDocs() {
+        CqlExpression in = new CqlExpression.CqlIn(ENTITY_IRI, Collections.emptyList());
+        CqlToLuceneCompiler.CompileResult r = compiler.compile(in);
+
+        assertNotNull(r.pushed());
+        assertNull(r.residual());
+        assertTrue(r.pushed() instanceof MatchNoDocsQuery);
+    }
+
+    @Test
+    public void testEntityIriRangeFallsThroughToResidual() {
+        // Range operators don't make sense on IRIs; should not push down.
+        CqlExpression expr = new CqlExpression.CqlComparison(">", ENTITY_IRI, SAMPLE_IRI);
+        CqlToLuceneCompiler.CompileResult r = compiler.compile(expr);
+
+        assertNull("Range on entityIri must not push", r.pushed());
+        assertNotNull("Range on entityIri must remain residual", r.residual());
+    }
+
+    @Test
+    public void testEntityIriBetweenFallsThroughToResidual() {
+        CqlExpression btw = new CqlExpression.CqlBetween(ENTITY_IRI,
+            "http://example.org/a", "http://example.org/z");
+        CqlToLuceneCompiler.CompileResult r = compiler.compile(btw);
+
+        assertNull(r.pushed());
+        assertNotNull(r.residual());
+    }
+
+    @Test
+    public void testEntityIriLikeFallsThroughToResidual() {
+        CqlExpression like = new CqlExpression.CqlLike(ENTITY_IRI, "http://example.org/%");
+        CqlToLuceneCompiler.CompileResult r = compiler.compile(like);
+
+        assertNull(r.pushed());
+        assertNotNull(r.residual());
+    }
+
+    @Test
+    public void testEntityIriCombinedWithFieldFilter() {
+        CqlExpression entityFilter = new CqlExpression.CqlComparison("=", ENTITY_IRI, SAMPLE_IRI);
+        CqlExpression stateFilter = new CqlExpression.CqlComparison("=", FP + "state", "WA");
+        CqlExpression and = new CqlExpression.CqlAnd(List.of(entityFilter, stateFilter));
+
+        CqlToLuceneCompiler.CompileResult r = compiler.compile(and);
+
+        assertNotNull("AND of two pushable filters should push fully", r.pushed());
+        assertNull(r.residual());
+    }
+
+    @Test
+    public void testEntityIriHonoursCustomDocIdField() {
+        FieldDef nameField = new FieldDef("name", FieldType.KEYWORD, null,
+            true, true, false, false, false, false);
+        IndexProfile profile = new IndexProfile(
+            NodeFactory.createURI("http://example.org/Shape"),
+            Collections.singleton(NodeFactory.createURI("http://example.org/Thing")),
+            "entityUri", "docType",
+            Collections.singletonList(nameField),
+            Collections.singletonList(occurrence(nameField, "http://example.org/name")),
+            Collections.emptyList(),
+            Collections.emptyList());
+
+        CqlToLuceneCompiler customCompiler =
+            new CqlToLuceneCompiler(new ShaclIndexMapping(Collections.singletonList(profile)));
+
+        CqlExpression expr = new CqlExpression.CqlComparison("=", ENTITY_IRI, SAMPLE_IRI);
+        CqlToLuceneCompiler.CompileResult r = customCompiler.compile(expr);
+
+        assertNotNull(r.pushed());
+        TermQuery tq = (TermQuery) r.pushed();
+        assertEquals("Reserved entityIri must resolve to the configured docIdField",
+            "entityUri", tq.getTerm().field());
+    }
+
+    @Test
+    public void testMultiProfileMismatchedDocIdFieldRejectedAtConstruction() {
+        FieldDef nameA = new FieldDef("nameA", FieldType.KEYWORD, null,
+            true, true, false, false, false, false);
+        FieldDef nameB = new FieldDef("nameB", FieldType.KEYWORD, null,
+            true, true, false, false, false, false);
+        IndexProfile a = new IndexProfile(
+            NodeFactory.createURI("http://example.org/ShapeA"),
+            Collections.singleton(NodeFactory.createURI("http://example.org/A")),
+            "uri", "docType",
+            Collections.singletonList(nameA),
+            Collections.singletonList(occurrence(nameA, "http://example.org/nameA")),
+            Collections.emptyList(),
+            Collections.emptyList());
+        IndexProfile b = new IndexProfile(
+            NodeFactory.createURI("http://example.org/ShapeB"),
+            Collections.singleton(NodeFactory.createURI("http://example.org/B")),
+            "entityUri", "docType",
+            Collections.singletonList(nameB),
+            Collections.singletonList(occurrence(nameB, "http://example.org/nameB")),
+            Collections.emptyList(),
+            Collections.emptyList());
+
+        try {
+            new ShaclIndexMapping(Arrays.asList(a, b));
+            fail("Expected TextIndexException for mismatched docIdField across profiles");
+        } catch (org.apache.jena.query.text.TextIndexException e) {
+            assertTrue("Error message should mention idx:docIdField",
+                e.getMessage().contains("idx:docIdField") || e.getMessage().contains("docIdField"));
+        }
+    }
+
     private static FieldOccurrence occurrence(FieldDef field, String predicateUri) {
         Node predicate = NodeFactory.createURI(predicateUri);
         return new FieldOccurrence(

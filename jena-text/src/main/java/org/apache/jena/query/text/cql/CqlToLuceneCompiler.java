@@ -241,6 +241,11 @@ public class CqlToLuceneCompiler {
     }
 
     private CompileResult compileComparison(CqlExpression.CqlComparison cmp) {
+        Query entityIriQuery = compileEntityIriComparison(cmp);
+        if (entityIriQuery != null) {
+            return new CompileResult(entityIriQuery, null);
+        }
+
         FieldDef field = findField(cmp.property());
         if (field == null || !field.isIndexed()) {
             return new CompileResult(null, cmp);
@@ -300,6 +305,11 @@ public class CqlToLuceneCompiler {
     }
 
     private CompileResult compileIn(CqlExpression.CqlIn in) {
+        Query entityIriQuery = compileEntityIriIn(in);
+        if (entityIriQuery != null) {
+            return new CompileResult(entityIriQuery, null);
+        }
+
         FieldDef field = findField(in.property());
         if (field == null || !field.isIndexed()) {
             return new CompileResult(null, in);
@@ -476,6 +486,46 @@ public class CqlToLuceneCompiler {
 
     private FieldDef findField(String fieldIRI) {
         return mapping.findField(fieldIRI);
+    }
+
+    /**
+     * Reserved-property handler for {@code urn:jena:lucene:index#entityIri}.
+     * Translates {@code =} and {@code <>} into a TermQuery against the doc-id field.
+     * Returns null for unsupported operators (range, etc) so they fall through to residual.
+     */
+    private Query compileEntityIriComparison(CqlExpression.CqlComparison cmp) {
+        String docIdField = mapping.findDocIdFieldForEntityIriProperty(cmp.property());
+        if (docIdField == null) {
+            return null;
+        }
+        Query term = new TermQuery(new Term(docIdField, String.valueOf(cmp.value())));
+        return switch (cmp.op()) {
+            case "=" -> term;
+            case "<>" -> new BooleanQuery.Builder()
+                .add(new MatchAllDocsQuery(), BooleanClause.Occur.MUST)
+                .add(term, BooleanClause.Occur.MUST_NOT)
+                .build();
+            default -> null;
+        };
+    }
+
+    /**
+     * Reserved-property handler for {@code urn:jena:lucene:index#entityIri}.
+     * Translates {@code in [...]} into a TermInSetQuery against the doc-id field.
+     */
+    private Query compileEntityIriIn(CqlExpression.CqlIn in) {
+        String docIdField = mapping.findDocIdFieldForEntityIriProperty(in.property());
+        if (docIdField == null) {
+            return null;
+        }
+        if (in.values().isEmpty()) {
+            return new MatchNoDocsQuery();
+        }
+        List<BytesRef> refs = new ArrayList<>(in.values().size());
+        for (Object v : in.values()) {
+            refs.add(new BytesRef(String.valueOf(v)));
+        }
+        return new TermInSetQuery(docIdField, refs);
     }
 
     private static int toInt(Object v) {
