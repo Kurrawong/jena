@@ -671,8 +671,10 @@ public class ShaclIndexAssembler {
         if (IndexVocab.IntField.getURI().equals(uri)) return FieldType.INT;
         if (IndexVocab.LongField.getURI().equals(uri)) return FieldType.LONG;
         if (IndexVocab.DoubleField.getURI().equals(uri)) return FieldType.DOUBLE;
-        if (IndexVocab.DateField.getURI().equals(uri)) return FieldType.DATE;
-        if (IndexVocab.DateTimeField.getURI().equals(uri)) return FieldType.DATETIME;
+        if (IndexVocab.TemporalField.getURI().equals(uri)) return FieldType.TEMPORAL;
+        // Deprecated aliases — both still map to FieldType.TEMPORAL for backwards compat.
+        if (IndexVocab.DateField.getURI().equals(uri)) return FieldType.TEMPORAL;
+        if (IndexVocab.DateTimeField.getURI().equals(uri)) return FieldType.TEMPORAL;
         if (IndexVocab.LatLonField.getURI().equals(uri)) return FieldType.LATLON;
         throw new TextIndexException("Unknown idx:fieldType: " + uri);
     }

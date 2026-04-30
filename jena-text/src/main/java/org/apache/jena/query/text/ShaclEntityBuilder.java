@@ -143,7 +143,7 @@ final class ShaclEntityBuilder {
 
     static Object nodeToValue(Node obj, FieldType fieldType, boolean preserveLiteralMetadata) {
         if (obj.isLiteral()) {
-            if (preserveLiteralMetadata || fieldType == FieldType.DATE || fieldType == FieldType.DATETIME) {
+            if (preserveLiteralMetadata || fieldType == FieldType.TEMPORAL) {
                 return obj;
             }
             return switch (fieldType) {

@@ -78,7 +78,7 @@ public class TestTextFacetPF {
 
         FieldDef yearField = new FieldDef("year", FieldType.INT, null,
             true, true, true, true, true, false);
-        FieldDef publishedOnField = new FieldDef("publishedOn", FieldType.DATE, null, null,
+        FieldDef publishedOnField = new FieldDef("publishedOn", FieldType.TEMPORAL, null, null,
             true, true, true, true, false, false, true);
 
         List<FieldOccurrence> rootOccurrences = Arrays.asList(

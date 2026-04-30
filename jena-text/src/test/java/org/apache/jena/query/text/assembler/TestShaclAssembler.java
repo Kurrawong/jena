@@ -219,6 +219,46 @@ public class TestShaclAssembler {
     }
 
     @Test
+    public void testTemporalFieldVocabResolvesToTemporal() {
+        // Issue #69: idx:TemporalField is the new canonical resource, idx:DateField and
+        // idx:DateTimeField are deprecated aliases — all three must produce TEMPORAL.
+        for (Resource fieldTypeRes : new Resource[]{
+                IndexVocab.TemporalField, IndexVocab.DateField, IndexVocab.DateTimeField }) {
+            Model model = createModel();
+
+            Resource tempField = model.createResource(EX + "eventDateField_" + fieldTypeRes.getLocalName())
+                .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "eventDate")
+                .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), fieldTypeRes)
+                .addProperty(model.createProperty(IndexVocab.NS, "storeLiteralMetadata"),
+                    model.createTypedLiteral(true));
+
+            Resource bookShape = model.createResource(EX + "BookShape_" + fieldTypeRes.getLocalName())
+                .addProperty(model.createProperty(SH, "targetClass"),
+                    model.createResource(EX + "Book_" + fieldTypeRes.getLocalName()))
+                .addProperty(model.createProperty(SH, "property"),
+                    occurrence(model, tempField, model.createResource(EX + "eventDate")));
+
+            RDFNode shapesList = model.createList(new RDFNode[]{ bookShape });
+            Resource indexSpec = model.createResource(EX + "index_" + fieldTypeRes.getLocalName())
+                .addProperty(RDF.type, TextVocab.textIndexShacl)
+                .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+                .addProperty(TextVocab.pShapes, shapesList);
+
+            ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
+            try {
+                FieldDef fd = index.getShaclMapping().findFieldByName("eventDate");
+                assertNotNull("Field eventDate must be parsed", fd);
+                assertEquals("All three vocab resources must produce FieldType.TEMPORAL ("
+                    + fieldTypeRes.getLocalName() + ")",
+                    org.apache.jena.query.text.ShaclIndexMapping.FieldType.TEMPORAL,
+                    fd.getFieldType());
+            } finally {
+                index.close();
+            }
+        }
+    }
+
+    @Test
     public void testSequencePathParsed() {
         Model model = createModel();
 

@@ -1,5 +1,5 @@
 # Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
-# Date range filter on idx:DateField using CQL2-JSON between.
+# Date range filter on idx:TemporalField using CQL2-JSON between.
 
 PREFIX luc: <urn:jena:lucene:index#>
 
