@@ -21,6 +21,9 @@
 
 package org.apache.jena.query.text.cmd;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import org.apache.jena.atlas.logging.LogCtlJUL;
 import org.apache.jena.cmd.ArgDecl;
 import org.apache.jena.cmd.CmdException;
@@ -48,8 +51,8 @@ public class shacltextindexer extends CmdARQ {
     public static final ArgDecl assemblerDescDecl = new ArgDecl(ArgDecl.HasValue, "desc", "dataset");
 
     protected DatasetGraphText dataset = null;
-    protected ShaclTextIndexLucene textIndex = null;
-    protected ShaclIndexMapping shaclMapping = null;
+    /** Ordered map of (registry id -> SHACL index). Always contains at least one entry. */
+    protected Map<String, ShaclTextIndexLucene> shaclIndexes = new LinkedHashMap<>();
 
     static public void main(String... argv) {
         LogCtlJUL.routeJULtoSLF4J();
@@ -93,15 +96,29 @@ public class shacltextindexer extends CmdARQ {
             throw new CmdException("No dataset description found");
 
         dataset = (DatasetGraphText)(ds.asDatasetGraph());
-        TextIndex idx = dataset.getTextIndex();
-        if (idx == null)
-            throw new CmdException("Dataset has no text index");
-        if (!(idx instanceof ShaclTextIndexLucene))
-            throw new CmdException("Text index is not a SHACL Lucene index. " +
-                "Use 'textindexer' for classic triple-per-document indexes.");
 
-        textIndex = (ShaclTextIndexLucene) idx;
-        shaclMapping = textIndex.getShaclMapping();
+        // Prefer the TextIndexRegistry stored in the dataset context (multi-index aware).
+        // Fall back to the single-index path for backwards compatibility.
+        Object regObj = dataset.getContext().get(TextQuery.textIndexRegistry);
+        if (regObj instanceof TextIndexRegistry registry) {
+            for (Map.Entry<String, TextIndexLucene> entry : registry.allWithIds().entrySet()) {
+                if (entry.getValue() instanceof ShaclTextIndexLucene shaclIdx) {
+                    shaclIndexes.put(entry.getKey(), shaclIdx);
+                }
+            }
+            if (shaclIndexes.isEmpty()) {
+                throw new CmdException("No SHACL Lucene indexes registered. " +
+                    "Use 'textindexer' for classic triple-per-document indexes.");
+            }
+        } else {
+            TextIndex idx = dataset.getTextIndex();
+            if (idx == null)
+                throw new CmdException("Dataset has no text index");
+            if (!(idx instanceof ShaclTextIndexLucene shaclIdx))
+                throw new CmdException("Text index is not a SHACL Lucene index. " +
+                    "Use 'textindexer' for classic triple-per-document indexes.");
+            shaclIndexes.put(TextIndexRegistry.DEFAULT_ID, shaclIdx);
+        }
     }
 
     @Override
@@ -116,33 +133,46 @@ public class shacltextindexer extends CmdARQ {
                 dataset.begin(ReadWrite.READ);
             }
 
-            log.info("Starting SHACL bulk indexing...");
-            log.info("  Profiles: {}", shaclMapping.getProfiles().size());
-            for (ShaclIndexMapping.IndexProfile profile : shaclMapping.getProfiles()) {
-                log.info("    {} -> {}", profile.getShapeNode(), profile.getTargetClasses());
-            }
-
-            long startTime = System.currentTimeMillis();
-
-            ShaclBulkIndexer indexer = new ShaclBulkIndexer(
-                dataset, textIndex, shaclMapping);
+            log.info("Starting SHACL bulk indexing across {} index(es)", shaclIndexes.size());
             String firstN = System.getenv(ENV_INDEX_FIRST_N);
+            long maxEntitiesPerProfile = -1;
             if (firstN != null && !firstN.isBlank()) {
-                long maxEntitiesPerProfile = Long.parseLong(firstN.trim());
-                if (maxEntitiesPerProfile > 0) {
-                    indexer.setMaxEntitiesPerProfile(maxEntitiesPerProfile);
+                long parsed = Long.parseLong(firstN.trim());
+                if (parsed > 0) {
+                    maxEntitiesPerProfile = parsed;
                     log.info("Dev mode: indexing first {} entities per SHACL profile from ${}",
                         maxEntitiesPerProfile, ENV_INDEX_FIRST_N);
                 }
             }
-            indexer.index();
 
-            textIndex.close();
+            long startTime = System.currentTimeMillis();
+            long totalEntities = 0;
+
+            for (Map.Entry<String, ShaclTextIndexLucene> entry : shaclIndexes.entrySet()) {
+                String id = entry.getKey();
+                ShaclTextIndexLucene shaclIdx = entry.getValue();
+                ShaclIndexMapping mapping = shaclIdx.getShaclMapping();
+
+                log.info("Indexing index '{}' ({} profile(s))", id, mapping.getProfiles().size());
+                for (ShaclIndexMapping.IndexProfile profile : mapping.getProfiles()) {
+                    log.info("    {} -> {}", profile.getShapeNode(), profile.getTargetClasses());
+                }
+
+                ShaclBulkIndexer indexer = new ShaclBulkIndexer(dataset, shaclIdx, mapping);
+                if (maxEntitiesPerProfile > 0) {
+                    indexer.setMaxEntitiesPerProfile(maxEntitiesPerProfile);
+                }
+                indexer.index();
+                totalEntities += indexer.getEntityCount();
+
+                shaclIdx.close();
+                log.info("  Index '{}' complete: {} entities", id, indexer.getEntityCount());
+            }
 
             long elapsed = System.currentTimeMillis() - startTime;
             long seconds = Math.max(elapsed / 1000, 1);
-            log.info("Indexing complete: {} entities in {} seconds ({} per second)",
-                indexer.getEntityCount(), seconds, indexer.getEntityCount() / seconds);
+            log.info("All indexes complete: {} entities total in {} seconds ({} per second)",
+                totalEntities, seconds, totalEntities / seconds);
 
             if (dataset.supportsTransactions()) {
                 dataset.commit();
