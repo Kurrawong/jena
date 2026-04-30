@@ -1,21 +1,56 @@
 # Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
 
-FROM maven:3.9.9-eclipse-temurin-21-alpine AS builder
+FROM maven:3.9.9-eclipse-temurin-21 AS builder
 
 WORKDIR /build
 
-COPY . .
+# Copy only jena modules and pom.xml for caching
+COPY pom.xml ./
+COPY build-files/license-header build-files/license-header
+COPY build-files/rat-exclusions.txt build-files/rat-exclusions.txt
+COPY apache-jena/ apache-jena/
+COPY apache-jena-libs/ apache-jena-libs/
+COPY jena-arq/ jena-arq/
+COPY jena-base/ jena-base/
+COPY jena-benchmarks/ jena-benchmarks/
+COPY jena-bom/ jena-bom/
+COPY jena-cmds/ jena-cmds/
+COPY jena-commonsrdf/ jena-commonsrdf/
+COPY jena-core/ jena-core/
+COPY jena-db/ jena-db/
+COPY jena-examples/ jena-examples/
+COPY jena-fuseki2/ jena-fuseki2/
+COPY jena-geosparql/ jena-geosparql/
+COPY jena-integration-tests/ jena-integration-tests/
+COPY jena-iri3986/ jena-iri3986/
+COPY jena-langtag/ jena-langtag/
+COPY jena-ontapi/ jena-ontapi/
+COPY jena-querybuilder/ jena-querybuilder/
+COPY jena-rdfconnection/ jena-rdfconnection/
+COPY jena-rdfpatch/ jena-rdfpatch/
+COPY jena-serviceenhancer/ jena-serviceenhancer/
+COPY jena-shacl/ jena-shacl/
+COPY jena-shex/ jena-shex/
+COPY jena-tdb1/ jena-tdb1/
+COPY jena-tdb2/ jena-tdb2/
+COPY jena-text/ jena-text/
 
-RUN mvn --batch-mode --quiet --no-transfer-progress -Dstyle.color=never \
-    clean package -pl jena-fuseki2/jena-fuseki-server -am -DskipTests -Dmaven.javadoc.skip=true
+RUN mvn clean package -Pcomplete -DskipTests -Dmaven.javadoc.skip=true
+
+# Copy remaining files
+COPY . .
 
 FROM eclipse-temurin:21-jre-ubi10-minimal
 
+RUN microdnf install jq -y
+
 WORKDIR /fuseki
 
-COPY --from=builder /build/jena-fuseki2/jena-fuseki-server/target/jena-fuseki-server-*.jar ./jena-fuseki-server.jar
 COPY build-files/docker/loader-entrypoint.sh ./entrypoint.sh
-
-RUN chmod +x ./entrypoint.sh
+COPY --from=builder /build/jena-fuseki2/jena-fuseki-server/target/jena-fuseki-server-*.jar ./jena-fuseki-server.jar
+COPY --from=builder /build/apache-jena/target/apache-jena-*-SNAPSHOT.tar.gz .
+RUN mkdir -p /fuseki/apache-jena && \
+    tar -xzf apache-jena-*-SNAPSHOT.tar.gz -C /fuseki/apache-jena --strip-components=1 && \
+    rm apache-jena-*-SNAPSHOT.tar.gz
 
 ENTRYPOINT ["/fuseki/entrypoint.sh"]

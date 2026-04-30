@@ -1,0 +1,25 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+services:
+  xloader:
+    image: ${IMAGE_NAME:-fuseki-loader}:${IMAGE_TAG:-6.1.0-SNAPSHOT}
+    volumes:
+      - ./config.ttl:/config.ttl:ro
+      - ./data:/rdf:ro
+      - xloader-db:/data/DB
+      - xloader-tmp:/tmp
+    environment:
+      - MODE=tdb2.xloader
+      - NO_STATS=true
+
+  # Used to inspect TDB2 contents after loading
+  query:
+    image: ${IMAGE_NAME:-fuseki-loader}:${IMAGE_TAG:-6.1.0-SNAPSHOT}
+    volumes:
+      - xloader-db:/data/DB
+    entrypoint: ["java", "-cp", "/fuseki/jena-fuseki-server.jar", "tdb2.tdbquery"]
+    command: ["--loc", "/data/DB/ds", "--query=-"]
+    stdin_open: true
+
+volumes:
+  xloader-db:
+  xloader-tmp:

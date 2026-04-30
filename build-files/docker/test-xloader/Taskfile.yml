@@ -1,0 +1,63 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# https://taskfile.dev
+#
+# Test: confirm xloader loads all files (not just the first).
+#
+# file1.ttl has ex:thing1, ex:thing2 (Widgets)
+# file2.ttl has ex:thing3, ex:thing4 (Gadgets)
+#
+# Expected: 4 subjects total. If xloader only loads the first file, we get 2.
+#
+version: '3'
+
+includes:
+  rootTaskfile: ../../../Taskfile.yml
+
+tasks:
+  build:
+    desc: Build the text-only SHACL indexer image from the repo root
+    dir: ../../../
+    cmds:
+      - docker build -f build-files/docker/Dockerfile.loader -t {{.IMAGE_NAME}}:{{.IMAGE_TAG}} .
+
+  load:
+    desc: Run xloader with two input files
+    deps: [clean]
+    cmds:
+      - docker compose run --rm xloader
+
+  count:
+    desc: Count distinct subjects in the loaded TDB2 store
+    cmds:
+      - |
+        echo 'SELECT (COUNT(DISTINCT ?s) AS ?total) WHERE { ?s ?p ?o }' | \
+        docker compose run --rm -T query \
+          --loc /data/DB/ds --query=-
+    silent: false
+
+  count-by-type:
+    desc: Count subjects by rdf:type
+    cmds:
+      - |
+        echo 'PREFIX ex: <http://example.org/> SELECT ?type (COUNT(?s) AS ?n) WHERE { ?s a ?type } GROUP BY ?type ORDER BY ?type' | \
+        docker compose run --rm -T query \
+          --loc /data/DB/ds --query=-
+
+  clean:
+    desc: Remove volumes from previous runs
+    cmds:
+      - docker compose down -v 2>/dev/null || true
+
+  test:
+    desc: "Load two files via xloader then verify all 4 subjects are present"
+    cmds:
+      - task: build
+      - task: load
+      - echo ""
+      - echo "=== Subject count (expect 4) ==="
+      - task: count
+      - echo ""
+      - echo "=== By type (expect Widget=2, Gadget=2) ==="
+      - task: count-by-type
+      - echo ""
+      - task: clean
