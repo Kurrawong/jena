@@ -87,14 +87,14 @@ field:year
 
 field:publishedOn
     idx:fieldName "publishedOn" ;
-    idx:fieldType idx:DateField ;
+    idx:fieldType idx:TemporalField ;
     idx:sortable true ;
     idx:facetable true ;
     idx:storeLiteralMetadata true .
 
 field:indexedAt
     idx:fieldName "indexedAt" ;
-    idx:fieldType idx:DateTimeField ;
+    idx:fieldType idx:TemporalField ;
     idx:sortable true ;
     idx:storeLiteralMetadata true .
 

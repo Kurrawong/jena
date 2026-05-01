@@ -261,7 +261,7 @@ public class TestCqlToLuceneCompiler {
 
     @Test
     public void testDateEqualityUsesTemporalCompanionField() {
-        FieldDef eventDateField = new FieldDef("eventDate", FieldType.DATE, null, null,
+        FieldDef eventDateField = new FieldDef("eventDate", FieldType.TEMPORAL, null, null,
             true, true, false, true, false, false, true);
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI("http://example.org/DateShape"),
@@ -285,7 +285,7 @@ public class TestCqlToLuceneCompiler {
 
     @Test
     public void testDateBetweenUsesTemporalCompanionField() {
-        FieldDef eventDateField = new FieldDef("eventDate", FieldType.DATE, null, null,
+        FieldDef eventDateField = new FieldDef("eventDate", FieldType.TEMPORAL, null, null,
             true, true, false, true, false, false, true);
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI("http://example.org/DateShape"),

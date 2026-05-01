@@ -37,7 +37,7 @@ import org.apache.lucene.analysis.Analyzer;
 public class ShaclIndexMapping {
 
     public enum FieldType {
-        TEXT, KEYWORD, INT, LONG, DOUBLE, DATE, DATETIME, LATLON
+        TEXT, KEYWORD, INT, LONG, DOUBLE, TEMPORAL, LATLON
     }
 
     public enum NodeKindConstraint {
@@ -164,8 +164,10 @@ public class ShaclIndexMapping {
         public boolean isMultiValued()       { return multiValued; }
         public boolean isDefaultSearch()     { return defaultSearch; }
         public boolean isStoreLiteralMetadata() { return storeLiteralMetadata; }
-        public boolean isDateLike()          { return fieldType == FieldType.DATE || fieldType == FieldType.DATETIME; }
-        public boolean preservesLiteralMetadata() { return storeLiteralMetadata || isDateLike(); }
+        public boolean isTemporal()          { return fieldType == FieldType.TEMPORAL; }
+        /** @deprecated use {@link #isTemporal()}. Kept for backwards compat with PR-merge windows. */
+        @Deprecated public boolean isDateLike() { return isTemporal(); }
+        public boolean preservesLiteralMetadata() { return storeLiteralMetadata || isTemporal(); }
 
         @Override
         public boolean equals(Object o) {
@@ -635,7 +637,7 @@ public class ShaclIndexMapping {
     private void validateLiteralMetadataRequirements() {
         for (IndexProfile profile : profiles) {
             for (FieldDef field : profile.getFields()) {
-                if (field.isDateLike() && !field.isStoreLiteralMetadata()) {
+                if (field.isTemporal() && !field.isStoreLiteralMetadata()) {
                     throw new TextIndexException(
                         "Field " + field.getFieldIRI().getURI() + " uses " + field.getFieldType()
                         + " and requires idx:storeLiteralMetadata true");

@@ -48,8 +48,11 @@ public class IndexVocab {
     public static final Resource IntField       = Vocab.resource(NS, "IntField");
     public static final Resource LongField      = Vocab.resource(NS, "LongField");
     public static final Resource DoubleField    = Vocab.resource(NS, "DoubleField");
-    public static final Resource DateField      = Vocab.resource(NS, "DateField");
-    public static final Resource DateTimeField  = Vocab.resource(NS, "DateTimeField");
+    public static final Resource TemporalField  = Vocab.resource(NS, "TemporalField");
+    /** @deprecated alias for {@link #TemporalField}; both resolve to {@code FieldType.TEMPORAL}. */
+    @Deprecated public static final Resource DateField      = Vocab.resource(NS, "DateField");
+    /** @deprecated alias for {@link #TemporalField}; both resolve to {@code FieldType.TEMPORAL}. */
+    @Deprecated public static final Resource DateTimeField  = Vocab.resource(NS, "DateTimeField");
     public static final Resource LatLonField    = Vocab.resource(NS, "LatLonField");
 
     // Shape-level properties

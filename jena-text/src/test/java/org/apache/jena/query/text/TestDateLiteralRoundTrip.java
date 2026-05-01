@@ -65,9 +65,9 @@ public class TestDateLiteralRoundTrip {
     public void setUp() {
         FieldDef labelField = new FieldDef("label", FieldType.TEXT, null,
             true, true, false, false, false, true);
-        FieldDef dateField = new FieldDef("eventDate", FieldType.DATE, null, null,
+        FieldDef dateField = new FieldDef("eventDate", FieldType.TEMPORAL, null, null,
             true, true, false, true, false, false, true);
-        FieldDef tsField = new FieldDef("eventTimestamp", FieldType.DATETIME, null, null,
+        FieldDef tsField = new FieldDef("eventTimestamp", FieldType.TEMPORAL, null, null,
             true, true, false, true, false, false, true);
         FieldDef noteField = new FieldDef("note", FieldType.TEXT, null, null,
             true, true, false, false, false, false, true);

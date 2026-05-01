@@ -10,6 +10,7 @@
 **/.venv
 **/.cache
 **/node_modules
+**/node/
 **/target
 **/DB
 **/Lucene

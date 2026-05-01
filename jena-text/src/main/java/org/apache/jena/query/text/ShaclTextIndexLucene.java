@@ -247,7 +247,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     private static boolean isNumericField(ShaclIndexMapping.FieldDef fieldDef) {
         if (fieldDef == null) return false;
         return switch (fieldDef.getFieldType()) {
-            case INT, LONG, DOUBLE, DATE, DATETIME -> true;
+            case INT, LONG, DOUBLE, TEMPORAL -> true;
             default -> false;
         };
     }
@@ -736,8 +736,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 break;
             }
 
-            case DATE:
-            case DATETIME:
+            case TEMPORAL:
                 if (fieldDef.isStored()) {
                     doc.add(new StoredField(fieldName, value.toString()));
                 }
@@ -794,7 +793,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             case INT -> addIntegerLiteralField(doc, fieldDef, lexical);
             case LONG -> addLongLiteralField(doc, fieldDef, lexical);
             case DOUBLE -> addDoubleLiteralField(doc, fieldDef, lexical);
-            case DATE, DATETIME -> addTemporalLiteralField(doc, fieldDef, lexical);
+            case TEMPORAL -> addTemporalLiteralField(doc, fieldDef, lexical);
             case LATLON -> {
                 List<IndexableField> spatialFields = parseWktToLuceneFields(fieldName, lexical, fieldDef.isStored());
                 for (IndexableField f : spatialFields) {
@@ -1184,7 +1183,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 case INT -> collectIntRangeFacetResults(fieldName, spec.boundaries(), collector, maxValues, minCount);
                 case LONG -> collectLongRangeFacetResults(fieldName, spec.boundaries(), collector, maxValues, minCount);
                 case DOUBLE -> collectDoubleRangeFacetResults(fieldName, spec.boundaries(), collector, maxValues, minCount);
-                case DATE, DATETIME -> collectDateRangeFacetResults(fieldDef, collector, spec.boundaries(), maxValues, minCount);
+                case TEMPORAL -> collectDateRangeFacetResults(fieldDef, collector, spec.boundaries(), maxValues, minCount);
                 default -> throw new TextIndexException("Range facet field '" + spec.fieldIri() + "' is not numeric");
             };
             result.put(fieldDef.getFieldName(), buckets);
@@ -1924,7 +1923,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     case INT -> SortField.Type.INT;
                     case LONG -> SortField.Type.LONG;
                     case DOUBLE -> SortField.Type.DOUBLE;
-                    case DATE, DATETIME -> SortField.Type.LONG;
+                    case TEMPORAL -> SortField.Type.LONG;
                     case TEXT -> throw new TextIndexException(
                         "Cannot sort on TEXT field '" + spec.field() + "'. Use KEYWORD for sortable fields.");
                     case LATLON -> throw new TextIndexException(

@@ -429,7 +429,7 @@ public class CqlToLuceneCompiler {
             case INT -> IntPoint.newExactQuery(fieldName, toInt(value));
             case LONG -> LongPoint.newExactQuery(fieldName, toLong(value));
             case DOUBLE -> DoublePoint.newExactQuery(fieldName, toDouble(value));
-            case DATE, DATETIME -> LongPoint.newExactQuery(
+            case TEMPORAL -> LongPoint.newExactQuery(
                 LiteralFieldSupport.epochField(fieldName),
                 toEpochMillis(ft, value));
             case LATLON -> throw new TextIndexException("Equality queries not supported on LATLON field '" + fieldName + "'");
@@ -460,7 +460,7 @@ public class CqlToLuceneCompiler {
                     : Double.POSITIVE_INFINITY;
                 yield DoublePoint.newRangeQuery(fieldName, lo, hi);
             }
-            case DATE, DATETIME -> {
+            case TEMPORAL -> {
                 long lo = lower != null
                     ? (lowerInclusive ? toEpochMillis(ft, lower) : Math.addExact(toEpochMillis(ft, lower), 1L))
                     : Long.MIN_VALUE;

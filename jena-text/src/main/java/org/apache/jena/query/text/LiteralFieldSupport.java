@@ -51,24 +51,20 @@ public final class LiteralFieldSupport {
     }
 
     public static String queryFieldName(FieldDef fieldDef) {
-        return fieldDef != null && fieldDef.isDateLike()
+        return fieldDef != null && fieldDef.isTemporal()
             ? epochField(fieldDef.getFieldName())
             : fieldDef != null ? fieldDef.getFieldName() : null;
     }
 
     public static Long toEpochMillis(FieldType fieldType, Object rawValue) {
-        if (rawValue == null) {
+        if (rawValue == null || fieldType != FieldType.TEMPORAL) {
             return null;
         }
         String lexical = rawValue instanceof Node node && node.isLiteral()
             ? node.getLiteralLexicalForm()
             : String.valueOf(rawValue);
         try {
-            return switch (fieldType) {
-                case DATE -> parseDateEpochMillis(lexical);
-                case DATETIME -> parseDateTimeEpochMillis(lexical);
-                default -> null;
-            };
+            return parseTemporalEpochMillis(lexical);
         } catch (DateTimeException ex) {
             return null;
         }
@@ -94,8 +90,10 @@ public final class LiteralFieldSupport {
             case INT -> NodeFactory.createLiteralDT(lexical, org.apache.jena.datatypes.xsd.XSDDatatype.XSDinteger);
             case LONG -> NodeFactory.createLiteralDT(lexical, org.apache.jena.datatypes.xsd.XSDDatatype.XSDlong);
             case DOUBLE -> NodeFactory.createLiteralDT(lexical, org.apache.jena.datatypes.xsd.XSDDatatype.XSDdouble);
-            case DATE -> NodeFactory.createLiteralDT(lexical, org.apache.jena.datatypes.xsd.XSDDatatype.XSDdate);
-            case DATETIME -> NodeFactory.createLiteralDT(lexical, org.apache.jena.datatypes.xsd.XSDDatatype.XSDdateTime);
+            case TEMPORAL -> NodeFactory.createLiteralDT(lexical,
+                lexical.contains("T")
+                    ? org.apache.jena.datatypes.xsd.XSDDatatype.XSDdateTime
+                    : org.apache.jena.datatypes.xsd.XSDDatatype.XSDdate);
             case LATLON -> null;
         };
     }
@@ -104,19 +102,22 @@ public final class LiteralFieldSupport {
         return value == null || value.isEmpty() ? null : value;
     }
 
-    private static long parseDateEpochMillis(String lexical) {
+    /**
+     * Parse an xsd:date or xsd:dateTime lexical form into epoch milliseconds (UTC).
+     * Date-only forms are treated as start-of-day UTC.
+     */
+    private static long parseTemporalEpochMillis(String lexical) {
+        if (lexical.contains("T")) {
+            try {
+                return OffsetDateTime.parse(lexical, DateTimeFormatter.ISO_DATE_TIME)
+                    .toInstant().toEpochMilli();
+            } catch (DateTimeException ex) {
+                LocalDateTime localDateTime = LocalDateTime.parse(lexical, DateTimeFormatter.ISO_DATE_TIME);
+                return localDateTime.toInstant(ZoneOffset.UTC).toEpochMilli();
+            }
+        }
         TemporalAccessor parsed = DateTimeFormatter.ISO_DATE.parse(lexical);
         LocalDate date = LocalDate.from(parsed);
         return date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
-    }
-
-    private static long parseDateTimeEpochMillis(String lexical) {
-        try {
-            return OffsetDateTime.parse(lexical, DateTimeFormatter.ISO_DATE_TIME)
-                .toInstant().toEpochMilli();
-        } catch (DateTimeException ex) {
-            LocalDateTime localDateTime = LocalDateTime.parse(lexical, DateTimeFormatter.ISO_DATE_TIME);
-            return localDateTime.toInstant(ZoneOffset.UTC).toEpochMilli();
-        }
     }
 }

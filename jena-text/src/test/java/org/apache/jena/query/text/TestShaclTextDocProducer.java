@@ -229,6 +229,41 @@ public class TestShaclTextDocProducer {
     }
 
     @Test
+    public void testBlankNodeSubjectIsSkipped() {
+        // Blank-node subject with matching type and title — should not be indexed
+        dataset.begin(ReadWrite.WRITE);
+        try {
+            Model model = dataset.getDefaultModel();
+            Resource bnodeBook = model.createResource();
+            bnodeBook.addProperty(RDF.type, ResourceFactory.createResource(NS + "Book"));
+            bnodeBook.addProperty(ResourceFactory.createProperty(NS + "title"), "BlankNodeOnly");
+            dataset.commit();
+        } finally {
+            dataset.end();
+        }
+
+        List<TextHit> hits = textIndex.query(TITLE_PRED, "BlankNodeOnly", null, null);
+        assertTrue("Blank-node entity must not be indexed", hits.isEmpty());
+
+        // URI-keyed entity in the same dataset should still index
+        dataset.begin(ReadWrite.WRITE);
+        try {
+            Model model = dataset.getDefaultModel();
+            Resource book = ResourceFactory.createResource(NS + "namedBook");
+            model.add(book, RDF.type, ResourceFactory.createResource(NS + "Book"));
+            model.add(book, ResourceFactory.createProperty(NS + "title"), "BlankNodeOnly Companion");
+            dataset.commit();
+        } finally {
+            dataset.end();
+        }
+
+        List<TextHit> hits2 = textIndex.query(TITLE_PRED, "Companion", null, null);
+        assertEquals("URI subject must still be indexed alongside skipped blank node",
+            1, hits2.size());
+        assertEquals(NS + "namedBook", hits2.get(0).getNode().getURI());
+    }
+
+    @Test
     public void testMultipleBooks() {
         dataset.begin(ReadWrite.WRITE);
         try {
