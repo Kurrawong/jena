@@ -94,6 +94,7 @@ import org.junit.runners.Suite.SuiteClasses;
     , TestShaclBulkIndexer.class
     , TestShaclBulkIndexerMultiIndex.class
     , TestBulkIndexerParallelism.class
+    , TestShaclBulkIndexerParallel.class
 
     // CQL and multi-index tests
     , TestCqlParser.class

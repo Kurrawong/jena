@@ -21,12 +21,15 @@
 
 package org.apache.jena.query.text;
 
-import java.util.*;
 import java.text.NumberFormat;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.jena.graph.Graph;
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.Triple;
+import org.apache.jena.query.ReadWrite;
 import org.apache.jena.query.text.ShaclIndexMapping.*;
 import org.apache.jena.sparql.core.DatasetGraph;
 import org.apache.jena.sparql.core.Quad;
@@ -43,9 +46,22 @@ import org.slf4j.LoggerFactory;
  * after bulk-loading data with {@code tdb2.tdbloader}, which bypasses the
  * normal {@link ShaclTextDocProducer} change listener.
  * <p>
+ * <b>Execution model:</b> Single-threaded discovery walks the dataset and
+ * collects {@code (subject, profile)} pairs (TDB2 iterators do not
+ * thread-share). The collected pairs are then processed by a fixed thread
+ * pool, each worker opening its own read transaction and calling
+ * {@code buildEntity()} + {@code updateEntityForProfile()} per item.
+ * A single {@code commit()} fires after all workers complete.
+ * <p>
+ * Set {@link #setThreadCount(int)} to {@code 1} to fall back to the
+ * pre-parallel single-threaded path (useful for debugging).
+ * <p>
  * Usage:
  * <pre>
  *   ShaclBulkIndexer indexer = new ShaclBulkIndexer(datasetGraph, textIndex, mapping);
+ *   indexer.setFreshIndex(true);              // when loading into an empty index
+ *   indexer.setThreadCount(8);                // optional, defaults to availableProcessors()
+ *   indexer.setRamBufferSizeMB(256);          // optional Lucene tune
  *   indexer.index();
  * </pre>
  */
@@ -59,11 +75,13 @@ public class ShaclBulkIndexer {
     private final ShaclTextIndexLucene textIndex;
     private final ShaclIndexMapping mapping;
 
-    private long entityCount = 0;
-    private long batchSize = 10000;
+    private final AtomicLong entityCount = new AtomicLong();
     private long progressInterval = 10000;
-    private long commitInterval = 100000;
     private long maxEntitiesPerProfile = 0;
+    private int threadCount = Math.max(1, Runtime.getRuntime().availableProcessors());
+    private boolean freshIndex = false;
+    private double ramBufferSizeMB = -1.0;
+    private long batchSize = 100_000;
 
     public ShaclBulkIndexer(DatasetGraph baseDataset, TextIndex textIndex, ShaclIndexMapping mapping) {
         this.baseDataset = baseDataset;
@@ -74,14 +92,6 @@ public class ShaclBulkIndexer {
         this.mapping = mapping;
     }
 
-    public void setBatchSize(long batchSize) {
-        this.batchSize = batchSize;
-    }
-
-    public void setCommitInterval(long commitInterval) {
-        this.commitInterval = commitInterval;
-    }
-
     public void setProgressInterval(long progressInterval) {
         this.progressInterval = progressInterval;
     }
@@ -90,132 +100,279 @@ public class ShaclBulkIndexer {
         this.maxEntitiesPerProfile = maxEntitiesPerProfile;
     }
 
+    /** Number of worker threads (default: {@code availableProcessors()}). Setting 1 disables parallelism. */
+    public void setThreadCount(int threadCount) {
+        if (threadCount < 1) {
+            throw new IllegalArgumentException("threadCount must be >= 1");
+        }
+        this.threadCount = threadCount;
+    }
+
+    /**
+     * Skip the pre-add {@code deleteDocuments()} call when writing each entity.
+     * Set to {@code true} ONLY when loading into a known-empty index (e.g.
+     * immediately after {@code tdb2.tdbloader}). Setting on a non-empty index
+     * produces duplicates.
+     */
+    public void setFreshIndex(boolean freshIndex) {
+        this.freshIndex = freshIndex;
+    }
+
+    /** Optionally raise the IndexWriter RAM buffer for the duration of bulk indexing. */
+    public void setRamBufferSizeMB(double ramBufferSizeMB) {
+        this.ramBufferSizeMB = ramBufferSizeMB;
+    }
+
+    /**
+     * Number of work items processed per parallel batch. After each batch the
+     * pool drains and a single {@code commit()} fires before the next batch
+     * starts. Default 100k. Set to {@code Long.MAX_VALUE} to issue a single
+     * commit at the very end.
+     */
+    public void setBatchSize(long batchSize) {
+        if (batchSize < 1) {
+            throw new IllegalArgumentException("batchSize must be >= 1");
+        }
+        this.batchSize = batchSize;
+    }
+
     public long getEntityCount() {
-        return entityCount;
+        return entityCount.get();
     }
 
     /**
      * Index all entities matching SHACL profiles.
      * <p>
-     * For each profile, finds all subjects with a matching {@code rdf:type},
-     * builds an Entity from the graph triples, and writes to the Lucene index.
-     * Commits periodically based on {@code commitInterval}.
+     * Phase 1 (single-threaded): walk type triples in default + named graphs,
+     * dedupe, collect work items.
+     * <br>
+     * Phase 2 (parallel): each worker opens its own read transaction and
+     * calls {@code buildEntity()} + {@code updateEntityForProfile()} for every
+     * item assigned to it. Exceptions surface via {@code Future.get()}.
+     * <br>
+     * Phase 3: single {@code commit()} at the end (or one per batch when
+     * batches are bounded by {@link #setBatchSize}).
      */
     public void index() {
-        entityCount = 0;
-        Graph defaultGraph = baseDataset.getDefaultGraph();
+        entityCount.set(0);
+        Double previousRamBuffer = null;
+        if (ramBufferSizeMB > 0) {
+            try {
+                previousRamBuffer = textIndex.getIndexWriter().getConfig().getRAMBufferSizeMB();
+                textIndex.getIndexWriter().getConfig().setRAMBufferSizeMB(ramBufferSizeMB);
+                log.info("IndexWriter RAM buffer raised to {} MB for bulk indexing", ramBufferSizeMB);
+            } catch (Exception e) {
+                log.warn("Could not adjust RAM buffer size: {}", e.getMessage());
+            }
+        }
 
-        // Track which (entityUri, profile) pairs we've already indexed
+        // Discovery uses TDB2 iterators on this thread, which require a read transaction.
+        // Honour any caller-managed transaction; self-manage otherwise.
+        boolean ownTxn = false;
+        if (baseDataset.supportsTransactions() && !baseDataset.isInTransaction()) {
+            baseDataset.begin(ReadWrite.READ);
+            ownTxn = true;
+        }
+
+        try {
+            List<WorkItem> items = discoverWorkItems();
+            log.info("Discovered {} entities across {} profile(s); processing with {} thread(s)",
+                formatCount(items.size()), mapping.getProfiles().size(), threadCount);
+
+            if (threadCount == 1) {
+                processSingleThreaded(items);
+            } else {
+                processParallel(items);
+            }
+
+            textIndex.commit();
+            log.info("Bulk indexing complete: {} entities indexed", formatCount(entityCount.get()));
+        } finally {
+            if (ownTxn) {
+                baseDataset.end();
+            }
+            if (previousRamBuffer != null) {
+                try {
+                    textIndex.getIndexWriter().getConfig().setRAMBufferSizeMB(previousRamBuffer);
+                } catch (Exception e) {
+                    log.warn("Could not restore RAM buffer size: {}", e.getMessage());
+                }
+            }
+        }
+    }
+
+    // ----- Phase 1: discovery -----
+
+    /** Single-pass discovery — walks default + named graphs and emits dedup'd work items. */
+    private List<WorkItem> discoverWorkItems() {
+        List<WorkItem> items = new ArrayList<>();
         Set<String> indexed = new HashSet<>();
+        Graph defaultGraph = baseDataset.getDefaultGraph();
 
         for (IndexProfile profile : mapping.getProfiles()) {
             for (Node targetClass : profile.getTargetClasses()) {
-                log.info("Indexing profile {} class {}", profile.getShapeNode(), targetClass);
-                long profileCount = 0;
+                long perProfile = 0;
 
-                // Discover entities from default graph
-                long remaining = remainingForProfile(profileCount);
-                profileCount += indexEntities(defaultGraph, defaultGraph,
-                    targetClass, profile, indexed, remaining);
-
-                // Discover entities from named graphs via quad-level iteration
-                if (remainingForProfile(profileCount) != 0) {
-                    Iterator<Quad> quadIter = baseDataset.find(
-                        Node.ANY, Node.ANY, RDF_TYPE, targetClass);
-                    Graph unionGraph = baseDataset.getUnionGraph();
-                    while (quadIter.hasNext()) {
-                        if (maxEntitiesPerProfile > 0 && profileCount >= maxEntitiesPerProfile) {
-                            break;
-                        }
-                        Quad quad = quadIter.next();
-                        Node subject = quad.getSubject();
+                // Default graph discovery via type triples
+                ExtendedIterator<Triple> typeTriples = defaultGraph.find(Node.ANY, RDF_TYPE, targetClass);
+                try {
+                    while (typeTriples.hasNext()) {
+                        if (maxEntitiesPerProfile > 0 && perProfile >= maxEntitiesPerProfile) break;
+                        Node subject = typeTriples.next().getSubject();
                         if (subject.isBlank()) {
                             log.warn("Skipping blank-node entity (cannot be indexed): {} for shape {}",
                                 subject, profile.getShapeNode());
                             continue;
                         }
                         String entityUri = TextQueryFuncs.subjectToString(subject);
+                        if (!indexed.add(entityUri + "|" + profile.getShapeNode())) continue;
+                        items.add(new WorkItem(subject, entityUri, profile, GraphScope.DEFAULT));
+                        perProfile++;
+                    }
+                } finally {
+                    typeTriples.close();
+                }
 
-                        String dedupKey = entityUri + "|" + profile.getShapeNode().toString();
-                        if (!indexed.add(dedupKey)) {
+                // Named-graph discovery via quad iteration
+                if (maxEntitiesPerProfile <= 0 || perProfile < maxEntitiesPerProfile) {
+                    Iterator<Quad> quadIter = baseDataset.find(Node.ANY, Node.ANY, RDF_TYPE, targetClass);
+                    while (quadIter.hasNext()) {
+                        if (maxEntitiesPerProfile > 0 && perProfile >= maxEntitiesPerProfile) break;
+                        Node subject = quadIter.next().getSubject();
+                        if (subject.isBlank()) {
+                            log.warn("Skipping blank-node entity (cannot be indexed): {} for shape {}",
+                                subject, profile.getShapeNode());
                             continue;
                         }
-
-                        Entity entity = buildEntity(unionGraph, subject, entityUri, profile);
-                        textIndex.updateEntityForProfile(entity, profile);
-                        entityCount++;
-                        profileCount++;
-
-                        maybeLogProgress();
-                        if (commitInterval > 0 && entityCount % commitInterval == 0) {
-                            textIndex.commit();
-                            log.info("  Committed at {} entities", formatCount(entityCount));
-                        }
+                        String entityUri = TextQueryFuncs.subjectToString(subject);
+                        if (!indexed.add(entityUri + "|" + profile.getShapeNode())) continue;
+                        items.add(new WorkItem(subject, entityUri, profile, GraphScope.UNION));
+                        perProfile++;
                     }
                 }
 
-                log.info("  Indexed {} entities for class {}", formatCount(profileCount), targetClass);
+                log.debug("Discovered {} entities for profile {} class {}",
+                    formatCount(perProfile), profile.getShapeNode(), targetClass);
             }
         }
-
-        textIndex.commit();
-        log.info("Bulk indexing complete: {} entities indexed", formatCount(entityCount));
+        return items;
     }
 
-    /**
-     * Index entities from a graph, using the provided lookup graph for field values.
-     */
-    private long indexEntities(Graph discoveryGraph, Graph lookupGraph,
-                               Node targetClass, IndexProfile profile,
-                               Set<String> indexed, long maxForThisPass) {
-        long count = 0;
-        ExtendedIterator<Triple> typeTriples = discoveryGraph.find(Node.ANY, RDF_TYPE, targetClass);
+    // ----- Phase 2a: single-threaded fallback -----
+
+    private void processSingleThreaded(List<WorkItem> items) {
+        Graph unionGraph = baseDataset.getUnionGraph();
+        Graph defaultGraph = baseDataset.getDefaultGraph();
+        for (WorkItem item : items) {
+            Graph graph = (item.scope == GraphScope.UNION) ? unionGraph : defaultGraph;
+            Entity entity = ShaclEntityBuilder.buildEntity(graph, item.subject, item.entityUri, item.profile);
+            textIndex.updateEntityForProfile(entity, item.profile, freshIndex);
+            long count = entityCount.incrementAndGet();
+            maybeLogProgress(count);
+        }
+    }
+
+    // ----- Phase 2b: parallel workers -----
+
+    private void processParallel(List<WorkItem> items) {
+        if (items.isEmpty()) return;
+
+        // Process in bounded batches so we can commit and reclaim RAM periodically.
+        int processed = 0;
+        while (processed < items.size()) {
+            int end = (int) Math.min((long) processed + batchSize, items.size());
+            List<WorkItem> batch = items.subList(processed, end);
+            runBatch(batch);
+            // Single commit between batches (and once more at the end of index()).
+            textIndex.commit();
+            processed = end;
+            log.info("  Committed at {} entities", formatCount(entityCount.get()));
+        }
+    }
+
+    private void runBatch(List<WorkItem> batch) {
+        ExecutorService pool = Executors.newFixedThreadPool(threadCount, r -> {
+            Thread t = new Thread(r, "shacl-bulk-worker");
+            t.setDaemon(true);
+            return t;
+        });
+
+        // Round-robin partition keeps batches balanced when items vary in cost.
+        @SuppressWarnings("unchecked")
+        List<WorkItem>[] partitions = new List[threadCount];
+        for (int i = 0; i < threadCount; i++) partitions[i] = new ArrayList<>();
+        for (int i = 0; i < batch.size(); i++) partitions[i % threadCount].add(batch.get(i));
+
+        List<Future<?>> futures = new ArrayList<>(threadCount);
         try {
-            while (typeTriples.hasNext()) {
-                if (maxForThisPass > 0 && count >= maxForThisPass) {
-                    break;
+            for (List<WorkItem> partition : partitions) {
+                if (partition.isEmpty()) continue;
+                futures.add(pool.submit(() -> processPartition(partition)));
+            }
+            // Surface the FIRST worker exception, after all in-flight workers settle.
+            ExecutionException firstFailure = null;
+            for (Future<?> f : futures) {
+                try {
+                    f.get();
+                } catch (ExecutionException e) {
+                    if (firstFailure == null) firstFailure = e;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new TextIndexException("Bulk indexing interrupted", e);
                 }
-                Triple t = typeTriples.next();
-                Node subject = t.getSubject();
-                if (subject.isBlank()) {
-                    log.warn("Skipping blank-node entity (cannot be indexed): {} for shape {}",
-                        subject, profile.getShapeNode());
-                    continue;
-                }
-                String entityUri = TextQueryFuncs.subjectToString(subject);
-
-                String dedupKey = entityUri + "|" + profile.getShapeNode().toString();
-                if (!indexed.add(dedupKey)) {
-                    continue;
-                }
-
-                Entity entity = buildEntity(lookupGraph, subject, entityUri, profile);
-                textIndex.updateEntityForProfile(entity, profile);
-                entityCount++;
-                count++;
-
-                maybeLogProgress();
-                if (commitInterval > 0 && entityCount % commitInterval == 0) {
-                    textIndex.commit();
-                    log.info("  Committed at {} entities", formatCount(entityCount));
-                }
+            }
+            if (firstFailure != null) {
+                Throwable cause = firstFailure.getCause();
+                if (cause instanceof RuntimeException re) throw re;
+                throw new TextIndexException("Bulk indexing worker failed", cause);
             }
         } finally {
-            typeTriples.close();
+            pool.shutdown();
+            try {
+                if (!pool.awaitTermination(60, TimeUnit.SECONDS)) {
+                    pool.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                pool.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
-        return count;
     }
 
-    private long remainingForProfile(long profileCount) {
-        if (maxEntitiesPerProfile <= 0) {
-            return Long.MAX_VALUE;
+    private void processPartition(List<WorkItem> partition) {
+        boolean txStarted = false;
+        if (baseDataset.supportsTransactions()) {
+            try {
+                baseDataset.begin(ReadWrite.READ);
+                txStarted = true;
+            } catch (Exception e) {
+                // If begin() fails (e.g. already in a transaction owned by this thread),
+                // proceed without our own transaction.
+                log.debug("Worker could not begin its own read transaction: {}", e.getMessage());
+            }
         }
-        return Math.max(0, maxEntitiesPerProfile - profileCount);
+        try {
+            Graph unionGraph = baseDataset.getUnionGraph();
+            Graph defaultGraph = baseDataset.getDefaultGraph();
+            for (WorkItem item : partition) {
+                Graph graph = (item.scope == GraphScope.UNION) ? unionGraph : defaultGraph;
+                Entity entity = ShaclEntityBuilder.buildEntity(graph, item.subject, item.entityUri, item.profile);
+                textIndex.updateEntityForProfile(entity, item.profile, freshIndex);
+                long count = entityCount.incrementAndGet();
+                maybeLogProgress(count);
+            }
+        } finally {
+            if (txStarted) {
+                baseDataset.end();
+            }
+        }
     }
 
-    private void maybeLogProgress() {
-        if (progressInterval > 0 && entityCount % progressInterval == 0) {
-            log.info("  Indexed {} entities so far", formatCount(entityCount));
+    // ----- Helpers -----
+
+    private void maybeLogProgress(long count) {
+        if (progressInterval > 0 && count % progressInterval == 0) {
+            log.info("  Indexed {} entities so far", formatCount(count));
         }
     }
 
@@ -223,11 +380,7 @@ public class ShaclBulkIndexer {
         return COUNT_FORMAT.format(count);
     }
 
-    /**
-     * Build an Entity by reading all relevant triples for the subject.
-     * Uses PathEval for complex paths (sequence, inverse); direct triple match for simple predicates.
-     */
-    private Entity buildEntity(Graph graph, Node subject, String entityUri, IndexProfile profile) {
-        return ShaclEntityBuilder.buildEntity(graph, subject, entityUri, profile);
-    }
+    private enum GraphScope { DEFAULT, UNION }
+
+    private record WorkItem(Node subject, String entityUri, IndexProfile profile, GraphScope scope) {}
 }
