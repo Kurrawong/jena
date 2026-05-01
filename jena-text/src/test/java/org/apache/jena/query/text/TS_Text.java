@@ -93,6 +93,7 @@ import org.junit.runners.Suite.SuiteClasses;
     , TestTextQueryPFFilters.class
     , TestShaclBulkIndexer.class
     , TestShaclBulkIndexerMultiIndex.class
+    , TestFacetCachingInvalidation.class
 
     // CQL and multi-index tests
     , TestCqlParser.class

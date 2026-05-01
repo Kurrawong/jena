@@ -59,6 +59,7 @@ import org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyReader;
 import org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyWriter;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.search.SearcherManager;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
@@ -103,6 +104,48 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     private final Directory taxoDirectory;
     private final DirectoryTaxonomyWriter taxoWriter;
     private final Set<String> hierarchyDimensions;
+
+    /**
+     * Manages a single live {@link IndexSearcher} per index generation, refreshed via
+     * {@link #commit()}. Replaces the previous per-call {@code DirectoryReader.open(...)}
+     * pattern that paid file-handle, segment-info, and doc-values setup costs on every
+     * read. Initialised eagerly in the constructor (the parent constructor opens the
+     * {@link IndexWriter} before we get here) and rebuilt on rollback (the parent
+     * recreates the writer, invalidating any reader rooted at the old one).
+     * <p>
+     * Volatile because rollback may replace it concurrently with reads in flight; an
+     * already-acquired {@link IndexSearcher} stays valid against its acquired snapshot.
+     */
+    private volatile SearcherManager searcherManager;
+
+    /**
+     * Per-live-reader cache of {@link DefaultSortedSetDocValuesReaderState}. Building
+     * this state walks ordinal mappings for every facet field across every segment —
+     * at scale (10M+ docs) it dominates per-call facet latency. The state is
+     * deterministic per reader generation, so we cache it keyed by the reader's core
+     * cache key and rely on Lucene's
+     * {@link IndexReader.ClosedListener} to evict the entry when the reader is retired
+     * by {@link SearcherManager#maybeRefresh()}.
+     */
+    private final java.util.concurrent.ConcurrentMap<IndexReader.CacheKey, SortedSetDocValuesReaderState>
+        ssdvStateCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Result-level cache for "open" facet requests — those with no query string and
+     * no CQL filter, which produce identical output between commits. At 10M+ docs the
+     * full-index aggregation costs several seconds; subsequent identical requests
+     * answer in microseconds from this map.
+     * <p>
+     * The map reference is replaced (not cleared) on commit to avoid races with
+     * concurrent readers holding a reference to the old map; the old map and its
+     * entries become GC-eligible once those readers complete.
+     */
+    private volatile java.util.concurrent.ConcurrentMap<OpenFacetCacheKey, Map<String, List<FacetValue>>>
+        openFacetCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Key for {@link #openFacetCache}. {@code searchFields} are intentionally omitted —
+     *  with no query and no filter they have no effect on the result. */
+    private record OpenFacetCacheKey(FacetRequest facetRequest, int maxValues, int minCount) {}
 
     public ShaclTextIndexLucene(Directory directory, TextIndexConfig config) {
         this(directory, null, config);
@@ -155,6 +198,44 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             this.taxoDirectory = null;
             this.taxoWriter = null;
         }
+
+        // The parent constructor opened (and committed) the IndexWriter before this point,
+        // so an NRT SearcherManager rooted on it is safe to construct now.
+        initSearcherManager();
+    }
+
+    /** (Re)initialise the {@link SearcherManager} against the current writer. */
+    private void initSearcherManager() {
+        try {
+            this.searcherManager = new SearcherManager(getIndexWriter(), null);
+        } catch (IOException e) {
+            throw new TextIndexException("Failed to initialise SearcherManager", e);
+        }
+    }
+
+    /**
+     * Acquire an {@link IndexSearcher} from the cached {@link SearcherManager}.
+     * The caller MUST pair this with {@link #releaseSearcher(IndexSearcher)} in a
+     * try/finally — a missed release leaks reader references.
+     */
+    private IndexSearcher acquireSearcher() {
+        try {
+            return searcherManager.acquire();
+        } catch (IOException e) {
+            throw new TextIndexException("acquireSearcher", e);
+        }
+    }
+
+    /** Release a searcher previously obtained from {@link #acquireSearcher()}. */
+    private void releaseSearcher(IndexSearcher searcher) {
+        if (searcher == null) {
+            return;
+        }
+        try {
+            searcherManager.release(searcher);
+        } catch (IOException e) {
+            log.warn("Failed to release searcher: {}", e.getMessage());
+        }
     }
 
     public ShaclIndexMapping getShaclMapping() {
@@ -187,10 +268,46 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 throw new TextIndexException("Failed to commit taxonomy writer", e);
             }
         }
+        // Only refresh after a fully successful commit chain — an exception above
+        // skips this. Reads in flight against the previous reader stay valid against
+        // their acquired snapshot; subsequent acquires see the refreshed reader.
+        if (searcherManager != null) {
+            try {
+                searcherManager.maybeRefresh();
+            } catch (IOException e) {
+                throw new TextIndexException("Failed to refresh searcher", e);
+            }
+        }
+        // Invalidate the open-facet cache by replacing the map (not clear()) so
+        // concurrent readers holding a reference to the old map see consistent
+        // entries from the previous snapshot until they release their searcher.
+        openFacetCache = new java.util.concurrent.ConcurrentHashMap<>();
+    }
+
+    @Override
+    public void rollback() {
+        // The parent rollback closes and re-opens the IndexWriter, so any
+        // SearcherManager rooted at the old writer is invalidated.
+        SearcherManager old = searcherManager;
+        searcherManager = null;
+        if (old != null) {
+            try { old.close(); }
+            catch (IOException e) { log.warn("Failed to close searcher manager on rollback: {}", e.getMessage()); }
+        }
+        super.rollback();
+        initSearcherManager();
     }
 
     @Override
     public void close() {
+        if (searcherManager != null) {
+            try { searcherManager.close(); }
+            catch (IOException e) { log.warn("Failed to close searcher manager: {}", e.getMessage()); }
+            searcherManager = null;
+        }
+        // ClosedListeners typically clear entries during searcherManager.close(),
+        // but clear defensively in case any reader bypassed the cache helper path.
+        ssdvStateCache.clear();
         try {
             if (taxoWriter != null) {
                 taxoWriter.close();
@@ -342,9 +459,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     public List<SearchHit> searchWithHitIds(List<String> resolvedFields, String qs,
             CqlExpression cqlFilter, List<SortSpec> sortSpecs,
             String graphURI, String lang, int limit) {
-        try (IndexReader indexReader = DirectoryReader.open(getDirectory())) {
-            IndexSearcher searcher = new IndexSearcher(indexReader);
-
+        IndexSearcher searcher = acquireSearcher();
+        try {
             Query textQuery;
             if (qs == null || qs.isEmpty()) {
                 textQuery = new MatchAllDocsQuery();
@@ -403,6 +519,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             throw new TextIndexException("searchWithHitIds", ex);
         } catch (ParseException ex) {
             throw new TextIndexParseException(qs, ex.getMessage());
+        } finally {
+            releaseSearcher(searcher);
         }
     }
 
@@ -1081,15 +1199,27 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             FacetRequest facetRequest, int maxValues, int minCount,
             Map<String, String[]> drillDown) {
         List<String> facetFieldsToQuery = resolveFacetFieldNames(facetRequest.getFlatFields());
-        Map<String, List<FacetValue>> result = new HashMap<>();
 
         if ((facetFieldsToQuery == null || facetFieldsToQuery.isEmpty()) && facetRequest.getRangeFields().isEmpty()) {
-            return result;
+            return new HashMap<>();
         }
 
-        try (IndexReader indexReader = DirectoryReader.open(getDirectory())) {
-            IndexSearcher searcher = new IndexSearcher(indexReader);
+        // Fast path: no query, no drilldown — eligible for the open-facet cache.
+        boolean openRequest = (queryString == null || queryString.isEmpty())
+            && (drillDown == null || drillDown.isEmpty());
+        OpenFacetCacheKey cacheKey = openRequest
+            ? new OpenFacetCacheKey(facetRequest, maxValues, minCount) : null;
+        if (cacheKey != null) {
+            Map<String, List<FacetValue>> cached = openFacetCache.get(cacheKey);
+            if (cached != null) {
+                return cached;
+            }
+        }
 
+        Map<String, List<FacetValue>> result = new HashMap<>();
+        IndexSearcher searcher = acquireSearcher();
+        try {
+            IndexReader indexReader = searcher.getIndexReader();
             List<String> resolved = resolveSearchFields(searchFields);
 
             FacetsCollector fc = null;
@@ -1099,7 +1229,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 searcher.search(query, fc);
             }
 
-            Facets facets = createCombinedFacets(indexReader, fc);
+            Facets facets = createCombinedFacets(indexReader, fc, facetFieldsToQuery);
 
             collectFacetResults(facets, facetFieldsToQuery, maxValues, minCount, drillDown, result);
             collectRangeFacetResults(indexReader, fc, facetRequest.getRangeFields(), maxValues, minCount, result);
@@ -1107,9 +1237,27 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             throw new TextIndexException("getFacetCounts", ex);
         } catch (ParseException ex) {
             throw new TextIndexParseException(queryString, ex.getMessage());
+        } finally {
+            releaseSearcher(searcher);
         }
 
+        if (cacheKey != null) {
+            openFacetCache.putIfAbsent(cacheKey, freezeFacetResult(result));
+        }
         return result;
+    }
+
+    /**
+     * Wrap a facet result map in unmodifiable views so cache entries cannot be
+     * mutated by callers iterating over them. Cheap — just two layers of wrapping,
+     * no copying.
+     */
+    private static Map<String, List<FacetValue>> freezeFacetResult(Map<String, List<FacetValue>> result) {
+        Map<String, List<FacetValue>> snapshot = new HashMap<>(result.size());
+        for (Map.Entry<String, List<FacetValue>> e : result.entrySet()) {
+            snapshot.put(e.getKey(), Collections.unmodifiableList(new ArrayList<>(e.getValue())));
+        }
+        return Collections.unmodifiableMap(snapshot);
     }
 
     /**
@@ -1400,9 +1548,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             return result;
         }
 
-        try (IndexReader indexReader = DirectoryReader.open(getDirectory())) {
-            IndexSearcher searcher = new IndexSearcher(indexReader);
-
+        IndexSearcher searcher = acquireSearcher();
+        try {
+            IndexReader indexReader = searcher.getIndexReader();
             List<String> resolved = resolveSearchFields(searchFields);
 
             BooleanQuery.Builder combined = new BooleanQuery.Builder();
@@ -1436,13 +1584,15 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 searcher.search(bq, fc);
             }
 
-            Facets facets = createCombinedFacets(indexReader, fc);
+            Facets facets = createCombinedFacets(indexReader, fc, facetFieldsToQuery);
 
             collectFacetResults(facets, facetFieldsToQuery, maxValues, minCount, null, result);
         } catch (IOException ex) {
             throw new TextIndexException("getFacetCountsWithFilters", ex);
         } catch (ParseException ex) {
             throw new TextIndexParseException(queryString, ex.getMessage());
+        } finally {
+            releaseSearcher(searcher);
         }
 
         return result;
@@ -1452,17 +1602,24 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * Create a combined Facets object that handles both flat (SSDV) and hierarchical (taxonomy)
      * facet dimensions. Uses {@link MultiFacets} when hierarchies are configured.
      */
-    private Facets createCombinedFacets(IndexReader indexReader, FacetsCollector fc) throws IOException {
+    private Facets createCombinedFacets(IndexReader indexReader, FacetsCollector fc,
+                                        Collection<String> requestedFields) throws IOException {
         Facets flatFacets = null;
         if (hasSortedSetFacetFields()) {
-            SortedSetDocValuesReaderState state =
-                new DefaultSortedSetDocValuesReaderState(indexReader, facetsConfig);
+            SortedSetDocValuesReaderState state = getOrBuildSsdvReaderState(indexReader);
             flatFacets = (fc != null)
                 ? new SortedSetDocValuesFacetCounts(state, fc)
                 : new SortedSetDocValuesFacetCounts(state);
         }
 
         if (taxoDirectory == null || hierarchyDimensions.isEmpty()) {
+            return flatFacets;
+        }
+
+        // Skip taxonomy reader + FastTaxonomyFacetCounts construction unless the caller
+        // actually asked for a hierarchical dimension. At scale this is the largest
+        // per-call overhead, often unnecessary for plain SSDV facet requests.
+        if (requestedFields == null || Collections.disjoint(requestedFields, hierarchyDimensions)) {
             return flatFacets;
         }
 
@@ -1482,6 +1639,37 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             dimToFacets.put(dim, taxoFacets);
         }
         return flatFacets != null ? new MultiFacets(dimToFacets, flatFacets) : new MultiFacets(dimToFacets);
+    }
+
+    /**
+     * Return the {@link SortedSetDocValuesReaderState} for the supplied reader,
+     * building and caching one on first use. The cache entry is evicted automatically
+     * when the reader is closed (via {@link IndexReader.ClosedListener}), which
+     * happens when {@link SearcherManager#maybeRefresh()} retires the reader after
+     * a commit.
+     */
+    private SortedSetDocValuesReaderState getOrBuildSsdvReaderState(IndexReader indexReader) throws IOException {
+        IndexReader.CacheHelper helper = indexReader.getReaderCacheHelper();
+        if (helper == null) {
+            // Reader does not support caching (rare — e.g. some test wrappers).
+            // Fall back to building each call to preserve correctness.
+            return new DefaultSortedSetDocValuesReaderState(indexReader, facetsConfig);
+        }
+        IndexReader.CacheKey key = helper.getKey();
+        SortedSetDocValuesReaderState cached = ssdvStateCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        // Build outside the map to avoid holding the bin lock during a slow construction.
+        SortedSetDocValuesReaderState fresh = new DefaultSortedSetDocValuesReaderState(indexReader, facetsConfig);
+        SortedSetDocValuesReaderState raced = ssdvStateCache.putIfAbsent(key, fresh);
+        if (raced != null) {
+            // Another thread won the race; drop our build and use theirs.
+            return raced;
+        }
+        // We populated the cache. Register a listener that evicts on reader close.
+        helper.addClosedListener(ssdvStateCache::remove);
+        return fresh;
     }
 
     /**
@@ -1607,9 +1795,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      */
     public List<TextHit> queryByFields(List<String> resolvedFields, String qs,
             String graphURI, String lang, int limit, String highlight) {
-        try (IndexReader indexReader = DirectoryReader.open(getDirectory())) {
-            IndexSearcher searcher = new IndexSearcher(indexReader);
-
+        IndexSearcher searcher = acquireSearcher();
+        try {
             Query query;
             if (qs == null || qs.isEmpty()) {
                 query = new MatchAllDocsQuery();
@@ -1638,6 +1825,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             throw new TextIndexException("queryByFields", ex);
         } catch (ParseException ex) {
             throw new TextIndexParseException(qs, ex.getMessage());
+        } finally {
+            releaseSearcher(searcher);
         }
     }
 
@@ -1653,9 +1842,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             return queryByFields(resolved, qs, graphURI, lang, limit, highlight);
         }
 
-        try (IndexReader indexReader = DirectoryReader.open(getDirectory())) {
-            IndexSearcher searcher = new IndexSearcher(indexReader);
-
+        IndexSearcher searcher = acquireSearcher();
+        try {
             BooleanQuery.Builder combined = new BooleanQuery.Builder();
 
             Query valueQuery = null;
@@ -1701,12 +1889,15 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             throw new TextIndexException("queryWithFilters", ex);
         } catch (ParseException ex) {
             throw new TextIndexParseException(qs, ex.getMessage());
+        } finally {
+            releaseSearcher(searcher);
         }
     }
 
     public long countQuery(String queryString, List<String> searchFields, Map<String, List<String>> filters) {
-        try (IndexReader indexReader = DirectoryReader.open(getDirectory())) {
-            IndexSearcher searcher = new IndexSearcher(indexReader);
+        IndexSearcher searcher = acquireSearcher();
+        try {
+            IndexReader indexReader = searcher.getIndexReader();
             List<String> resolved = resolveSearchFields(searchFields);
             BooleanQuery.Builder bq = new BooleanQuery.Builder();
             if (queryString != null && !queryString.isEmpty()) {
@@ -1738,6 +1929,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             throw new TextIndexException("countQuery", ex);
         } catch (ParseException ex) {
             throw new TextIndexParseException(queryString, ex.getMessage());
+        } finally {
+            releaseSearcher(searcher);
         }
     }
 
@@ -1753,9 +1946,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             return queryByFields(resolved, qs, graphURI, lang, limit, highlight);
         }
 
-        try (IndexReader indexReader = DirectoryReader.open(getDirectory())) {
-            IndexSearcher searcher = new IndexSearcher(indexReader);
-
+        IndexSearcher searcher = acquireSearcher();
+        try {
             BooleanQuery.Builder combined = new BooleanQuery.Builder();
 
             Query valueQuery = null;
@@ -1804,6 +1996,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             throw new TextIndexException("queryWithCql", ex);
         } catch (ParseException ex) {
             throw new TextIndexParseException(qs, ex.getMessage());
+        } finally {
+            releaseSearcher(searcher);
         }
     }
 
@@ -1819,15 +2013,26 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             CqlExpression cqlFilter, int maxValues, int minCount) {
 
         List<String> facetFieldsToQuery = resolveFacetFieldNames(facetRequest.getFlatFields());
-        Map<String, List<FacetValue>> result = new HashMap<>();
 
         if ((facetFieldsToQuery == null || facetFieldsToQuery.isEmpty()) && facetRequest.getRangeFields().isEmpty()) {
-            return result;
+            return new HashMap<>();
         }
 
-        try (IndexReader indexReader = DirectoryReader.open(getDirectory())) {
-            IndexSearcher searcher = new IndexSearcher(indexReader);
+        // Fast path: no query, no filter — eligible for the open-facet cache.
+        boolean openRequest = (queryString == null || queryString.isEmpty()) && cqlFilter == null;
+        OpenFacetCacheKey cacheKey = openRequest
+            ? new OpenFacetCacheKey(facetRequest, maxValues, minCount) : null;
+        if (cacheKey != null) {
+            Map<String, List<FacetValue>> cached = openFacetCache.get(cacheKey);
+            if (cached != null) {
+                return cached;
+            }
+        }
 
+        Map<String, List<FacetValue>> result = new HashMap<>();
+        IndexSearcher searcher = acquireSearcher();
+        try {
+            IndexReader indexReader = searcher.getIndexReader();
             List<String> resolved = resolveSearchFields(searchFields);
 
             BooleanQuery.Builder combined = new BooleanQuery.Builder();
@@ -1855,7 +2060,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 searcher.search(bq, fc);
             }
 
-            Facets facets = createCombinedFacets(indexReader, fc);
+            Facets facets = createCombinedFacets(indexReader, fc, facetFieldsToQuery);
 
             // Extract hierarchy drill-down paths from CQL = filters
             Map<String, String[]> drillDown = extractHierarchyDrillDown(cqlFilter, facetFieldsToQuery);
@@ -1866,14 +2071,20 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             throw new TextIndexException("getFacetCountsWithCql", ex);
         } catch (ParseException ex) {
             throw new TextIndexParseException(queryString, ex.getMessage());
+        } finally {
+            releaseSearcher(searcher);
         }
 
+        if (cacheKey != null) {
+            openFacetCache.putIfAbsent(cacheKey, freezeFacetResult(result));
+        }
         return result;
     }
 
     public long countQueryWithCql(String queryString, List<String> searchFields, CqlExpression cqlFilter) {
-        try (IndexReader indexReader = DirectoryReader.open(getDirectory())) {
-            IndexSearcher searcher = new IndexSearcher(indexReader);
+        IndexSearcher searcher = acquireSearcher();
+        try {
+            IndexReader indexReader = searcher.getIndexReader();
             List<String> resolved = resolveSearchFields(searchFields);
             BooleanQuery.Builder bq = new BooleanQuery.Builder();
             if (queryString != null && !queryString.isEmpty()) {
@@ -1899,6 +2110,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             throw new TextIndexException("countQueryWithCql", ex);
         } catch (ParseException ex) {
             throw new TextIndexParseException(queryString, ex.getMessage());
+        } finally {
+            releaseSearcher(searcher);
         }
     }
 
