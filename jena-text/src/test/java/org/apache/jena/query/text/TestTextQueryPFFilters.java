@@ -479,4 +479,112 @@ public class TestTextQueryPFFilters {
             dataset.end();
         }
     }
+
+    @Test
+    public void testLucQueryPinnedToEntityIriEqualsSingleHit() {
+        // Issue #73: reserved property urn:jena:lucene:index#entityIri pins luc:query
+        // to a specific document by IRI. With CQL filter '=' on entityIri, exactly one
+        // hit must come back regardless of how broad the text search is.
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT ?s WHERE {\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" " +
+            "    '{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:index#entityIri\"},\""
+            + NS + "doc3\"]}' \"\" 20 0)\n" +
+            "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
+                ResultSet rs = qe.execSelect();
+                Set<String> subjects = new HashSet<>();
+                while (rs.hasNext()) {
+                    subjects.add(rs.next().getResource("s").getURI());
+                }
+                assertEquals("Pinning to entityIri should return exactly one entity",
+                    Collections.singleton(NS + "doc3"), subjects);
+            }
+        } finally {
+            dataset.end();
+        }
+    }
+
+    @Test
+    public void testLucQueryPinnedToEntityIriInSet() {
+        // Issue #73: 'in' on entityIri pins to a set of entities.
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT ?s WHERE {\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" " +
+            "    '{\"op\":\"in\",\"args\":[{\"property\":\"urn:jena:lucene:index#entityIri\"},"
+            + "[\"" + NS + "doc1\",\"" + NS + "doc5\"]]}' \"\" 20 0)\n" +
+            "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
+                ResultSet rs = qe.execSelect();
+                Set<String> subjects = new HashSet<>();
+                while (rs.hasNext()) {
+                    subjects.add(rs.next().getResource("s").getURI());
+                }
+                Set<String> expected = new HashSet<>(Arrays.asList(NS + "doc1", NS + "doc5"));
+                assertEquals("'in' on entityIri should return only the listed entities",
+                    expected, subjects);
+            }
+        } finally {
+            dataset.end();
+        }
+    }
+
+    @Test
+    public void testLucQueryEntityIriCombinedWithFieldFilter() {
+        // Issue #73: reserved entityIri compose with other filters; AND should
+        // intersect to either zero or one hit (the pinned entity if its other
+        // attributes match the field filter).
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT ?s WHERE {\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" " +
+            "    '{\"op\":\"and\",\"args\":[" +
+            "      {\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:index#entityIri\"},\""
+            + NS + "doc3\"]}," +
+            "      {\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#category\"},\""
+            + NS + "category/technology\"]}" +
+            "    ]}' \"\" 20 0)\n" +
+            "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
+                ResultSet rs = qe.execSelect();
+                Set<String> subjects = new HashSet<>();
+                while (rs.hasNext()) {
+                    subjects.add(rs.next().getResource("s").getURI());
+                }
+                // doc3 is in category/technology, so the AND matches.
+                assertEquals(Collections.singleton(NS + "doc3"), subjects);
+            }
+        } finally {
+            dataset.end();
+        }
+    }
+
+    @Test
+    public void testLucQueryEntityIriUnknownReturnsEmpty() {
+        // Pinning to a non-existent IRI returns no hits.
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT ?s WHERE {\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" \"default\" \"learning\" " +
+            "    '{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:index#entityIri\"},"
+            + "\"http://example.org/nonexistent\"]}' \"\" 20 0)\n" +
+            "}";
+
+        dataset.begin(ReadWrite.READ);
+        try {
+            try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
+                ResultSet rs = qe.execSelect();
+                assertFalse("Pinning to unknown IRI should yield zero hits", rs.hasNext());
+            }
+        } finally {
+            dataset.end();
+        }
+    }
 }

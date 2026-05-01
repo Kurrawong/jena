@@ -429,6 +429,13 @@ public class ShaclIndexMapping {
         public boolean isNestedScoped()          { return nestedDef != null; }
     }
 
+    /**
+     * Reserved CQL filter property URI that resolves to the doc-id field of the
+     * active index. See {@link #findDocIdFieldForEntityIriProperty(String)} and
+     * issue #73.
+     */
+    public static final String ENTITY_IRI_PROPERTY = "urn:jena:lucene:index#entityIri";
+
     private final List<IndexProfile> profiles;
     private final Map<Node, List<ProfileOccurrence>> predicateLookup;
     private final Map<Node, List<ProfileOccurrence>> classConstraintLookup;
@@ -444,6 +451,7 @@ public class ShaclIndexMapping {
         validateLiteralMetadataRequirements();
         validateFieldNameUniqueness();
         validateHierarchyScopeConsistency();
+        validateDocIdFieldUniformity();
 
         this.predicateLookup = Collections.unmodifiableMap(buildPredicateLookup(this.profiles));
         this.classConstraintLookup = Collections.unmodifiableMap(buildClassConstraintLookup(this.profiles));
@@ -485,6 +493,24 @@ public class ShaclIndexMapping {
 
     public List<IndexProfile> getProfilesForClass(Node cls) {
         return classLookup.getOrDefault(cls, Collections.emptyList());
+    }
+
+    /**
+     * If {@code property} is the reserved {@link #ENTITY_IRI_PROPERTY}, returns the
+     * Lucene field name where the entity IRI is stored (the {@code idx:docIdField}
+     * value, defaulting to {@code "uri"}). Otherwise returns {@code null}.
+     * <p>
+     * Multi-profile configs are guaranteed by {@code validateDocIdFieldUniformity}
+     * to share a single doc-id field, so the choice is unambiguous.
+     */
+    public String findDocIdFieldForEntityIriProperty(String property) {
+        if (!ENTITY_IRI_PROPERTY.equals(property)) {
+            return null;
+        }
+        if (profiles.isEmpty()) {
+            return null;
+        }
+        return profiles.get(0).getDocIdField();
     }
 
     public FieldDef findField(String fieldIRI) {
@@ -665,6 +691,23 @@ public class ShaclIndexMapping {
                         "Field name '" + field.getFieldName()
                         + "' has conflicting types: " + prev + " vs " + field.getFieldType());
                 }
+            }
+        }
+    }
+
+    private void validateDocIdFieldUniformity() {
+        if (profiles.isEmpty()) {
+            return;
+        }
+        String first = profiles.get(0).getDocIdField();
+        for (int i = 1; i < profiles.size(); i++) {
+            String other = profiles.get(i).getDocIdField();
+            if (!Objects.equals(first, other)) {
+                throw new TextIndexException(
+                    "All profiles must share the same idx:docIdField (profiles in one Lucene index "
+                    + "share doc storage). Profile " + profiles.get(0).getShapeNode() + " uses '"
+                    + first + "' but profile " + profiles.get(i).getShapeNode() + " uses '"
+                    + other + "'.");
             }
         }
     }
