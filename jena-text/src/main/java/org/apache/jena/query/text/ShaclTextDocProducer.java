@@ -23,6 +23,7 @@ package org.apache.jena.query.text;
 
 import java.util.*;
 
+import org.apache.jena.query.ARQ;
 import org.apache.jena.graph.Graph;
 import org.apache.jena.graph.Node;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
@@ -148,7 +149,7 @@ public class ShaclTextDocProducer implements TextDocProducer {
 
     private Set<Node> findScopeRootsForConstraintChange(Graph graph, Node endpoint, FieldOccurrence occurrence) {
         Set<Node> roots = new LinkedHashSet<>();
-        Iterator<Node> iter = PathEval.evalReverse(graph, endpoint, occurrence.getPath(), null);
+        Iterator<Node> iter = PathEval.evalReverse(graph, endpoint, occurrence.getPath(), ARQ.getContext());
         while (iter.hasNext()) {
             roots.add(iter.next());
         }

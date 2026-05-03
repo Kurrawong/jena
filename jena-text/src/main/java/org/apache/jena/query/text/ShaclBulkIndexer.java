@@ -23,7 +23,6 @@ package org.apache.jena.query.text;
 
 import java.text.NumberFormat;
 import java.util.*;
-import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.jena.graph.Graph;
@@ -46,21 +45,16 @@ import org.slf4j.LoggerFactory;
  * after bulk-loading data with {@code tdb2.tdbloader}, which bypasses the
  * normal {@link ShaclTextDocProducer} change listener.
  * <p>
- * <b>Execution model:</b> Single-threaded discovery walks the dataset and
- * collects {@code (subject, profile)} pairs (TDB2 iterators do not
- * thread-share). The collected pairs are then processed by a fixed thread
- * pool, each worker opening its own read transaction and calling
- * {@code buildEntity()} + {@code updateEntityForProfile()} per item.
- * A single {@code commit()} fires after all workers complete.
- * <p>
- * Set {@link #setThreadCount(int)} to {@code 1} to fall back to the
- * pre-parallel single-threaded path (useful for debugging).
+ * <b>Execution model:</b> Single-threaded throughout. TDB2's node table cache
+ * uses a single shared lock, so concurrent readers serialize on it and
+ * multi-threading produces no throughput gain over a single thread.
+ * Commits fire periodically (every {@link #setBatchSize} entities) to bound
+ * peak memory use and provide progress checkpoints.
  * <p>
  * Usage:
  * <pre>
  *   ShaclBulkIndexer indexer = new ShaclBulkIndexer(datasetGraph, textIndex, mapping);
  *   indexer.setFreshIndex(true);              // when loading into an empty index
- *   indexer.setThreadCount(8);                // optional, defaults to availableProcessors()
  *   indexer.setRamBufferSizeMB(256);          // optional Lucene tune
  *   indexer.index();
  * </pre>
@@ -78,7 +72,6 @@ public class ShaclBulkIndexer {
     private final AtomicLong entityCount = new AtomicLong();
     private long progressInterval = 10000;
     private long maxEntitiesPerProfile = 0;
-    private int threadCount = Math.max(1, Runtime.getRuntime().availableProcessors());
     private boolean freshIndex = false;
     private double ramBufferSizeMB = -1.0;
     private long batchSize = 100_000;
@@ -100,14 +93,6 @@ public class ShaclBulkIndexer {
         this.maxEntitiesPerProfile = maxEntitiesPerProfile;
     }
 
-    /** Number of worker threads (default: {@code availableProcessors()}). Setting 1 disables parallelism. */
-    public void setThreadCount(int threadCount) {
-        if (threadCount < 1) {
-            throw new IllegalArgumentException("threadCount must be >= 1");
-        }
-        this.threadCount = threadCount;
-    }
-
     /**
      * Skip the pre-add {@code deleteDocuments()} call when writing each entity.
      * Set to {@code true} ONLY when loading into a known-empty index (e.g.
@@ -124,10 +109,9 @@ public class ShaclBulkIndexer {
     }
 
     /**
-     * Number of work items processed per parallel batch. After each batch the
-     * pool drains and a single {@code commit()} fires before the next batch
-     * starts. Default 100k. Set to {@code Long.MAX_VALUE} to issue a single
-     * commit at the very end.
+     * Number of entities between intermediate commits. After each batch a
+     * {@code commit()} fires to flush buffered docs and reclaim RAM. Default 100k.
+     * Set to {@code Long.MAX_VALUE} to issue a single commit at the very end.
      */
     public void setBatchSize(long batchSize) {
         if (batchSize < 1) {
@@ -143,15 +127,11 @@ public class ShaclBulkIndexer {
     /**
      * Index all entities matching SHACL profiles.
      * <p>
-     * Phase 1 (single-threaded): walk type triples in default + named graphs,
-     * dedupe, collect work items.
+     * Phase 1 (discovery): walks type triples in default + named graphs,
+     * dedupes, and collects work items.
      * <br>
-     * Phase 2 (parallel): each worker opens its own read transaction and
-     * calls {@code buildEntity()} + {@code updateEntityForProfile()} for every
-     * item assigned to it. Exceptions surface via {@code Future.get()}.
-     * <br>
-     * Phase 3: single {@code commit()} at the end (or one per batch when
-     * batches are bounded by {@link #setBatchSize}).
+     * Phase 2 (indexing): processes each work item sequentially, committing
+     * every {@link #setBatchSize} entities.
      */
     public void index() {
         entityCount.set(0);
@@ -166,8 +146,6 @@ public class ShaclBulkIndexer {
             }
         }
 
-        // Discovery uses TDB2 iterators on this thread, which require a read transaction.
-        // Honour any caller-managed transaction; self-manage otherwise.
         boolean ownTxn = false;
         if (baseDataset.supportsTransactions() && !baseDataset.isInTransaction()) {
             baseDataset.begin(ReadWrite.READ);
@@ -176,15 +154,10 @@ public class ShaclBulkIndexer {
 
         try {
             List<WorkItem> items = discoverWorkItems();
-            log.info("Discovered {} entities across {} profile(s); processing with {} thread(s)",
-                formatCount(items.size()), mapping.getProfiles().size(), threadCount);
-
-            if (threadCount == 1) {
-                processSingleThreaded(items);
-            } else {
-                processParallel(items);
-            }
-
+            log.info("Discovered {} entities across {} profile(s)",
+                formatCount(items.size()), mapping.getProfiles().size());
+            processItems(items);
+            log.info("Flushing and committing index...");
             textIndex.commit();
             log.info("Bulk indexing complete: {} entities indexed", formatCount(entityCount.get()));
         } finally {
@@ -258,9 +231,9 @@ public class ShaclBulkIndexer {
         return items;
     }
 
-    // ----- Phase 2a: single-threaded fallback -----
+    // ----- Phase 2: indexing -----
 
-    private void processSingleThreaded(List<WorkItem> items) {
+    private void processItems(List<WorkItem> items) {
         Graph unionGraph = baseDataset.getUnionGraph();
         Graph defaultGraph = baseDataset.getDefaultGraph();
         for (WorkItem item : items) {
@@ -269,101 +242,9 @@ public class ShaclBulkIndexer {
             textIndex.updateEntityForProfile(entity, item.profile, freshIndex);
             long count = entityCount.incrementAndGet();
             maybeLogProgress(count);
-        }
-    }
-
-    // ----- Phase 2b: parallel workers -----
-
-    private void processParallel(List<WorkItem> items) {
-        if (items.isEmpty()) return;
-
-        // Process in bounded batches so we can commit and reclaim RAM periodically.
-        int processed = 0;
-        while (processed < items.size()) {
-            int end = (int) Math.min((long) processed + batchSize, items.size());
-            List<WorkItem> batch = items.subList(processed, end);
-            runBatch(batch);
-            // Single commit between batches (and once more at the end of index()).
-            textIndex.commit();
-            processed = end;
-            log.info("  Committed at {} entities", formatCount(entityCount.get()));
-        }
-    }
-
-    private void runBatch(List<WorkItem> batch) {
-        ExecutorService pool = Executors.newFixedThreadPool(threadCount, r -> {
-            Thread t = new Thread(r, "shacl-bulk-worker");
-            t.setDaemon(true);
-            return t;
-        });
-
-        // Round-robin partition keeps batches balanced when items vary in cost.
-        @SuppressWarnings("unchecked")
-        List<WorkItem>[] partitions = new List[threadCount];
-        for (int i = 0; i < threadCount; i++) partitions[i] = new ArrayList<>();
-        for (int i = 0; i < batch.size(); i++) partitions[i % threadCount].add(batch.get(i));
-
-        List<Future<?>> futures = new ArrayList<>(threadCount);
-        try {
-            for (List<WorkItem> partition : partitions) {
-                if (partition.isEmpty()) continue;
-                futures.add(pool.submit(() -> processPartition(partition)));
-            }
-            // Surface the FIRST worker exception, after all in-flight workers settle.
-            ExecutionException firstFailure = null;
-            for (Future<?> f : futures) {
-                try {
-                    f.get();
-                } catch (ExecutionException e) {
-                    if (firstFailure == null) firstFailure = e;
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new TextIndexException("Bulk indexing interrupted", e);
-                }
-            }
-            if (firstFailure != null) {
-                Throwable cause = firstFailure.getCause();
-                if (cause instanceof RuntimeException re) throw re;
-                throw new TextIndexException("Bulk indexing worker failed", cause);
-            }
-        } finally {
-            pool.shutdown();
-            try {
-                if (!pool.awaitTermination(60, TimeUnit.SECONDS)) {
-                    pool.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                pool.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
-        }
-    }
-
-    private void processPartition(List<WorkItem> partition) {
-        boolean txStarted = false;
-        if (baseDataset.supportsTransactions()) {
-            try {
-                baseDataset.begin(ReadWrite.READ);
-                txStarted = true;
-            } catch (Exception e) {
-                // If begin() fails (e.g. already in a transaction owned by this thread),
-                // proceed without our own transaction.
-                log.debug("Worker could not begin its own read transaction: {}", e.getMessage());
-            }
-        }
-        try {
-            Graph unionGraph = baseDataset.getUnionGraph();
-            Graph defaultGraph = baseDataset.getDefaultGraph();
-            for (WorkItem item : partition) {
-                Graph graph = (item.scope == GraphScope.UNION) ? unionGraph : defaultGraph;
-                Entity entity = ShaclEntityBuilder.buildEntity(graph, item.subject, item.entityUri, item.profile);
-                textIndex.updateEntityForProfile(entity, item.profile, freshIndex);
-                long count = entityCount.incrementAndGet();
-                maybeLogProgress(count);
-            }
-        } finally {
-            if (txStarted) {
-                baseDataset.end();
+            if (count % batchSize == 0) {
+                log.info("  Committing at {} entities...", formatCount(count));
+                textIndex.commit();
             }
         }
     }
