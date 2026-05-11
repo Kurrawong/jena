@@ -201,7 +201,7 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
             execCxt, resolvedTextIndex.identity(), args.searchFields, args.queryString,
             args.cqlFilter, args.sortSpecs, textIndex, null, null);
 
-        int limit = args.limit > 0 ? args.limit : 10000;
+        int limit = args.limit > 0 ? args.limit : 10;
         int offset = args.offset;
         List<SearchHit> pageHits = se.getSearchHits(offset, limit);
 

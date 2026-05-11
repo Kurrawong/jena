@@ -219,6 +219,14 @@ public class SearchExecution {
         return totalHits;
     }
 
+    /**
+     * Return whatever search hits are already cached without triggering a new search.
+     * Used by luc:match to iterate the page that luc:query already fetched.
+     */
+    public synchronized List<SearchHit> getCachedHits() {
+        return searchHits != null ? Collections.unmodifiableList(searchHits) : Collections.emptyList();
+    }
+
     public CqlExpression getFilter() {
         return filter;
     }
