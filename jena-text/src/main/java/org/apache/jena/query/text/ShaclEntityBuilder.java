@@ -30,6 +30,7 @@ import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.ShaclIndexMapping.NestedDef;
+import org.apache.jena.query.ARQ;
 import org.apache.jena.sparql.path.eval.PathEval;
 import org.apache.jena.vocabulary.RDF;
 
@@ -50,7 +51,7 @@ final class ShaclEntityBuilder {
         }
 
         for (NestedDef nestedDef : profile.getNestedDefs()) {
-            Iterator<Node> childIter = PathEval.eval(graph, subject, nestedDef.getJoinPath(), null);
+            Iterator<Node> childIter = PathEval.eval(graph, subject, nestedDef.getJoinPath(), ARQ.getContext());
             while (childIter.hasNext()) {
                 Node child = childIter.next();
                 Map<String, LinkedHashSet<Object>> recordValues = new LinkedHashMap<>();
@@ -97,7 +98,7 @@ final class ShaclEntityBuilder {
 
     private static List<Object> extractOccurrenceValues(Graph graph, Node subject, FieldOccurrence occurrence) {
         LinkedHashSet<Object> values = new LinkedHashSet<>();
-        Iterator<Node> iter = PathEval.eval(graph, subject, occurrence.getPath(), null);
+        Iterator<Node> iter = PathEval.eval(graph, subject, occurrence.getPath(), ARQ.getContext());
         while (iter.hasNext()) {
             Node endpoint = iter.next();
             if (!satisfiesConstraints(graph, endpoint, occurrence)) {
