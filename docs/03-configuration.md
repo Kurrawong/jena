@@ -106,6 +106,13 @@ field:year
     idx:facetable true ;
     idx:sortable true ;
     sh:path ex:year .
+
+field:publishedOn
+    idx:fieldName "publishedOn" ;
+    idx:fieldType idx:TemporalField ;
+    idx:facetable true ;
+    idx:sortable true ;
+    sh:path ex:publishedOn .
 ```
 
 Public API rule:
@@ -120,7 +127,7 @@ Public API rule:
 | Property | Meaning |
 |---|---|
 | `idx:fieldName` | Internal Lucene field name |
-| `idx:fieldType` | `idx:TextField`, `idx:KeywordField`, `idx:IntField`, `idx:LongField`, `idx:DoubleField`, `idx:LatLonField` |
+| `idx:fieldType` | `idx:TextField`, `idx:KeywordField`, `idx:IntField`, `idx:LongField`, `idx:DoubleField`, `idx:TemporalField`, `idx:LatLonField` |
 | `idx:facetable` | Enables faceting |
 | `idx:sortable` | Enables sort pushdown |
 | `idx:multiValued` | Allows multiple values |
@@ -128,6 +135,8 @@ Public API rule:
 | `idx:analyzer` | Index-time analyzer override |
 | `idx:queryAnalyzer` | Query-time analyzer override |
 | `sh:path` | Direct, sequence, inverse, or nested path |
+
+`idx:DateField` and `idx:DateTimeField` are accepted as deprecated aliases for `idx:TemporalField`.
 
 ## Paths
 

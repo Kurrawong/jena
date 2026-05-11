@@ -1094,6 +1094,19 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     // ---- Entity update/delete ----
 
     public void updateEntityForProfile(Entity entity, ShaclIndexMapping.IndexProfile profile) {
+        updateEntityForProfile(entity, profile, false);
+    }
+
+    /**
+     * Update or insert a document for {@code entity} under {@code profile}.
+     * <p>
+     * When {@code skipDelete} is {@code true}, the pre-add {@code deleteDocuments()}
+     * call is skipped — the caller is asserting that no document exists for this
+     * entity (e.g. a fresh bulk load into an empty index after {@code tdb2.tdbloader}).
+     * Setting this flag on a non-empty index will produce duplicate documents.
+     */
+    public void updateEntityForProfile(Entity entity, ShaclIndexMapping.IndexProfile profile,
+                                       boolean skipDelete) {
         try {
             Document doc = docFromMapping(entity, profile);
             Document indexDoc;
@@ -1105,19 +1118,22 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 indexDoc = doc;
             }
 
-            String docIdField = profile.getDocIdField();
-            String discriminatorField = profile.getDiscriminatorField();
-            Node firstClass = profile.getTargetClasses().iterator().next();
-            String localName = firstClass.getLocalName();
+            if (!skipDelete) {
+                String docIdField = profile.getDocIdField();
+                String discriminatorField = profile.getDiscriminatorField();
+                Node firstClass = profile.getTargetClasses().iterator().next();
+                String localName = firstClass.getLocalName();
 
-            BooleanQuery deleteQuery = new BooleanQuery.Builder()
-                .add(new TermQuery(new Term(docIdField, entity.getId())), BooleanClause.Occur.MUST)
-                .add(new TermQuery(new Term(discriminatorField, localName)), BooleanClause.Occur.MUST)
-                .build();
+                BooleanQuery deleteQuery = new BooleanQuery.Builder()
+                    .add(new TermQuery(new Term(docIdField, entity.getId())), BooleanClause.Occur.MUST)
+                    .add(new TermQuery(new Term(discriminatorField, localName)), BooleanClause.Occur.MUST)
+                    .build();
 
-            getIndexWriter().deleteDocuments(deleteQuery);
+                getIndexWriter().deleteDocuments(deleteQuery);
+            }
             getIndexWriter().addDocument(indexDoc);
-            log.trace("updateEntityForProfile: {} profile={}", entity.getId(), profile.getShapeNode());
+            log.trace("updateEntityForProfile: {} profile={} skipDelete={}",
+                entity.getId(), profile.getShapeNode(), skipDelete);
         } catch (IOException e) {
             throw new TextIndexException("updateEntityForProfile", e);
         }
