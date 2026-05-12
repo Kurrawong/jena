@@ -1,0 +1,32 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+#
+# Same-child correlated filter on nested identifier records (issue #65).
+#
+# Filter: identifierType = "anumber" AND identifierValueText = "A-94"
+#
+# Both clauses live in the same CqlAnd subtree and both target the
+# `identifier` idx:nested scope. The compiler's same-scope fold combines
+# them into ONE BooleanQuery wrapped in ONE ToParentBlockJoinQuery so that
+# a borehole surfaces only when the SAME identifier record satisfies BOTH
+# constraints — type=anumber AND value matching the "A-94" edge-ngram.
+#
+# Before this fix (#65 phase 1), each clause lifted independently and a
+# borehole could match if it had SOME identifier record with propertyID
+# "anumber" and SOME OTHER identifier record whose value happened to
+# match "A-94". After the fix, only same-child matches surface.
+
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?s ?score
+WHERE {
+    (?hit ?s ?score) luc:query (
+        "default"
+        "default"
+        "*"
+        '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#identifierType"},"anumber"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#identifierValueText"},"A-94"]}]}'
+        ""
+        10
+        0
+    )
+}
+ORDER BY DESC(?score) ?s
