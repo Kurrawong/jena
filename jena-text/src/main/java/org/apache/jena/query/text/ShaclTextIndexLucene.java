@@ -62,6 +62,7 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.search.SearcherManager;
 import org.apache.lucene.search.join.BitSetProducer;
 import org.apache.lucene.search.join.QueryBitSetProducer;
+import org.apache.lucene.search.join.ToParentBlockJoinQuery;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
@@ -131,7 +132,17 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         new TermQuery(new Term(BLOCK_KIND_FIELD, BLOCK_KIND_PARENT));
 
     /** {@link BitSetProducer} over the parent filter — required by {@code ToParentBlockJoinQuery}. */
-    static final BitSetProducer PARENTS_FILTER = new QueryBitSetProducer(PARENT_DOC_FILTER);
+    public static final BitSetProducer PARENTS_FILTER = new QueryBitSetProducer(PARENT_DOC_FILTER);
+
+    /**
+     * Wrap a child-scope query in a {@link ToParentBlockJoinQuery} so that matching
+     * child docs lift their owning parent into the result set. Used by the CQL compiler
+     * and by field-scoped read paths when the target field lives on child docs.
+     */
+    public static Query wrapAsParent(Query childQuery) {
+        return new ToParentBlockJoinQuery(childQuery, PARENTS_FILTER,
+            org.apache.lucene.search.join.ScoreMode.Avg);
+    }
 
     /**
      * Wrap an arbitrary query with a parent-doc filter so search/iteration sees only
@@ -452,15 +463,75 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         if ("*".equals(queryString)) {
             return new MatchAllDocsQuery();
         }
-        if (fields.size() == 1) {
-            QueryParser qp = new QueryParser(fields.get(0), getQueryAnalyzer());
-            qp.setAllowLeadingWildcard(true);
-            return qp.parse(queryString);
+        // Partition fields by scope: root-scoped fields stay flat on the parent doc;
+        // child-scoped fields live on child docs and need a ToParentBlockJoinQuery lift.
+        List<String> rootFields = new ArrayList<>();
+        Map<String, List<String>> fieldsByNestedScope = new LinkedHashMap<>();
+        for (String fieldName : fields) {
+            ShaclIndexMapping.NestedDef scope = shaclMapping.findNestedDefForFieldName(fieldName);
+            if (scope == null) {
+                rootFields.add(fieldName);
+            } else {
+                fieldsByNestedScope
+                    .computeIfAbsent(scope.getNestedName(), k -> new ArrayList<>())
+                    .add(fieldName);
+            }
         }
-        String[] fieldArray = fields.toArray(new String[0]);
-        MultiFieldQueryParser mqp = new MultiFieldQueryParser(fieldArray, getQueryAnalyzer());
-        mqp.setAllowLeadingWildcard(true);
-        return mqp.parse(queryString);
+
+        // Fast path: all root-scoped — preserve previous single/multi-field parser behaviour.
+        if (fieldsByNestedScope.isEmpty()) {
+            if (rootFields.size() == 1) {
+                QueryParser qp = new QueryParser(rootFields.get(0), getQueryAnalyzer());
+                qp.setAllowLeadingWildcard(true);
+                return qp.parse(queryString);
+            }
+            String[] fieldArray = rootFields.toArray(new String[0]);
+            MultiFieldQueryParser mqp = new MultiFieldQueryParser(fieldArray, getQueryAnalyzer());
+            mqp.setAllowLeadingWildcard(true);
+            return mqp.parse(queryString);
+        }
+
+        // At least one child-scoped field present. Build per-scope queries, wrapping
+        // each nested scope in a ToParentBlockJoinQuery, then OR them together (a hit
+        // anywhere across the listed fields should surface the parent entity).
+        List<Query> clauses = new ArrayList<>();
+        if (!rootFields.isEmpty()) {
+            Query rootQ;
+            if (rootFields.size() == 1) {
+                QueryParser qp = new QueryParser(rootFields.get(0), getQueryAnalyzer());
+                qp.setAllowLeadingWildcard(true);
+                rootQ = qp.parse(queryString);
+            } else {
+                MultiFieldQueryParser mqp = new MultiFieldQueryParser(
+                    rootFields.toArray(new String[0]), getQueryAnalyzer());
+                mqp.setAllowLeadingWildcard(true);
+                rootQ = mqp.parse(queryString);
+            }
+            clauses.add(rootQ);
+        }
+        for (List<String> scopeFields : fieldsByNestedScope.values()) {
+            Query inner;
+            if (scopeFields.size() == 1) {
+                QueryParser qp = new QueryParser(scopeFields.get(0), getQueryAnalyzer());
+                qp.setAllowLeadingWildcard(true);
+                inner = qp.parse(queryString);
+            } else {
+                MultiFieldQueryParser mqp = new MultiFieldQueryParser(
+                    scopeFields.toArray(new String[0]), getQueryAnalyzer());
+                mqp.setAllowLeadingWildcard(true);
+                inner = mqp.parse(queryString);
+            }
+            clauses.add(wrapAsParent(inner));
+        }
+        if (clauses.size() == 1) {
+            return clauses.get(0);
+        }
+        BooleanQuery.Builder bq = new BooleanQuery.Builder();
+        for (Query q : clauses) {
+            bq.add(q, BooleanClause.Occur.SHOULD);
+        }
+        bq.setMinimumNumberShouldMatch(1);
+        return bq.build();
     }
 
     /**
@@ -472,16 +543,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         if ("*".equals(queryString)) {
             return new MatchAllDocsQuery();
         }
-        if (resolvedFields.size() == 1) {
-            String fieldName = resolvedFields.get(0);
-            QueryParser qp = new QueryParser(fieldName, getQueryAnalyzer());
-            qp.setAllowLeadingWildcard(true);
-            Query fieldQuery = qp.parse(queryString);
-            // Wrap with field IRI as the name
-            ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
-            String name = fd != null ? fd.getFieldIRI().getURI() : fieldName;
-            return NamedMatches.wrapQuery(name, fieldQuery);
-        }
+        // Per-field named clause, with child-scoped fields wrapped in ToParentBlockJoinQuery
+        // so a matching child-doc clause surfaces its parent in the result iteration.
         BooleanQuery.Builder bq = new BooleanQuery.Builder();
         for (String fieldName : resolvedFields) {
             QueryParser qp = new QueryParser(fieldName, getQueryAnalyzer());
@@ -490,9 +553,17 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
             String name = fd != null ? fd.getFieldIRI().getURI() : fieldName;
             Query named = NamedMatches.wrapQuery(name, fieldQuery);
+            ShaclIndexMapping.NestedDef scope = shaclMapping.findNestedDefForFieldName(fieldName);
+            if (scope != null) {
+                named = wrapAsParent(named);
+            }
             bq.add(named, BooleanClause.Occur.SHOULD);
         }
-        return bq.build();
+        BooleanQuery built = bq.build();
+        if (built.clauses().size() == 1) {
+            return built.clauses().get(0).query();
+        }
+        return built;
     }
 
     /**

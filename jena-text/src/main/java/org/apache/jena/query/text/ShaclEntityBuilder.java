@@ -59,7 +59,10 @@ final class ShaclEntityBuilder {
                 for (FieldOccurrence occurrence : nestedDef.getOccurrences()) {
                     List<Object> values = extractOccurrenceValues(graph, child, occurrence);
                     if (!values.isEmpty()) {
-                        addValues(docValues, occurrence.getField().getFieldName(), values);
+                        // Child-scoped values go ONLY to the per-record map; they are
+                        // emitted on the child Lucene doc by the indexer, not flattened
+                        // onto the parent. This is what enables same-child correlation
+                        // at query time via ToParentBlockJoinQuery (block-join PR-B).
                         addValues(recordValues, occurrence.getField().getFieldName(), values);
                     }
                 }

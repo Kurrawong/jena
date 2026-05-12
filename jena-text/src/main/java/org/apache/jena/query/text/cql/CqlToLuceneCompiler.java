@@ -281,7 +281,7 @@ public class CqlToLuceneCompiler {
         if (q == null) {
             return new CompileResult(null, cmp);
         }
-        return new CompileResult(q, null);
+        return new CompileResult(maybeLiftToParent(field, q), null);
     }
 
     private Query compileSingleHierarchyEquality(CqlExpression.CqlComparison cmp, FieldDef field) {
@@ -323,12 +323,12 @@ public class CqlToLuceneCompiler {
             for (Object v : in.values()) {
                 refs.add(new BytesRef(String.valueOf(v)));
             }
-            return new CompileResult(new TermInSetQuery(fieldName, refs), null);
+            return new CompileResult(maybeLiftToParent(field, new TermInSetQuery(fieldName, refs)), null);
         }
 
         // Numeric IN: OR of exact queries
         if (in.values().isEmpty()) {
-            return new CompileResult(new MatchNoDocsQuery(), null);
+            return new CompileResult(maybeLiftToParent(field, new MatchNoDocsQuery()), null);
         }
 
         BooleanQuery.Builder bq = new BooleanQuery.Builder();
@@ -337,7 +337,7 @@ public class CqlToLuceneCompiler {
             bq.add(eq, BooleanClause.Occur.SHOULD);
         }
         bq.setMinimumNumberShouldMatch(1);
-        return new CompileResult(bq.build(), null);
+        return new CompileResult(maybeLiftToParent(field, bq.build()), null);
     }
 
     private CompileResult compileBetween(CqlExpression.CqlBetween btw) {
@@ -350,7 +350,7 @@ public class CqlToLuceneCompiler {
         if (q == null) {
             return new CompileResult(null, btw);
         }
-        return new CompileResult(q, null);
+        return new CompileResult(maybeLiftToParent(field, q), null);
     }
 
     private CompileResult compileLike(CqlExpression.CqlLike like) {
@@ -372,7 +372,26 @@ public class CqlToLuceneCompiler {
             .replace("_", "?");   // CQL _ → Lucene ?
 
         return new CompileResult(
-            new WildcardQuery(new Term(field.getFieldName(), lucenePattern)), null);
+            maybeLiftToParent(field, new WildcardQuery(new Term(field.getFieldName(), lucenePattern))), null);
+    }
+
+    /**
+     * If {@code field} is owned by an {@code idx:nested} scope, lift the inner query
+     * to the parent doc level via {@code ToParentBlockJoinQuery}. Root-scoped fields
+     * pass through unchanged.
+     * <p>
+     * Note: this lifts each clause independently, so a multi-clause AND on the same
+     * nested scope produces N independent lifts and can still cross-correlate across
+     * different children. PR-B introduces scope-aware AND/OR folding to deliver
+     * same-child correctness. For lone child-scope clauses this is exact.
+     */
+    private Query maybeLiftToParent(FieldDef field, Query inner) {
+        if (inner == null) return null;
+        ShaclIndexMapping.NestedDef scope = mapping.findNestedDefForFieldName(field.getFieldName());
+        if (scope == null) {
+            return inner;
+        }
+        return org.apache.jena.query.text.ShaclTextIndexLucene.wrapAsParent(inner);
     }
 
     private CompileResult compileSpatial(CqlExpression.CqlSpatial spatial) {

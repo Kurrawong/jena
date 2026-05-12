@@ -319,7 +319,7 @@ public class TestNestedHierarchicalFacets {
     }
 
     @Test
-    public void testPhase1NestedTextAndSiblingFilterStillCrossCorrelate() {
+    public void testNestedTextAndSiblingFilterEachLiftIndependently() {
         CqlExpression cql = CqlParser.parse("""
             {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierType"},"HoleNumber"]}
             """);
@@ -328,9 +328,12 @@ public class TestNestedHierarchicalFacets {
             Collections.singletonList(FIELD_NS + "identifierValueText"),
             "84", cql, null, null, null, 10, null);
 
-        // Phase 1 limitation: nested text fields are still flattened onto the parent document.
-        // The level-0 identifierType filter can narrow by hierarchy path, but it does not constrain
-        // which child record contributed the text match. When block join lands, invert this test.
+        // After block-join PR-A: each clause is independently lifted to parent via
+        // ToParentBlockJoinQuery. The text "84" lifts bh1 (HoleNumber=8412 → child has text "84")
+        // and bh2 (Company=8412 → child has text "84"). The level-0 identifierType filter via
+        // DrillDownQuery on hierarchy paths selects bh1+bh2+bh3 (all have a HoleNumber identifier).
+        // The intersection is {bh1, bh2}.
+        // Same-child correlation across these two independent clauses requires PR-B.
         assertEquals(Set.of(NS + "bh1", NS + "bh2"), toSubjectSet(results));
     }
 
@@ -345,14 +348,15 @@ public class TestNestedHierarchicalFacets {
     }
 
     @Test
-    public void testSingleLevelLeafFilterRemainsParentFlattenedUntilBlockJoin() {
+    public void testSingleLevelLeafFilterLiftsToParent() {
         CqlExpression cql = CqlParser.parse("""
             {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierValueExact"},"8412"]}
             """);
 
         List<TextHit> results = textIndex.queryWithCql(null, null, cql, null, null, null, 10, null);
-        // Phase 1 behavior: nested keyword fields are still flattened on the parent document,
-        // so a lone leaf-level filter matches any entity carrying that identifier value.
+        // After block-join PR-A: the lone filter on the child-scope keyword field is wrapped
+        // in ToParentBlockJoinQuery by the CQL compiler. Both bh1 (HoleNumber=8412) and bh2
+        // (Company=8412) have a child with this value, so both surface.
         assertEquals(Set.of(NS + "bh1", NS + "bh2"), toSubjectSet(results));
     }
 

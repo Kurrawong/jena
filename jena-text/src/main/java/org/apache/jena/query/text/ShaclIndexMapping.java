@@ -535,6 +535,28 @@ public class ShaclIndexMapping {
         return null;
     }
 
+    /**
+     * Return the {@link NestedDef} that owns {@code fieldName}, or {@code null} if the
+     * field is root-scoped (appears in a profile's root occurrences, not under any
+     * {@code idx:nested} block).
+     * <p>
+     * Used by the read path to detect when a field-scoped query must be wrapped in
+     * {@code ToParentBlockJoinQuery} (block-join lift) rather than searched flat.
+     */
+    public NestedDef findNestedDefForFieldName(String fieldName) {
+        if (fieldName == null) return null;
+        for (IndexProfile profile : profiles) {
+            for (NestedDef nestedDef : profile.getNestedDefs()) {
+                for (FieldOccurrence occ : nestedDef.getOccurrences()) {
+                    if (fieldName.equals(occ.getField().getFieldName())) {
+                        return nestedDef;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     public List<String> getDefaultSearchFieldNames() {
         List<String> result = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
