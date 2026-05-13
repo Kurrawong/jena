@@ -75,6 +75,7 @@ public class CqlParser {
             case "in" -> parseIn(args);
             case "between" -> parseBetween(args);
             case "like" -> parseLike(args);
+            case "text_query" -> parseTextQuery(args);
             default -> {
                 if (COMPARISON_OPS.contains(op)) {
                     yield parseComparison(op, args);
@@ -148,6 +149,15 @@ public class CqlParser {
         String property = extractProperty(args.get(0));
         String pattern = args.get(1).getAsString().value();
         return new CqlExpression.CqlLike(property, pattern);
+    }
+
+    private static CqlExpression.CqlTextQuery parseTextQuery(JsonArray args) {
+        if (args.size() != 2) {
+            throw new TextIndexException("CQL 'text_query' requires exactly 2 arguments, got " + args.size());
+        }
+        String property = extractProperty(args.get(0));
+        String text = args.get(1).getAsString().value();
+        return new CqlExpression.CqlTextQuery(property, text);
     }
 
     private static CqlExpression.CqlSpatial parseSpatial(String op, JsonArray args) {

@@ -39,7 +39,8 @@ public sealed interface CqlExpression
             CqlExpression.CqlIn,
             CqlExpression.CqlBetween,
             CqlExpression.CqlLike,
-            CqlExpression.CqlSpatial {
+            CqlExpression.CqlSpatial,
+            CqlExpression.CqlTextQuery {
 
     String toCanonical();
 
@@ -121,6 +122,22 @@ public sealed interface CqlExpression
         @Override
         public String toCanonical() {
             return op + "(" + property + "," + geometry + ")";
+        }
+    }
+
+    /**
+     * Analyzer-aware text search on exactly one property. The compiler tokenises
+     * {@code text} through the field's configured query analyzer and builds a
+     * TermQuery (single token) or PhraseQuery (multi-token).
+     * <p>
+     * Distinct from {@code =} which is exact-term equality and does NOT apply an
+     * analyzer — use {@code text_query} for typeahead, edge-ngram, stemming, or
+     * any other analyzer-mediated text matching.
+     */
+    record CqlTextQuery(String property, String text) implements CqlExpression {
+        @Override
+        public String toCanonical() {
+            return "text_query(" + property + "," + text + ")";
         }
     }
 }

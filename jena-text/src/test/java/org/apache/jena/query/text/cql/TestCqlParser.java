@@ -225,6 +225,22 @@ public class TestCqlParser {
         CqlParser.parse("{\"op\":\"unknown\",\"args\":[{\"property\":\"a\"},\"1\"]}");
     }
 
+    @Test
+    public void testParseTextQuery() {
+        CqlExpression expr = CqlParser.parse(
+            "{\"op\":\"text_query\",\"args\":[{\"property\":\"name\"},\"hello world\"]}");
+        assertInstanceOf(CqlExpression.CqlTextQuery.class, expr);
+        CqlExpression.CqlTextQuery tq = (CqlExpression.CqlTextQuery) expr;
+        assertEquals("name", tq.property());
+        assertEquals("hello world", tq.text());
+        assertEquals("text_query(name,hello world)", tq.toCanonical());
+    }
+
+    @Test(expected = TextIndexException.class)
+    public void testParseTextQueryWrongArity() {
+        CqlParser.parse("{\"op\":\"text_query\",\"args\":[{\"property\":\"name\"}]}");
+    }
+
     private static void assertInstanceOf(Class<?> expected, Object actual) {
         assertTrue("Expected " + expected.getSimpleName() + " but got " + actual.getClass().getSimpleName(),
             expected.isInstance(actual));

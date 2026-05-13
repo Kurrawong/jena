@@ -365,21 +365,23 @@ public class TestNestedHierarchicalFacets {
     }
 
     @Test
-    public void testSameChildTextEqualityUsesQueryAnalyzerNormalization() {
-        // Regression for the current CQL TEXT "=" gap:
-        // the field is indexed with EdgeNGramAnalyzer + LowerCaseKeywordAnalyzer,
-        // so a same-child correlated query using "ACME" should still match the
-        // Company=Acme child on bh1. Today this fails because CQL "=" on TEXT is
-        // compiled as a raw TermQuery without applying the field query analyzer.
+    public void testSameChildTextQueryAppliesAnalyzerAndFolds() {
+        // Analyzer-aware text matching uses the dedicated text_query operator.
+        // The identifierValueText field is indexed with EdgeNGramAnalyzer +
+        // LowerCaseKeywordAnalyzer, so text_query tokenises "ACME" through the
+        // lowercase analyzer to "acme" and matches the indexed n-grams. The
+        // same-scope fold combines this with the sibling identifierType="Company"
+        // clause so only bh1's Company-typed child surfaces its parent.
         CqlExpression cql = CqlParser.parse("""
             {"op":"and","args":[
               {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierType"},"Company"]},
-              {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierValueText"},"ACME"]}
+              {"op":"text_query","args":[{"property":"urn:jena:lucene:field#identifierValueText"},"ACME"]}
             ]}
             """);
 
         List<TextHit> results = textIndex.queryWithCql(null, null, cql, null, null, null, 10, null);
-        assertEquals("TEXT equality inside a same-child CQL subtree should honor the field query analyzer",
+        assertEquals("text_query inside a same-child CQL subtree should honour the field "
+            + "query analyzer and fold with sibling exact clauses",
             Set.of(NS + "bh1"), toSubjectSet(results));
     }
 

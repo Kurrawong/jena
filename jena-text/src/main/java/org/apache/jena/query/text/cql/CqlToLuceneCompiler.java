@@ -89,7 +89,29 @@ public class CqlToLuceneCompiler {
             case CqlExpression.CqlBetween btw -> compileBetween(btw);
             case CqlExpression.CqlLike like -> compileLike(like);
             case CqlExpression.CqlSpatial spatial -> compileSpatial(spatial);
+            case CqlExpression.CqlTextQuery tq -> compileTextQuery(tq);
         };
+    }
+
+    /**
+     * Analyzer-aware text search ({@code text_query}). Tokenises the value through
+     * the field's query analyzer and emits the resulting Lucene query. Child-scoped
+     * fields are lifted via {@link #maybeLiftToParent} so the result surfaces parent
+     * entities; same-scope fold (in {@link #compileSameScopeFold}) can combine multiple
+     * text_query clauses targeting the same nested scope with sibling exact clauses.
+     */
+    private CompileResult compileTextQuery(CqlExpression.CqlTextQuery tq) {
+        FieldDef field = findField(tq.property());
+        if (field == null || !field.isIndexed()) {
+            return new CompileResult(null, tq);
+        }
+        FieldType ft = field.getFieldType();
+        if (ft != FieldType.TEXT && ft != FieldType.KEYWORD) {
+            // text_query on a numeric/temporal/spatial field has no defined meaning
+            return new CompileResult(null, tq);
+        }
+        Query q = buildAnalyzedTextQuery(field, tq.text());
+        return new CompileResult(maybeLiftToParent(field, q), null);
     }
 
     private CompileResult compileAnd(CqlExpression.CqlAnd and) {
@@ -327,6 +349,7 @@ public class CqlToLuceneCompiler {
             case CqlExpression.CqlIn i -> i.property();
             case CqlExpression.CqlBetween b -> b.property();
             case CqlExpression.CqlLike l -> l.property();
+            case CqlExpression.CqlTextQuery tq -> tq.property();
             default -> null;
         };
         if (property == null) return null;
@@ -361,8 +384,17 @@ public class CqlToLuceneCompiler {
             case CqlExpression.CqlIn in -> buildInnerForIn(in);
             case CqlExpression.CqlBetween btw -> buildInnerForBetween(btw);
             case CqlExpression.CqlLike like -> buildInnerForLike(like);
+            case CqlExpression.CqlTextQuery tq -> buildInnerForTextQuery(tq);
             default -> null;
         };
+    }
+
+    private Query buildInnerForTextQuery(CqlExpression.CqlTextQuery tq) {
+        FieldDef field = findField(tq.property());
+        if (field == null || !field.isIndexed()) return null;
+        FieldType ft = field.getFieldType();
+        if (ft != FieldType.TEXT && ft != FieldType.KEYWORD) return null;
+        return buildAnalyzedTextQuery(field, tq.text());
     }
 
     private Query buildInnerForComparison(CqlExpression.CqlComparison cmp) {
@@ -640,25 +672,21 @@ public class CqlToLuceneCompiler {
     }
 
     /**
-     * Build a TEXT field equality query that honours the field's query analyzer.
-     * <p>
-     * For analyzer-backed fields (edge-ngram, lowercase keyword, standard tokenizer,
-     * stemming, etc.) the indexed terms are normalised forms of the original value.
-     * A raw {@code TermQuery} on the user-supplied value misses those normalised
-     * terms (e.g. case-sensitive query against lowercased index). This method
-     * tokenises the supplied value through the field's configured query analyzer
-     * and builds either a {@code TermQuery} (single token) or a {@code PhraseQuery}
-     * (multiple tokens in sequence) over the resulting terms.
-     * <p>
-     * Fields without an analyzer fall back to a raw {@code TermQuery} for backward
-     * compatibility — a misconfiguration but not a regression.
+     * Build the analyzer-aware text query that the {@code text_query} operator
+     * compiles to. Tokenises {@code value} through the field's configured query
+     * analyzer (falling back to the index analyzer if no query-side one is set)
+     * and emits a {@link TermQuery} (single token) or {@link org.apache.lucene.search.PhraseQuery}
+     * (multi-token, positional). Empty token streams produce {@link MatchNoDocsQuery}
+     * rather than matching everything.
      */
-    private Query buildTextEqualQuery(FieldDef field, String value) {
+    private Query buildAnalyzedTextQuery(FieldDef field, String value) {
         String fieldName = field.getFieldName();
         org.apache.lucene.analysis.Analyzer analyzer = field.getQueryAnalyzer() != null
             ? field.getQueryAnalyzer()
             : field.getAnalyzer();
         if (analyzer == null) {
+            // No analyzer configured — treat as raw term. Misconfiguration for TEXT
+            // but preserves backward compat for any callers depending on it.
             return new TermQuery(new Term(fieldName, value));
         }
         List<String> tokens = new ArrayList<>();
@@ -671,13 +699,9 @@ public class CqlToLuceneCompiler {
             }
             ts.end();
         } catch (java.io.IOException e) {
-            // Analyzers on in-memory strings don't normally throw IOException; if one does,
-            // fall back to raw term query rather than failing the whole compile.
             return new TermQuery(new Term(fieldName, value));
         }
         if (tokens.isEmpty()) {
-            // Analyzer consumed the entire input as stopwords or similar — match nothing
-            // rather than treat as "everything matches".
             return new MatchNoDocsQuery();
         }
         if (tokens.size() == 1) {
@@ -694,8 +718,9 @@ public class CqlToLuceneCompiler {
         String fieldName = field.getFieldName();
         FieldType ft = field.getFieldType();
         return switch (ft) {
-            case KEYWORD -> new TermQuery(new Term(fieldName, String.valueOf(value)));
-            case TEXT -> buildTextEqualQuery(field, String.valueOf(value));
+            // KEYWORD and TEXT both go to raw TermQuery — exact-term semantics.
+            // Analyzer-aware text matching uses the explicit text_query operator instead.
+            case KEYWORD, TEXT -> new TermQuery(new Term(fieldName, String.valueOf(value)));
             case INT -> IntPoint.newExactQuery(fieldName, toInt(value));
             case LONG -> LongPoint.newExactQuery(fieldName, toLong(value));
             case DOUBLE -> DoublePoint.newExactQuery(fieldName, toDouble(value));
