@@ -158,6 +158,114 @@ Inverse path:
 sh:path [ sh:inversePath ex:authored ] .
 ```
 
+## Nested Child Records
+
+`idx:nested` declares a repeated child collection on a shape. Each child becomes its own Lucene doc inside the entity's block; clauses targeting the same nested scope can be combined with same-child correlation at query time.
+
+`idx:joinPath` enumerates child nodes from the parent. Field occurrences inside the `idx:nested` block are evaluated relative to the child node, not the parent.
+
+### Pattern 1 — Qualified identifier (both children are KEYWORD)
+
+`schema:identifier` records carrying `(propertyID, value)` pairs:
+
+```turtle
+field:identifierType
+    idx:fieldName "identifierType" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true ;
+    sh:path schema:propertyID .
+
+field:identifierValueExact
+    idx:fieldName "identifierValueExact" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true ;
+    sh:path schema:value .
+
+<#BoreholeShape>
+    sh:targetClass ex:Borehole ;
+    idx:nested [
+        idx:joinPath schema:identifier ;
+        idx:property field:identifierType ;
+        idx:property field:identifierValueExact ;
+        idx:facetHierarchy ( field:identifierType field:identifierValueExact ) ;
+    ] .
+```
+
+Query-time same-child via `=` only — see [02-sparql-api.md → Nested same-child filters](02-sparql-api.md#nested-same-child-filters).
+
+### Pattern 2 — Identifier with text/typeahead on a child field
+
+Add a second occurrence of the value field with an analyzer-backed `TEXT` field. The exact and text fields share the SHACL path but produce different Lucene fields:
+
+```turtle
+field:identifierValueText
+    idx:fieldName "identifierValueText" ;
+    idx:fieldType idx:TextField ;
+    idx:analyzer <#edgeNgramAnalyzer> ;
+    idx:queryAnalyzer <#lowercaseKeywordAnalyzer> ;
+    sh:path schema:value .
+
+<#BoreholeShape>
+    sh:targetClass ex:Borehole ;
+    idx:nested [
+        idx:joinPath schema:identifier ;
+        idx:property field:identifierType ;
+        idx:property field:identifierValueExact ;
+        idx:property field:identifierValueText ;
+        idx:facetHierarchy ( field:identifierType field:identifierValueExact ) ;
+    ] .
+```
+
+At query time, combine `=` on `identifierType` with `text_query` on `identifierValueText` in the same CQL subtree (see [02-sparql-api.md](02-sparql-api.md#text_query--analyzer-aware-text-matching)).
+
+The exact and text fields can coexist on the same child path — index-time, each value writes both a raw keyword term and the analyzed tokens to its child doc.
+
+### Pattern 3 — Qualified attribution (prov)
+
+`prov:qualifiedAttribution` records carrying `(hadRole, agent)`:
+
+```turtle
+field:attributionRole
+    idx:fieldName "attributionRole" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true ;
+    sh:path prov:hadRole .
+
+field:attributionAgent
+    idx:fieldName "attributionAgent" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true ;
+    sh:path prov:agent .
+
+field:attributionAgentText
+    idx:fieldName "attributionAgentText" ;
+    idx:fieldType idx:TextField ;
+    idx:analyzer <#edgeNgramAnalyzer> ;
+    idx:queryAnalyzer <#lowercaseKeywordAnalyzer> ;
+    sh:path prov:agent .
+
+<#MiningReportShape>
+    sh:targetClass ex:MiningReport ;
+    idx:nested [
+        idx:joinPath prov:qualifiedAttribution ;
+        idx:property field:attributionRole ;
+        idx:property field:attributionAgent ;
+        idx:property field:attributionAgentText ;
+    ] .
+```
+
+Then at query time:
+
+- exact role + exact agent → both `=` clauses fold same-child
+- exact role + text/typeahead on agent → `=` + `text_query` fold same-child
+
+### Rules
+
+- One field IRI belongs to one scope: either root or one nested collection.
+- `idx:joinPath` may be a simple predicate, an inverse predicate, or a sequence of predicate steps. It does not support alternative paths.
+- Both the exact-keyword and edge-ngram-text variants can sit on the same SHACL path — they are different Lucene fields driven by their own analyzers.
+- `idx:facetHierarchy` inside an `idx:nested` block defines a hierarchy whose levels are correlated per child record (no cartesian products).
+
 ## Multi-Index Notes
 
 Multiple indexes are useful when corpora differ materially:
