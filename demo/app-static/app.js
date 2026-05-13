@@ -24,6 +24,12 @@ const SH = 'http://www.w3.org/ns/shacl#';
 const TEXT = 'http://jena.apache.org/text#';
 const IDX = 'urn:jena:lucene:index#';
 const FUSEKI = 'http://jena.apache.org/fuseki#';
+const DEMO_FIELD_IRIS = {
+    identifierType: 'urn:jena:lucene:field#identifierType',
+    identifierValueText: 'urn:jena:lucene:field#identifierValueText',
+    attributionRole: 'urn:jena:lucene:field#attributionRole',
+    attributionAgentText: 'urn:jena:lucene:field#attributionAgentText',
+};
 
 const SPARQL_PREFIXES = `\
 PREFIX luc:  <urn:jena:lucene:index#>
@@ -31,6 +37,7 @@ PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX dct:  <http://purl.org/dc/terms/>
 PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX ex:   <http://example.org/mining/>
+PREFIX prov: <http://www.w3.org/ns/prov#>
 `;
 
 const TURTLE_PREFIXES = {
@@ -176,6 +183,34 @@ function formatSelectedValue(field, value) {
         return `${escapeHtml(field)} in “${escapeHtml(low || '*')} to ${escapeHtml(high || '*')}”`;
     }
     return `${escapeHtml(field)} = “${escapeHtml(shortName(value))}”`;
+}
+
+function fieldIri(fieldIRIs, name, fallback) {
+    return (fieldIRIs && fieldIRIs[name]) || fallback || DEMO_FIELD_IRIS[name] || name;
+}
+
+function isPropertyArg(arg) {
+    return !!(arg && typeof arg === 'object' && typeof arg.property === 'string');
+}
+
+function isEqualsLeaf(clause) {
+    return !!(clause && clause.op === '=' && Array.isArray(clause.args) && clause.args.length >= 2 && isPropertyArg(clause.args[0]));
+}
+
+function resolveClauseProperty(clause, fieldIRIs) {
+    return isEqualsLeaf(clause) ? resolveFieldName(clause.args[0].property, fieldIRIs) : null;
+}
+
+function sanitizeDomId(text) {
+    return String(text || '').replace(/[^a-zA-Z0-9_-]+/g, '-');
+}
+
+function emptyCorrelatedFilterState() {
+    return {
+        identifierTerms: {},
+        attributionRole: '',
+        attributionAgent: '',
+    };
 }
 
 function temporalFieldPresetBounds(fieldName, fieldInfo) {
@@ -350,6 +385,62 @@ function buildCqlFilter(selected, bbox, polygon, fieldIRIs, extraClauses) {
     return JSON.stringify({op: 'and', args: clauses});
 }
 
+function extractCorrelatedFilterState(clause, fieldIRIs, correlated) {
+    if (!clause || !clause.op || !Array.isArray(clause.args)) return false;
+
+    if (clause.op === 'and') {
+        let identifierType = '';
+        let identifierText = '';
+        let attrRole = '';
+        let attrAgent = '';
+        let supported = true;
+
+        for (const child of clause.args) {
+            if (!isEqualsLeaf(child)) {
+                supported = false;
+                break;
+            }
+            const prop = resolveClauseProperty(child, fieldIRIs);
+            if (prop === 'identifierType') {
+                identifierType = String(child.args[1] || '');
+            } else if (prop === 'identifierValueText') {
+                identifierText = String(child.args[1] || '');
+            } else if (prop === 'attributionRole') {
+                attrRole = String(child.args[1] || '');
+            } else if (prop === 'attributionAgentText') {
+                attrAgent = String(child.args[1] || '');
+            } else {
+                supported = false;
+                break;
+            }
+        }
+
+        if (supported && identifierType && identifierText) {
+            correlated.identifierTerms[identifierType] = identifierText;
+            return true;
+        }
+        if (supported && (attrRole || attrAgent)) {
+            if (attrRole) correlated.attributionRole = attrRole;
+            if (attrAgent) correlated.attributionAgent = attrAgent;
+            return true;
+        }
+    }
+
+    if (isEqualsLeaf(clause)) {
+        const prop = resolveClauseProperty(clause, fieldIRIs);
+        if (prop === 'attributionRole') {
+            correlated.attributionRole = String(clause.args[1] || '');
+            return true;
+        }
+        if (prop === 'attributionAgentText') {
+            correlated.attributionAgent = String(clause.args[1] || '');
+            return true;
+        }
+    }
+
+    return false;
+}
+
 /**
  * Parse a CQL2-JSON filter string back into app state.
  * Returns { selected: {field: [values]}, bbox, polygon }.
@@ -358,7 +449,8 @@ function parseCqlFilter(cqlString, fieldIRIs) {
     const selected = {};
     let bbox = null;
     let polygon = null;
-    if (!cqlString) return { selected, bbox, polygon };
+    const correlated = emptyCorrelatedFilterState();
+    if (!cqlString) return { selected, bbox, polygon, correlated };
 
     // Build reverse map: IRI → field name
     const iriToName = {};
@@ -372,7 +464,7 @@ function parseCqlFilter(cqlString, fieldIRIs) {
     const resolve = (prop) => iriToName[prop] || iriToName[shortName(prop)] || prop;
 
     let cql;
-    try { cql = JSON.parse(cqlString); } catch { return { selected, bbox, polygon }; }
+    try { cql = JSON.parse(cqlString); } catch { return { selected, bbox, polygon, correlated }; }
 
     function addSelected(field, value) {
         if (!selected[field]) selected[field] = [];
@@ -381,6 +473,7 @@ function parseCqlFilter(cqlString, fieldIRIs) {
 
     function visit(clause) {
         if (!clause || !clause.op || !clause.args) return;
+        if (extractCorrelatedFilterState(clause, fieldIRIs, correlated)) return;
         if (clause.op === 'and' || clause.op === 'or') {
             for (const child of clause.args) visit(child);
             return;
@@ -425,7 +518,7 @@ function parseCqlFilter(cqlString, fieldIRIs) {
     }
 
     visit(cql);
-    return { selected, bbox, polygon };
+    return { selected, bbox, polygon, correlated };
 }
 
 // ---------------------------------------------------------------------------
@@ -539,6 +632,8 @@ function extractConfig(store) {
         const multiValued = getLiteral(store, fieldNode, IDX + 'multiValued') === 'true';
         const defaultSearch = getLiteral(store, fieldNode, IDX + 'defaultSearch') === 'true';
         const sortable = getLiteral(store, fieldNode, IDX + 'sortable') === 'true';
+        const storedLiteral = getLiteral(store, fieldNode, IDX + 'stored');
+        const stored = storedLiteral == null ? true : storedLiteral === 'true';
         const pathStr = pathNode ? pathToString(store, pathNode) : '?';
 
         const fieldIRI = fieldNode.termType === 'NamedNode' ? fieldNode.value : null;
@@ -552,6 +647,7 @@ function extractConfig(store) {
             iri: fieldIRI,
             path: pathStr,
             fieldType: fieldTypeShort,
+            stored,
             facetable,
             multiValued,
             defaultSearch,
@@ -564,6 +660,7 @@ function extractConfig(store) {
         fieldInfo[fieldName] = {
             iri: fieldIRI || fieldName,
             fieldType: fieldTypeShort,
+            stored,
             isNumeric,
             isTemporal,
             facetable,
@@ -775,6 +872,10 @@ function searchApp() {
         _lastTotalHits: 0,
         endpoint: '',
         queryLog: [],
+        correlatedFilters: emptyCorrelatedFilterState(),
+        attributionRoleOptions: [],
+        attributionAgentOptions: [],
+        attributionAgentsByRole: {},
         spatialBbox: null,
         spatialPolygon: null,
         drawingBbox: false,
@@ -832,6 +933,7 @@ function searchApp() {
 
             this.loadFromUrl();
             await this.executeSearch();
+            await this.loadAttributionOptions();
 
             // Auto-expand hierarchy drill-down if specified in URL
             const drillParam = new URLSearchParams(window.location.search).get('drillDown');
@@ -862,6 +964,41 @@ function searchApp() {
                     }, 50);
                 }
             });
+        },
+
+        async loadAttributionOptions() {
+            try {
+                const data = await this.runSparql(`${SPARQL_PREFIXES}
+SELECT DISTINCT ?roleLabel ?agentLabel
+WHERE {
+    ?entity a ex:MiningReport ;
+        prov:qualifiedAttribution ?qa .
+    OPTIONAL { ?qa prov:hadRole/rdfs:label ?roleLabel }
+    OPTIONAL { ?qa prov:agent/rdfs:label ?agentLabel }
+}
+ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
+                const roles = new Set();
+                const agents = new Set();
+                const byRole = {};
+                for (const row of (data.results?.bindings || [])) {
+                    const role = row.roleLabel?.value || '';
+                    const agent = row.agentLabel?.value || '';
+                    if (role) roles.add(role);
+                    if (agent) agents.add(agent);
+                    if (role && agent) {
+                        if (!byRole[role]) byRole[role] = [];
+                        if (!byRole[role].includes(agent)) byRole[role].push(agent);
+                    }
+                }
+                this.attributionRoleOptions = [...roles];
+                this.attributionAgentOptions = [...agents];
+                this.attributionAgentsByRole = byRole;
+            } catch (e) {
+                console.warn('Failed to load attribution options:', e);
+                this.attributionRoleOptions = [];
+                this.attributionAgentOptions = [];
+                this.attributionAgentsByRole = {};
+            }
         },
 
         // --- Query log ---
@@ -988,7 +1125,7 @@ function searchApp() {
                 this.spatialBbox,
                 this.spatialPolygon,
                 this.fieldIRIs,
-                this.buildHierarchyParentClauses()
+                this.extraFilterClauses()
             );
             if (cql) params.set('filter', cql);
             if (this.currentPage > 1) params.set('page', this.currentPage);
@@ -1004,12 +1141,13 @@ function searchApp() {
             const sort = parseSortParam(params.get('sort'), this.fieldIRIs);
             this.sortField = sort.field;
             this.sortDirection = sort.direction;
-            const { selected, bbox, polygon } = parseCqlFilter(params.get('filter'), this.fieldIRIs);
+            const { selected, bbox, polygon, correlated } = parseCqlFilter(params.get('filter'), this.fieldIRIs);
             const fieldNames = new Set([...this.facetFields, ...Object.keys(selected)]);
             this.selected = {};
             for (const f of fieldNames) {
                 this.selected[f] = selected[f] || [];
             }
+            this.correlatedFilters = correlated || emptyCorrelatedFilterState();
             this.hierarchySelected = this.inferHierarchySelections(this.selected);
             this.spatialBbox = bbox;
             this.spatialPolygon = polygon;
@@ -1096,6 +1234,7 @@ function searchApp() {
                 this.selected[f] = [];
             }
             this.hierarchySelected = {};
+            this.clearCorrelatedFilters();
             this.clearBbox();
             this.clearPolygon();
             this.pushUrl();
@@ -1104,6 +1243,7 @@ function searchApp() {
 
         hasActiveFilters() {
             return this.spatialBbox != null || this.spatialPolygon != null ||
+                this.correlatedFiltersActive() ||
                 Object.values(this.selected).some(values => (values || []).length > 0) ||
                 Object.values(this.hierarchySelected || {}).some(parents =>
                     Object.values(parents || {}).some(values => (values || []).length > 0));
@@ -1337,7 +1477,7 @@ function searchApp() {
                     this.spatialBbox,
                     this.spatialPolygon,
                     this.fieldIRIs,
-                    this.buildHierarchyParentClauses(dim)
+                    this.extraFilterClauses(dim)
                 );
                 let combinedFilter;
                 if (existingCql) {
@@ -1445,6 +1585,121 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             return JSON.stringify(this.identifierFieldSpecs());
         },
 
+        identifierHierarchyDim() {
+            for (const [dim, levels] of this.hierarchyDimensions.entries()) {
+                const names = (levels || []).map(level => level.name);
+                if (names[0] === 'identifierType' && names[1] === 'identifierValueExact') {
+                    return dim;
+                }
+            }
+            return 'identifierType_identifierValueExact';
+        },
+
+        identifierKinds() {
+            return this.visibleFacets(this.identifierHierarchyDim());
+        },
+
+        identifierKindValue(kind) {
+            return this.correlatedFilters.identifierTerms[kind] || '';
+        },
+
+        setIdentifierKindValue(kind, value) {
+            const trimmed = String(value || '').trim();
+            if (trimmed) {
+                this.correlatedFilters.identifierTerms[kind] = trimmed;
+            } else {
+                delete this.correlatedFilters.identifierTerms[kind];
+            }
+        },
+
+        async ensureIdentifierKindSuggestions(kind) {
+            await this.ensureHierarchyChildren(this.identifierHierarchyDim(), kind);
+        },
+
+        identifierSuggestionId(kind) {
+            return `identifier-suggestions-${sanitizeDomId(kind)}`;
+        },
+
+        identifierKindSuggestions(kind) {
+            return this.getHierarchyChildren(this.identifierHierarchyDim(), kind);
+        },
+
+        filteredAttributionAgents() {
+            const role = this.correlatedFilters.attributionRole.trim();
+            if (role && Array.isArray(this.attributionAgentsByRole[role])) {
+                return this.attributionAgentsByRole[role];
+            }
+            return this.attributionAgentOptions;
+        },
+
+        correlatedIdentifierClauses() {
+            const clauses = [];
+            const typeField = fieldIri(this.fieldIRIs, 'identifierType');
+            const valueField = fieldIri(this.fieldIRIs, 'identifierValueText');
+            for (const [kind, rawValue] of Object.entries(this.correlatedFilters.identifierTerms || {})) {
+                const value = String(rawValue || '').trim();
+                if (!kind || !value) continue;
+                clauses.push({
+                    op: 'and',
+                    args: [
+                        { op: '=', args: [{ property: typeField }, kind] },
+                        { op: '=', args: [{ property: valueField }, value] },
+                    ],
+                });
+            }
+            return clauses;
+        },
+
+        correlatedAttributionClauses() {
+            const role = this.correlatedFilters.attributionRole.trim();
+            const agent = this.correlatedFilters.attributionAgent.trim();
+            if (!role && !agent) return [];
+
+            const args = [];
+            if (role) {
+                args.push({ op: '=', args: [{ property: fieldIri(this.fieldIRIs, 'attributionRole') }, role] });
+            }
+            if (agent) {
+                args.push({ op: '=', args: [{ property: fieldIri(this.fieldIRIs, 'attributionAgentText') }, agent] });
+            }
+            return args.length === 1 ? args : [{ op: 'and', args }];
+        },
+
+        extraFilterClauses(excludedDim = null) {
+            return [
+                ...this.buildHierarchyParentClauses(excludedDim),
+                ...this.correlatedIdentifierClauses(),
+                ...this.correlatedAttributionClauses(),
+            ];
+        },
+
+        correlatedFiltersActive() {
+            return Object.keys(this.correlatedFilters.identifierTerms || {}).length > 0
+                || !!this.correlatedFilters.attributionRole.trim()
+                || !!this.correlatedFilters.attributionAgent.trim();
+        },
+
+        clearCorrelatedFilters() {
+            this.correlatedFilters = emptyCorrelatedFilterState();
+        },
+
+        correlatedFilterSummary() {
+            const parts = [];
+            for (const [kind, value] of Object.entries(this.correlatedFilters.identifierTerms || {})) {
+                if (!value) continue;
+                parts.push(`${shortName(kind)} contains “${escapeHtml(value)}” on the same identifier node`);
+            }
+            const attrRole = this.correlatedFilters.attributionRole.trim();
+            const attrAgent = this.correlatedFilters.attributionAgent.trim();
+            if (attrRole || attrAgent) {
+                const bits = [];
+                if (attrRole) bits.push(`role = “${escapeHtml(attrRole)}”`);
+                if (attrAgent) bits.push(`agent contains “${escapeHtml(attrAgent)}”`);
+                parts.push(bits.join(' AND ') + ' on the same attribution node');
+            }
+            return parts;
+        },
+
         // --- SPARQL execution ---
 
         async runSparql(query, signal) {
@@ -1485,7 +1740,7 @@ SELECT ?field ?value ?low ?high ?count WHERE {
                 this.spatialBbox,
                 this.spatialPolygon,
                 this.fieldIRIs,
-                this.buildHierarchyParentClauses()
+                this.extraFilterClauses()
             );
             const filterArg = cqlFilter ? sparqlQuote(cqlFilter) : "''";
             const sortSpec = buildSortSpec(this.sortField, this.sortDirection, this.fieldIRIs);
@@ -1824,6 +2079,10 @@ DESCRIBE <${uri}>`;
             if (filters.length > 0) {
                 parts.push('filtered by ' + filters.join(' AND '));
             }
+            const correlated = this.correlatedFilterSummary();
+            if (correlated.length > 0) {
+                parts.push('with correlated nested filters ' + correlated.join(' AND '));
+            }
             if (this.sortField) {
                 parts.push('sorted by ' + escapeHtml(this.sortLabel()));
             }
@@ -1865,8 +2124,11 @@ DESCRIBE <${uri}>`;
 
             try {
                 const searchQuery = this.buildSearchQuery();
-                const activeFilters = Object.entries(this.selected)
+                const activeFacetFilters = Object.entries(this.selected)
                     .filter(([, v]) => v && v.length > 0).length;
+                const activeFilters = activeFacetFilters
+                    + Object.keys(this.correlatedFilters.identifierTerms || {}).length
+                    + (this.correlatedFilters.attributionRole.trim() || this.correlatedFilters.attributionAgent.trim() ? 1 : 0);
                 const searchTerm = this.identifier.trim() || this.q.trim() || '*';
                 const searchLabel = searchTerm
                     + (activeFilters > 0 ? ` + ${activeFilters} filter${activeFilters > 1 ? 's' : ''}` : '');
@@ -1876,7 +2138,7 @@ DESCRIBE <${uri}>`;
                     this.spatialBbox,
                     this.spatialPolygon,
                     this.fieldIRIs,
-                    this.buildHierarchyParentClauses()
+                    this.extraFilterClauses()
                 );
                 if (cqlFilter) {
                     this.logQuery('CQL Filter', cqlFilter, null, false);

@@ -9,6 +9,7 @@
 @prefix dct:   <http://purl.org/dc/terms/> .
 @prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
 @prefix geo:   <http://www.opengis.net/ont/geosparql#> .
+@prefix prov:  <http://www.w3.org/ns/prov#> .
 @prefix schema: <https://schema.org/> .
 
 ## --- Classes ---
@@ -42,6 +43,10 @@ operator:Rio-Tinto rdfs:label "Rio Tinto" .
 status:Active      rdfs:label "Active" .
 status:Historical  rdfs:label "Historical" .
 status:Current     rdfs:label "Current" .
+
+ex:PrincipalInvestigator rdfs:label "Principal Investigator" .
+ex:Reviewer              rdfs:label "Reviewer" .
+ex:DataSteward           rdfs:label "Data Steward" .
 
 ## --- Sites ---
 
@@ -252,7 +257,10 @@ ex:report-mia-2023 a ex:MiningReport ;
     ex:reviewNote "QA validated by Brisbane modelling team."@en, "Validado por el equipo de modelado de Brisbane."@es ;
     ex:qaPassed true ;
     ex:confidenceScore "0.94"^^xsd:double ;
-    ex:authoredBy ex:author-jones .
+    ex:authoredBy ex:author-jones ;
+    prov:qualifiedAttribution
+        [ prov:hadRole ex:PrincipalInvestigator ; prov:agent ex:author-jones ],
+        [ prov:hadRole ex:Reviewer ; prov:agent ex:author-patel ] .
 
 ex:report-mia-2021 a ex:MiningReport ;
     rdfs:label "Mount Isa Lead-Zinc Exploration Summary" ;
@@ -268,7 +276,10 @@ ex:report-mia-2021 a ex:MiningReport ;
     ex:reviewNote "Legacy exploration summary retained for reference."@en, "Conservé pour référence."@fr ;
     ex:qaPassed true ;
     ex:confidenceScore "0.81"^^xsd:double ;
-    ex:authoredBy ex:author-chen .
+    ex:authoredBy ex:author-chen ;
+    prov:qualifiedAttribution
+        [ prov:hadRole ex:PrincipalInvestigator ; prov:agent ex:author-chen ],
+        [ prov:hadRole ex:Reviewer ; prov:agent ex:author-jones ] .
 
 ex:report-od-2024 a ex:MiningReport ;
     rdfs:label "Olympic Dam Expansion Feasibility Study" ;
@@ -284,7 +295,10 @@ ex:report-od-2024 a ex:MiningReport ;
     ex:reviewNote "Board review draft approved."@en, "Aprobado para revisión del directorio."@es ;
     ex:qaPassed true ;
     ex:confidenceScore "0.97"^^xsd:double ;
-    ex:authoredBy ex:author-jones .
+    ex:authoredBy ex:author-jones ;
+    prov:qualifiedAttribution
+        [ prov:hadRole ex:PrincipalInvestigator ; prov:agent ex:author-chen ],
+        [ prov:hadRole ex:Reviewer ; prov:agent ex:author-jones ] .
 
 ex:report-bod-2022 a ex:MiningReport ;
     rdfs:label "Boddington Gold Production Report 2022" ;
@@ -300,7 +314,10 @@ ex:report-bod-2022 a ex:MiningReport ;
     ex:reviewNote "Production commentary reconciled against plant records."@en ;
     ex:qaPassed true ;
     ex:confidenceScore "0.89"^^xsd:double ;
-    ex:authoredBy ex:author-patel .
+    ex:authoredBy ex:author-patel ;
+    prov:qualifiedAttribution
+        [ prov:hadRole ex:PrincipalInvestigator ; prov:agent ex:author-patel ],
+        [ prov:hadRole ex:DataSteward ; prov:agent ex:author-jones ] .
 
 ex:report-bh-1985 a ex:MiningReport ;
     rdfs:label "Broken Hill Lead-Zinc Historical Assessment" ;
@@ -316,7 +333,9 @@ ex:report-bh-1985 a ex:MiningReport ;
     ex:reviewNote "Historical scan; OCR confidence lower than modern reports."@en ;
     ex:qaPassed false ;
     ex:confidenceScore "0.58"^^xsd:double ;
-    ex:authoredBy ex:author-chen .
+    ex:authoredBy ex:author-chen ;
+    prov:qualifiedAttribution
+        [ prov:hadRole ex:Reviewer ; prov:agent ex:author-chen ] .
 
 ex:report-cad-2023 a ex:MiningReport ;
     rdfs:label "Cadia Valley Gold-Copper Resource Update" ;
@@ -332,7 +351,10 @@ ex:report-cad-2023 a ex:MiningReport ;
     ex:reviewNote "Peer reviewed for reserve committee."@en, "Examiné pour le comité des réserves."@fr ;
     ex:qaPassed true ;
     ex:confidenceScore "0.93"^^xsd:double ;
-    ex:authoredBy ex:author-patel .
+    ex:authoredBy ex:author-patel ;
+    prov:qualifiedAttribution
+        [ prov:hadRole ex:PrincipalInvestigator ; prov:agent ex:author-patel ],
+        [ prov:hadRole ex:Reviewer ; prov:agent ex:author-jones ] .
 
 ex:report-pil-2024 a ex:MiningReport ;
     rdfs:label "Pilbara Iron Ore Reserves Statement 2024" ;
@@ -348,7 +370,10 @@ ex:report-pil-2024 a ex:MiningReport ;
     ex:reviewNote "Reserves statement translated for regional investor brief."@en, "Resumo revisado para investidores regionais."@pt ;
     ex:qaPassed true ;
     ex:confidenceScore "0.96"^^xsd:double ;
-    ex:authoredBy ex:author-williams .
+    ex:authoredBy ex:author-williams ;
+    prov:qualifiedAttribution
+        [ prov:hadRole ex:PrincipalInvestigator ; prov:agent ex:author-williams ],
+        [ prov:hadRole ex:Reviewer ; prov:agent ex:author-jones ] .
 
 ex:report-pil-exploration a ex:MiningReport ;
     rdfs:label "Pilbara Greenfield Exploration Program Results" ;
@@ -364,7 +389,9 @@ ex:report-pil-exploration a ex:MiningReport ;
     ex:reviewNote "Early-stage targets only; not for reserve reporting."@en ;
     ex:qaPassed false ;
     ex:confidenceScore "0.66"^^xsd:double ;
-    ex:authoredBy ex:author-williams .
+    ex:authoredBy ex:author-williams ;
+    prov:qualifiedAttribution
+        [ prov:hadRole ex:Reviewer ; prov:agent ex:author-williams ] .
 
 # Demo case for multi-valued identifier search.
 # The empty identifier is intentionally present to model dirty source data.
@@ -382,4 +409,6 @@ ex:report-identifier-demo a ex:MiningReport ;
     ex:reviewNote "Metadata regression fixture for luc:match."@en ;
     ex:qaPassed true ;
     ex:confidenceScore "0.72"^^xsd:double ;
-    ex:authoredBy ex:author-patel .
+    ex:authoredBy ex:author-patel ;
+    prov:qualifiedAttribution
+        [ prov:hadRole ex:DataSteward ; prov:agent ex:author-patel ] .

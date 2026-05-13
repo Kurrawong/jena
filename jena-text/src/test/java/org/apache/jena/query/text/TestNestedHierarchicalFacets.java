@@ -365,6 +365,25 @@ public class TestNestedHierarchicalFacets {
     }
 
     @Test
+    public void testSameChildTextEqualityUsesQueryAnalyzerNormalization() {
+        // Regression for the current CQL TEXT "=" gap:
+        // the field is indexed with EdgeNGramAnalyzer + LowerCaseKeywordAnalyzer,
+        // so a same-child correlated query using "ACME" should still match the
+        // Company=Acme child on bh1. Today this fails because CQL "=" on TEXT is
+        // compiled as a raw TermQuery without applying the field query analyzer.
+        CqlExpression cql = CqlParser.parse("""
+            {"op":"and","args":[
+              {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierType"},"Company"]},
+              {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierValueText"},"ACME"]}
+            ]}
+            """);
+
+        List<TextHit> results = textIndex.queryWithCql(null, null, cql, null, null, null, 10, null);
+        assertEquals("TEXT equality inside a same-child CQL subtree should honor the field query analyzer",
+            Set.of(NS + "bh1"), toSubjectSet(results));
+    }
+
+    @Test
     public void testSameChildOrUnionsPerScopeCorrectly() {
         // OR fold: parent surfaces if it has a child satisfying any clause in the same scope.
         // Equivalent semantics to OR-of-independent-lifts but with a single block-join.
