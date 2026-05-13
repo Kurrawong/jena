@@ -639,11 +639,63 @@ public class CqlToLuceneCompiler {
         }
     }
 
+    /**
+     * Build a TEXT field equality query that honours the field's query analyzer.
+     * <p>
+     * For analyzer-backed fields (edge-ngram, lowercase keyword, standard tokenizer,
+     * stemming, etc.) the indexed terms are normalised forms of the original value.
+     * A raw {@code TermQuery} on the user-supplied value misses those normalised
+     * terms (e.g. case-sensitive query against lowercased index). This method
+     * tokenises the supplied value through the field's configured query analyzer
+     * and builds either a {@code TermQuery} (single token) or a {@code PhraseQuery}
+     * (multiple tokens in sequence) over the resulting terms.
+     * <p>
+     * Fields without an analyzer fall back to a raw {@code TermQuery} for backward
+     * compatibility — a misconfiguration but not a regression.
+     */
+    private Query buildTextEqualQuery(FieldDef field, String value) {
+        String fieldName = field.getFieldName();
+        org.apache.lucene.analysis.Analyzer analyzer = field.getQueryAnalyzer() != null
+            ? field.getQueryAnalyzer()
+            : field.getAnalyzer();
+        if (analyzer == null) {
+            return new TermQuery(new Term(fieldName, value));
+        }
+        List<String> tokens = new ArrayList<>();
+        try (org.apache.lucene.analysis.TokenStream ts = analyzer.tokenStream(fieldName, value)) {
+            org.apache.lucene.analysis.tokenattributes.CharTermAttribute term =
+                ts.addAttribute(org.apache.lucene.analysis.tokenattributes.CharTermAttribute.class);
+            ts.reset();
+            while (ts.incrementToken()) {
+                tokens.add(term.toString());
+            }
+            ts.end();
+        } catch (java.io.IOException e) {
+            // Analyzers on in-memory strings don't normally throw IOException; if one does,
+            // fall back to raw term query rather than failing the whole compile.
+            return new TermQuery(new Term(fieldName, value));
+        }
+        if (tokens.isEmpty()) {
+            // Analyzer consumed the entire input as stopwords or similar — match nothing
+            // rather than treat as "everything matches".
+            return new MatchNoDocsQuery();
+        }
+        if (tokens.size() == 1) {
+            return new TermQuery(new Term(fieldName, tokens.get(0)));
+        }
+        org.apache.lucene.search.PhraseQuery.Builder pq = new org.apache.lucene.search.PhraseQuery.Builder();
+        for (String t : tokens) {
+            pq.add(new Term(fieldName, t));
+        }
+        return pq.build();
+    }
+
     private Query buildEqualQuery(FieldDef field, Object value) {
         String fieldName = field.getFieldName();
         FieldType ft = field.getFieldType();
         return switch (ft) {
-            case KEYWORD, TEXT -> new TermQuery(new Term(fieldName, String.valueOf(value)));
+            case KEYWORD -> new TermQuery(new Term(fieldName, String.valueOf(value)));
+            case TEXT -> buildTextEqualQuery(field, String.valueOf(value));
             case INT -> IntPoint.newExactQuery(fieldName, toInt(value));
             case LONG -> LongPoint.newExactQuery(fieldName, toLong(value));
             case DOUBLE -> DoublePoint.newExactQuery(fieldName, toDouble(value));
