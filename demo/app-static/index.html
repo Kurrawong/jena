@@ -10,11 +10,11 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="app.css?v=8">
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/n3@1.22.3/browser/n3.min.js"></script>
   <script src="app-config.js?v=3"></script>
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=8"></script>
   <script>
     document.addEventListener('alpine:init', () => {
       Alpine.store('app', { showLog: true, showMap: true, highlightUri: null });
@@ -230,6 +230,78 @@
                   </div>
                 </details>
               </template>
+
+              <details class="facet-group correlated-group" open>
+                <summary class="facet-group-label">correlated nested filters</summary>
+                <p class="correlated-help">
+                  Keep related terms on the same blank node. Use identifier kind + value, or attribution role + agent.
+                </p>
+
+                <template x-if="identifierKinds().length > 0">
+                  <div class="correlated-section">
+                    <div class="correlated-section-title">Identifiers</div>
+                    <template x-for="kind in identifierKinds()" :key="kind.value">
+                      <label class="correlated-input-group">
+                        <span class="correlated-label" x-text="kind.label || kind.value"></span>
+                        <input class="input correlated-input"
+                               type="text"
+                               :list="identifierSuggestionId(kind.value)"
+                               :value="identifierKindValue(kind.value)"
+                               :placeholder="'Type ahead within ' + (kind.label || kind.value)"
+                               @focus="ensureIdentifierKindSuggestions(kind.value)"
+                               @input="setIdentifierKindValue(kind.value, $event.target.value)"
+                               @change="search()"
+                               @keydown.enter.prevent="search()">
+                        <datalist :id="identifierSuggestionId(kind.value)">
+                          <template x-for="child in identifierKindSuggestions(kind.value)" :key="child.value">
+                            <option :value="child.label || child.value"></option>
+                          </template>
+                        </datalist>
+                      </label>
+                    </template>
+                  </div>
+                </template>
+
+                <div class="correlated-section">
+                  <div class="correlated-section-title">Qualified attribution</div>
+                  <label class="correlated-input-group">
+                    <span class="correlated-label">Role</span>
+                    <input class="input correlated-input"
+                           type="text"
+                           list="attribution-role-suggestions"
+                           x-model="correlatedFilters.attributionRole"
+                           placeholder="e.g. Principal Investigator"
+                           @change="search()"
+                           @keydown.enter.prevent="search()">
+                    <datalist id="attribution-role-suggestions">
+                      <template x-for="role in attributionRoleOptions" :key="role">
+                        <option :value="role"></option>
+                      </template>
+                    </datalist>
+                  </label>
+                  <label class="correlated-input-group">
+                    <span class="correlated-label">Agent</span>
+                    <input class="input correlated-input"
+                           type="text"
+                           list="attribution-agent-suggestions"
+                           x-model="correlatedFilters.attributionAgent"
+                           placeholder="e.g. Sarah Jones"
+                           @change="search()"
+                           @keydown.enter.prevent="search()">
+                    <datalist id="attribution-agent-suggestions">
+                      <template x-for="agent in filteredAttributionAgents()" :key="agent">
+                        <option :value="agent"></option>
+                      </template>
+                    </datalist>
+                  </label>
+                </div>
+
+                <template x-if="correlatedFiltersActive()">
+                  <button class="btn-clear-filters correlated-clear-btn" type="button" @click="clearCorrelatedFilters(); search()">
+                    &#10005; Clear correlated filters
+                  </button>
+                </template>
+              </details>
 
               <template x-for="fieldName in facetFields" :key="fieldName">
                 <div>

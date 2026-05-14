@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -88,7 +89,29 @@ public class CqlToLuceneCompiler {
             case CqlExpression.CqlBetween btw -> compileBetween(btw);
             case CqlExpression.CqlLike like -> compileLike(like);
             case CqlExpression.CqlSpatial spatial -> compileSpatial(spatial);
+            case CqlExpression.CqlTextQuery tq -> compileTextQuery(tq);
         };
+    }
+
+    /**
+     * Analyzer-aware text search ({@code text_query}). Tokenises the value through
+     * the field's query analyzer and emits the resulting Lucene query. Child-scoped
+     * fields are lifted via {@link #maybeLiftToParent} so the result surfaces parent
+     * entities; same-scope fold (in {@link #compileSameScopeFold}) can combine multiple
+     * text_query clauses targeting the same nested scope with sibling exact clauses.
+     */
+    private CompileResult compileTextQuery(CqlExpression.CqlTextQuery tq) {
+        FieldDef field = findField(tq.property());
+        if (field == null || !field.isIndexed()) {
+            return new CompileResult(null, tq);
+        }
+        FieldType ft = field.getFieldType();
+        if (ft != FieldType.TEXT && ft != FieldType.KEYWORD) {
+            // text_query on a numeric/temporal/spatial field has no defined meaning
+            return new CompileResult(null, tq);
+        }
+        Query q = buildAnalyzedTextQuery(field, tq.text());
+        return new CompileResult(maybeLiftToParent(field, q), null);
     }
 
     private CompileResult compileAnd(CqlExpression.CqlAnd and) {
@@ -96,6 +119,14 @@ public class CqlToLuceneCompiler {
         List<CqlExpression> residual = new ArrayList<>();
         Set<CqlExpression> consumed = Collections.newSetFromMap(new IdentityHashMap<>());
 
+        // Run same-scope fold first: it handles AND clauses that all target the same
+        // idx:nested scope (including hierarchy-level clauses combined with non-hierarchy
+        // fields), producing ONE inner BooleanQuery wrapped in ONE ToParentBlockJoinQuery
+        // — required for same-child correlation (issue #65). Hierarchy DrillDownQuery
+        // folding then runs on whatever the same-scope pass didn't consume, typically
+        // when all clauses fit a single hierarchy path and same-scope fold of size 2+
+        // could have handled it too — DrillDownQuery is slightly more efficient there.
+        pushed.addAll(compileSameScopeFold(and.args(), consumed, BooleanClause.Occur.MUST));
         pushed.addAll(compileHierarchyDrillDowns(and.args(), consumed));
 
         for (CqlExpression child : and.args()) {
@@ -202,8 +233,17 @@ public class CqlToLuceneCompiler {
         // OR can only be pushed if ALL children are pushable
         List<Query> pushed = new ArrayList<>();
         boolean allPushable = true;
+        Set<CqlExpression> consumed = Collections.newSetFromMap(new IdentityHashMap<>());
+
+        // Same-scope OR folding: also semantically equivalent to OR-of-independent-lifts
+        // (parents match if any child satisfies any clause). Done for symmetry with AND
+        // and to keep the wire query smaller (one block-join, not N).
+        pushed.addAll(compileSameScopeFold(or.args(), consumed, BooleanClause.Occur.SHOULD));
 
         for (CqlExpression child : or.args()) {
+            if (consumed.contains(child)) {
+                continue;
+            }
             CompileResult r = compileExpr(child);
             if (r.pushed() != null && r.residual() == null) {
                 pushed.add(r.pushed());
@@ -226,6 +266,187 @@ public class CqlToLuceneCompiler {
         }
 
         return new CompileResult(null, or);
+    }
+
+    /**
+     * Detect leaf clauses in {@code args} that all target fields in the same
+     * {@code idx:nested} scope, and fold each such group into ONE
+     * {@code ToParentBlockJoinQuery} wrapping a single inner BooleanQuery
+     * combining all the group's per-clause queries with the supplied {@code occur}.
+     * <p>
+     * For AND ({@code MUST}): folding is the same-child correctness fix for #65 —
+     * a parent surfaces only when ONE child satisfies ALL clauses simultaneously.
+     * For OR ({@code SHOULD}): semantically equivalent to independent lifts, folded
+     * to keep the wire query smaller (one block-join, not N).
+     * <p>
+     * Group members are added to {@code consumed} so the caller's main loop skips them.
+     * Returns the folded queries (already lifted to parent) to be added directly to the
+     * caller's pushed list.
+     * <p>
+     * Scope inference handles only leaf expressions ({@code CqlComparison},
+     * {@code CqlIn}, {@code CqlBetween}, {@code CqlLike}). Composite expressions
+     * ({@code CqlAnd}, {@code CqlOr}, {@code CqlNot}) and clauses targeting root-scoped
+     * or unknown fields are left for the existing per-clause compile path.
+     */
+    private List<Query> compileSameScopeFold(List<CqlExpression> args,
+                                             Set<CqlExpression> consumed,
+                                             BooleanClause.Occur occur) {
+        // Group eligible leaves by their nested scope name.
+        Map<String, List<CqlExpression>> byScope = new LinkedHashMap<>();
+        for (CqlExpression child : args) {
+            if (consumed.contains(child)) continue;
+            String scope = inferLeafNestedScope(child);
+            if (scope == null) continue;
+            byScope.computeIfAbsent(scope, k -> new ArrayList<>()).add(child);
+        }
+
+        List<Query> folded = new ArrayList<>();
+        for (Map.Entry<String, List<CqlExpression>> entry : byScope.entrySet()) {
+            List<CqlExpression> group = entry.getValue();
+            if (group.size() < 2) continue;  // single-leaf needs no folding
+
+            List<Query> innerQueries = new ArrayList<>(group.size());
+            for (CqlExpression leaf : group) {
+                // Use the raw inner-query builder (NOT compileExpr) so the result is the
+                // unlifted child-doc query — no block-join wrap (we wrap once at the end)
+                // and no level-0 hierarchy DrillDownQuery short-circuit (which would
+                // produce a parent-taxonomy query rather than a child-doc query).
+                Query inner = buildInnerForLeaf(leaf);
+                if (inner == null) {
+                    innerQueries = null;
+                    break;
+                }
+                innerQueries.add(inner);
+            }
+            if (innerQueries == null) continue;
+
+            // Combine the inner queries and re-wrap ONCE.
+            Query combined;
+            if (innerQueries.size() == 1) {
+                combined = innerQueries.get(0);
+            } else {
+                BooleanQuery.Builder bq = new BooleanQuery.Builder();
+                for (Query q : innerQueries) {
+                    bq.add(q, occur);
+                }
+                if (occur == BooleanClause.Occur.SHOULD) {
+                    bq.setMinimumNumberShouldMatch(1);
+                }
+                combined = bq.build();
+            }
+            folded.add(org.apache.jena.query.text.ShaclTextIndexLucene.wrapAsParent(combined));
+            for (CqlExpression member : group) {
+                consumed.add(member);
+            }
+        }
+        return folded;
+    }
+
+    /** Return the nested scope name for a leaf expression, or null if it isn't a foldable leaf. */
+    private String inferLeafNestedScope(CqlExpression expr) {
+        String property = switch (expr) {
+            case CqlExpression.CqlComparison c -> c.property();
+            case CqlExpression.CqlIn i -> i.property();
+            case CqlExpression.CqlBetween b -> b.property();
+            case CqlExpression.CqlLike l -> l.property();
+            case CqlExpression.CqlTextQuery tq -> tq.property();
+            default -> null;
+        };
+        if (property == null) return null;
+        FieldDef field = mapping.findField(property);
+        if (field == null) return null;
+        ShaclIndexMapping.NestedDef scope = mapping.findNestedDefForFieldName(field.getFieldName());
+        return scope != null ? scope.getNestedName() : null;
+    }
+
+    /**
+     * Strip the outer {@code ToParentBlockJoinQuery} wrap and return the inner child
+     * query, or {@code null} if the input isn't a block-join. Reserved for any future
+     * caller that needs to peel a wrap from an already-compiled query.
+     */
+    private static Query unwrapBlockJoin(Query q) {
+        if (q instanceof org.apache.lucene.search.join.ToParentBlockJoinQuery bjq) {
+            return bjq.getChildQuery();
+        }
+        return null;
+    }
+
+    /**
+     * Build the raw child-doc query for a leaf expression, bypassing both the
+     * {@code maybeLiftToParent} block-join wrap and the level-0 hierarchy
+     * {@code DrillDownQuery} short-circuit. Used by the same-scope fold which needs
+     * unwrapped per-clause queries to combine into a single inner BooleanQuery.
+     * Returns null for non-leaf or unsupported expressions.
+     */
+    private Query buildInnerForLeaf(CqlExpression expr) {
+        return switch (expr) {
+            case CqlExpression.CqlComparison cmp -> buildInnerForComparison(cmp);
+            case CqlExpression.CqlIn in -> buildInnerForIn(in);
+            case CqlExpression.CqlBetween btw -> buildInnerForBetween(btw);
+            case CqlExpression.CqlLike like -> buildInnerForLike(like);
+            case CqlExpression.CqlTextQuery tq -> buildInnerForTextQuery(tq);
+            default -> null;
+        };
+    }
+
+    private Query buildInnerForTextQuery(CqlExpression.CqlTextQuery tq) {
+        FieldDef field = findField(tq.property());
+        if (field == null || !field.isIndexed()) return null;
+        FieldType ft = field.getFieldType();
+        if (ft != FieldType.TEXT && ft != FieldType.KEYWORD) return null;
+        return buildAnalyzedTextQuery(field, tq.text());
+    }
+
+    private Query buildInnerForComparison(CqlExpression.CqlComparison cmp) {
+        FieldDef field = findField(cmp.property());
+        if (field == null || !field.isIndexed()) return null;
+        return switch (cmp.op()) {
+            case "=" -> buildEqualQuery(field, cmp.value());
+            case "<>" -> new BooleanQuery.Builder()
+                .add(new MatchAllDocsQuery(), BooleanClause.Occur.MUST)
+                .add(buildEqualQuery(field, cmp.value()), BooleanClause.Occur.MUST_NOT)
+                .build();
+            case "<" -> buildRangeQuery(field, null, cmp.value(), false, false);
+            case "<=" -> buildRangeQuery(field, null, cmp.value(), false, true);
+            case ">" -> buildRangeQuery(field, cmp.value(), null, false, false);
+            case ">=" -> buildRangeQuery(field, cmp.value(), null, true, false);
+            default -> null;
+        };
+    }
+
+    private Query buildInnerForIn(CqlExpression.CqlIn in) {
+        FieldDef field = findField(in.property());
+        if (field == null || !field.isIndexed()) return null;
+        FieldType ft = field.getFieldType();
+        if (ft == FieldType.KEYWORD || ft == FieldType.TEXT) {
+            List<BytesRef> refs = new ArrayList<>();
+            for (Object v : in.values()) refs.add(new BytesRef(String.valueOf(v)));
+            return new TermInSetQuery(field.getFieldName(), refs);
+        }
+        if (in.values().isEmpty()) return new MatchNoDocsQuery();
+        BooleanQuery.Builder bq = new BooleanQuery.Builder();
+        for (Object v : in.values()) bq.add(buildEqualQuery(field, v), BooleanClause.Occur.SHOULD);
+        bq.setMinimumNumberShouldMatch(1);
+        return bq.build();
+    }
+
+    private Query buildInnerForBetween(CqlExpression.CqlBetween btw) {
+        FieldDef field = findField(btw.property());
+        if (field == null || !field.isIndexed()) return null;
+        return buildRangeQuery(field, btw.lower(), btw.upper(), true, true);
+    }
+
+    private Query buildInnerForLike(CqlExpression.CqlLike like) {
+        FieldDef field = findField(like.property());
+        if (field == null || !field.isIndexed()) return null;
+        FieldType ft = field.getFieldType();
+        if (ft != FieldType.KEYWORD && ft != FieldType.TEXT) return null;
+        String lucenePattern = like.pattern()
+            .replace("*", "\\*")
+            .replace("?", "\\?")
+            .replace("%", "*")
+            .replace("_", "?");
+        return new WildcardQuery(new Term(field.getFieldName(), lucenePattern));
     }
 
     private CompileResult compileNot(CqlExpression.CqlNot not) {
@@ -281,7 +502,7 @@ public class CqlToLuceneCompiler {
         if (q == null) {
             return new CompileResult(null, cmp);
         }
-        return new CompileResult(q, null);
+        return new CompileResult(maybeLiftToParent(field, q), null);
     }
 
     private Query compileSingleHierarchyEquality(CqlExpression.CqlComparison cmp, FieldDef field) {
@@ -323,12 +544,12 @@ public class CqlToLuceneCompiler {
             for (Object v : in.values()) {
                 refs.add(new BytesRef(String.valueOf(v)));
             }
-            return new CompileResult(new TermInSetQuery(fieldName, refs), null);
+            return new CompileResult(maybeLiftToParent(field, new TermInSetQuery(fieldName, refs)), null);
         }
 
         // Numeric IN: OR of exact queries
         if (in.values().isEmpty()) {
-            return new CompileResult(new MatchNoDocsQuery(), null);
+            return new CompileResult(maybeLiftToParent(field, new MatchNoDocsQuery()), null);
         }
 
         BooleanQuery.Builder bq = new BooleanQuery.Builder();
@@ -337,7 +558,7 @@ public class CqlToLuceneCompiler {
             bq.add(eq, BooleanClause.Occur.SHOULD);
         }
         bq.setMinimumNumberShouldMatch(1);
-        return new CompileResult(bq.build(), null);
+        return new CompileResult(maybeLiftToParent(field, bq.build()), null);
     }
 
     private CompileResult compileBetween(CqlExpression.CqlBetween btw) {
@@ -350,7 +571,7 @@ public class CqlToLuceneCompiler {
         if (q == null) {
             return new CompileResult(null, btw);
         }
-        return new CompileResult(q, null);
+        return new CompileResult(maybeLiftToParent(field, q), null);
     }
 
     private CompileResult compileLike(CqlExpression.CqlLike like) {
@@ -372,7 +593,26 @@ public class CqlToLuceneCompiler {
             .replace("_", "?");   // CQL _ → Lucene ?
 
         return new CompileResult(
-            new WildcardQuery(new Term(field.getFieldName(), lucenePattern)), null);
+            maybeLiftToParent(field, new WildcardQuery(new Term(field.getFieldName(), lucenePattern))), null);
+    }
+
+    /**
+     * If {@code field} is owned by an {@code idx:nested} scope, lift the inner query
+     * to the parent doc level via {@code ToParentBlockJoinQuery}. Root-scoped fields
+     * pass through unchanged.
+     * <p>
+     * Note: this lifts each clause independently, so a multi-clause AND on the same
+     * nested scope produces N independent lifts and can still cross-correlate across
+     * different children. PR-B introduces scope-aware AND/OR folding to deliver
+     * same-child correctness. For lone child-scope clauses this is exact.
+     */
+    private Query maybeLiftToParent(FieldDef field, Query inner) {
+        if (inner == null) return null;
+        ShaclIndexMapping.NestedDef scope = mapping.findNestedDefForFieldName(field.getFieldName());
+        if (scope == null) {
+            return inner;
+        }
+        return org.apache.jena.query.text.ShaclTextIndexLucene.wrapAsParent(inner);
     }
 
     private CompileResult compileSpatial(CqlExpression.CqlSpatial spatial) {
@@ -431,10 +671,55 @@ public class CqlToLuceneCompiler {
         }
     }
 
+    /**
+     * Build the analyzer-aware text query that the {@code text_query} operator
+     * compiles to. Tokenises {@code value} through the field's configured query
+     * analyzer (falling back to the index analyzer if no query-side one is set)
+     * and emits a {@link TermQuery} (single token) or {@link org.apache.lucene.search.PhraseQuery}
+     * (multi-token, positional). Empty token streams produce {@link MatchNoDocsQuery}
+     * rather than matching everything.
+     */
+    private Query buildAnalyzedTextQuery(FieldDef field, String value) {
+        String fieldName = field.getFieldName();
+        org.apache.lucene.analysis.Analyzer analyzer = field.getQueryAnalyzer() != null
+            ? field.getQueryAnalyzer()
+            : field.getAnalyzer();
+        if (analyzer == null) {
+            // No analyzer configured — treat as raw term. Misconfiguration for TEXT
+            // but preserves backward compat for any callers depending on it.
+            return new TermQuery(new Term(fieldName, value));
+        }
+        List<String> tokens = new ArrayList<>();
+        try (org.apache.lucene.analysis.TokenStream ts = analyzer.tokenStream(fieldName, value)) {
+            org.apache.lucene.analysis.tokenattributes.CharTermAttribute term =
+                ts.addAttribute(org.apache.lucene.analysis.tokenattributes.CharTermAttribute.class);
+            ts.reset();
+            while (ts.incrementToken()) {
+                tokens.add(term.toString());
+            }
+            ts.end();
+        } catch (java.io.IOException e) {
+            return new TermQuery(new Term(fieldName, value));
+        }
+        if (tokens.isEmpty()) {
+            return new MatchNoDocsQuery();
+        }
+        if (tokens.size() == 1) {
+            return new TermQuery(new Term(fieldName, tokens.get(0)));
+        }
+        org.apache.lucene.search.PhraseQuery.Builder pq = new org.apache.lucene.search.PhraseQuery.Builder();
+        for (String t : tokens) {
+            pq.add(new Term(fieldName, t));
+        }
+        return pq.build();
+    }
+
     private Query buildEqualQuery(FieldDef field, Object value) {
         String fieldName = field.getFieldName();
         FieldType ft = field.getFieldType();
         return switch (ft) {
+            // KEYWORD and TEXT both go to raw TermQuery — exact-term semantics.
+            // Analyzer-aware text matching uses the explicit text_query operator instead.
             case KEYWORD, TEXT -> new TermQuery(new Term(fieldName, String.valueOf(value)));
             case INT -> IntPoint.newExactQuery(fieldName, toInt(value));
             case LONG -> LongPoint.newExactQuery(fieldName, toLong(value));

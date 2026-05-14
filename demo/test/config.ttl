@@ -11,6 +11,7 @@ PREFIX text:    <http://jena.apache.org/text#>
 PREFIX idx:     <urn:jena:lucene:index#>
 PREFIX sh:      <http://www.w3.org/ns/shacl#>
 PREFIX ex:      <http://example.org/mining/>
+PREFIX prov:    <http://www.w3.org/ns/prov#>
 PREFIX schema:  <https://schema.org/>
 
 ## --- Fuseki server ---
@@ -38,7 +39,7 @@ PREFIX schema:  <https://schema.org/>
     text:indexId "default" ;
     text:directory <file:Lucene> ;
     text:shapes ( :MiningReportShape :BoreholeShape :SiteShape ) ;
-    text:storeValues true ;
+    text:storeValues false ;
     text:maxFacetHits 50000 ;
     idx:fusekiBase "http://localhost:3030" .
 
@@ -47,47 +48,57 @@ PREFIX schema:  <https://schema.org/>
 field:entityType
     idx:fieldName "entityType" ;
     idx:fieldType idx:KeywordField ;
+    idx:stored false ;
     idx:facetable true .
 
 field:title
     idx:fieldName "title" ;
     idx:fieldType idx:TextField ;
+    idx:stored true ;
     idx:defaultSearch true .
 
 field:description
     idx:fieldName "description" ;
-    idx:fieldType idx:TextField .
+    idx:fieldType idx:TextField ;
+    idx:stored true ;
+    idx:defaultSearch true .
 
 field:commodity
     idx:fieldName "commodity" ;
     idx:fieldType idx:KeywordField ;
+    idx:stored false ;
     idx:facetable true ;
     idx:multiValued true .
 
 field:state
     idx:fieldName "state" ;
     idx:fieldType idx:KeywordField ;
+    idx:stored false ;
     idx:facetable true .
 
 field:operator
     idx:fieldName "operator" ;
     idx:fieldType idx:KeywordField ;
+    idx:stored false ;
     idx:facetable true .
 
 field:status
     idx:fieldName "status" ;
     idx:fieldType idx:KeywordField ;
+    idx:stored false ;
     idx:facetable true .
 
 field:year
     idx:fieldName "year" ;
     idx:fieldType idx:IntField ;
+    idx:stored false ;
     idx:sortable true ;
     idx:facetable true .
 
 field:publishedOn
     idx:fieldName "publishedOn" ;
     idx:fieldType idx:TemporalField ;
+    idx:stored false ;
     idx:sortable true ;
     idx:facetable true ;
     idx:storeLiteralMetadata true .
@@ -95,74 +106,103 @@ field:publishedOn
 field:indexedAt
     idx:fieldName "indexedAt" ;
     idx:fieldType idx:TemporalField ;
+    idx:stored false ;
     idx:sortable true ;
     idx:storeLiteralMetadata true .
 
 field:reviewNote
     idx:fieldName "reviewNote" ;
     idx:fieldType idx:TextField ;
-    idx:multiValued true ;
-    idx:storeLiteralMetadata true .
+    idx:stored false ;
+    idx:multiValued true .
 
 field:qaPassed
     idx:fieldName "qaPassed" ;
     idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    idx:storeLiteralMetadata true .
+    idx:stored false ;
+    idx:facetable true .
 
 field:confidenceScore
     idx:fieldName "confidenceScore" ;
     idx:fieldType idx:DoubleField ;
+    idx:stored false ;
     idx:facetable true ;
-    idx:sortable true ;
-    idx:storeLiteralMetadata true .
+    idx:sortable true .
 
 field:authorName
     idx:fieldName "authorName" ;
     idx:fieldType idx:KeywordField ;
+    idx:stored false ;
     idx:facetable true .
 
 field:authoredByUri
     idx:fieldName "authoredByUri" ;
     idx:fieldType idx:KeywordField ;
+    idx:stored false ;
     idx:multiValued true .
+
+field:attributionRole
+    idx:fieldName "attributionRole" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true ;
+    idx:multiValued true .
+
+field:attributionAgentExact
+    idx:fieldName "attributionAgentExact" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:multiValued true .
+
+field:attributionAgentText
+    idx:fieldName "attributionAgentText" ;
+    idx:fieldType idx:TextField ;
+    idx:stored false ;
+    idx:multiValued true ;
+    idx:analyzer [ a text:EdgeNGramAnalyzer ] ;
+    idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] .
 
 field:depth
     idx:fieldName "depth" ;
     idx:fieldType idx:IntField ;
+    idx:stored false ;
     idx:sortable true ;
     idx:facetable true .
 
 field:identifier
     idx:fieldName "identifier" ;
     idx:fieldType idx:TextField ;
+    idx:stored false ;
     idx:multiValued true ;
-    idx:defaultSearch true ;
     idx:analyzer [ a text:EdgeNGramAnalyzer ] ;
     idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] .
 
 field:identifierType
     idx:fieldName "identifierType" ;
     idx:fieldType idx:KeywordField ;
+    idx:stored false ;
     idx:facetable true ;
     idx:multiValued true .
 
 field:identifierValueExact
     idx:fieldName "identifierValueExact" ;
     idx:fieldType idx:KeywordField ;
+    idx:stored false ;
     idx:facetable true ;
     idx:multiValued true .
 
 field:identifierValueText
     idx:fieldName "identifierValueText" ;
     idx:fieldType idx:TextField ;
+    idx:stored false ;
     idx:multiValued true ;
     idx:analyzer [ a text:EdgeNGramAnalyzer ] ;
     idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] .
 
 field:location
     idx:fieldName "location" ;
-    idx:fieldType idx:LatLonField .
+    idx:fieldType idx:LatLonField ;
+    idx:stored false .
 
 ## --- Shapes ---
 
@@ -184,6 +224,12 @@ field:location
     sh:property [ idx:field field:confidenceScore ; sh:path ex:confidenceScore ] ;
     sh:property [ idx:field field:authorName ; sh:path ( ex:authoredBy ex:name ) ] ;
     sh:property [ idx:field field:authoredByUri ; sh:path [ sh:inversePath ex:authored ] ] ;
+    idx:nested [
+        idx:joinPath prov:qualifiedAttribution ;
+        idx:property [ idx:field field:attributionRole ; sh:path ( prov:hadRole rdfs:label ) ] ;
+        idx:property [ idx:field field:attributionAgentExact ; sh:path ( prov:agent rdfs:label ) ] ;
+        idx:property [ idx:field field:attributionAgentText ; sh:path ( prov:agent rdfs:label ) ] ;
+    ] ;
     idx:facetHierarchy ( field:state field:commodity ) .
 
 :BoreholeShape

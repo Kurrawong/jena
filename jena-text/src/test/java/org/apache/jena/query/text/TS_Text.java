@@ -94,6 +94,7 @@ import org.junit.runners.Suite.SuiteClasses;
     , TestShaclBulkIndexer.class
     , TestShaclBulkIndexerMultiIndex.class
     , TestFacetCachingInvalidation.class
+    , TestBlockJoinIndexModel.class
 
     // CQL and multi-index tests
     , TestCqlParser.class

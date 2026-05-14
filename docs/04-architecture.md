@@ -233,29 +233,33 @@ FacetField("identifierType_identifierValueExact", "HoleNumber", "MIA-DDH-001")
 
 `FacetsConfig` is configured with `setHierarchical(true)` and `setMultiValued(true)` for each dimension.
 
-Nested fields are also flattened onto the parent Lucene document in Phase 1 so ordinary search and typeahead can still target them without block join. This flattening applies to both keyword and text child fields.
+Nested child records are now indexed via Lucene block join — each entity becomes a contiguous block of N child docs followed by 1 parent doc, written atomically via `IndexWriter.addDocuments(...)`. Child-scoped field values live ONLY on the child docs (no parent flattening). Hierarchy facet paths continue to be emitted on the parent doc, one path per child record.
+
+Block-join discriminators:
+
+- `_blockKind = "parent"` on parent docs, `_blockKind = "child"` on child docs
+- `_nestedScope = <nestedName>` on child docs identifies which `idx:nested` block they belong to
+- every doc in the block carries the same `docIdField` value so delete-by-parent-id hits the whole block
 
 ### Query-Time Behavior
 
-There are two hierarchy-related query paths:
+Three CQL paths cooperate on nested fields:
 
-1. `CqlToLuceneCompiler` folds contiguous `=` comparisons on hierarchy levels into a `DrillDownQuery`.
-   Example: `type = Mineral AND subtype = Gold` becomes one hierarchy path query on `type_subtype`.
-2. `extractHierarchyDrillDown()` in `ShaclTextIndexLucene` derives drill-down paths for facet counting from `=` filters when the client is requesting hierarchy counts.
+1. **Per-clause block-join lift.** `CqlToLuceneCompiler.maybeLiftToParent` wraps any single child-scope clause's Lucene query in `ToParentBlockJoinQuery(inner, PARENTS_FILTER, ScoreMode.Avg)` so matching child docs surface their parent entity.
+2. **Same-scope fold.** `compileSameScopeFold` detects AND/OR clauses targeting fields in the same `idx:nested` scope and combines them into ONE inner BooleanQuery wrapped in ONE `ToParentBlockJoinQuery` — same-child correctness. `buildInnerForLeaf` produces the raw child-doc query for each clause (bypassing the per-clause lift and the level-0 hierarchy short-circuit) so the fold combines before re-wrapping.
+3. **Hierarchy drill-down folding.** `compileHierarchyDrillDowns` recognises contiguous `=` clauses on the levels of one configured hierarchy and folds them into a single `DrillDownQuery` over the per-child taxonomy paths. Runs after the same-scope fold, on whatever was not already consumed.
 
-This gives correct exact-match semantics for:
+`extractHierarchyDrillDown()` in `ShaclTextIndexLucene` continues to derive drill-down paths for facet counting from `=` filters when the client is requesting hierarchy counts.
 
-- direct hierarchies
-- nested hierarchies when the query anchors the path from level 0 downward
-- bare `=` filters on level-0 hierarchy fields
+Text operators:
 
-Phase 1 limitation:
+- `=` is exact-term equality — KEYWORD semantics, no analyzer.
+- `text_query` is analyzer-aware: the supplied text is tokenised through the field's configured query analyzer and emitted as TermQuery (single token) or PhraseQuery (multi-token). Folds with sibling `=` clauses in the same nested scope.
 
-- non-folded child-field queries still run against flattened parent fields
-- this includes lone leaf filters, `OR`/`NOT`, and child numeric/range filters
-- child text + sibling child filter correlation still requires a later block-join execution layer
+Reads in flight:
 
-That Phase 1 parent flattening is now part of the forward-compatibility contract. When block join lands, parent-flattened child fields either need to remain available or become an explicit opt-in compatibility mode so existing child-field filters do not silently change meaning.
+- Every search/count site wraps its built query in `filterToParents(...)` so result iteration only ever sees parent docs.
+- Plain field-scoped reads (`parseQueryForFields`, `buildNamedQuery`) partition target fields into root-scoped and per-nested-scope groups, then wrap each child-scope subquery in `ToParentBlockJoinQuery` before OR-combining at the parent level.
 
 `collectFacetResults()` uses `FastTaxonomyFacetCounts` for hierarchy dimensions and `SortedSetDocValuesFacetCounts` for flat facets. `MultiFacets` combines both into a unified result map. Result keys use the child level field name (not the dimension name) so that `generateBindings()` returns proper field IRIs.
 
@@ -285,9 +289,9 @@ Alternative join paths are still rejected for `idx:joinPath`.
 |-------|---------------|
 | `ShaclIndexMapping.HierarchyDef` | Data model for hierarchy dimensions |
 | `ShaclIndexMapping.NestedDef` | Data model for repeated child collections |
-| `ShaclTextIndexLucene` | Taxonomy writer/reader lifecycle, direct vs nested hierarchy indexing, `extractHierarchyDrillDown()`, `MultiFacets` |
-| `ShaclEntityBuilder` | Builds root fields plus nested child records from graph data |
-| `CqlToLuceneCompiler` | Folds exact hierarchy filters into `DrillDownQuery` |
+| `ShaclTextIndexLucene` | Taxonomy writer/reader lifecycle, block-join layout, parent/child doc emission, `wrapAsParent()`, `filterToParents()`, `extractHierarchyDrillDown()`, `MultiFacets` |
+| `ShaclEntityBuilder` | Builds root fields plus nested child records from graph data (no parent flattening) |
+| `CqlToLuceneCompiler` | Per-clause block-join lift via `maybeLiftToParent`, same-scope fold via `compileSameScopeFold`, hierarchy drill-down folding, `compileTextQuery` for analyzer-aware text matching |
 | `ShaclIndexAssembler` | Parses `idx:facetHierarchy`, `idx:nested`, `idx:joinPath`, and scoped fields |
 | `TextFacetPF` | Passes resolved facet fields and CQL through to index |
 

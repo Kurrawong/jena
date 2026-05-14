@@ -60,6 +60,9 @@ import org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyWriter;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.search.SearcherManager;
+import org.apache.lucene.search.join.BitSetProducer;
+import org.apache.lucene.search.join.QueryBitSetProducer;
+import org.apache.lucene.search.join.ToParentBlockJoinQuery;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
@@ -95,6 +98,21 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     private static final String TAXO_INDEX_FIELD = "$taxo_facets";
     private static final String MULTI_VALUED_CONFIG_IRI = IndexVocab.NS + "multiValued";
 
+    /**
+     * Discriminator field marking parent vs child docs in a block-join layout.
+     * Used by the parents-filter {@link BitSetProducer} at query time and by
+     * read-side filters that need to exclude child docs from result iteration.
+     */
+    static final String BLOCK_KIND_FIELD = "_blockKind";
+    static final String BLOCK_KIND_PARENT = "parent";
+    static final String BLOCK_KIND_CHILD = "child";
+
+    /**
+     * Field on every child doc identifying which {@code idx:nested} scope (by name)
+     * it belongs to. Single-valued. Empty on parent docs.
+     */
+    static final String NESTED_SCOPE_FIELD = "_nestedScope";
+
     private final ShaclIndexMapping shaclMapping;
     private final List<String> facetFields;
     private final FacetsConfig facetsConfig;
@@ -104,6 +122,42 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     private final Directory taxoDirectory;
     private final DirectoryTaxonomyWriter taxoWriter;
     private final Set<String> hierarchyDimensions;
+
+    /**
+     * Filter that matches parent docs only (children docs share the entity URI in the
+     * docIdField, so reads must restrict to parent docs to preserve the entity-per-hit
+     * iteration contract). Used by {@link #filterToParents(Query)} on every read site.
+     */
+    private static final Query PARENT_DOC_FILTER =
+        new TermQuery(new Term(BLOCK_KIND_FIELD, BLOCK_KIND_PARENT));
+
+    /** {@link BitSetProducer} over the parent filter — required by {@code ToParentBlockJoinQuery}. */
+    public static final BitSetProducer PARENTS_FILTER = new QueryBitSetProducer(PARENT_DOC_FILTER);
+
+    /**
+     * Wrap a child-scope query in a {@link ToParentBlockJoinQuery} so that matching
+     * child docs lift their owning parent into the result set. Used by the CQL compiler
+     * and by field-scoped read paths when the target field lives on child docs.
+     */
+    public static Query wrapAsParent(Query childQuery) {
+        return new ToParentBlockJoinQuery(childQuery, PARENTS_FILTER,
+            org.apache.lucene.search.join.ScoreMode.Avg);
+    }
+
+    /**
+     * Wrap an arbitrary query with a parent-doc filter so search/iteration sees only
+     * parent docs in the result set. Always safe to call — for indexes that have no
+     * child docs (no {@code idx:nested}) the parent filter is a near-no-op cost-wise.
+     */
+    static Query filterToParents(Query inner) {
+        if (inner == null) {
+            return PARENT_DOC_FILTER;
+        }
+        return new BooleanQuery.Builder()
+            .add(inner, BooleanClause.Occur.MUST)
+            .add(PARENT_DOC_FILTER, BooleanClause.Occur.FILTER)
+            .build();
+    }
 
     /**
      * Manages a single live {@link IndexSearcher} per index generation, refreshed via
@@ -409,15 +463,75 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         if ("*".equals(queryString)) {
             return new MatchAllDocsQuery();
         }
-        if (fields.size() == 1) {
-            QueryParser qp = new QueryParser(fields.get(0), getQueryAnalyzer());
-            qp.setAllowLeadingWildcard(true);
-            return qp.parse(queryString);
+        // Partition fields by scope: root-scoped fields stay flat on the parent doc;
+        // child-scoped fields live on child docs and need a ToParentBlockJoinQuery lift.
+        List<String> rootFields = new ArrayList<>();
+        Map<String, List<String>> fieldsByNestedScope = new LinkedHashMap<>();
+        for (String fieldName : fields) {
+            ShaclIndexMapping.NestedDef scope = shaclMapping.findNestedDefForFieldName(fieldName);
+            if (scope == null) {
+                rootFields.add(fieldName);
+            } else {
+                fieldsByNestedScope
+                    .computeIfAbsent(scope.getNestedName(), k -> new ArrayList<>())
+                    .add(fieldName);
+            }
         }
-        String[] fieldArray = fields.toArray(new String[0]);
-        MultiFieldQueryParser mqp = new MultiFieldQueryParser(fieldArray, getQueryAnalyzer());
-        mqp.setAllowLeadingWildcard(true);
-        return mqp.parse(queryString);
+
+        // Fast path: all root-scoped — preserve previous single/multi-field parser behaviour.
+        if (fieldsByNestedScope.isEmpty()) {
+            if (rootFields.size() == 1) {
+                QueryParser qp = new QueryParser(rootFields.get(0), getQueryAnalyzer());
+                qp.setAllowLeadingWildcard(true);
+                return qp.parse(queryString);
+            }
+            String[] fieldArray = rootFields.toArray(new String[0]);
+            MultiFieldQueryParser mqp = new MultiFieldQueryParser(fieldArray, getQueryAnalyzer());
+            mqp.setAllowLeadingWildcard(true);
+            return mqp.parse(queryString);
+        }
+
+        // At least one child-scoped field present. Build per-scope queries, wrapping
+        // each nested scope in a ToParentBlockJoinQuery, then OR them together (a hit
+        // anywhere across the listed fields should surface the parent entity).
+        List<Query> clauses = new ArrayList<>();
+        if (!rootFields.isEmpty()) {
+            Query rootQ;
+            if (rootFields.size() == 1) {
+                QueryParser qp = new QueryParser(rootFields.get(0), getQueryAnalyzer());
+                qp.setAllowLeadingWildcard(true);
+                rootQ = qp.parse(queryString);
+            } else {
+                MultiFieldQueryParser mqp = new MultiFieldQueryParser(
+                    rootFields.toArray(new String[0]), getQueryAnalyzer());
+                mqp.setAllowLeadingWildcard(true);
+                rootQ = mqp.parse(queryString);
+            }
+            clauses.add(rootQ);
+        }
+        for (List<String> scopeFields : fieldsByNestedScope.values()) {
+            Query inner;
+            if (scopeFields.size() == 1) {
+                QueryParser qp = new QueryParser(scopeFields.get(0), getQueryAnalyzer());
+                qp.setAllowLeadingWildcard(true);
+                inner = qp.parse(queryString);
+            } else {
+                MultiFieldQueryParser mqp = new MultiFieldQueryParser(
+                    scopeFields.toArray(new String[0]), getQueryAnalyzer());
+                mqp.setAllowLeadingWildcard(true);
+                inner = mqp.parse(queryString);
+            }
+            clauses.add(wrapAsParent(inner));
+        }
+        if (clauses.size() == 1) {
+            return clauses.get(0);
+        }
+        BooleanQuery.Builder bq = new BooleanQuery.Builder();
+        for (Query q : clauses) {
+            bq.add(q, BooleanClause.Occur.SHOULD);
+        }
+        bq.setMinimumNumberShouldMatch(1);
+        return bq.build();
     }
 
     /**
@@ -429,16 +543,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         if ("*".equals(queryString)) {
             return new MatchAllDocsQuery();
         }
-        if (resolvedFields.size() == 1) {
-            String fieldName = resolvedFields.get(0);
-            QueryParser qp = new QueryParser(fieldName, getQueryAnalyzer());
-            qp.setAllowLeadingWildcard(true);
-            Query fieldQuery = qp.parse(queryString);
-            // Wrap with field IRI as the name
-            ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
-            String name = fd != null ? fd.getFieldIRI().getURI() : fieldName;
-            return NamedMatches.wrapQuery(name, fieldQuery);
-        }
+        // Per-field named clause, with child-scoped fields wrapped in ToParentBlockJoinQuery
+        // so a matching child-doc clause surfaces its parent in the result iteration.
         BooleanQuery.Builder bq = new BooleanQuery.Builder();
         for (String fieldName : resolvedFields) {
             QueryParser qp = new QueryParser(fieldName, getQueryAnalyzer());
@@ -447,9 +553,17 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
             String name = fd != null ? fd.getFieldIRI().getURI() : fieldName;
             Query named = NamedMatches.wrapQuery(name, fieldQuery);
+            ShaclIndexMapping.NestedDef scope = shaclMapping.findNestedDefForFieldName(fieldName);
+            if (scope != null) {
+                named = wrapAsParent(named);
+            }
             bq.add(named, BooleanClause.Occur.SHOULD);
         }
-        return bq.build();
+        BooleanQuery built = bq.build();
+        if (built.clauses().size() == 1) {
+            return built.clauses().get(0).query();
+        }
+        return built;
     }
 
     /**
@@ -489,11 +603,12 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             int maxHits = limit > 0 ? limit : MAX_N;
             Sort luceneSort = buildLuceneSort(sortSpecs);
 
+            Query searchQuery = filterToParents(finalQuery);
             TopDocs topDocs;
             if (luceneSort != null) {
-                topDocs = searcher.search(finalQuery, maxHits, luceneSort);
+                topDocs = searcher.search(searchQuery, maxHits, luceneSort);
             } else {
-                topDocs = searcher.search(finalQuery, maxHits);
+                topDocs = searcher.search(searchQuery, maxHits);
             }
 
             String entityField = getDocDef().getEntityField();
@@ -607,6 +722,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     protected Document docFromMapping(Entity entity, ShaclIndexMapping.IndexProfile profile) {
         Document doc = new Document();
 
+        // Tag as parent doc for block-join discrimination.
+        doc.add(new StringField(BLOCK_KIND_FIELD, BLOCK_KIND_PARENT, Field.Store.NO));
+
         String docIdField = profile.getDocIdField();
         doc.add(new Field(docIdField, entity.getId(), ftIRI));
 
@@ -644,6 +762,78 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         addHierarchyFacetFields(doc, entity, profile);
 
         return doc;
+    }
+
+    /**
+     * Build child documents for each nested record carried by {@code entity}, one
+     * Lucene doc per {@link Entity.NestedRecord}. Returned in the order they should
+     * appear in the Lucene block — i.e. before the parent doc. Each child carries:
+     * <ul>
+     *   <li>{@code _blockKind = "child"}</li>
+     *   <li>the entity's URI in the profile's docIdField (so block-delete by parent
+     *       term hits the whole block)</li>
+     *   <li>the profile's discriminatorField (so multi-profile delete remains scoped)</li>
+     *   <li>{@code _nestedScope = <nestedName>}</li>
+     *   <li>the child-scoped field values</li>
+     * </ul>
+     * Children do NOT carry parent-flattened fields, hierarchy facet paths, or other
+     * parent-only data. The parent doc continues to carry the denormalised flattened
+     * representation for backward compatibility (Phase 1 reads still hit the parent).
+     */
+    protected List<Document> childDocsFromMapping(Entity entity, ShaclIndexMapping.IndexProfile profile) {
+        if (profile.getNestedDefs().isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        String docIdField = profile.getDocIdField();
+        String discriminatorField = profile.getDiscriminatorField();
+        String discriminatorValue = null;
+        if (discriminatorField != null && !profile.getTargetClasses().isEmpty()) {
+            Node firstClass = profile.getTargetClasses().iterator().next();
+            String localName = firstClass.getLocalName();
+            if (localName != null && !localName.isEmpty()) {
+                discriminatorValue = localName;
+            }
+        }
+
+        List<Document> children = new ArrayList<>();
+        for (ShaclIndexMapping.NestedDef nestedDef : profile.getNestedDefs()) {
+            List<Entity.NestedRecord> records = entity.getNestedRecords(nestedDef.getNestedName());
+            if (records == null || records.isEmpty()) {
+                continue;
+            }
+            Map<String, ShaclIndexMapping.FieldDef> childFieldDefs = new LinkedHashMap<>();
+            for (ShaclIndexMapping.FieldOccurrence occ : nestedDef.getOccurrences()) {
+                childFieldDefs.put(occ.getField().getFieldName(), occ.getField());
+            }
+
+            for (Entity.NestedRecord record : records) {
+                Document child = new Document();
+                child.add(new StringField(BLOCK_KIND_FIELD, BLOCK_KIND_CHILD, Field.Store.NO));
+                child.add(new Field(docIdField, entity.getId(), ftIRI));
+                if (discriminatorValue != null) {
+                    child.add(new StringField(discriminatorField, discriminatorValue, Field.Store.YES));
+                }
+                child.add(new StringField(NESTED_SCOPE_FIELD, nestedDef.getNestedName(), Field.Store.YES));
+
+                for (Map.Entry<String, ShaclIndexMapping.FieldDef> entry : childFieldDefs.entrySet()) {
+                    Object value = record.get(entry.getKey());
+                    if (value == null) continue;
+                    ShaclIndexMapping.FieldDef fieldDef = entry.getValue();
+                    if (value instanceof List) {
+                        @SuppressWarnings("unchecked")
+                        List<Object> values = (List<Object>) value;
+                        for (Object v : values) {
+                            addFieldToDoc(child, fieldDef, v);
+                        }
+                    } else {
+                        addFieldToDoc(child, fieldDef, value);
+                    }
+                }
+                children.add(child);
+            }
+        }
+        return children;
     }
 
     /**
@@ -1108,15 +1298,15 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     public void updateEntityForProfile(Entity entity, ShaclIndexMapping.IndexProfile profile,
                                        boolean skipDelete) {
         try {
-            Document doc = docFromMapping(entity, profile);
-            Document indexDoc;
-            if (taxoWriter != null) {
-                indexDoc = facetsConfig.build(taxoWriter, doc);
-            } else if (!facetFields.isEmpty()) {
-                indexDoc = facetsConfig.build(doc);
-            } else {
-                indexDoc = doc;
+            Document parentDoc = docFromMapping(entity, profile);
+            List<Document> childDocs = childDocsFromMapping(entity, profile);
+
+            // Lucene block convention: children first, parent last. Build facets per doc.
+            List<Document> block = new ArrayList<>(childDocs.size() + 1);
+            for (Document child : childDocs) {
+                block.add(buildFacetsDoc(child));
             }
+            block.add(buildFacetsDoc(parentDoc));
 
             if (!skipDelete) {
                 String docIdField = profile.getDocIdField();
@@ -1124,6 +1314,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 Node firstClass = profile.getTargetClasses().iterator().next();
                 String localName = firstClass.getLocalName();
 
+                // Every doc in the block carries (docIdField, entity.getId()) and the
+                // discriminator, so this term-pair query hits the whole block as a unit.
                 BooleanQuery deleteQuery = new BooleanQuery.Builder()
                     .add(new TermQuery(new Term(docIdField, entity.getId())), BooleanClause.Occur.MUST)
                     .add(new TermQuery(new Term(discriminatorField, localName)), BooleanClause.Occur.MUST)
@@ -1131,12 +1323,24 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
                 getIndexWriter().deleteDocuments(deleteQuery);
             }
-            getIndexWriter().addDocument(indexDoc);
-            log.trace("updateEntityForProfile: {} profile={} skipDelete={}",
-                entity.getId(), profile.getShapeNode(), skipDelete);
+            // addDocuments preserves block ordering — required by Lucene block join.
+            getIndexWriter().addDocuments(block);
+            log.trace("updateEntityForProfile: {} profile={} skipDelete={} block={} (1 parent + {} children)",
+                entity.getId(), profile.getShapeNode(), skipDelete, block.size(), childDocs.size());
         } catch (IOException e) {
             throw new TextIndexException("updateEntityForProfile", e);
         }
+    }
+
+    /** Apply the facet config to a doc (no-op when no facets are configured). */
+    private Document buildFacetsDoc(Document doc) throws IOException {
+        if (taxoWriter != null) {
+            return facetsConfig.build(taxoWriter, doc);
+        }
+        if (!facetFields.isEmpty()) {
+            return facetsConfig.build(doc);
+        }
+        return doc;
     }
 
     public void deleteEntityByUri(String entityUri) {
@@ -1242,7 +1446,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             if (queryString != null && !queryString.isEmpty()) {
                 Query query = parseQueryForFields(queryString, resolved);
                 fc = new FacetsCollector();
-                searcher.search(query, fc);
+                searcher.search(filterToParents(query), fc);
             }
 
             Facets facets = createCombinedFacets(indexReader, fc, facetFieldsToQuery);
@@ -1332,7 +1536,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         if (collector == null) {
             IndexSearcher searcher = new IndexSearcher(indexReader);
             collector = new FacetsCollector();
-            searcher.search(new MatchAllDocsQuery(), collector);
+            searcher.search(filterToParents(new MatchAllDocsQuery()), collector);
         }
 
         for (FacetRequest.RangeFacetSpec spec : rangeSpecs) {
@@ -1597,7 +1801,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             BooleanQuery bq = combined.build();
             if (!bq.clauses().isEmpty()) {
                 fc = new FacetsCollector();
-                searcher.search(bq, fc);
+                searcher.search(filterToParents(bq), fc);
             }
 
             Facets facets = createCombinedFacets(indexReader, fc, facetFieldsToQuery);
@@ -1644,7 +1848,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         if (fc == null) {
             IndexSearcher searcher = new IndexSearcher(indexReader);
             fc = new FacetsCollector();
-            searcher.search(new MatchAllDocsQuery(), fc);
+            searcher.search(filterToParents(new MatchAllDocsQuery()), fc);
         }
 
         TaxonomyReader taxoReader = new DirectoryTaxonomyReader(taxoWriter);
@@ -1821,7 +2025,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
 
             int maxHits = limit > 0 ? limit : MAX_N;
-            TopDocs topDocs = searcher.search(query, maxHits);
+            TopDocs topDocs = searcher.search(filterToParents(query), maxHits);
 
             Node fieldNode = resolveFieldNode(resolvedFields);
             List<TextHit> results = new ArrayList<>();
@@ -1885,7 +2089,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
 
             int maxHits = limit > 0 ? limit : MAX_N;
-            TopDocs topDocs = searcher.search(combined.build(), maxHits);
+            TopDocs topDocs = searcher.search(filterToParents(combined.build()), maxHits);
 
             Node fieldNode = resolveFieldNode(resolved);
             List<TextHit> results = new ArrayList<>();
@@ -1938,9 +2142,10 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
             BooleanQuery query = bq.build();
             if (query.clauses().isEmpty()) {
-                return indexReader.numDocs();
+                // numDocs() counts parent + child docs; we want parents only.
+                return searcher.count(PARENT_DOC_FILTER);
             }
-            return searcher.count(query);
+            return searcher.count(filterToParents(query));
         } catch (IOException ex) {
             throw new TextIndexException("countQuery", ex);
         } catch (ParseException ex) {
@@ -1989,9 +2194,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
             TopDocs topDocs;
             if (luceneSort != null) {
-                topDocs = searcher.search(combined.build(), maxHits, luceneSort);
+                topDocs = searcher.search(filterToParents(combined.build()), maxHits, luceneSort);
             } else {
-                topDocs = searcher.search(combined.build(), maxHits);
+                topDocs = searcher.search(filterToParents(combined.build()), maxHits);
             }
 
             Node fieldNode = resolveFieldNode(resolved);
@@ -2073,7 +2278,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             BooleanQuery bq = combined.build();
             if (!bq.clauses().isEmpty()) {
                 fc = new FacetsCollector();
-                searcher.search(bq, fc);
+                searcher.search(filterToParents(bq), fc);
             }
 
             Facets facets = createCombinedFacets(indexReader, fc, facetFieldsToQuery);
@@ -2119,9 +2324,10 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
             BooleanQuery query = bq.build();
             if (query.clauses().isEmpty()) {
-                return indexReader.numDocs();
+                // numDocs() counts parent + child docs; we want parents only.
+                return searcher.count(PARENT_DOC_FILTER);
             }
-            return searcher.count(query);
+            return searcher.count(filterToParents(query));
         } catch (IOException ex) {
             throw new TextIndexException("countQueryWithCql", ex);
         } catch (ParseException ex) {

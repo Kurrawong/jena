@@ -319,7 +319,12 @@ public class TestNestedHierarchicalFacets {
     }
 
     @Test
-    public void testPhase1NestedTextAndSiblingFilterStillCrossCorrelate() {
+    public void testNestedTextAndSiblingFilterIndependentLiftsAcrossQueryStringAndFilter() {
+        // When the type filter lives in cqlFilter and the text lives in the queryString,
+        // they are TWO independent inputs to luc:query (built outside the CQL compiler's
+        // same-scope folding scope). Each lifts independently — cross-child match still
+        // possible. Same-child correctness requires both clauses to live in cqlFilter
+        // (the same CqlAnd subtree) — see testSameChildAndIsCorrelatedAcrossNestedScope.
         CqlExpression cql = CqlParser.parse("""
             {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierType"},"HoleNumber"]}
             """);
@@ -328,9 +333,94 @@ public class TestNestedHierarchicalFacets {
             Collections.singletonList(FIELD_NS + "identifierValueText"),
             "84", cql, null, null, null, 10, null);
 
-        // Phase 1 limitation: nested text fields are still flattened onto the parent document.
-        // The level-0 identifierType filter can narrow by hierarchy path, but it does not constrain
-        // which child record contributed the text match. When block join lands, invert this test.
+        assertEquals(Set.of(NS + "bh1", NS + "bh2"), toSubjectSet(results));
+    }
+
+    @Test
+    public void testSameChildAndIsCorrelatedAcrossNestedScope() {
+        // The actual #65 fix. Both clauses target the `identifier` nested scope and
+        // sit in the SAME CqlAnd subtree. The CQL compiler's same-scope fold lifts
+        // them as ONE ToParentBlockJoinQuery so the parent surfaces only when ONE
+        // child satisfies BOTH clauses.
+        //
+        // Test data:
+        //   bh1: Company=Acme, HoleNumber=8412    → HoleNumber child has text "84" → match
+        //   bh2: Company=8412 (!), HoleNumber=B-17 → Company child has text "84" but
+        //                                            isn't HoleNumber; HoleNumber child has
+        //                                            no "84" — same-child fails → NO match
+        //   bh3: Company=Rio, HoleNumber=9999     → no child has text "84" → NO match
+        //
+        // Pre-fold (cross-correlation bug): {bh1, bh2}.
+        // Post-fold (same-child correct):   {bh1}.
+        CqlExpression cql = CqlParser.parse("""
+            {"op":"and","args":[
+              {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierType"},"HoleNumber"]},
+              {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierValueText"},"84"]}
+            ]}
+            """);
+
+        List<TextHit> results = textIndex.queryWithCql(null, null, cql, null, null, null, 10, null);
+        assertEquals("Same-child fold restricts the match to bh1 only",
+            Set.of(NS + "bh1"), toSubjectSet(results));
+    }
+
+    @Test
+    public void testSameChildTextQueryAppliesAnalyzerAndFolds() {
+        // Analyzer-aware text matching uses the dedicated text_query operator.
+        // The identifierValueText field is indexed with EdgeNGramAnalyzer +
+        // LowerCaseKeywordAnalyzer, so text_query tokenises "ACME" through the
+        // lowercase analyzer to "acme" and matches the indexed n-grams. The
+        // same-scope fold combines this with the sibling identifierType="Company"
+        // clause so only bh1's Company-typed child surfaces its parent.
+        CqlExpression cql = CqlParser.parse("""
+            {"op":"and","args":[
+              {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierType"},"Company"]},
+              {"op":"text_query","args":[{"property":"urn:jena:lucene:field#identifierValueText"},"ACME"]}
+            ]}
+            """);
+
+        List<TextHit> results = textIndex.queryWithCql(null, null, cql, null, null, null, 10, null);
+        assertEquals("text_query inside a same-child CQL subtree should honour the field "
+            + "query analyzer and fold with sibling exact clauses",
+            Set.of(NS + "bh1"), toSubjectSet(results));
+    }
+
+    @Test
+    public void testSameChildOrUnionsPerScopeCorrectly() {
+        // OR fold: parent surfaces if it has a child satisfying any clause in the same scope.
+        // Equivalent semantics to OR-of-independent-lifts but with a single block-join.
+        //   bh1: HoleNumber=8412 → matches "value=8412"; also satisfies "type=Company" via its Company child
+        //   bh2: Company=8412 → matches "value=8412"
+        //   bh3: Company=Rio → matches "type=Company"
+        // All three should surface.
+        CqlExpression cql = CqlParser.parse("""
+            {"op":"or","args":[
+              {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierType"},"Company"]},
+              {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierValueExact"},"8412"]}
+            ]}
+            """);
+
+        List<TextHit> results = textIndex.queryWithCql(null, null, cql, null, null, null, 10, null);
+        assertEquals(Set.of(NS + "bh1", NS + "bh2", NS + "bh3"), toSubjectSet(results));
+    }
+
+    @Test
+    public void testMixedRootAndNestedAndDoesNotOverFold() {
+        // Mixed-scope AND: state is root-scoped, identifierType is nested.
+        // These must NOT fold together — same-scope fold only operates within a single
+        // nested scope. State filter applies at parent level; type filter lifts via block-join.
+        //   bh1: state=WA, has Company+HoleNumber identifiers
+        //   bh2: state=WA, has Company+HoleNumber identifiers
+        //   bh3: state=QLD
+        // Filter: state=WA AND identifierType=Company → {bh1, bh2}.
+        CqlExpression cql = CqlParser.parse("""
+            {"op":"and","args":[
+              {"op":"=","args":[{"property":"urn:jena:lucene:field#state"},"WA"]},
+              {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierType"},"Company"]}
+            ]}
+            """);
+
+        List<TextHit> results = textIndex.queryWithCql(null, null, cql, null, null, null, 10, null);
         assertEquals(Set.of(NS + "bh1", NS + "bh2"), toSubjectSet(results));
     }
 
@@ -345,14 +435,15 @@ public class TestNestedHierarchicalFacets {
     }
 
     @Test
-    public void testSingleLevelLeafFilterRemainsParentFlattenedUntilBlockJoin() {
+    public void testSingleLevelLeafFilterLiftsToParent() {
         CqlExpression cql = CqlParser.parse("""
             {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierValueExact"},"8412"]}
             """);
 
         List<TextHit> results = textIndex.queryWithCql(null, null, cql, null, null, null, 10, null);
-        // Phase 1 behavior: nested keyword fields are still flattened on the parent document,
-        // so a lone leaf-level filter matches any entity carrying that identifier value.
+        // After block-join PR-A: the lone filter on the child-scope keyword field is wrapped
+        // in ToParentBlockJoinQuery by the CQL compiler. Both bh1 (HoleNumber=8412) and bh2
+        // (Company=8412) have a child with this value, so both surface.
         assertEquals(Set.of(NS + "bh1", NS + "bh2"), toSubjectSet(results));
     }
 

@@ -316,6 +316,76 @@ Spatial:
 {"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[112,-44,154,-10]}]}
 ```
 
+### `text_query` — analyzer-aware text matching
+
+`=` is exact-term equality and does not apply an analyzer. For analyzer-mediated text matching (edge-ngram typeahead, lowercased keyword, standard tokenisation, stemming, etc.) use `text_query`:
+
+```json
+{"op":"text_query","args":[{"property":"urn:jena:lucene:field#title"},"gold mine"]}
+```
+
+The supplied text is tokenised through the field's configured query analyzer (falling back to the index analyzer if no query-side one is set):
+
+- single token → `TermQuery`
+- multiple tokens → `PhraseQuery` (positional)
+- empty token stream (e.g. all-stopword input) → matches nothing rather than everything
+
+When to choose which:
+
+| Operator | Use for |
+|---|---|
+| `=` | `KEYWORD`, numeric, temporal exact equality; root-level entity-type pivots |
+| `text_query` | analyzer-backed `TEXT` fields — typeahead, full-text search, edge-ngram |
+| `like` | wildcard pattern matching (`%`, `_`) on KEYWORD/TEXT fields |
+
+### Nested same-child filters
+
+For `idx:nested` child records (qualified identifiers, prov:qualifiedAttribution, location assessments, etc.) clauses that reference fields in the same nested scope and live in the same CQL subtree are folded into one block-join: a parent surfaces only when ONE child satisfies ALL the in-scope clauses.
+
+**Qualified identifier — both clauses are KEYWORD** (`schema:identifier` with `propertyID` + `value`):
+
+```json
+{
+  "op": "and",
+  "args": [
+    {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierType"},"company"]},
+    {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierValueExact"},"Newmont"]}
+  ]
+}
+```
+
+Returns only entities whose ONE identifier record has propertyID="company" AND value="Newmont" — no cross-child matching where one identifier supplies the type and a different identifier supplies the value.
+
+**Identifier with text/typeahead** (KEYWORD type + edge-ngram value):
+
+```json
+{
+  "op": "and",
+  "args": [
+    {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierType"},"anumber"]},
+    {"op":"text_query","args":[{"property":"urn:jena:lucene:field#identifierValueText"},"A-94"]}
+  ]
+}
+```
+
+Same-child guarantee: a borehole surfaces only when ONE identifier record has propertyID="anumber" AND its value matches the "A-94" n-gram. The text analyzer normalises "A-94" through whatever the field configures (e.g. `LowerCaseKeywordAnalyzer` → "a-94"), so case-insensitive typeahead works regardless of input case.
+
+**Qualified attribution** (`prov:qualifiedAttribution` with `hadRole` + `agent`):
+
+```json
+{
+  "op": "and",
+  "args": [
+    {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionRole"},"Principal Investigator"]},
+    {"op":"text_query","args":[{"property":"urn:jena:lucene:field#attributionAgentText"},"Sarah Jones"]}
+  ]
+}
+```
+
+A report surfaces only when ONE qualified-attribution record has hadRole="Principal Investigator" AND its agent matches "Sarah Jones" — not where the role is on one attribution and the name is on another.
+
+**Boundary worth knowing:** the same-child fold operates within one CQL filter subtree. If the type clause sits in `cqlFilter` and the text clause sits in `queryString` (the separate text input on `luc:query`), they are not in the same CqlAnd and the fold cannot apply — each lifts independently. For same-child correctness, put both clauses in `cqlFilter` (using `=` and `text_query` as shown above).
+
 ## Graph Scoping
 
 Target model:
