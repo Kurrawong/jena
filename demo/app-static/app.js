@@ -193,12 +193,20 @@ function isPropertyArg(arg) {
     return !!(arg && typeof arg === 'object' && typeof arg.property === 'string');
 }
 
+function isPropertyLeaf(clause, op) {
+    return !!(clause && (!op || clause.op === op) && Array.isArray(clause.args) && clause.args.length >= 2 && isPropertyArg(clause.args[0]));
+}
+
 function isEqualsLeaf(clause) {
-    return !!(clause && clause.op === '=' && Array.isArray(clause.args) && clause.args.length >= 2 && isPropertyArg(clause.args[0]));
+    return isPropertyLeaf(clause, '=');
+}
+
+function isTextQueryLeaf(clause) {
+    return isPropertyLeaf(clause, 'text_query');
 }
 
 function resolveClauseProperty(clause, fieldIRIs) {
-    return isEqualsLeaf(clause) ? resolveFieldName(clause.args[0].property, fieldIRIs) : null;
+    return isPropertyLeaf(clause) ? resolveFieldName(clause.args[0].property, fieldIRIs) : null;
 }
 
 function sanitizeDomId(text) {
@@ -396,18 +404,34 @@ function extractCorrelatedFilterState(clause, fieldIRIs, correlated) {
         let supported = true;
 
         for (const child of clause.args) {
-            if (!isEqualsLeaf(child)) {
+            if (!isPropertyLeaf(child)) {
                 supported = false;
                 break;
             }
             const prop = resolveClauseProperty(child, fieldIRIs);
             if (prop === 'identifierType') {
+                if (!isEqualsLeaf(child)) {
+                    supported = false;
+                    break;
+                }
                 identifierType = String(child.args[1] || '');
             } else if (prop === 'identifierValueText') {
+                if (!isEqualsLeaf(child) && !isTextQueryLeaf(child)) {
+                    supported = false;
+                    break;
+                }
                 identifierText = String(child.args[1] || '');
             } else if (prop === 'attributionRole') {
+                if (!isEqualsLeaf(child)) {
+                    supported = false;
+                    break;
+                }
                 attrRole = String(child.args[1] || '');
             } else if (prop === 'attributionAgentText') {
+                if (!isEqualsLeaf(child) && !isTextQueryLeaf(child)) {
+                    supported = false;
+                    break;
+                }
                 attrAgent = String(child.args[1] || '');
             } else {
                 supported = false;
@@ -426,13 +450,13 @@ function extractCorrelatedFilterState(clause, fieldIRIs, correlated) {
         }
     }
 
-    if (isEqualsLeaf(clause)) {
+    if (isPropertyLeaf(clause)) {
         const prop = resolveClauseProperty(clause, fieldIRIs);
-        if (prop === 'attributionRole') {
+        if (prop === 'attributionRole' && isEqualsLeaf(clause)) {
             correlated.attributionRole = String(clause.args[1] || '');
             return true;
         }
-        if (prop === 'attributionAgentText') {
+        if (prop === 'attributionAgentText' && (isEqualsLeaf(clause) || isTextQueryLeaf(clause))) {
             correlated.attributionAgent = String(clause.args[1] || '');
             return true;
         }
@@ -1643,7 +1667,7 @@ SELECT ?field ?value ?low ?high ?count WHERE {
                     op: 'and',
                     args: [
                         { op: '=', args: [{ property: typeField }, kind] },
-                        { op: '=', args: [{ property: valueField }, value] },
+                        { op: 'text_query', args: [{ property: valueField }, value] },
                     ],
                 });
             }
@@ -1660,7 +1684,7 @@ SELECT ?field ?value ?low ?high ?count WHERE {
                 args.push({ op: '=', args: [{ property: fieldIri(this.fieldIRIs, 'attributionRole') }, role] });
             }
             if (agent) {
-                args.push({ op: '=', args: [{ property: fieldIri(this.fieldIRIs, 'attributionAgentText') }, agent] });
+                args.push({ op: 'text_query', args: [{ property: fieldIri(this.fieldIRIs, 'attributionAgentText') }, agent] });
             }
             return args.length === 1 ? args : [{ op: 'and', args }];
         },
