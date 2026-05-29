@@ -37,20 +37,22 @@ COPY jena-text/ jena-text/
 
 RUN mvn clean package -Pcomplete -DskipTests -Dmaven.javadoc.skip=true
 
+# Extract the apache-jena distribution here, in the Debian builder, so the UBI
+# final stage needs no RUN step. UBI 10 requires the x86-64-v3 CPU level, which
+# isn't available when emulating amd64 (e.g. multi-arch builds on Apple Silicon),
+# so any RUN in the UBI stage would fail under emulation.
+RUN mkdir -p /build/apache-jena-dist && \
+    tar -xzf /build/apache-jena/target/apache-jena-*-SNAPSHOT.tar.gz -C /build/apache-jena-dist --strip-components=1
+
 # Copy remaining files
 COPY . .
 
 FROM eclipse-temurin:21-jre-ubi10-minimal
 
-RUN microdnf install jq -y
-
 WORKDIR /fuseki
 
 COPY build-files/docker/loader-entrypoint.sh ./entrypoint.sh
 COPY --from=builder /build/jena-fuseki2/jena-fuseki-server/target/jena-fuseki-server-*.jar ./jena-fuseki-server.jar
-COPY --from=builder /build/apache-jena/target/apache-jena-*-SNAPSHOT.tar.gz .
-RUN mkdir -p /fuseki/apache-jena && \
-    tar -xzf apache-jena-*-SNAPSHOT.tar.gz -C /fuseki/apache-jena --strip-components=1 && \
-    rm apache-jena-*-SNAPSHOT.tar.gz
+COPY --from=builder /build/apache-jena-dist /fuseki/apache-jena
 
 ENTRYPOINT ["/fuseki/entrypoint.sh"]
