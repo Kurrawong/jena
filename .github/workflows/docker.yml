@@ -45,8 +45,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: demo/test/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          file: build-files/docker/Dockerfile.runtime
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ env.FUSEKI_IMAGE }}:${{ steps.version.outputs.version }}
@@ -58,12 +58,9 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: demo/loader/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          file: build-files/docker/Dockerfile.loader
+          platforms: linux/amd64
           push: true
-          build-args: |
-            BASE_IMAGE=${{ env.FUSEKI_IMAGE }}
-            BASE_TAG=${{ steps.version.outputs.version }}
           tags: |
             ${{ env.LOADER_IMAGE }}:${{ steps.version.outputs.version }}
             ${{ env.LOADER_IMAGE }}:latest
