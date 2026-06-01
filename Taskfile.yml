@@ -8,31 +8,44 @@ vars:
   IMAGE_NAME: '{{.IMAGE_NAME | default "fuseki-loader"}}'
   IMAGE_TAG: '{{.IMAGE_TAG | default .VERSION}}'
   GHCR_OWNER: '{{.GHCR_OWNER | default "aiworkerjohns"}}'
+  # Vulnerability scanning (trivy). TRIVY can point at an alternate binary.
+  TRIVY: '{{.TRIVY | default "trivy"}}'
+  TRIVY_MIN_VERSION: '0.69.3'
+  SCAN_SEVERITY: '{{.SCAN_SEVERITY | default "HIGH,CRITICAL"}}'
+  SCAN_REPORT_DIR: '{{.SCAN_REPORT_DIR | default "build-files/docker/scan-reports"}}'
+  # Multi-arch image publishing (buildx). Registry pushes target all PLATFORMS.
+  PLATFORMS: '{{.PLATFORMS | default "linux/amd64,linux/arm64"}}'
+  # ACR serves amd64 servers only (no Mac/arm64 consumers), so default to amd64.
+  ACR_PLATFORMS: '{{.ACR_PLATFORMS | default "linux/amd64"}}'
+  BUILDX_BUILDER: '{{.BUILDX_BUILDER | default "multiarch-builder"}}'
 
 tasks:
+  _buildx-builder:
+    internal: true
+    cmds:
+      - docker buildx inspect {{.BUILDX_BUILDER}} >/dev/null 2>&1 || docker buildx create --name {{.BUILDX_BUILDER}} --driver docker-container --bootstrap
+
   runtime-build:
     desc: Build the clean runtime Fuseki image from the repo root
     cmds:
       - docker build -f build-files/docker/Dockerfile.runtime -t {{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}} .
 
   runtime-ghcr-push:
-    desc: Build and push the clean runtime Fuseki image to GitHub CR
-    deps: [runtime-build]
+    desc: Build and push the multi-arch runtime Fuseki image to GitHub CR
+    deps: [_buildx-builder]
     cmds:
       - gh auth token | docker login ghcr.io -u {{.GHCR_OWNER}} --password-stdin
-      - docker tag {{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}} ghcr.io/{{.GHCR_OWNER}}/{{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}}
-      - docker push ghcr.io/{{.GHCR_OWNER}}/{{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}}
+      - docker buildx build --builder {{.BUILDX_BUILDER}} --platform {{.PLATFORMS}} -f build-files/docker/Dockerfile.runtime -t ghcr.io/{{.GHCR_OWNER}}/{{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}} --push .
 
   runtime-acr-push:
-    desc: "Build and push the clean runtime Fuseki image to ACR (usage: task runtime-acr-push ACR_NAME=gswadevacr)"
+    desc: "Build and push the multi-arch runtime image to ACR (usage: task runtime-acr-push ACR_NAME=gswadevacr)"
     requires:
       vars: [ACR_NAME]
-    deps: [runtime-build]
+    deps: [_buildx-builder]
     cmds:
       - az account show > /dev/null 2>&1 || az login
       - az acr login --name {{.ACR_NAME}}
-      - docker tag {{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}} {{.ACR_NAME}}.azurecr.io/{{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}}
-      - docker push {{.ACR_NAME}}.azurecr.io/{{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}}
+      - docker buildx build --builder {{.BUILDX_BUILDER}} --platform {{.ACR_PLATFORMS}} -f build-files/docker/Dockerfile.runtime -t {{.ACR_NAME}}.azurecr.io/{{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}} --push .
 
   loader-build:
     desc: Build the text-only SHACL indexer image from the repo root
@@ -40,20 +53,74 @@ tasks:
       - docker build -f build-files/docker/Dockerfile.loader -t {{.IMAGE_NAME}}:{{.IMAGE_TAG}} .
 
   loader-ghcr-push:
-    desc: Build and push the text-only SHACL indexer image to GitHub CR
-    deps: [loader-build]
+    desc: Build and push the multi-arch text-only SHACL indexer image to GitHub CR
+    deps: [_buildx-builder]
     cmds:
       - gh auth token | docker login ghcr.io -u {{.GHCR_OWNER}} --password-stdin
-      - docker tag {{.IMAGE_NAME}}:{{.IMAGE_TAG}} ghcr.io/{{.GHCR_OWNER}}/{{.IMAGE_NAME}}:{{.IMAGE_TAG}}
-      - docker push ghcr.io/{{.GHCR_OWNER}}/{{.IMAGE_NAME}}:{{.IMAGE_TAG}}
+      - docker buildx build --builder {{.BUILDX_BUILDER}} --platform {{.PLATFORMS}} -f build-files/docker/Dockerfile.loader -t ghcr.io/{{.GHCR_OWNER}}/{{.IMAGE_NAME}}:{{.IMAGE_TAG}} --push .
 
   loader-acr-push:
-    desc: "Build and push the text-only SHACL indexer image to ACR (usage: task loader-acr-push ACR_NAME=gswadevacr)"
+    desc: "Build and push the multi-arch text-only SHACL indexer image to ACR (usage: task loader-acr-push ACR_NAME=gswadevacr)"
     requires:
       vars: [ACR_NAME]
-    deps: [loader-build]
+    deps: [_buildx-builder]
     cmds:
       - az account show > /dev/null 2>&1 || az login
       - az acr login --name {{.ACR_NAME}}
-      - docker tag {{.IMAGE_NAME}}:{{.IMAGE_TAG}} {{.ACR_NAME}}.azurecr.io/{{.IMAGE_NAME}}:{{.IMAGE_TAG}}
-      - docker push {{.ACR_NAME}}.azurecr.io/{{.IMAGE_NAME}}:{{.IMAGE_TAG}}
+      - docker buildx build --builder {{.BUILDX_BUILDER}} --platform {{.ACR_PLATFORMS}} -f build-files/docker/Dockerfile.loader -t {{.ACR_NAME}}.azurecr.io/{{.IMAGE_NAME}}:{{.IMAGE_TAG}} --push .
+
+  # ── Vulnerability scanning ──────────────────────────────
+
+  scan-check-trivy:
+    desc: Verify trivy is installed and recent enough to scan the UBI/RHEL 10 base
+    silent: true
+    cmds:
+      - |
+        if ! command -v {{.TRIVY}} >/dev/null 2>&1; then
+          echo "ERROR: trivy not found (looked for '{{.TRIVY}}')."
+          echo "Install without admin rights:"
+          echo "  curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b \"\$HOME/.local/bin\" v{{.TRIVY_MIN_VERSION}}"
+          echo "  (then ensure \$HOME/.local/bin is on PATH)   or:   brew install trivy"
+          exit 1
+        fi
+        installed="$({{.TRIVY}} --version | awk '/^Version:/ {print $2}')"
+        min="{{.TRIVY_MIN_VERSION}}"
+        if [ "$(printf '%s\n%s\n' "$min" "$installed" | sort -V | head -n1)" != "$min" ]; then
+          echo "ERROR: trivy $installed is too old; need >= $min."
+          echo "Older trivy cannot scan the UBI/RHEL 10 OS layer (trivy-db issue #435)."
+          echo "Upgrade:  brew upgrade trivy   (or re-run the install.sh one-liner from scan-check-trivy)"
+          exit 1
+        fi
+        echo "trivy $installed OK (>= $min)"
+
+  scan-image:
+    desc: 'Scan one local image for vulns (usage: task scan-image SCAN_IMAGE=fuseki-loader:6.1.0-SNAPSHOT)'
+    deps: [scan-check-trivy]
+    requires:
+      vars: [SCAN_IMAGE]
+    cmds:
+      - mkdir -p {{.SCAN_REPORT_DIR}}
+      - |
+        if ! docker image inspect {{.SCAN_IMAGE}} >/dev/null 2>&1; then
+          echo "ERROR: image '{{.SCAN_IMAGE}}' not found locally."
+          echo "Build it first, e.g.:  task loader-build   |   task runtime-build"
+          exit 1
+        fi
+      - |
+        report="{{.SCAN_REPORT_DIR}}/$(echo '{{.SCAN_IMAGE}}' | tr '/:' '__').json"
+        echo "=== Scanning {{.SCAN_IMAGE}} (severity {{.SCAN_SEVERITY}}) ==="
+        {{.TRIVY}} image --quiet --scanners vuln --severity {{.SCAN_SEVERITY}} \
+          --no-progress --format json --output "$report" {{.SCAN_IMAGE}}
+        {{.TRIVY}} convert --format table "$report"
+        echo ""
+        echo "JSON report: $report"
+
+  scan:
+    desc: Scan both Fuseki images (runtime + loader) for HIGH/CRITICAL vulnerabilities
+    cmds:
+      - task: scan-image
+        vars:
+          SCAN_IMAGE: '{{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}}'
+      - task: scan-image
+        vars:
+          SCAN_IMAGE: '{{.IMAGE_NAME}}:{{.IMAGE_TAG}}'

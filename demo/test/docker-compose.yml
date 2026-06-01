@@ -5,7 +5,7 @@ services:
     ports:
       - "3030:3030"
     volumes:
-      - ./config.ttl:/fuseki/config.ttl:ro
+      - ./config.ttl:/config.ttl:ro
       - fuseki-db:/fuseki/DB
       - fuseki-lucene:/fuseki/Lucene
 
