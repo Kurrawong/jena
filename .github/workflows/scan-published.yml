@@ -1,0 +1,126 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+name: Nightly trivy scan of published images
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # daily at 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  issues: write
+
+env:
+  FUSEKI_IMAGE: ghcr.io/${{ github.repository_owner }}/fuseki-ai
+  LOADER_IMAGE: ghcr.io/${{ github.repository_owner }}/fuseki-loader
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GHCR (read)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Scan fuseki-ai
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.FUSEKI_IMAGE }}:latest
+          format: table
+          severity: HIGH,CRITICAL
+          scanners: vuln
+          output: trivy-fuseki-ai.txt
+          exit-code: '0'
+
+      - name: Scan fuseki-loader
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.LOADER_IMAGE }}:latest
+          format: table
+          severity: HIGH,CRITICAL
+          scanners: vuln
+          output: trivy-fuseki-loader.txt
+          exit-code: '0'
+
+      - name: Detect findings
+        id: check
+        run: |
+          # trivy table format prints a "Total: N (...)" line per Result; N > 0 means
+          # there are HIGH/CRITICAL findings in that image. A clean image emits no
+          # table, so the file is empty / has no Total line.
+          ai_findings=0
+          loader_findings=0
+          if [ -s trivy-fuseki-ai.txt ] && grep -qE "Total: [1-9][0-9]*" trivy-fuseki-ai.txt; then
+            ai_findings=1
+          fi
+          if [ -s trivy-fuseki-loader.txt ] && grep -qE "Total: [1-9][0-9]*" trivy-fuseki-loader.txt; then
+            loader_findings=1
+          fi
+          if [ "$ai_findings" = "1" ] || [ "$loader_findings" = "1" ]; then
+            echo "has_findings=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_findings=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build issue body
+        if: steps.check.outputs.has_findings == 'true'
+        run: |
+          {
+            echo "/cc @aiworkerjohns @recalcitrantsupplant @lalewis1"
+            echo ""
+            echo "Trivy found HIGH/CRITICAL findings in the published images. Reproduce with the \`scan-images\` skill or \`task scan\`."
+            echo ""
+            echo "- **Workflow run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "- **Scanned at:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+            echo ""
+            echo "### \`${{ env.FUSEKI_IMAGE }}:latest\`"
+            if [ -s trivy-fuseki-ai.txt ] && grep -qE "Total: [1-9][0-9]*" trivy-fuseki-ai.txt; then
+              echo '```'
+              cat trivy-fuseki-ai.txt
+              echo '```'
+            else
+              echo "_clean — no HIGH/CRITICAL findings_"
+            fi
+            echo ""
+            echo "### \`${{ env.LOADER_IMAGE }}:latest\`"
+            if [ -s trivy-fuseki-loader.txt ] && grep -qE "Total: [1-9][0-9]*" trivy-fuseki-loader.txt; then
+              echo '```'
+              cat trivy-fuseki-loader.txt
+              echo '```'
+            else
+              echo "_clean — no HIGH/CRITICAL findings_"
+            fi
+          } > issue-body.md
+
+      - name: Create or update findings issue
+        if: steps.check.outputs.has_findings == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          title="Nightly trivy scan: HIGH/CRITICAL findings"
+          # de-dupe: comment on the existing open issue with that exact title
+          existing=$(gh issue list -R "${{ github.repository }}" \
+                       --state open --limit 100 \
+                       --json number,title \
+                     | jq -r --arg t "$title" '.[] | select(.title==$t) | .number' \
+                     | head -1)
+          if [ -n "$existing" ]; then
+            echo "Adding comment to existing issue #$existing"
+            gh issue comment "$existing" -R "${{ github.repository }}" --body-file issue-body.md
+          else
+            echo "Creating new issue"
+            gh issue create -R "${{ github.repository }}" \
+              --title "$title" \
+              --body-file issue-body.md
+          fi
+
+      - name: Fail workflow if findings
+        if: steps.check.outputs.has_findings == 'true'
+        run: |
+          echo "::error::Trivy found HIGH/CRITICAL findings in published images. See created/updated issue."
+          exit 1

@@ -43,6 +43,8 @@ COPY . .
 
 FROM eclipse-temurin:21-jre-ubi10-minimal
 
+LABEL org.opencontainers.image.source=https://github.com/aiworkerjohns/jena
+
 WORKDIR /fuseki
 
 COPY --from=builder /build/jena-fuseki2/jena-fuseki-server/target/jena-fuseki-server-*.jar ./jena-fuseki-server.jar
