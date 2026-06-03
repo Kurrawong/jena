@@ -86,6 +86,7 @@ import org.junit.runners.Suite.SuiteClasses;
     , TestShaclIndexMapping.class
     , TestShaclDocumentBuilding.class
     , TestShaclTextDocProducer.class
+    , TestShaclNoPFDuringIndexing.class
     , TestShaclAssembler.class
     , TestShaclEntityPerDocument.class
     , TestPerFieldQueryAnalyzer.class
