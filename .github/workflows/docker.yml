@@ -85,7 +85,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ─── fuseki-loader: build amd64 (load), scan, push multi-arch on main ──
+      # ─── fuseki-loader: build amd64 (load), smoke-test, scan, push multi-arch ──
 
       - name: Build fuseki-loader (amd64, load for scan)
         uses: docker/build-push-action@v6
@@ -97,6 +97,30 @@ jobs:
           tags: fuseki-loader:scan
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Smoke-test fuseki-loader with tdb2.xloader
+        run: |
+          mkdir -p "$RUNNER_TEMP/xloader-db" "$RUNNER_TEMP/xloader-tmp"
+          docker run --rm \
+            -e MODE=tdb2.xloader \
+            -e NO_STATS=true \
+            -v "$PWD/build-files/docker/test-xloader/config.ttl:/config.ttl:ro" \
+            -v "$PWD/build-files/docker/test-xloader/data:/rdf:ro" \
+            -v "$RUNNER_TEMP/xloader-db:/data/DB" \
+            -v "$RUNNER_TEMP/xloader-tmp:/tmp" \
+            fuseki-loader:scan
+
+      - name: Verify xloader smoke-test dataset
+        run: |
+          actual="$({
+            printf '%s\n' 'SELECT (COUNT(DISTINCT ?s) AS ?total) WHERE { ?s ?p ?o }'
+          } | docker run --rm -i \
+                -v "$RUNNER_TEMP/xloader-db:/data/DB" \
+                --entrypoint java \
+                fuseki-loader:scan \
+                -cp /fuseki/jena-fuseki-server.jar tdb2.tdbquery --loc /data/DB/ds --query=- --results=csv)"
+          echo "$actual"
+          test "$(printf '%s' "$actual" | tail -n 1 | tr -d '\r')" = "4"
 
       - name: Scan fuseki-loader (HIGH, CRITICAL)
         uses: aquasecurity/trivy-action@master

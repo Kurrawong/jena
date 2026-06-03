@@ -51,6 +51,8 @@ FROM eclipse-temurin:21-jre-ubi10-minimal
 
 LABEL org.opencontainers.image.source=https://github.com/aiworkerjohns/jena
 
+RUN microdnf install jq -y
+
 WORKDIR /fuseki
 
 COPY build-files/docker/loader-entrypoint.sh ./entrypoint.sh
