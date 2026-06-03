@@ -70,11 +70,14 @@ tasks:
       - docker buildx build --builder {{.BUILDX_BUILDER}} --platform {{.ACR_PLATFORMS}} -f build-files/docker/Dockerfile.loader -t {{.ACR_NAME}}.azurecr.io/{{.IMAGE_NAME}}:{{.IMAGE_TAG}} -t {{.ACR_NAME}}.azurecr.io/{{.IMAGE_NAME}}:latest --push .
 
   push_gswa:
-    desc: Push both fuseki-ai and fuseki-loader to the GSWA ACR (gswareg.azurecr.io) with :IMAGE_TAG and :latest
+    desc: Push runtime (as rdf-delta-server) and fuseki-loader to the GSWA ACR (gswareg.azurecr.io) with :IMAGE_TAG and :latest
     cmds:
+      # On gswareg the runtime is published under the GSWA naming convention
+      # (rdf-delta-server), not fuseki-ai. GHCR and gswadevacr keep fuseki-ai.
       - task: runtime-acr-push
         vars:
           ACR_NAME: gswareg
+          RUNTIME_IMAGE_NAME: rdf-delta-server
       - task: loader-acr-push
         vars:
           ACR_NAME: gswareg
