@@ -44,6 +44,14 @@ RUN mvn clean package -Pcomplete -DskipTests -Dmaven.javadoc.skip=true
 RUN mkdir -p /build/apache-jena-dist && \
     tar -xzf /build/apache-jena/target/apache-jena-*-SNAPSHOT.tar.gz -C /build/apache-jena-dist --strip-components=1
 
+# Fetch statically-linked jq binaries here (Debian builder is emulation-safe);
+# the UBI final stage just COPYs the right arch — no RUN step under emulation.
+# jq is required by the bundled tdb2.xloader script.
+ARG JQ_VERSION=jq-1.7.1
+RUN curl -fsSL -o /jq-amd64 "https://github.com/jqlang/jq/releases/download/${JQ_VERSION}/jq-linux-amd64" \
+ && curl -fsSL -o /jq-arm64 "https://github.com/jqlang/jq/releases/download/${JQ_VERSION}/jq-linux-arm64" \
+ && chmod +x /jq-amd64 /jq-arm64
+
 # Copy remaining files
 COPY . .
 
@@ -51,9 +59,16 @@ FROM eclipse-temurin:21-jre-ubi10-minimal
 
 LABEL org.opencontainers.image.source=https://github.com/aiworkerjohns/jena
 
+# TARGETARCH is the platform-specific build arg buildx populates per target
+# (linux/amd64 -> amd64, linux/arm64 -> arm64). Used to pick the right
+# pre-fetched jq binary from the (single, amd64-pinned) builder stage so this
+# final stage stays RUN-free and works under emulation on Apple Silicon.
+ARG TARGETARCH
+
 WORKDIR /fuseki
 
 COPY build-files/docker/loader-entrypoint.sh ./entrypoint.sh
+COPY --from=builder /jq-${TARGETARCH} /usr/local/bin/jq
 COPY --from=builder /build/jena-fuseki2/jena-fuseki-server/target/jena-fuseki-server-*.jar ./jena-fuseki-server.jar
 COPY --from=builder /build/apache-jena-dist /fuseki/apache-jena
 
