@@ -149,7 +149,7 @@ public class ShaclTextDocProducer implements TextDocProducer {
 
     private Set<Node> findScopeRootsForConstraintChange(Graph graph, Node endpoint, FieldOccurrence occurrence) {
         Set<Node> roots = new LinkedHashSet<>();
-        Iterator<Node> iter = PathEval.evalReverse(graph, endpoint, occurrence.getPath(), ARQ.getContext());
+        Iterator<Node> iter = PathEval.evalReverse(graph, endpoint, occurrence.getPath(), ShaclEntityBuilder.indexingContext());
         while (iter.hasNext()) {
             roots.add(iter.next());
         }

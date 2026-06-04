@@ -32,6 +32,7 @@ import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.ShaclIndexMapping.NestedDef;
 import org.apache.jena.query.ARQ;
 import org.apache.jena.sparql.path.eval.PathEval;
+import org.apache.jena.sparql.util.Context;
 import org.apache.jena.vocabulary.RDF;
 
 /**
@@ -40,6 +41,17 @@ import org.apache.jena.vocabulary.RDF;
 final class ShaclEntityBuilder {
 
     private ShaclEntityBuilder() {}
+
+    /**
+     * Context used for all PathEval calls during indexing. Property functions are
+     * disabled so that predicates registered as SPARQL PFs (e.g. geo:sfWithin) are
+     * treated as plain triple-store predicates rather than being invoked as functions.
+     */
+    static Context indexingContext() {
+        Context ctx = ARQ.getContext().copy();
+        ctx.set(ARQ.propertyFunctions, false);
+        return ctx;
+    }
 
     static Entity buildEntity(Graph graph, Node subject, String entityUri, IndexProfile profile) {
         Entity entity = new Entity(entityUri, null);
@@ -51,7 +63,7 @@ final class ShaclEntityBuilder {
         }
 
         for (NestedDef nestedDef : profile.getNestedDefs()) {
-            Iterator<Node> childIter = PathEval.eval(graph, subject, nestedDef.getJoinPath(), ARQ.getContext());
+            Iterator<Node> childIter = PathEval.eval(graph, subject, nestedDef.getJoinPath(), indexingContext());
             while (childIter.hasNext()) {
                 Node child = childIter.next();
                 Map<String, LinkedHashSet<Object>> recordValues = new LinkedHashMap<>();
@@ -101,7 +113,7 @@ final class ShaclEntityBuilder {
 
     private static List<Object> extractOccurrenceValues(Graph graph, Node subject, FieldOccurrence occurrence) {
         LinkedHashSet<Object> values = new LinkedHashSet<>();
-        Iterator<Node> iter = PathEval.eval(graph, subject, occurrence.getPath(), ARQ.getContext());
+        Iterator<Node> iter = PathEval.eval(graph, subject, occurrence.getPath(), indexingContext());
         while (iter.hasNext()) {
             Node endpoint = iter.next();
             if (!satisfiesConstraints(graph, endpoint, occurrence)) {
