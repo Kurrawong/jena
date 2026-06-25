@@ -92,8 +92,19 @@ call Lucene uses to normalize wildcard/range query terms.
 
 ## Proposed configuration surface
 
-A new optional field-level property, `idx:normalizer`, pointing at an `Analyzer` resource
-(reusing the existing analyzer-assembler machinery). Only valid on `KEYWORD` fields.
+A new optional field-level property, `idx:normalizer`, pointing at an `Analyzer` resource.
+Only valid on `KEYWORD` fields. It reuses the **existing** analyzer-assembler machinery
+(`a.open(resource)`, exactly as `idx:analyzer` / `idx:queryAnalyzer` already do at
+[ShaclIndexAssembler.java:354,363](../jena-text/src/main/java/org/apache/jena/query/text/assembler/ShaclIndexAssembler.java)),
+so it inherits everything that machinery already supports.
+
+### The common case needs no custom analyzer
+
+jena-text already ships a built-in lowercase keyword analyzer
+(`text:lowerCaseKeywordAnalyzer` → `LowerCaseKeywordAnalyzerAssembler`, registered at
+[TextAssembler.java:40](../jena-text/src/main/java/org/apache/jena/query/text/assembler/TextAssembler.java)) —
+a keyword tokenizer + lowercase, i.e. the canonical case-insensitive normalizer. So the
+90% case is just:
 
 ```turtle
 ## Searchable label — analyzed, for luc:query full-text
@@ -102,23 +113,55 @@ A new optional field-level property, `idx:normalizer`, pointing at an `Analyzer`
   idx:path schema:name ;
   idx:defaultSearch true ] .
 
-## Sortable / exact-match twin — KEYWORD with a lowercase normalizer
+## Sortable / exact-match twin — KEYWORD, case-insensitive via a built-in normalizer
 [ idx:fieldName "labelSort" ;
   idx:fieldType idx:KeywordField ;
   idx:path schema:name ;
   idx:sortable true ;
-  idx:normalizer [ a text:DefinedAnalyzer ;          # or a custom keyword+lowercase analyzer
-                   text:tokenizer ... ;
-                   text:filters ( ... ) ] ] .
+  idx:normalizer [ a text:lowerCaseKeywordAnalyzer ] ] .
 ```
 
-(Exact analyzer-config syntax follows whatever the existing `idx:analyzer` /
-`text:DefinedAnalyzer` assembler already supports — the normalizer reuses it. The only new
-constraint is that the configured analyzer is expected to be single-token; we apply it via
-`Analyzer.normalize()` regardless, which ignores any tokenizer split.)
+### Reuse: point `idx:normalizer` at an IRI
 
-Naming alternatives considered: `idx:caseInsensitive true` (a shorthand that maps to a
-built-in lowercase normalizer) could be added later as sugar over `idx:normalizer`.
+`a.open()` resolves **any** resource — named IRI or blank node — so a normalizer can be
+defined once and referenced from many fields by IRI. Two idioms, both already supported
+with **no extra code**:
+
+**(a) Named analyzer resource** — define once, reference by IRI:
+
+```turtle
+<#nameNormalizer> a text:lowerCaseKeywordAnalyzer .
+
+[ idx:fieldName "labelSort" ; idx:fieldType idx:KeywordField ;
+  idx:sortable true ; idx:normalizer <#nameNormalizer> ] .
+
+[ idx:fieldName "orgNameSort" ; idx:fieldType idx:KeywordField ;
+  idx:sortable true ; idx:normalizer <#nameNormalizer> ] .
+```
+
+**(b) The existing `text:defineAnalyzers` registry** — jena-text already has a global
+named-analyzer registry (`text:defineAnalyzers (...)` + `text:DefinedAnalyzer` /
+`text:useAnalyzer`, backed by `Util.getDefinedAnalyzer(key)` in
+[DefinedAnalyzerAssembler.java:48](../jena-text/src/main/java/org/apache/jena/query/text/assembler/DefinedAnalyzerAssembler.java)).
+Define an analyzer once at the top of config, then reference it by key:
+
+```turtle
+text:defineAnalyzers (
+  [ text:defineAnalyzer <#ciNorm> ; text:analyzer [ a text:lowerCaseKeywordAnalyzer ] ]
+) .
+
+[ idx:fieldName "labelSort" ; idx:fieldType idx:KeywordField ; idx:sortable true ;
+  idx:normalizer [ a text:DefinedAnalyzer ; text:useAnalyzer <#ciNorm> ] ] .
+```
+
+For a fully custom normalizer (e.g. keyword tokenizer + lowercase + ASCII folding), use
+`text:configurableAnalyzer` / `text:genericAnalyzer` as the referenced resource — same as
+custom `idx:analyzer` definitions today. The only new expectation is that the analyzer is
+single-token; we apply it via `Analyzer.normalize()` regardless, which ignores any
+tokenizer split.
+
+Naming alternatives considered: `idx:caseInsensitive true` (a shorthand mapping to
+`text:lowerCaseKeywordAnalyzer`) could be added later as sugar over `idx:normalizer`.
 
 ## Touch points (implementation map)
 
@@ -160,8 +203,9 @@ the desired behaviour, but worth a test.
 
 ## Open questions
 
-1. Ship only the generic `idx:normalizer` (analyzer resource), or also a built-in
-   `idx:caseInsensitive true` shorthand for the 90% case?
+1. The 90% case is already covered by the built-in `text:lowerCaseKeywordAnalyzer`, so
+   `idx:normalizer` alone may be enough — is the extra `idx:caseInsensitive true` sugar
+   worth it, or just document the built-in?
 2. Do we want true locale collation (`ICUCollationKeyAnalyzer`) in v1, or just
    lowercase + ASCII folding? ICU pulls in `lucene-analysis-icu` as a dependency.
 3. Should `idx:normalizer` be allowed on numeric/temporal types as a no-op error, or a hard
