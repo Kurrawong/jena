@@ -93,33 +93,63 @@ call Lucene uses to normalize wildcard/range query terms.
 ## Proposed configuration surface
 
 A new optional field-level property, `idx:normalizer`, pointing at an `Analyzer` resource.
-Only valid on `KEYWORD` fields. It reuses the **existing** analyzer-assembler machinery
-(`a.open(resource)`, exactly as `idx:analyzer` / `idx:queryAnalyzer` already do at
+**Only valid on `KEYWORD` fields — a hard build failure on any other field type** (it
+signals a config mistake; see touch point #3). It reuses the **existing** analyzer-assembler
+machinery (`a.open(resource)`, exactly as `idx:analyzer` / `idx:queryAnalyzer` already do at
 [ShaclIndexAssembler.java:354,363](../jena-text/src/main/java/org/apache/jena/query/text/assembler/ShaclIndexAssembler.java)),
 so it inherits everything that machinery already supports.
 
-### The common case needs no custom analyzer
+### What you can do today vs what this adds
 
-jena-text already ships a built-in lowercase keyword analyzer
-(`text:lowerCaseKeywordAnalyzer` → `LowerCaseKeywordAnalyzerAssembler`, registered at
-[TextAssembler.java:40](../jena-text/src/main/java/org/apache/jena/query/text/assembler/TextAssembler.java)) —
-a keyword tokenizer + lowercase, i.e. the canonical case-insensitive normalizer. So the
-90% case is just:
+To sort on a name today you already use the twin pattern — a `TEXT` field for search plus a
+`KEYWORD` field with `idx:sortable true` for the sort:
 
 ```turtle
-## Searchable label — analyzed, for luc:query full-text
-[ idx:fieldName "label" ;
-  idx:fieldType idx:TextField ;
-  idx:path schema:name ;
-  idx:defaultSearch true ] .
+@prefix field: <urn:jena:lucene:field#> .
+@prefix idx:   <urn:jena:lucene:index#> .
+@prefix sh:    <http://www.w3.org/ns/shacl#> .
 
-## Sortable / exact-match twin — KEYWORD, case-insensitive via a built-in normalizer
-[ idx:fieldName "labelSort" ;
-  idx:fieldType idx:KeywordField ;
-  idx:path schema:name ;
-  idx:sortable true ;
-  idx:normalizer [ a text:lowerCaseKeywordAnalyzer ] ] .
+## Searchable name — TEXT, analyzed, used by luc:query
+field:personName
+    idx:fieldName "personName" ;
+    idx:fieldType idx:TextField ;
+    idx:defaultSearch true ;
+    sh:path schema:name .
+
+## Sortable twin — KEYWORD, used by the sortSpec and exact `in` filters
+field:personNameSort
+    idx:fieldName "personNameSort" ;
+    idx:fieldType idx:KeywordField ;
+    idx:sortable true ;
+    sh:path schema:name .          # SAME predicate populates both fields
 ```
+
+The catch: this sort is **raw UTF-8 byte order** — case-sensitive (`"Zebra"` before
+`"apple"`), no locale. There is no config knob to change that today. **Putting an analyzer
+on the KEYWORD field does nothing**, because the KEYWORD index path uses `StringField`
+(analyzer bypassed) and DocValues are never analyzed.
+
+### What `idx:normalizer` adds
+
+`idx:normalizer` is the new wiring that makes an analyzer actually take effect on a KEYWORD
+field (applied via `Analyzer.normalize()` to the term + sort key). For the case-insensitive
+common case you reuse the **upstream** built-in `text:LowerCaseKeywordAnalyzer`
+(`LowerCaseKeywordAnalyzerAssembler`, stock Apache Jena, registered at
+[TextAssembler.java:40](../jena-text/src/main/java/org/apache/jena/query/text/assembler/TextAssembler.java)) —
+a keyword tokenizer + lowercase. So you don't have to *define* the analyzer, only point at
+it:
+
+```turtle
+field:personNameSort
+    idx:fieldName "personNameSort" ;
+    idx:fieldType idx:KeywordField ;
+    idx:sortable true ;
+    idx:normalizer [ a text:LowerCaseKeywordAnalyzer ] ;
+    sh:path schema:name .
+```
+
+To be explicit: the analyzer *class* is upstream, but it is **inert on KEYWORD today** — the
+new code in this proposal is what applies it.
 
 ### Reuse: point `idx:normalizer` at an IRI
 
@@ -130,13 +160,15 @@ with **no extra code**:
 **(a) Named analyzer resource** — define once, reference by IRI:
 
 ```turtle
-<#nameNormalizer> a text:lowerCaseKeywordAnalyzer .
+<#nameNormalizer> a text:LowerCaseKeywordAnalyzer .
 
-[ idx:fieldName "labelSort" ; idx:fieldType idx:KeywordField ;
-  idx:sortable true ; idx:normalizer <#nameNormalizer> ] .
+field:personNameSort
+    idx:fieldName "personNameSort" ; idx:fieldType idx:KeywordField ;
+    idx:sortable true ; idx:normalizer <#nameNormalizer> ; sh:path schema:name .
 
-[ idx:fieldName "orgNameSort" ; idx:fieldType idx:KeywordField ;
-  idx:sortable true ; idx:normalizer <#nameNormalizer> ] .
+field:orgNameSort
+    idx:fieldName "orgNameSort" ; idx:fieldType idx:KeywordField ;
+    idx:sortable true ; idx:normalizer <#nameNormalizer> ; sh:path schema:legalName .
 ```
 
 **(b) The existing `text:defineAnalyzers` registry** — jena-text already has a global
@@ -147,11 +179,13 @@ Define an analyzer once at the top of config, then reference it by key:
 
 ```turtle
 text:defineAnalyzers (
-  [ text:defineAnalyzer <#ciNorm> ; text:analyzer [ a text:lowerCaseKeywordAnalyzer ] ]
+  [ text:defineAnalyzer <#ciNorm> ; text:analyzer [ a text:LowerCaseKeywordAnalyzer ] ]
 ) .
 
-[ idx:fieldName "labelSort" ; idx:fieldType idx:KeywordField ; idx:sortable true ;
-  idx:normalizer [ a text:DefinedAnalyzer ; text:useAnalyzer <#ciNorm> ] ] .
+field:personNameSort
+    idx:fieldName "personNameSort" ; idx:fieldType idx:KeywordField ; idx:sortable true ;
+    idx:normalizer [ a text:DefinedAnalyzer ; text:useAnalyzer <#ciNorm> ] ;
+    sh:path schema:name .
 ```
 
 For a fully custom normalizer (e.g. keyword tokenizer + lowercase + ASCII folding), use
@@ -161,7 +195,7 @@ single-token; we apply it via `Analyzer.normalize()` regardless, which ignores a
 tokenizer split.
 
 Naming alternatives considered: `idx:caseInsensitive true` (a shorthand mapping to
-`text:lowerCaseKeywordAnalyzer`) could be added later as sugar over `idx:normalizer`.
+`text:LowerCaseKeywordAnalyzer`) — **deferred** (see open questions).
 
 ## Touch points (implementation map)
 
@@ -201,17 +235,20 @@ the desired behaviour, but worth a test.
   different normalizers.
 - Add the new test class to `TS_Text.java` (Surefire only discovers `TS_*` suites).
 
-## Open questions
+## Decisions
 
-1. The 90% case is already covered by the built-in `text:lowerCaseKeywordAnalyzer`, so
-   `idx:normalizer` alone may be enough — is the extra `idx:caseInsensitive true` sugar
-   worth it, or just document the built-in?
-2. Do we want true locale collation (`ICUCollationKeyAnalyzer`) in v1, or just
-   lowercase + ASCII folding? ICU pulls in `lucene-analysis-icu` as a dependency.
-3. Should `idx:normalizer` be allowed on numeric/temporal types as a no-op error, or a hard
-   build failure? (Recommend hard failure — it signals a config mistake.)
-4. Multi-valued normalized KEYWORD: each value is normalized independently into the
-   `SortedSetDocValues`; sort uses min/max selector as today — confirm that is acceptable.
+1. **`idx:caseInsensitive true` sugar — deferred.** Ship only the generic `idx:normalizer`
+   for now; users point it at the upstream `text:LowerCaseKeywordAnalyzer` for the common
+   case. A `caseInsensitive` shorthand can be layered on later if the boilerplate proves
+   annoying.
+2. **Locale collation (`ICUCollationKeyAnalyzer`) — out of scope for v1.** Lowercase
+   (+ optional ASCII folding) only, via the existing analyzer machinery. Revisit if true
+   linguistic ordering is needed; it would add the `lucene-analysis-icu` dependency.
+3. **`idx:normalizer` on a non-KEYWORD field — hard build failure.** It is a config error,
+   so fail fast in the assembler rather than silently ignoring it.
+4. **Multi-valued normalized KEYWORD — accepted as-is.** Each value is normalized
+   independently into `SortedSetDocValues`; sort uses the min/max selector exactly as today.
+   There is no better option, and it matches existing multi-valued sort behaviour.
 
 ## Recommendation
 
