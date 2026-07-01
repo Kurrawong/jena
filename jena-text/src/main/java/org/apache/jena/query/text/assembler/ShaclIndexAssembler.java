@@ -65,7 +65,8 @@ public class ShaclIndexAssembler {
 
     private ShaclIndexAssembler() {}
 
-    private record CanonicalFieldSpec(FieldDef field, Node analyzerNode, Node queryAnalyzerNode) {}
+    private record CanonicalFieldSpec(FieldDef field, Node analyzerNode, Node queryAnalyzerNode,
+                                      Node normalizerNode) {}
 
     public static ShaclIndexMapping parseShapes(Assembler a, Resource shapesList) {
         List<IndexProfile> profiles = new ArrayList<>();
@@ -329,7 +330,8 @@ public class ShaclIndexAssembler {
                 || existingField.isDefaultSearch() != parsedField.isDefaultSearch()
                 || existingField.isStoreLiteralMetadata() != parsedField.isStoreLiteralMetadata()
                 || !Objects.equals(existing.analyzerNode(), parsed.analyzerNode())
-                || !Objects.equals(existing.queryAnalyzerNode(), parsed.queryAnalyzerNode())) {
+                || !Objects.equals(existing.queryAnalyzerNode(), parsed.queryAnalyzerNode())
+                || !Objects.equals(existing.normalizerNode(), parsed.normalizerNode())) {
             throw new TextIndexException(
                 "Canonical field " + existingField.getFieldIRI().getURI()
                 + " is defined inconsistently across occurrences");
@@ -366,6 +368,25 @@ public class ShaclIndexAssembler {
             ? queryAnalyzerStmt.getObject().asNode()
             : null;
 
+        // idx:normalizer — an analyzer applied to a KEYWORD field's indexed term + sort key.
+        // Only valid on KEYWORD fields; a config error on anything else (fail fast).
+        Analyzer normalizer = null;
+        Node normalizerNode = null;
+        Statement normalizerStmt = fieldRes.getProperty(IndexVocab.pNormalizer);
+        if (normalizerStmt != null) {
+            if (fieldType != FieldType.KEYWORD) {
+                throw new TextIndexException(
+                    "idx:normalizer is only valid on KEYWORD fields; field '" + fieldName
+                    + "' has type " + fieldType + ".");
+            }
+            if (!normalizerStmt.getObject().isResource()) {
+                throw new TextIndexException(
+                    "idx:normalizer on field '" + fieldName + "' must reference an analyzer resource.");
+            }
+            normalizer = (Analyzer) a.open(normalizerStmt.getObject().asResource());
+            normalizerNode = normalizerStmt.getObject().asNode();
+        }
+
         boolean stored = getOptionalBoolean(fieldRes, IndexVocab.pStored, true);
         boolean indexed = getOptionalBoolean(fieldRes, IndexVocab.pIndexed, true);
         boolean facetable = getOptionalBoolean(fieldRes, IndexVocab.pFacetable, false);
@@ -377,10 +398,10 @@ public class ShaclIndexAssembler {
         Node fieldIRI = fieldRes.isURIResource() ? fieldRes.asNode() : null;
         FieldDef fieldDef = new FieldDef(fieldName, fieldType, analyzer, queryAnalyzer,
             stored, indexed, facetable, sortable, multiValued, defaultSearch,
-            storeLiteralMetadata, fieldIRI);
+            storeLiteralMetadata, fieldIRI, normalizer);
         log.debug("Parsed canonical field: {} type={} facetable={}", fieldDef.getFieldName(),
             fieldDef.getFieldType(), fieldDef.isFacetable());
-        return new CanonicalFieldSpec(fieldDef, analyzerNode, queryAnalyzerNode);
+        return new CanonicalFieldSpec(fieldDef, analyzerNode, queryAnalyzerNode, normalizerNode);
     }
 
     private static void rejectOccurrencePropertiesOnCanonicalField(Resource fieldRes) {

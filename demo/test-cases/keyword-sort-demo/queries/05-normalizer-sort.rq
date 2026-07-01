@@ -1,0 +1,12 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+#@ FEATURE (idx:normalizer) - sort by field:nameCI, which declares idx:normalizer [LowerCaseKeywordAnalyzer].
+#@ PRE-WORK  expect: raw order (same as 01)  -> Apple, Smith, Zebra, apple, banana, Äpfel
+#@ POST-WORK expect: case-insensitive order  -> apple, Apple, banana, Smith, Zebra, Äpfel (the two apples adjacent)
+
+PREFIX luc: <urn:jena:lucene:index#>
+PREFIX ex:  <http://example.org/>
+
+SELECT ?name WHERE {
+  (?hit ?s ?score) luc:query ("default" "default" "thing" "" '{"field":"urn:jena:lucene:field#nameCI"}' 100 0) .
+  ?s ex:name ?name .
+}

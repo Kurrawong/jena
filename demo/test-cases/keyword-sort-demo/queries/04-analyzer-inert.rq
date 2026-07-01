@@ -1,0 +1,12 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+#@ Finding #4 - the analyzer slot on a KEYWORD field is inert. field:nameLC has a
+#@ LowerCaseKeywordAnalyzer attached, yet sorting by it is identical to field:name.
+#@ Expect: same order as 01 -> Apple, Smith, Zebra, apple, banana, Äpfel.
+
+PREFIX luc: <urn:jena:lucene:index#>
+PREFIX ex:  <http://example.org/>
+
+SELECT ?name WHERE {
+  (?hit ?s ?score) luc:query ("default" "default" "thing" "" '{"field":"urn:jena:lucene:field#nameLC"}' 100 0) .
+  ?s ex:name ?name .
+}

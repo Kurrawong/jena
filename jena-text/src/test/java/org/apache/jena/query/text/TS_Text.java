@@ -109,6 +109,11 @@ import org.junit.runners.Suite.SuiteClasses;
     // Multi-valued field support
     , TestShaclLucQueryRawValueOnMultiValuedField.class
 
+    // KEYWORD raw-byte sort + verbatim exact-match baseline (keyword-normalizer proposal)
+    , TestKeywordRawSortAndExactMatch.class
+    // idx:normalizer feature: case-insensitive KEYWORD sort + exact match
+    , TestKeywordNormalizer.class
+
     // luc:match property function
     , TestTextMatchPF.class
 

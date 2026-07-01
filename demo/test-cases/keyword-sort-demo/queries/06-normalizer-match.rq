@@ -1,0 +1,13 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+#@ FEATURE (idx:normalizer) - exact '=' match on field:nameCI with lowercase "smith".
+#@ PRE-WORK  expect: 0 rows (normalizer ignored -> verbatim, case-sensitive)
+#@ POST-WORK expect: 1 row -> Smith (query value normalized to match indexed term)
+
+PREFIX luc: <urn:jena:lucene:index#>
+PREFIX ex:  <http://example.org/>
+
+SELECT ?name WHERE {
+  (?hit ?s ?score) luc:query ("default" "default" "thing"
+     '{"op":"=","args":[{"property":"urn:jena:lucene:field#nameCI"},"smith"]}' "" 100 0) .
+  ?s ex:name ?name .
+}

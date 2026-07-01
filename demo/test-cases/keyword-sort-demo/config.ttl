@@ -1,0 +1,94 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+## Minimal, fully in-memory Fuseki + SHACL Lucene index used to *demonstrate* the
+## current (pre-normalizer) KEYWORD behaviour described in
+## docs/2026-06-25_keyword_normalizer_for_sortable_fields.md:
+##   - sortable KEYWORD = raw UTF-8 byte order (case-sensitive, not collated)
+##   - KEYWORD exact "=" match = verbatim (case-sensitive)
+##   - an analyzer on a KEYWORD field is inert (field:nameLC proves it)
+## In-memory dataset + "mem" Lucene dir => nothing is written to disk.
+
+PREFIX :        <#>
+PREFIX field:   <urn:jena:lucene:field#>
+PREFIX fuseki:  <http://jena.apache.org/fuseki#>
+PREFIX rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX ja:      <http://jena.hpl.hp.com/2005/11/Assembler#>
+PREFIX text:    <http://jena.apache.org/text#>
+PREFIX idx:     <urn:jena:lucene:index#>
+PREFIX sh:      <http://www.w3.org/ns/shacl#>
+PREFIX ex:      <http://example.org/>
+
+## --- Fuseki server ---
+
+[] rdf:type fuseki:Server ;
+   fuseki:services ( :service ) .
+
+:service rdf:type fuseki:Service ;
+    fuseki:name "ds" ;
+    fuseki:endpoint [ fuseki:operation fuseki:query  ; fuseki:name "query"  ] ;
+    fuseki:endpoint [ fuseki:operation fuseki:update ; fuseki:name "update" ] ;
+    fuseki:endpoint [ fuseki:operation fuseki:gsp-rw ; fuseki:name "data"   ] ;
+    fuseki:dataset :text_dataset .
+
+## --- Text-indexed dataset (in-memory) ---
+
+:text_dataset rdf:type text:TextDataset ;
+    text:dataset :base_dataset ;
+    text:indexes ( :index ) .
+
+:base_dataset rdf:type ja:DatasetTxnMem .
+
+:index rdf:type text:TextIndexShacl ;
+    text:indexId "default" ;
+    text:directory "mem" ;
+    text:shapes ( :ThingShape ) ;
+    text:storeValues true ;
+    idx:fusekiBase "http://localhost:3032" .
+
+## --- Field definitions ---
+
+## TEXT default-search field: lets a single "thing" query match every entity.
+field:label
+    idx:fieldName "label" ;
+    idx:fieldType idx:TextField ;
+    idx:stored true ;
+    idx:defaultSearch true .
+
+## KEYWORD, sortable + exact-match: the field under test (raw bytes, verbatim).
+field:name
+    idx:fieldName "name" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:sortable true .
+
+## Same predicate, but with a lower-casing analyzer attached via idx:analyzer. The
+## proposal's claim is that idx:analyzer is INERT on a KEYWORD field, so sorting by nameLC
+## is identical to sorting by name (still raw bytes, "Zebra" before "apple").
+field:nameLC
+    idx:fieldName "nameLC" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:sortable true ;
+    idx:analyzer [ a text:LowerCaseKeywordAnalyzer ] .
+
+## The proposed feature: idx:normalizer applies the analyzer to the KEYWORD term + sort key.
+## PRE-WORK  (feature not implemented): idx:normalizer is an unknown property -> ignored,
+##           so nameCI behaves exactly like name (raw bytes, case-sensitive).
+## POST-WORK (feature implemented): sorting by nameCI is case-insensitive and an exact
+##           match on nameCI is case-insensitive.
+field:nameCI
+    idx:fieldName "nameCI" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:sortable true ;
+    idx:normalizer [ a text:LowerCaseKeywordAnalyzer ] .
+
+## --- Shape ---
+
+:ThingShape
+    sh:targetClass ex:Thing ;
+    sh:property [ idx:field field:label  ; sh:path ex:label ] ;
+    sh:property [ idx:field field:name   ; sh:path ex:name ] ;
+    sh:property [ idx:field field:nameLC ; sh:path ex:name ] ;
+    sh:property [ idx:field field:nameCI ; sh:path ex:name ] .

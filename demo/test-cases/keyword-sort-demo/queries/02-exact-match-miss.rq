@@ -1,0 +1,12 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+#@ Finding #2a - KEYWORD '=' is verbatim: lowercase "smith" does NOT match indexed "Smith".
+#@ Expect: 0 rows.
+
+PREFIX luc: <urn:jena:lucene:index#>
+PREFIX ex:  <http://example.org/>
+
+SELECT ?name WHERE {
+  (?hit ?s ?score) luc:query ("default" "default" "thing"
+     '{"op":"=","args":[{"property":"urn:jena:lucene:field#name"},"smith"]}' "" 100 0) .
+  ?s ex:name ?name .
+}

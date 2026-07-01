@@ -75,6 +75,9 @@ public class ShaclIndexMapping {
         private final boolean multiValued;
         private final boolean defaultSearch;
         private final boolean storeLiteralMetadata;
+        /** Optional analyzer applied (via {@link Analyzer#normalize}) to a KEYWORD field's
+         *  indexed term and sort key. Null = raw value (unchanged behaviour). */
+        private final Analyzer normalizer;
 
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
                         boolean stored, boolean indexed, boolean facetable,
@@ -138,6 +141,17 @@ public class ShaclIndexMapping {
                         boolean stored, boolean indexed, boolean facetable,
                         boolean sortable, boolean multiValued, boolean defaultSearch,
                         boolean storeLiteralMetadata, Node fieldIRI) {
+            this(fieldName, fieldType, analyzer, queryAnalyzer, stored, indexed, facetable,
+                sortable, multiValued, defaultSearch, storeLiteralMetadata, fieldIRI, null);
+        }
+
+        /** Canonical (widest) constructor. {@code normalizer} is the KEYWORD normalizer
+         *  (null for all other cases and for the many delegating constructors above). */
+        public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
+                        Analyzer queryAnalyzer,
+                        boolean stored, boolean indexed, boolean facetable,
+                        boolean sortable, boolean multiValued, boolean defaultSearch,
+                        boolean storeLiteralMetadata, Node fieldIRI, Analyzer normalizer) {
             this.fieldName = Objects.requireNonNull(fieldName);
             this.fieldType = fieldType != null ? fieldType : FieldType.TEXT;
             this.analyzer = analyzer;
@@ -149,6 +163,7 @@ public class ShaclIndexMapping {
             this.multiValued = multiValued;
             this.defaultSearch = defaultSearch;
             this.storeLiteralMetadata = storeLiteralMetadata;
+            this.normalizer = normalizer;
             this.fieldIRI = fieldIRI != null ? fieldIRI : NodeFactory.createURI(FIELD_IRI_PREFIX + fieldName);
         }
 
@@ -157,6 +172,7 @@ public class ShaclIndexMapping {
         public FieldType getFieldType()      { return fieldType; }
         public Analyzer getAnalyzer()        { return analyzer; }
         public Analyzer getQueryAnalyzer()   { return queryAnalyzer; }
+        public Analyzer getNormalizer()      { return normalizer; }
         public boolean isStored()            { return stored; }
         public boolean isIndexed()           { return indexed; }
         public boolean isFacetable()         { return facetable; }
