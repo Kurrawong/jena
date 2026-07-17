@@ -113,6 +113,8 @@ import org.junit.runners.Suite.SuiteClasses;
     , TestKeywordRawSortAndExactMatch.class
     // idx:normalizer feature: case-insensitive KEYWORD sort + exact match
     , TestKeywordNormalizer.class
+    // idx:normalizer on a multi-valued KEYWORD field (SortedSet path)
+    , TestKeywordNormalizerMultiValued.class
 
     // luc:match property function
     , TestTextMatchPF.class
