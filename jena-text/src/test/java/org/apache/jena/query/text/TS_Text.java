@@ -115,6 +115,8 @@ import org.junit.runners.Suite.SuiteClasses;
     , TestKeywordNormalizer.class
     // idx:normalizer on a multi-valued KEYWORD field (SortedSet path)
     , TestKeywordNormalizerMultiValued.class
+    // twin-field pattern: same predicate -> TEXT search field + normalized KEYWORD sort field
+    , TestKeywordNormalizerTwinField.class
 
     // luc:match property function
     , TestTextMatchPF.class
