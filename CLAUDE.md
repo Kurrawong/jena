@@ -56,6 +56,12 @@ mvn test -pl jena-text -Dtest="TestShaclIndexMapping,TestShaclDocumentBuilding,T
 
 **Important**: Surefire only discovers `**/TS_*.java` suite files. New test classes must be added to `TS_Text.java` or they won't run in CI.
 
+### Test discipline
+
+- **Documented recommendations must be backed by a test.** Any behaviour or config pattern we recommend in documentation (e.g. the `idx:normalizer` twin-field pattern) must have a test that exercises the *exact* recommended shape — including the real field cardinality (single- vs multi-valued). Advice must not outrun coverage.
+- **Write the test first and confirm it fails (red) before fixing (green).** For a bug fix or a new behaviour, add the failing test, run it, and verify it fails for the expected reason; only then apply the fix and watch it pass. Keep the red and green as separate commits where practical so the TDD step is visible in history.
+- **Test the corners of the config matrix, not one axis at a time.** When a change interacts with existing flags (sortable × multiValued × normalized × field type), cover the intersection that production configs actually use — not just each axis in isolation.
+
 ### Fuseki UI (JavaScript)
 
 ```bash

@@ -14,6 +14,14 @@ All tests run via JUnit 4 and are aggregated in `TS_Text.java` (Surefire only pi
 
 ---
 
+## Test discipline
+
+- **Documented recommendations must be backed by a test.** Anything we recommend in docs (e.g. the `idx:normalizer` twin-field pattern) needs a test exercising the *exact* recommended shape, including the real field cardinality (single- vs multi-valued). Advice must not outrun coverage.
+- **Red before green.** For a bug fix or new behaviour, add the failing test first, confirm it fails for the expected reason, then apply the fix. Keep red and green as separate commits where practical so the TDD step is visible.
+- **Cover the corners of the config matrix.** When a change interacts with existing flags (`sortable × multiValued × normalized × field type`), test the intersection production configs actually use — not each axis alone. (This is why multi-valued + normalized KEYWORD sorting had a gap: single-valued and multi-valued were each tested, but never together.)
+
+---
+
 ## Test Suite Overview
 
 ### SHACL Faceting Tests
