@@ -1010,10 +1010,13 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     doc.add(new SortedSetDocValuesFacetField(fieldName, strVal));
                 }
                 if (fieldDef.isSortable()) {
+                    // Normalized key (if a normalizer is declared) drives both the single- and
+                    // multi-valued sort DocValues, so multi-valued sorting is case-normalized too.
+                    BytesRef sortValue = kwKey != null ? kwKey : new BytesRef(strVal);
                     if (fieldDef.isMultiValued()) {
-                        doc.add(new SortedSetDocValuesField(fieldName, new BytesRef(strVal)));
+                        doc.add(new SortedSetDocValuesField(fieldName, sortValue));
                     } else {
-                        doc.add(new SortedDocValuesField(fieldName, kwKey != null ? kwKey : new BytesRef(strVal)));
+                        doc.add(new SortedDocValuesField(fieldName, sortValue));
                     }
                 }
                 break;
@@ -1121,10 +1124,12 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     doc.add(new SortedSetDocValuesFacetField(fieldName, lexical));
                 }
                 if (fieldDef.isSortable()) {
+                    // Normalized key (if any) drives both single- and multi-valued sort DocValues.
+                    BytesRef sortValue = kwKey != null ? kwKey : new BytesRef(lexical);
                     if (fieldDef.isMultiValued()) {
-                        doc.add(new SortedSetDocValuesField(fieldName, new BytesRef(lexical)));
+                        doc.add(new SortedSetDocValuesField(fieldName, sortValue));
                     } else {
-                        doc.add(new SortedDocValuesField(fieldName, kwKey != null ? kwKey : new BytesRef(lexical)));
+                        doc.add(new SortedDocValuesField(fieldName, sortValue));
                     }
                 }
             }
