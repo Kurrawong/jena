@@ -77,6 +77,7 @@ import org.apache.lucene.search.*;
 import org.apache.lucene.search.NamedMatches;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.NumericUtils;
 import org.locationtech.jts.geom.*;
@@ -989,8 +990,19 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
             case KEYWORD:
                 String strVal = value.toString();
+                // If a normalizer is declared, the indexed term + sort key use the
+                // normalized bytes; the stored value and facet label stay raw (human-readable).
+                Analyzer kwNorm = fieldDef.getNormalizer();
+                BytesRef kwKey = kwNorm != null ? kwNorm.normalize(fieldName, strVal) : null;
                 if (fieldDef.isIndexed()) {
-                    doc.add(new StringField(fieldName, strVal, store));
+                    if (kwKey != null) {
+                        doc.add(new StringField(fieldName, kwKey.utf8ToString(), Field.Store.NO));
+                        if (fieldDef.isStored()) {
+                            doc.add(new StoredField(fieldName, strVal));
+                        }
+                    } else {
+                        doc.add(new StringField(fieldName, strVal, store));
+                    }
                 } else if (fieldDef.isStored()) {
                     doc.add(new StoredField(fieldName, strVal));
                 }
@@ -998,7 +1010,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     doc.add(new SortedSetDocValuesFacetField(fieldName, strVal));
                 }
                 if (fieldDef.isSortable()) {
-                    doc.add(new SortedDocValuesField(fieldName, new BytesRef(strVal)));
+                    doc.add(new SortedDocValuesField(fieldName, kwKey != null ? kwKey : new BytesRef(strVal)));
                 }
                 break;
 
@@ -1086,8 +1098,18 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
             case KEYWORD -> {
                 Field.Store store = fieldDef.isStored() ? Field.Store.YES : Field.Store.NO;
+                // Normalizer (if any) drives the indexed term + sort key; stored/facet stay raw.
+                Analyzer kwNorm = fieldDef.getNormalizer();
+                BytesRef kwKey = kwNorm != null ? kwNorm.normalize(fieldName, lexical) : null;
                 if (fieldDef.isIndexed()) {
-                    doc.add(new StringField(fieldName, lexical, store));
+                    if (kwKey != null) {
+                        doc.add(new StringField(fieldName, kwKey.utf8ToString(), Field.Store.NO));
+                        if (fieldDef.isStored()) {
+                            doc.add(new StoredField(fieldName, lexical));
+                        }
+                    } else {
+                        doc.add(new StringField(fieldName, lexical, store));
+                    }
                 } else if (fieldDef.isStored()) {
                     doc.add(new StoredField(fieldName, lexical));
                 }
@@ -1095,7 +1117,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     doc.add(new SortedSetDocValuesFacetField(fieldName, lexical));
                 }
                 if (fieldDef.isSortable()) {
-                    doc.add(new SortedDocValuesField(fieldName, new BytesRef(lexical)));
+                    doc.add(new SortedDocValuesField(fieldName, kwKey != null ? kwKey : new BytesRef(lexical)));
                 }
             }
             case INT -> addIntegerLiteralField(doc, fieldDef, lexical);

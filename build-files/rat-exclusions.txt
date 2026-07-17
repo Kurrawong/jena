@@ -28,6 +28,9 @@ archive.md
 **/derby.log
 **/hs_err_pid*.log
 
+## demo test-case captured run outputs (pre/post-work snapshots)
+demo/test-cases/**/results/**
+
 ## jena-core exclusions
 **/src-examples/data/*
 

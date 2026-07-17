@@ -219,6 +219,71 @@ public class TestShaclAssembler {
     }
 
     @Test
+    public void testNormalizerOnKeywordFieldParsed() {
+        Model model = createModel();
+
+        Resource labelField = model.createResource(EX + "labelField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "label")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField)
+            .addProperty(model.createProperty(IndexVocab.NS, "defaultSearch"), model.createTypedLiteral(true));
+        Resource nameField = model.createResource(EX + "nameField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "name")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
+            .addProperty(model.createProperty(IndexVocab.NS, "sortable"), model.createTypedLiteral(true))
+            .addProperty(model.createProperty(IndexVocab.NS, "normalizer"),
+                model.createResource().addProperty(RDF.type, TextVocab.lowerCaseKeywordAnalyzer));
+
+        Resource bookShape = model.createResource(EX + "BookShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Book"))
+            .addProperty(model.createProperty(SH, "property"), occurrence(model, labelField, RDFS.label))
+            .addProperty(model.createProperty(SH, "property"),
+                occurrence(model, nameField, model.createResource(EX + "name")));
+
+        RDFNode shapesList = model.createList(new RDFNode[]{ bookShape });
+        Resource indexSpec = model.createResource(EX + "index")
+            .addProperty(RDF.type, TextVocab.textIndexShacl)
+            .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+            .addProperty(TextVocab.pShapes, shapesList);
+
+        ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
+        try {
+            FieldDef fd = index.getShaclMapping().findFieldByName("name");
+            assertNotNull("name field must be parsed", fd);
+            assertNotNull("idx:normalizer must be resolved to an analyzer", fd.getNormalizer());
+        } finally {
+            index.close();
+        }
+    }
+
+    @Test
+    public void testNormalizerOnNonKeywordFieldRejected() {
+        Model model = createModel();
+
+        // idx:normalizer on a TEXT field is a configuration error (fail fast).
+        Resource labelField = model.createResource(EX + "labelField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "label")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField)
+            .addProperty(model.createProperty(IndexVocab.NS, "defaultSearch"), model.createTypedLiteral(true))
+            .addProperty(model.createProperty(IndexVocab.NS, "normalizer"),
+                model.createResource().addProperty(RDF.type, TextVocab.lowerCaseKeywordAnalyzer));
+
+        Resource bookShape = model.createResource(EX + "BookShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Book"))
+            .addProperty(model.createProperty(SH, "property"), occurrence(model, labelField, RDFS.label));
+
+        RDFNode shapesList = model.createList(new RDFNode[]{ bookShape });
+        Resource indexSpec = model.createResource(EX + "index")
+            .addProperty(RDF.type, TextVocab.textIndexShacl)
+            .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+            .addProperty(TextVocab.pShapes, shapesList);
+
+        AssemblerException ex = assertThrows(AssemblerException.class,
+            () -> Assembler.general().open(indexSpec));
+        assertTrue(ex.getCause() instanceof TextIndexException);
+        assertTrue(ex.getCause().getMessage().contains("only valid on KEYWORD"));
+    }
+
+    @Test
     public void testTemporalFieldVocabResolvesToTemporal() {
         // Issue #69: idx:TemporalField is the new canonical resource, idx:DateField and
         // idx:DateTimeField are deprecated aliases — all three must produce TEMPORAL.

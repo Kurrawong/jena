@@ -49,6 +49,7 @@ import org.apache.lucene.document.ShapeField;
 import org.apache.lucene.geo.Polygon;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.*;
+import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.util.BytesRef;
 
 /**
@@ -542,7 +543,8 @@ public class CqlToLuceneCompiler {
         if (ft == FieldType.KEYWORD || ft == FieldType.TEXT) {
             List<BytesRef> refs = new ArrayList<>();
             for (Object v : in.values()) {
-                refs.add(new BytesRef(String.valueOf(v)));
+                // KEYWORD with a normalizer: normalize each value so it matches the indexed term.
+                refs.add(keywordBytes(field, String.valueOf(v)));
             }
             return new CompileResult(maybeLiftToParent(field, new TermInSetQuery(fieldName, refs)), null);
         }
@@ -714,13 +716,26 @@ public class CqlToLuceneCompiler {
         return pq.build();
     }
 
+    /** Normalized bytes for a comparison value: applies the field's normalizer (KEYWORD only)
+     *  so query-time terms match index-time terms; raw bytes when there is no normalizer. */
+    private static BytesRef keywordBytes(FieldDef field, String value) {
+        Analyzer norm = field.getNormalizer();
+        return norm != null ? norm.normalize(field.getFieldName(), value) : new BytesRef(value);
+    }
+
+    /** String form of {@link #keywordBytes} for building a {@link Term}. */
+    private static String keywordTerm(FieldDef field, Object value) {
+        return keywordBytes(field, String.valueOf(value)).utf8ToString();
+    }
+
     private Query buildEqualQuery(FieldDef field, Object value) {
         String fieldName = field.getFieldName();
         FieldType ft = field.getFieldType();
         return switch (ft) {
-            // KEYWORD and TEXT both go to raw TermQuery — exact-term semantics.
+            // KEYWORD and TEXT go to a TermQuery — exact-term semantics. A KEYWORD field
+            // with a normalizer normalizes the comparison value first (TEXT never has one).
             // Analyzer-aware text matching uses the explicit text_query operator instead.
-            case KEYWORD, TEXT -> new TermQuery(new Term(fieldName, String.valueOf(value)));
+            case KEYWORD, TEXT -> new TermQuery(new Term(fieldName, keywordTerm(field, value)));
             case INT -> IntPoint.newExactQuery(fieldName, toInt(value));
             case LONG -> LongPoint.newExactQuery(fieldName, toLong(value));
             case DOUBLE -> DoublePoint.newExactQuery(fieldName, toDouble(value));
