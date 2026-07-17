@@ -38,6 +38,8 @@ import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.SortedNumericSelector;
 import org.apache.lucene.search.SortedNumericSortField;
+import org.apache.lucene.search.SortedSetSelector;
+import org.apache.lucene.search.SortedSetSortField;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.junit.Test;
 
@@ -217,6 +219,97 @@ public class TestSortSpec {
             SortField field = sort.getSort()[0];
             assertTrue(field instanceof SortedNumericSortField);
             assertEquals(SortedNumericSelector.Type.MIN, ((SortedNumericSortField) field).getSelector());
+        } finally {
+            textIndex.close();
+        }
+    }
+
+    @Test
+    public void testMultiValuedKeywordSortUsesMinAndMaxSelectors() {
+        Node remarksPred = NodeFactory.createURI("http://example.org/remarks");
+        FieldDef remarksField = new FieldDef("remarks", FieldType.KEYWORD, null,
+            false, true, false, true, true, false);
+
+        List<FieldOccurrence> rootOccurrences = Collections.singletonList(
+            occurrence(remarksField, PathFactory.pathLink(remarksPred), Collections.singleton(remarksPred)));
+        IndexProfile profile = new IndexProfile(
+            NodeFactory.createURI("http://example.org/Shape"),
+            Collections.singleton(NodeFactory.createURI("http://example.org/Thing")),
+            "uri", "docType",
+            Collections.singletonList(remarksField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
+        ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
+        EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
+        TextIndexConfig config = new TextIndexConfig(defn);
+        config.setShaclMapping(mapping);
+        ShaclTextIndexLucene textIndex = new ShaclTextIndexLucene(new ByteBuffersDirectory(), config);
+
+        try {
+            SortField ascending = textIndex.buildLuceneSort(
+                List.of(new SortSpec(FP + "remarks", false))).getSort()[0];
+            assertTrue(ascending instanceof SortedSetSortField);
+            assertEquals(SortedSetSelector.Type.MIN,
+                ((SortedSetSortField) ascending).getSelector());
+            assertFalse(ascending.getReverse());
+
+            SortField descending = textIndex.buildLuceneSort(
+                List.of(new SortSpec(FP + "remarks", true))).getSort()[0];
+            assertTrue(descending instanceof SortedSetSortField);
+            assertEquals(SortedSetSelector.Type.MAX,
+                ((SortedSetSortField) descending).getSelector());
+            assertTrue(descending.getReverse());
+        } finally {
+            textIndex.close();
+        }
+    }
+
+    @Test
+    public void testMultiValuedKeywordSortOrdering() {
+        Node remarksPred = NodeFactory.createURI("http://example.org/remarks");
+        FieldDef remarksField = new FieldDef("remarks", FieldType.KEYWORD, null,
+            false, true, false, true, true, false);
+
+        List<FieldOccurrence> rootOccurrences = Collections.singletonList(
+            occurrence(remarksField, PathFactory.pathLink(remarksPred), Collections.singleton(remarksPred)));
+        IndexProfile profile = new IndexProfile(
+            NodeFactory.createURI("http://example.org/Shape"),
+            Collections.singleton(NodeFactory.createURI("http://example.org/Thing")),
+            "uri", "docType",
+            Collections.singletonList(remarksField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
+        ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
+        EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
+        TextIndexConfig config = new TextIndexConfig(defn);
+        config.setShaclMapping(mapping);
+        ShaclTextIndexLucene textIndex = new ShaclTextIndexLucene(new ByteBuffersDirectory(), config);
+
+        try {
+            Entity first = new Entity("http://example.org/first", null);
+            first.addValue("remarks", "alpha");
+            first.addValue("remarks", "yankee");
+            textIndex.updateEntityForProfile(first, profile);
+
+            Entity second = new Entity("http://example.org/second", null);
+            second.addValue("remarks", NodeFactory.createLiteralString("bravo"));
+            second.addValue("remarks", NodeFactory.createLiteralString("zulu"));
+            textIndex.updateEntityForProfile(second, profile);
+            textIndex.commit();
+
+            List<SearchHit> ascending = textIndex.searchWithHitIds(
+                Collections.emptyList(), null, null,
+                List.of(new SortSpec(FP + "remarks", false)), null, null, 10);
+            assertEquals(List.of("http://example.org/first", "http://example.org/second"),
+                ascending.stream().map(hit -> hit.getEntityNode().getURI()).toList());
+
+            List<SearchHit> descending = textIndex.searchWithHitIds(
+                Collections.emptyList(), null, null,
+                List.of(new SortSpec(FP + "remarks", true)), null, null, 10);
+            assertEquals(List.of("http://example.org/second", "http://example.org/first"),
+                descending.stream().map(hit -> hit.getEntityNode().getURI()).toList());
         } finally {
             textIndex.close();
         }

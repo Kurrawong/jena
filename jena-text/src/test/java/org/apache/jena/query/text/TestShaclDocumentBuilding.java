@@ -35,6 +35,7 @@ import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
 import org.apache.jena.sparql.path.Path;
 import org.apache.jena.sparql.path.PathFactory;
 import org.apache.lucene.document.Document;
+import org.apache.lucene.index.DocValuesType;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.junit.After;
@@ -113,6 +114,21 @@ public class TestShaclDocumentBuilding {
             ShaclIndexAssembler.extractPathVariants(path),
             predicates,
             null, null, null, null);
+    }
+
+    private static IndexProfile multiValuedKeywordProfile() {
+        Node remarksPred = NodeFactory.createURI(NS + "remarks");
+        FieldDef remarksField = new FieldDef("remarks", FieldType.KEYWORD, null,
+            false, true, false, true, true, false);
+        return new IndexProfile(
+            NodeFactory.createURI(NS + "RemarksShape"),
+            Collections.singleton(BOOK_CLASS),
+            "uri", "docType",
+            Collections.singletonList(remarksField),
+            Collections.singletonList(occurrence(remarksField, PathFactory.pathLink(remarksPred),
+                Collections.singleton(remarksPred))),
+            Collections.emptyList(),
+            Collections.emptyList());
     }
 
     @After
@@ -247,6 +263,41 @@ public class TestShaclDocumentBuilding {
     }
 
     @Test
+    public void testMultiValuedSortableKeywordStringsUseSortedSetDocValues() {
+        IndexProfile profile = multiValuedKeywordProfile();
+        Entity entity = new Entity("http://example.org/book1", null);
+        entity.addValue("remarks", "First remark");
+        entity.addValue("remarks", "Second remark");
+
+        Document doc = textIndex.docFromMapping(entity, profile);
+
+        IndexableField[] fields = doc.getFields("remarks");
+        assertEquals(4, fields.length);
+        assertEquals(2, Arrays.stream(fields)
+            .filter(field -> field.fieldType().docValuesType() == DocValuesType.SORTED_SET)
+            .count());
+        textIndex.updateEntityForProfile(entity, profile);
+        textIndex.commit();
+    }
+
+    @Test
+    public void testMultiValuedSortableKeywordLiteralsUseSortedSetDocValues() {
+        IndexProfile profile = multiValuedKeywordProfile();
+        Entity entity = new Entity("http://example.org/book1", null);
+        entity.addValue("remarks", NodeFactory.createLiteralString("First remark"));
+        entity.addValue("remarks", NodeFactory.createLiteralString("Second remark"));
+
+        Document doc = textIndex.docFromMapping(entity, profile);
+
+        IndexableField[] fields = doc.getFields("remarks");
+        assertEquals(2, Arrays.stream(fields)
+            .filter(field -> field.fieldType().docValuesType() == DocValuesType.SORTED_SET)
+            .count());
+        textIndex.updateEntityForProfile(entity, profile);
+        textIndex.commit();
+    }
+
+    @Test
     public void testNonMultiValuedSortableFieldOnlyIndexesFirstValue() {
         Entity entity = new Entity("http://example.org/book1", null);
         entity.addValue("category", "Science");
@@ -257,6 +308,9 @@ public class TestShaclDocumentBuilding {
         assertEquals("Science", doc.get("category"));
         assertEquals("Should only index one category value for non-multi-valued field", 2,
             doc.getFields("category").length);
+        assertEquals(1, Arrays.stream(doc.getFields("category"))
+            .filter(field -> field.fieldType().docValuesType() == DocValuesType.SORTED)
+            .count());
         textIndex.updateEntityForProfile(entity, testProfile);
     }
 
