@@ -1,0 +1,11 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+#@ Multi-valued + normalized KEYWORD sort (SortedSet path). One name per entity in this group.
+#@ Expect: apple, Zebra, Äpfel  (case-insensitive). Raw bytes would give Zebra, apple, Äpfel.
+
+PREFIX luc: <urn:jena:lucene:index#>
+PREFIX ex:  <http://example.org/>
+
+SELECT ?name WHERE {
+  (?hit ?s ?score) luc:query ("default" "default" "namesort" "" '{"field":"urn:jena:lucene:field#nameSort","order":"asc"}' 100 0) .
+  ?s ex:name ?name .
+}

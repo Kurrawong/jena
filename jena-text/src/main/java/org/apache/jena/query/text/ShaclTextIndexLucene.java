@@ -1010,7 +1010,14 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     doc.add(new SortedSetDocValuesFacetField(fieldName, strVal));
                 }
                 if (fieldDef.isSortable()) {
-                    doc.add(new SortedDocValuesField(fieldName, kwKey != null ? kwKey : new BytesRef(strVal)));
+                    // Normalized key (if a normalizer is declared) drives both the single- and
+                    // multi-valued sort DocValues, so multi-valued sorting is case-normalized too.
+                    BytesRef sortValue = kwKey != null ? kwKey : new BytesRef(strVal);
+                    if (fieldDef.isMultiValued()) {
+                        doc.add(new SortedSetDocValuesField(fieldName, sortValue));
+                    } else {
+                        doc.add(new SortedDocValuesField(fieldName, sortValue));
+                    }
                 }
                 break;
 
@@ -1117,7 +1124,13 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     doc.add(new SortedSetDocValuesFacetField(fieldName, lexical));
                 }
                 if (fieldDef.isSortable()) {
-                    doc.add(new SortedDocValuesField(fieldName, kwKey != null ? kwKey : new BytesRef(lexical)));
+                    // Normalized key (if any) drives both single- and multi-valued sort DocValues.
+                    BytesRef sortValue = kwKey != null ? kwKey : new BytesRef(lexical);
+                    if (fieldDef.isMultiValued()) {
+                        doc.add(new SortedSetDocValuesField(fieldName, sortValue));
+                    } else {
+                        doc.add(new SortedDocValuesField(fieldName, sortValue));
+                    }
                 }
             }
             case INT -> addIntegerLiteralField(doc, fieldDef, lexical);
@@ -2393,6 +2406,12 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     ? SortedNumericSelector.Type.MAX
                     : SortedNumericSelector.Type.MIN;
                 fields[i] = new SortedNumericSortField(luceneFieldName, sortType, spec.descending(), selector);
+            } else if (fd != null && fd.getFieldType() == ShaclIndexMapping.FieldType.KEYWORD
+                    && fd.isMultiValued()) {
+                SortedSetSelector.Type selector = spec.descending()
+                    ? SortedSetSelector.Type.MAX
+                    : SortedSetSelector.Type.MIN;
+                fields[i] = new SortedSetSortField(luceneFieldName, spec.descending(), selector);
             } else {
                 fields[i] = new SortField(luceneFieldName, sortType, spec.descending());
             }

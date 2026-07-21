@@ -1,0 +1,66 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+## Live check for the GSWA case: a KEYWORD field that is sortable + MULTI-VALUED +
+## normalized (idx:normalizer). Exercises the SortedSetDocValues sort path (#92/#93)
+## combined with the normalizer (#90). Fully in-memory — nothing written to disk.
+
+PREFIX :        <#>
+PREFIX field:   <urn:jena:lucene:field#>
+PREFIX fuseki:  <http://jena.apache.org/fuseki#>
+PREFIX rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX ja:      <http://jena.hpl.hp.com/2005/11/Assembler#>
+PREFIX text:    <http://jena.apache.org/text#>
+PREFIX idx:     <urn:jena:lucene:index#>
+PREFIX sh:      <http://www.w3.org/ns/shacl#>
+PREFIX ex:      <http://example.org/>
+
+## --- Fuseki server ---
+
+[] rdf:type fuseki:Server ;
+   fuseki:services ( :service ) .
+
+:service rdf:type fuseki:Service ;
+    fuseki:name "ds" ;
+    fuseki:endpoint [ fuseki:operation fuseki:query  ; fuseki:name "query"  ] ;
+    fuseki:endpoint [ fuseki:operation fuseki:update ; fuseki:name "update" ] ;
+    fuseki:endpoint [ fuseki:operation fuseki:gsp-rw ; fuseki:name "data"   ] ;
+    fuseki:dataset :text_dataset .
+
+## --- Text-indexed dataset (in-memory) ---
+
+:text_dataset rdf:type text:TextDataset ;
+    text:dataset :base_dataset ;
+    text:indexes ( :index ) .
+
+:base_dataset rdf:type ja:DatasetTxnMem .
+
+:index rdf:type text:TextIndexShacl ;
+    text:indexId "default" ;
+    text:directory "mem" ;
+    text:shapes ( :ThingShape ) ;
+    text:storeValues true ;
+    idx:fusekiBase "http://localhost:3032" .
+
+## --- Field definitions ---
+
+## TEXT default-search field: lets a query token match a group of entities.
+field:title
+    idx:fieldName "title" ;
+    idx:fieldType idx:TextField ;
+    idx:stored true ;
+    idx:defaultSearch true .
+
+## The GSWA-shaped sort field: KEYWORD, sortable, MULTI-VALUED, normalized.
+field:nameSort
+    idx:fieldName "nameSort" ;
+    idx:fieldType idx:KeywordField ;
+    idx:sortable true ;
+    idx:multiValued true ;
+    idx:normalizer [ a text:LowerCaseKeywordAnalyzer ] .
+
+## --- Shape ---
+
+:ThingShape
+    sh:targetClass ex:Thing ;
+    sh:property [ idx:field field:title    ; sh:path ex:title ] ;
+    sh:property [ idx:field field:nameSort ; sh:path ex:name ] .
