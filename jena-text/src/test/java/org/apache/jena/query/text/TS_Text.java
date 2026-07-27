@@ -101,6 +101,8 @@ import org.junit.runners.Suite.SuiteClasses;
     , TestCqlParser.class
     , TestCqlToLuceneCompiler.class
     , TestSortSpec.class
+    // Nested sort selector: order by a child value where the co-located discriminator = X
+    , TestNestedSortSelector.class
     , TestTextIndexRegistry.class
 
     // Spatial filtering

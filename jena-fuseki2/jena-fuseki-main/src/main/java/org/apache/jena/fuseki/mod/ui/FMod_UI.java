@@ -172,7 +172,11 @@ public class FMod_UI implements FusekiModule {
 
         ResourceFactory resourceFactory = ResourceFactory.closeable();
         Resource resource = resourceFactory.newClassLoaderResource(resourceName);
-        if ( resource != null )
+        // Jetty 12.1.10 changed newClassLoaderResource: a resource that is not on the
+        // classpath now comes back as a non-null Resource with a null URI, where it
+        // previously came back as null. Both mean "not found" — fall through to the
+        // caller's next lookup rather than NPE.
+        if ( resource != null && resource.getURI() != null )
             return resource.getURI().toString();
         return null;
     }
