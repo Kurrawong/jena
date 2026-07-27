@@ -273,8 +273,51 @@ public class ShaclIndexAssembler {
         columns.sort(Comparator.comparingInt(ColumnBinding::getColumnIndex)
             .thenComparing(c -> c.getColumnName() != null ? c.getColumnName() : ""));
 
+        List<String> deltaLocations = parseDeltaLocations(shape, sourceRes);
+        String opColumn = getOptionalString(sourceRes, IndexVocab.pOpColumn);
+
         return new ExternalSourceDef(format, location, subjectColumn, subjectColumnIndex,
-            subjectPrefix, sorted, delimiter, headerless, onError, minMatchRate, columns);
+            subjectPrefix, sorted, delimiter, headerless, onError, minMatchRate, columns,
+            deltaLocations, opColumn);
+    }
+
+    /**
+     * Delta files, applied over the base in declaration order.
+     * <p>
+     * Deltas are order-sensitive — a later one may delete what an earlier one added —
+     * and RDF puts no order on repeated properties. So more than one must be given as
+     * an RDF list, where the order is explicit, rather than as repeated statements.
+     */
+    private static List<String> parseDeltaLocations(Resource shape, Resource sourceRes) {
+        List<Statement> statements = sourceRes.listProperties(IndexVocab.pDelta).toList();
+        if (statements.isEmpty()) {
+            return Collections.emptyList();
+        }
+        if (statements.size() > 1) {
+            throw new TextIndexException(
+                "idx:externalSource on " + shape + " has " + statements.size()
+                + " separate idx:delta statements. Deltas apply in order and RDF does not "
+                + "order repeated properties — give them as one list: "
+                + "idx:delta ( \"first.csv\" \"second.csv\" ).");
+        }
+
+        RDFNode node = statements.get(0).getObject();
+        if (node.isLiteral()) {
+            return List.of(node.asLiteral().getString());
+        }
+        if (node.canAs(RDFList.class)) {
+            List<String> locations = new ArrayList<>();
+            for (RDFNode item : node.as(RDFList.class).asJavaList()) {
+                if (!item.isLiteral()) {
+                    throw new TextIndexException(
+                        "idx:delta list on " + shape + " must hold string paths, got " + item);
+                }
+                locations.add(item.asLiteral().getString());
+            }
+            return locations;
+        }
+        throw new TextIndexException(
+            "idx:delta on " + shape + " must be a string path, or a list of them");
     }
 
     private static ColumnBinding parseColumnBinding(Assembler a, Resource columnRes,

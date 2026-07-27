@@ -24,6 +24,7 @@ package org.apache.jena.query.text.assembler;
 import static org.junit.Assert.*;
 
 import java.io.StringReader;
+import java.util.List;
 
 import org.apache.jena.assembler.Assembler;
 import org.apache.jena.query.text.ShaclIndexMapping;
@@ -313,6 +314,93 @@ public class TestExternalSourceAssembler {
             + "            idx:column [ idx:columnName \"property\" ; idx:field field:measuredProperty ] ;\n"
             + "        ] ;\n"
             + "    ] .\n"));
+    }
+
+    /** A single delta file, and the default op column name. */
+    @Test
+    public void parsesASingleDelta() {
+        IndexProfile profile = parseSingleProfile(
+            "ex:SampleShape\n"
+            + "    sh:targetClass ex:Sample ;\n"
+            + "    sh:property [ idx:field field:sampleName ; sh:path ex:name ] ;\n"
+            + "    idx:nested [\n"
+            + "        idx:nestedName \"measurement\" ;\n"
+            + "        idx:externalSource [\n"
+            + "            idx:format idx:CsvFile ; idx:location \"/data/m.csv\" ;\n"
+            + "            idx:subjectColumn \"sample_iri\" ; idx:sorted true ;\n"
+            + "            idx:delta \"/data/m-2026-07.csv\" ;\n"
+            + "            idx:column [ idx:columnName \"property\" ; idx:field field:measuredProperty ] ;\n"
+            + "        ] ;\n"
+            + "    ] .\n");
+
+        ExternalSourceDef source = profile.getNestedDefs().get(0).getExternalSource();
+        assertTrue(source.hasDeltas());
+        assertEquals(List.of("/data/m-2026-07.csv"), source.getDeltaLocations());
+        assertEquals("op", source.getOpColumn());
+    }
+
+    /** Several deltas as an ordered list, plus a renamed op column. */
+    @Test
+    public void parsesOrderedDeltaListAndOpColumn() {
+        IndexProfile profile = parseSingleProfile(
+            "ex:SampleShape\n"
+            + "    sh:targetClass ex:Sample ;\n"
+            + "    sh:property [ idx:field field:sampleName ; sh:path ex:name ] ;\n"
+            + "    idx:nested [\n"
+            + "        idx:nestedName \"measurement\" ;\n"
+            + "        idx:externalSource [\n"
+            + "            idx:format idx:CsvFile ; idx:location \"/data/m.csv\" ;\n"
+            + "            idx:subjectColumn \"sample_iri\" ; idx:sorted true ;\n"
+            + "            idx:delta ( \"/data/d1.csv\" \"/data/d2.csv\" ) ;\n"
+            + "            idx:opColumn \"operation\" ;\n"
+            + "            idx:column [ idx:columnName \"property\" ; idx:field field:measuredProperty ] ;\n"
+            + "        ] ;\n"
+            + "    ] .\n");
+
+        ExternalSourceDef source = profile.getNestedDefs().get(0).getExternalSource();
+        assertEquals("order is taken from the list, not from statement order",
+            List.of("/data/d1.csv", "/data/d2.csv"), source.getDeltaLocations());
+        assertEquals("operation", source.getOpColumn());
+    }
+
+    /** Repeated idx:delta statements have no defined order, and deltas are
+     *  order-sensitive, so this must not be silently accepted. */
+    @Test
+    public void repeatedDeltaStatementsAreRejected() {
+        TextIndexException e = assertThrows(TextIndexException.class, () -> parseSingleProfile(
+            "ex:SampleShape\n"
+            + "    sh:targetClass ex:Sample ;\n"
+            + "    sh:property [ idx:field field:sampleName ; sh:path ex:name ] ;\n"
+            + "    idx:nested [\n"
+            + "        idx:nestedName \"measurement\" ;\n"
+            + "        idx:externalSource [\n"
+            + "            idx:format idx:CsvFile ; idx:location \"/data/m.csv\" ;\n"
+            + "            idx:subjectColumn \"sample_iri\" ; idx:sorted true ;\n"
+            + "            idx:delta \"/data/d1.csv\" ;\n"
+            + "            idx:delta \"/data/d2.csv\" ;\n"
+            + "            idx:column [ idx:columnName \"property\" ; idx:field field:measuredProperty ] ;\n"
+            + "        ] ;\n"
+            + "    ] .\n"));
+        assertTrue(e.getMessage(), e.getMessage().contains("one list"));
+    }
+
+    /** Merging a delta with its base is a per-subject operation, so both must be ordered. */
+    @Test
+    public void deltaOnAnUnsortedSourceIsRejected() {
+        TextIndexException e = assertThrows(TextIndexException.class, () -> parseSingleProfile(
+            "ex:SampleShape\n"
+            + "    sh:targetClass ex:Sample ;\n"
+            + "    sh:property [ idx:field field:sampleName ; sh:path ex:name ] ;\n"
+            + "    idx:nested [\n"
+            + "        idx:nestedName \"measurement\" ;\n"
+            + "        idx:externalSource [\n"
+            + "            idx:format idx:CsvFile ; idx:location \"/data/m.csv\" ;\n"
+            + "            idx:subjectColumn \"sample_iri\" ;\n"
+            + "            idx:delta \"/data/d1.csv\" ;\n"
+            + "            idx:column [ idx:columnName \"property\" ; idx:field field:measuredProperty ] ;\n"
+            + "        ] ;\n"
+            + "    ] .\n"));
+        assertTrue(e.getMessage(), e.getMessage().contains("idx:sorted"));
     }
 
     /** A hierarchy over external children is ordinary config — the levels just have to

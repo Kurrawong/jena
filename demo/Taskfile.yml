@@ -68,6 +68,23 @@ tasks:
           --data-binary @test/data/generated.ttl
       - echo "Loaded test/data/generated.ttl"
 
+  load-offline:
+    desc: Load the mining dataset straight into TDB2 (no server; bypasses the change listener)
+    dir: test
+    cmds:
+      - rm -rf DB Lucene Taxonomy
+      - java -cp ../{{.FUSEKI_JAR}} tdb2.tdbloader --loc=DB data/mining.ttl data/generated.ttl
+
+  index:
+    desc: Bulk-index all shapes, including the boreholes' external assay CSV
+    dir: test
+    cmds:
+      # BoreholeShape declares an idx:externalSource, which makes it rebuild-only:
+      # a live graph change cannot re-derive assay children, so the change listener
+      # refuses to touch those documents. This is the step that builds them.
+      # Requires exclusive TDB2 access, so the server must be stopped.
+      - java -cp ../{{.FUSEKI_JAR}} org.apache.jena.query.text.cmd.shacltextindexer --desc=config.ttl
+
   query:
     desc: Run all test queries against the mining server
     dir: test
@@ -116,11 +133,15 @@ tasks:
       - cmd: python3 serve_app.py --port {{.APP_PORT}} --directory app-static --backend {{.SERVER_URL}}
 
   refresh:
-    desc: Clean, restart Fuseki, reload demo data, then launch the app
+    desc: Clean, load offline, bulk-index, start Fuseki, then launch the app
     cmds:
+      # Load and index with the server DOWN, then bring it up on a finished index.
+      # The boreholes' assay children come from a CSV and can only be built by the
+      # bulk indexer, so pushing data into a running server is no longer enough.
       - pkill -f "serve_app.py --port {{.APP_PORT}}" || true
       - pkill -f "jena-fuseki-server.*--port {{.FUSEKI_PORT}}" || true
-      - task clean
+      - task: load-offline
+      - task: index
       - |
         cd test
         rm -f fuseki.log
@@ -134,7 +155,6 @@ tasks:
         done
         echo "Fuseki failed to start; see demo/test/fuseki.log"
         exit 1
-      - task load FUSEKI_PORT={{.FUSEKI_PORT}}
       - task app FUSEKI_PORT={{.FUSEKI_PORT}} APP_PORT={{.APP_PORT}}
 
   refresh-fast:
@@ -170,11 +190,13 @@ tasks:
       - task refresh-fast FUSEKI_PORT={{.FUSEKI_PORT}} APP_PORT={{.APP_PORT}}
 
   clean:
-    desc: Remove mining TDB2 and Lucene data directories
+    desc: Remove mining TDB2, Lucene and facet-taxonomy directories
     dir: test
     cmds:
-      - rm -rf DB Lucene
-      - echo "Cleaned mining DB and Lucene directories"
+      # Taxonomy goes with the index: ordinals from a previous build would no longer
+      # line up with freshly written documents.
+      - rm -rf DB Lucene Taxonomy
+      - echo "Cleaned mining DB, Lucene and Taxonomy directories"
 
   docker-start:
     desc: Start Fuseki in Docker (detached)

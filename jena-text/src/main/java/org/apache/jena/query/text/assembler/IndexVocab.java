@@ -101,4 +101,8 @@ public class IndexVocab {
     public static final Property pColumn            = Vocab.property(NS, "column");
     public static final Property pColumnName        = Vocab.property(NS, "columnName");
     public static final Property pColumnIndex       = Vocab.property(NS, "columnIndex");
+    /** Delta file applied over the base at build time. Repeatable; applied in order. */
+    public static final Property pDelta             = Vocab.property(NS, "delta");
+    /** Column holding ADD/DELETE in a delta file. Defaults to "op". */
+    public static final Property pOpColumn          = Vocab.property(NS, "opColumn");
 }

@@ -553,6 +553,59 @@ public class TestExternalContentIndexing {
             filter(and(eq("measuredProperty", "Au"), cmp(">=", "measuredValue", 5.0))));
     }
 
+    /**
+     * A delta applied at build time, end to end through the bulk indexer: the children
+     * that reach Lucene are base ⊕ delta, not the base.
+     * <p>
+     * Nothing updates an existing document — Lucene cannot. The delta changes what the
+     * rebuild sees, and the block is written whole as always.
+     */
+    @Test
+    public void deltaChangesTheChildrenThatReachTheIndex() throws IOException {
+        writeCsv("measurements.csv", SORTED_CSV);
+        Path delta = writeCsv("measurements-delta.csv",
+            "op,sample_iri,property,value,band\n"
+            // s1's Au 12.4 is superseded
+            + "DELETE,http://example.org/s1,Au,12.4,high\n"
+            + "ADD,http://example.org/s1,Au,3.0,medium\n"
+            // every Cu measurement of s2 goes — an empty cell is a wildcard
+            + "DELETE,http://example.org/s2,Cu,,\n"
+            // s4 had no rows at all until now
+            + "ADD,http://example.org/s4,Au,7.0,high\n");
+
+        FieldDef property = propertyField();
+        FieldDef value = valueField();
+        FieldDef band = bandField();
+        ExternalSourceDef source = new ExternalSourceDef(ExternalFormat.CSV,
+            dir.resolve("measurements.csv").toString(), "sample_iri", -1, null,
+            true, null, false, ErrorPolicy.SKIP, 0.0,
+            Arrays.asList(new ColumnBinding("property", -1, property),
+                new ColumnBinding("value", -1, value),
+                new ColumnBinding("band", -1, band)),
+            List.of(delta.toString()), "op");
+
+        buildIndex(source, nameField(), Arrays.asList(property, value, band),
+            Collections.emptyList());
+
+        assertEquals("s1 drops out — its Au is 3.0 now, not 12.4 — while s4 joins at 7.0",
+            Arrays.asList("s3", "s4"),
+            filter(and(eq("measuredProperty", "Au"), cmp(">=", "measuredValue", 5.0))));
+
+        assertEquals("and s1's superseded 12.4 is nowhere",
+            Collections.emptyList(),
+            filter(and(eq("measuredProperty", "Au"), cmp(">", "measuredValue", 10.0))));
+
+        assertEquals("s2's Cu is gone; only s1 still has any",
+            List.of("s1"), filter(eq("measuredProperty", "Cu")));
+
+        assertEquals("s4 had no rows in the base and has one now",
+            Arrays.asList("s1", "s2", "s3", "s4"), filter(eq("measuredProperty", "Au")));
+
+        assertEquals("s4's added measurement is queryable like any other",
+            List.of("s4"),
+            filter(and(eq("measuredProperty", "Au"), cmp(">", "measuredValue", 6.0))));
+    }
+
     // ---- wide child: several columns on one child document ----
 
     /**

@@ -328,6 +328,8 @@ Bound fields carry **no `sh:path`** — their values come from the column. There
 | `idx:onError` | no | `"skip"` (default, counted) or `"fail"` |
 | `idx:minMatchRate` | no | Build fails if a smaller fraction of entities matched. Default `0.0` (off) |
 | `idx:column` | yes | Repeatable binding: `idx:columnName` **or** `idx:columnIndex`, plus `idx:field` |
+| `idx:delta` | no | Delta file(s) applied over the base at build time. Several must be an ordered list |
+| `idx:opColumn` | no | Column holding `ADD`/`DELETE` in a delta. Default `"op"` |
 
 ¹ `idx:subjectColumn` with a header, `idx:subjectColumnIndex` when headerless.
 
@@ -386,6 +388,42 @@ All four fields then correlate in one block join — the same-scope fold groups 
 `idx:sorted true` lets the build stream a sort-merge join: O(N + M), constant memory, sequential I/O. Sort the source in byte order — `LC_ALL=C sort` — and the assertion is **verified** while reading: a subject that sorts before its predecessor fails the build rather than merging to mostly-unmatched.
 
 Without it, the source is buffered into memory. That is fine for a small sidecar and untenable at scale.
+
+### Deltas
+
+A delta file carries only what changed. It is applied over the base at build time, so
+the indexer still sees each entity's complete child set — which is what it needs, since
+a Lucene block is written whole and there is no partial document update.
+
+```turtle
+idx:delta ( "data/2026-07-a.csv" "data/2026-07-b.csv" ) ;   # applied in this order
+idx:opColumn "op" ;                                          # default
+```
+
+Same columns as the base, plus an operation column:
+
+```
+op,borehole,analyte,grade,units,below_detection
+DELETE,http://ex.org/bh-1,Ag,44.9,ppm,f
+ADD,http://ex.org/bh-1,Ag,51.3,ppm,f
+DELETE,http://ex.org/bh-2,Mn,,,
+```
+
+| | |
+|---|---|
+| `DELETE` | matches on the columns it fills in; an **empty cell is a wildcard**. The third row above removes *every* Mn measurement of `bh-2` |
+| Numeric matching | by value, not lexical form — `0.70` deletes `0.7` |
+| `ADD` | **appends**; it is not an upsert, because duplicate rows for the same property are legal and so there is no key to upsert on. Replace = DELETE then ADD |
+| Ordering | deletes apply before adds within a subject, so row order in the file cannot change the outcome |
+| Unmatched delete | counted and logged, not an error — deltas get replayed and overlap |
+
+Deltas require `idx:sorted true` and a header row: the merge is per subject, and the
+operation column is bound by name. Several deltas must be given as an RDF **list** —
+they apply in order and RDF puts no order on repeated properties.
+
+This is still a **full rebuild**; the delta removes the need to physically merge base
+and deltas into a new snapshot first, not the need to rebuild. Rebuilding only the
+affected entities is future work.
 
 ### Rules and limits
 

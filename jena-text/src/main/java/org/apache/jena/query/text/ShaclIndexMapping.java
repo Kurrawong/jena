@@ -376,12 +376,29 @@ public class ShaclIndexMapping {
         private final double minMatchRate;
         private final List<ColumnBinding> columns;
         private final List<FieldDef> fields;
+        private final List<String> deltaLocations;
+        private final String opColumn;
+
+        /** Default name of the operation column in a delta file. */
+        public static final String DEFAULT_OP_COLUMN = "op";
 
         public ExternalSourceDef(ExternalFormat format, String location,
                                  String subjectColumn, int subjectColumnIndex, String subjectPrefix,
                                  boolean sorted, Character delimiter, boolean headerless,
                                  ErrorPolicy onError, double minMatchRate,
                                  List<ColumnBinding> columns) {
+            this(format, location, subjectColumn, subjectColumnIndex, subjectPrefix, sorted,
+                delimiter, headerless, onError, minMatchRate, columns,
+                Collections.emptyList(), DEFAULT_OP_COLUMN);
+        }
+
+        /** Widest form: {@code deltaLocations} are applied over the base in order. */
+        public ExternalSourceDef(ExternalFormat format, String location,
+                                 String subjectColumn, int subjectColumnIndex, String subjectPrefix,
+                                 boolean sorted, Character delimiter, boolean headerless,
+                                 ErrorPolicy onError, double minMatchRate,
+                                 List<ColumnBinding> columns,
+                                 List<String> deltaLocations, String opColumn) {
             this.format = Objects.requireNonNull(format, "format");
             this.location = Objects.requireNonNull(location, "location");
             this.subjectColumn = subjectColumn;
@@ -396,6 +413,10 @@ public class ShaclIndexMapping {
                 ? Collections.unmodifiableList(new ArrayList<>(columns))
                 : Collections.emptyList();
             this.fields = Collections.unmodifiableList(distinctBoundFields(this.columns));
+            this.deltaLocations = deltaLocations != null
+                ? Collections.unmodifiableList(new ArrayList<>(deltaLocations))
+                : Collections.emptyList();
+            this.opColumn = opColumn != null && !opColumn.isBlank() ? opColumn : DEFAULT_OP_COLUMN;
             validate();
         }
 
@@ -411,6 +432,28 @@ public class ShaclIndexMapping {
         public double getMinMatchRate()          { return minMatchRate; }
         public List<ColumnBinding> getColumns()  { return columns; }
         public List<FieldDef> getFields()        { return fields; }
+        /** Delta files applied over the base, in order. Empty for a plain source. */
+        public List<String> getDeltaLocations()  { return deltaLocations; }
+        public String getOpColumn()              { return opColumn; }
+        public boolean hasDeltas()               { return !deltaLocations.isEmpty(); }
+
+        /** Same source with the deltas stripped — the base layer a delta reader wraps. */
+        public ExternalSourceDef withoutDeltas() {
+            return new ExternalSourceDef(format, location, subjectColumn, subjectColumnIndex,
+                subjectPrefix, sorted, delimiter, headerless, onError, minMatchRate, columns);
+        }
+
+        /**
+         * Same source pointed at {@code deltaLocation}, with one extra column binding for
+         * the operation. The extra field is internal — a delta reader consumes the op and
+         * emits only the declared columns, so it never reaches Lucene.
+         */
+        public ExternalSourceDef asDeltaLayer(String deltaLocation, FieldDef opField) {
+            List<ColumnBinding> withOp = new ArrayList<>(columns);
+            withOp.add(new ColumnBinding(opColumn, -1, opField));
+            return new ExternalSourceDef(format, deltaLocation, subjectColumn, subjectColumnIndex,
+                subjectPrefix, sorted, delimiter, headerless, onError, minMatchRate, withOp);
+        }
 
         private void validate() {
             if (columns.isEmpty()) {
@@ -451,6 +494,20 @@ public class ShaclIndexMapping {
             if (minMatchRate < 0.0 || minMatchRate > 1.0) {
                 throw new TextIndexException(
                     "idx:minMatchRate on " + location + " must be between 0.0 and 1.0, got " + minMatchRate);
+            }
+            if (!deltaLocations.isEmpty()) {
+                // Applying a delta means merging base and delta rows per subject, which
+                // needs both on one ordering. There is no streaming way to do it otherwise.
+                if (!sorted) {
+                    throw new TextIndexException(
+                        "idx:delta on " + location + " requires idx:sorted true — a delta is "
+                        + "merged with the base per subject, which needs both in subject order.");
+                }
+                if (headerless) {
+                    throw new TextIndexException(
+                        "idx:delta on " + location + " requires a header row: the operation "
+                        + "column is bound by name (idx:opColumn), not by position.");
+                }
             }
         }
 

@@ -101,6 +101,7 @@ import org.junit.runners.Suite.SuiteClasses;
     , TestExternalContentIndexing.class
     , TestGswaMeasurementCsv.class
     , org.apache.jena.query.text.external.TestCsvRowSource.class
+    , org.apache.jena.query.text.external.TestExternalDeltaSource.class
     , org.apache.jena.query.text.assembler.TestExternalSourceAssembler.class
     , org.apache.jena.query.text.assembler.TestTaxonomyDirectoryAssembler.class
 

@@ -29,6 +29,11 @@ public class ExternalRowSources {
     private ExternalRowSources() {}
 
     public static ExternalRowSource create(ExternalSourceDef def) {
+        if (def.hasDeltas()) {
+            // Wrap the base in a reader that applies the deltas per subject. Without
+            // deltas configured there is no wrapper and no cost.
+            return new DeltaRowSource(def);
+        }
         return switch (def.getFormat()) {
             case CSV, TSV -> new CsvRowSource(def);
         };

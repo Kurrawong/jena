@@ -403,7 +403,50 @@ external children, the rewritten document **silently loses them**. Therefore:
   document.
 - Indexes may mix profiles; only shapes with external sources are rebuild-only.
 
+### Delta applied at build time (implemented)
+
+**Implemented 2026-07-27**, as `idx:delta`. This is the *delivery* half of the delta
+story, not the incremental-rebuild half:
+
+```turtle
+idx:externalSource [
+    idx:location "data/assays.csv" ;
+    idx:sorted   true ;
+    idx:delta    ( "data/2026-07-a.csv" "data/2026-07-b.csv" ) ;   # applied in order
+    idx:opColumn "op" ;                                            # default
+    ...
+]
+```
+
+The reader merges base and deltas per subject and hands the indexer each entity's
+**complete** child set, so no partial update is needed and the block is still written
+whole. Deltas must be sorted like the base; only one subject's rows are held at a time.
+
+What it does not do: rebuild *only* affected entities. This is still a full rebuild —
+it just removes the need to physically merge the base and its deltas into a new
+snapshot first. Selective rebuild remains future work (see below).
+
+#### Operation semantics — corrected
+
+The sketch below said `DELETE` needs no value, reasoning that a row *is* a measurement
+keyed by (subject, property). **That is inconsistent with this same note**, which makes
+duplicate (subject, property) rows legal. If the pair is not unique, a valueless DELETE
+cannot say which child it means. Resolved as:
+
+| | |
+|---|---|
+| `DELETE` | matches on the bound columns it fills in; an **empty cell is a wildcard**. `DELETE s Cu` removes every Cu child; `DELETE s Cu 0.7` removes only that one |
+| Numeric matching | by value, not lexical form — `0.70` deletes `0.7`. A delete that silently matches nothing is the worst outcome available |
+| `ADD` | **appends**. Deliberately not an upsert: with duplicates legal there is no key to upsert on. Replacing is DELETE then ADD |
+| Ordering | deletes apply before adds within a subject, so row order in the file cannot change the result |
+| Unmatched delete | counted and reported, not an error — deltas get replayed and overlap |
+
+This also generalises to wide children, where identity is the whole row rather than
+(subject, property): a DELETE naming more columns simply matches more precisely.
+
 ### Delta via staged snapshot (designed, deferred)
+
+The remaining piece — rebuilding *only* the affected entities rather than everything:
 
 The constraint above is *reconstruction*, not delivery: rebuilding an entity's
 block needs its **complete** external row set. That is the indexer's problem, not
@@ -422,9 +465,14 @@ ADD     https://ex.org/sample/A1       Au      	12.4
 DELETE  https://ex.org/sample/A2       Cu
 ```
 
-`ADD` is an upsert of one (subject, property) measurement; `DELETE` removes one,
-needing no value. Per-measurement deletion falls out naturally because a row *is*
-a measurement — an expressiveness the wide form cannot match.
+~~`ADD` is an upsert of one (subject, property) measurement; `DELETE` removes one,
+needing no value.~~ **Superseded** — see
+[Operation semantics — corrected](#operation-semantics--corrected) above. A valueless
+DELETE cannot identify one of several measurements sharing a property, which this note
+elsewhere permits. As implemented, `ADD` appends and `DELETE` matches on the columns it
+fills in, with an empty cell as a wildcard.
+
+Per-measurement deletion still falls out naturally, because a row *is* a measurement.
 
 Reconstruction reads the affected subjects back from the updated snapshot, by
 binary search if it is sorted by subject, or one sequential filtered pass
