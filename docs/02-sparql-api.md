@@ -466,6 +466,25 @@ state that independently in `cqlFilter` — the two compose.
 When an entity has several matching children the parent key collapses MIN (ascending) /
 MAX (descending). The normal one-record-per-type case makes MIN = MAX.
 
+#### Why filter in two places?
+
+Because the two filters act on different things. `cqlFilter` decides *which documents*
+come back; a sort reads its key from doc-values on a document that has already been
+picked. Filtering on the discriminator therefore does nothing at all to the sort key.
+
+Concretely: nested values live on the child documents, not the parent, so a plain
+`{"field":"urn:jena:lucene:field#identifierValue"}` sort finds no key on any parent and
+imposes no order — whatever `cqlFilter` says. And even where a value *is* flattened onto
+the parent, the sort collapses the entity's whole bag: an entity whose companyID is
+`C-200` but whose govID is `A-000` sorts on `A-000`. The filter chose the entity; the
+sort key still came from the wrong record.
+
+The sort's own `filter` is what keeps the child identity long enough to say "take the
+value from *this* child". The same split exists elsewhere: Elasticsearch's nested sort
+takes its own `nested.filter` independent of the query, and in SQL the discriminator
+belongs in the `LEFT JOIN ... ON` clause — move it to `WHERE` and the outer join
+collapses, dropping the very rows you wanted to keep.
+
 The selector is nested-only. A flat multivalued field is a decorrelated bag with no
 surviving per-value discriminator, so a `filter` on a root-scoped field is an error
 (`sort filter requires a nested field`). Both fields must belong to the *same*
