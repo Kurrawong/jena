@@ -162,15 +162,23 @@ public class TestExternalContentIndexing {
                             FieldDef value, FieldDef band, boolean withHierarchy) {
         List<HierarchyDef> hierarchies = withHierarchy
             ? List.of(new HierarchyDef(PROPERTY_BAND_DIM, Arrays.asList(property, band)))
-            : Collections.emptyList();
+            : Collections.<HierarchyDef>emptyList();
+        buildIndex(source, name, Arrays.asList(property, value, band), hierarchies);
+    }
 
+    private void buildIndex(ExternalSourceDef source, FieldDef name, List<FieldDef> childFields,
+                            List<HierarchyDef> hierarchies) {
         NestedDef measurements = new NestedDef(MEASUREMENT_SCOPE, source, hierarchies);
+
+        List<FieldDef> allFields = new ArrayList<>();
+        allFields.add(name);
+        allFields.addAll(childFields);
 
         IndexProfile profile = new IndexProfile(
             NodeFactory.createURI(NS + "SampleShape"),
             Collections.singleton(SAMPLE_CLASS),
             "uri", "docType",
-            Arrays.asList(name, property, value, band),
+            allFields,
             Collections.singletonList(rootOccurrence(name, NAME_PRED)),
             Collections.emptyList(),
             Collections.singletonList(measurements));
@@ -181,7 +189,7 @@ public class TestExternalContentIndexing {
         config.setFacetFields(mapping.getFacetFieldNames());
         config.setValueStored(true);
 
-        textIndex = withHierarchy
+        textIndex = !hierarchies.isEmpty()
             ? new ShaclTextIndexLucene(new ByteBuffersDirectory(), new ByteBuffersDirectory(), config)
             : new ShaclTextIndexLucene(new ByteBuffersDirectory(), config);
 
@@ -543,6 +551,142 @@ public class TestExternalContentIndexing {
         assertEquals("s1 still carries the children the bulk build gave it",
             Arrays.asList("s1", "s3"),
             filter(and(eq("measuredProperty", "Au"), cmp(">=", "measuredValue", 5.0))));
+    }
+
+    // ---- wide child: several columns on one child document ----
+
+    /**
+     * Downhole assay intervals — four columns on one child. The child is now the
+     * <em>measurement event</em>, not just a property/value pair, so everything on it
+     * correlates: an interval, its analyte and its grade are one document.
+     * <pre>
+     *   s1  0-10  Au 12.4 | 0-10  Cu   0.7 | 10-20 Au 0.5
+     *   s2  0-10  Au  0.3 | 0-10  Cu 150.0
+     *   s3 50-60  Au  5.0
+     * </pre>
+     */
+    private static final String INTERVAL_CSV =
+        "hole_iri,depth_from,depth_to,analyte,value\n"
+        + "http://example.org/s1,0,10,Au,12.4\n"
+        + "http://example.org/s1,0,10,Cu,0.7\n"
+        + "http://example.org/s1,10,20,Au,0.5\n"
+        + "http://example.org/s2,0,10,Au,0.3\n"
+        + "http://example.org/s2,0,10,Cu,150.0\n"
+        + "http://example.org/s3,50,60,Au,5.0\n";
+
+    private void buildIntervalIndex(String csvContent) throws IOException {
+        Path csv = writeCsv("intervals.csv", csvContent);
+
+        FieldDef depthFrom = new FieldDef("depthFrom", FieldType.DOUBLE, null,
+            false, true, false, true, false, false);
+        FieldDef depthTo = new FieldDef("depthTo", FieldType.DOUBLE, null,
+            false, true, false, false, false, false);
+        FieldDef analyte = new FieldDef("analyte", FieldType.KEYWORD, null,
+            true, true, true, false, false, false);
+        FieldDef value = new FieldDef("value", FieldType.DOUBLE, null,
+            false, true, true, true, false, false);
+
+        ExternalSourceDef source = new ExternalSourceDef(ExternalFormat.CSV, csv.toString(),
+            "hole_iri", -1, null, true, null, false, ErrorPolicy.SKIP, 0.0,
+            Arrays.asList(new ColumnBinding("depth_from", -1, depthFrom),
+                new ColumnBinding("depth_to", -1, depthTo),
+                new ColumnBinding("analyte", -1, analyte),
+                new ColumnBinding("value", -1, value)));
+
+        buildIndex(source, nameField(), Arrays.asList(depthFrom, depthTo, analyte, value),
+            Collections.emptyList());
+    }
+
+    /** Four bound columns become four fields on one child document, and every one of
+     *  them is queryable. */
+    @Test
+    public void childCarriesEveryBoundColumn() throws IOException {
+        buildIntervalIndex(INTERVAL_CSV);
+
+        assertEquals("six rows, six children", 6, onlyStats().rowsMatched());
+        assertEquals(Arrays.asList("s1", "s2", "s3"), filter(eq("analyte", "Au")));
+        assertEquals(Arrays.asList("s1", "s2"), filter(eq("analyte", "Cu")));
+        assertEquals("intervals starting at or below 10m", Arrays.asList("s1", "s2"),
+            filter(cmp("<=", "depthFrom", 10.0)));
+    }
+
+    /**
+     * All four fields correlate within one child: the fold groups every same-scope leaf
+     * of an AND into one block join, with no arity limit.
+     * <p>
+     * The sharp case is the last one. s1 has a Cu child (0–10m) and a child starting at
+     * 10m (the second Au interval) — but no child that is both, so the same-child AND
+     * must return nothing. A decorrelated implementation would return s1.
+     */
+    @Test
+    public void allColumnsOnAChildCorrelateTogether() throws IOException {
+        buildIntervalIndex(INTERVAL_CSV);
+
+        assertEquals("Au above 1 g/t in the 0–10m interval — s1 (12.4), not s2 (0.3)",
+            List.of("s1"),
+            filter(and(eq("analyte", "Au"), cmp(">=", "value", 1.0),
+                cmp(">=", "depthFrom", 0.0), cmp("<=", "depthTo", 10.0))));
+
+        assertEquals("Au logged at or below 10m — s1's 10–20m and s3's 50–60m",
+            Arrays.asList("s1", "s3"),
+            filter(and(eq("analyte", "Au"), cmp(">=", "depthFrom", 10.0))));
+
+        assertEquals("s1 has Cu, and has a child starting at 10m, but not in one child",
+            Collections.emptyList(),
+            filter(and(eq("analyte", "Cu"), cmp(">=", "depthFrom", 10.0))));
+    }
+
+    /**
+     * Making the child the interval buys same-event correlation for the fields
+     * <em>on</em> that child — it does not let two analytes be correlated, because
+     * they are still two children. The boundary moves with the grain of the row; it
+     * does not disappear.
+     */
+    @Test
+    public void twoAnalytesInOneIntervalIsStillNotSameChild() throws IOException {
+        buildIntervalIndex(INTERVAL_CSV);
+
+        assertEquals("no child carries two analytes", Collections.emptyList(),
+            filter(and(eq("analyte", "Au"), eq("analyte", "Cu"))));
+
+        assertEquals("as an entity-level question it is answerable: both s1 and s2 "
+                + "have some Au and some Cu",
+            Arrays.asList("s1", "s2"),
+            filter(and(and(eq("analyte", "Au"), cmp(">=", "value", 0.0)),
+                and(eq("analyte", "Cu"), cmp(">=", "value", 0.0)))));
+    }
+
+    /** The sort selector picks its key from the child matching the discriminator, and
+     *  the discriminator can be any field on that child — here the analyte. */
+    @Test
+    public void sortsByGradeOfOneAnalyteAcrossIntervals() throws IOException {
+        buildIntervalIndex(INTERVAL_CSV);
+
+        String sortByAu = "{\"field\":\"" + FP + "value\""
+            + ",\"filter\":{\"field\":\"" + FP + "analyte\",\"eq\":\"Au\"}"
+            + ",\"order\":\"desc\",\"missing\":\"last\"}";
+
+        assertEquals("best Au intercept first: s1 12.4, s3 5.0, s2 0.3, then s4 with none",
+            Arrays.asList("s1", "s3", "s2", "s4"), query("", sortByAu, false));
+    }
+
+    /**
+     * The drop-whole rule bites harder as columns are added: a row missing any one
+     * bound cell yields no child at all. With a four-column child that is a real
+     * constraint on the extract — every bound column must be populated on every row.
+     */
+    @Test
+    public void aRowMissingAnyBoundColumnYieldsNoChild() throws IOException {
+        buildIntervalIndex(
+            "hole_iri,depth_from,depth_to,analyte,value\n"
+            + "http://example.org/s1,0,10,Au,12.4\n"
+            + "http://example.org/s2,0,,Au,9.9\n");
+
+        ExternalChildMerger.SourceStats stats = onlyStats();
+        assertEquals(1, stats.rowsMatched());
+        assertEquals("the row with no depth_to is dropped entire", 1, stats.rowsSkipped());
+        assertEquals("s2 contributes no partial child that Au filters could match",
+            List.of("s1"), filter(eq("analyte", "Au")));
     }
 
     private static Map<String, Long> toFacetMap(List<FacetValue> values) {

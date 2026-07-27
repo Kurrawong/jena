@@ -346,6 +346,41 @@ https://ex.org/sample/A2,Au,0.3
 
 Each row becomes one child document. Two field IRIs cover any number of measured properties, and a new property in the source needs no config change.
 
+### Wide children — one row is one event
+
+`idx:column` is repeatable without limit, and **every bound column lands on the same child document**. Bind four and the child stops being a property/value pair and becomes the measurement event itself:
+
+```turtle
+idx:column [ idx:columnName "depth_from" ; idx:field field:depthFrom ] ;
+idx:column [ idx:columnName "depth_to" ;   idx:field field:depthTo ] ;
+idx:column [ idx:columnName "analyte" ;    idx:field field:analyte ] ;
+idx:column [ idx:columnName "value" ;      idx:field field:value ] ;
+```
+
+```
+hole_iri,depth_from,depth_to,analyte,value
+https://ex.org/hole/A1,0,10,Au,12.4
+https://ex.org/hole/A1,0,10,Cu,0.7
+https://ex.org/hole/A1,10,20,Au,0.5
+```
+
+All four fields then correlate in one block join — the same-scope fold groups every AND-ed leaf in a nested scope with no arity limit:
+
+```json
+{"op":"and","args":[
+  {"op":"=", "args":[{"property":"urn:jena:lucene:field#analyte"},"Au"]},
+  {"op":">=","args":[{"property":"urn:jena:lucene:field#value"},1.0]},
+  {"op":">=","args":[{"property":"urn:jena:lucene:field#depthFrom"},0]},
+  {"op":"<=","args":[{"property":"urn:jena:lucene:field#depthTo"},10]}
+]}
+```
+
+"Au above 1 g/t in the 0–10 m interval" — one child, exact. A hole with a Cu result at 0–10 m *and* a separate interval starting at 10 m does **not** match `analyte = "Cu" AND depthFrom >= 10`, because no single child satisfies both.
+
+**The grain of the row sets what correlates.** Widening the child moves the boundary; it does not remove it. Two analytes are still two rows, so "Au and Cu in the *same* interval" remains unanswerable as a same-child query — `analyte = "Au" AND analyte = "Cu"` matches nothing, since one child has one analyte. If that question matters, the row must carry both analytes as separate columns.
+
+**Every bound column must be populated on every row.** A row missing any one bound cell is dropped whole (see the rules below), which is a stricter constraint on a four-column extract than on a two-column one.
+
 ### Sortedness
 
 `idx:sorted true` lets the build stream a sort-merge join: O(N + M), constant memory, sequential I/O. Sort the source in byte order — `LC_ALL=C sort` — and the assertion is **verified** while reading: a subject that sorts before its predecessor fails the build rather than merging to mostly-unmatched.
@@ -360,7 +395,7 @@ Without it, the source is buffered into memory. That is fine for a small sidecar
 - **A row with an empty or unparseable bound cell is dropped whole**, never coerced to `0` and never emitted as a half-populated child.
 - **No transformations.** No units, no `<0.5` detection-limit markers, no null sentinels, no computed columns. A cell either parses as its declared type or it is an error. That work belongs upstream, in whatever produced the file.
 - **`idx:stored false` costs the value binding only.** Filters, range facets and sort all still work; `luc:match` has nothing to return. Note this removes *display* staleness, not filter staleness — the index is still a snapshot, so rebuild cadence must match the source's release cadence.
-- **Same-child correlation is per row.** `property = "Au" AND value > 0.5` is one child, exact. Two clauses on *different* properties are two children ANDed at the entity: "has some Au above 0.5 **and** some Cu above 100", not "in the same measurement event".
+- **Same-child correlation is per row.** Every bound column of a row lands on one child, and all of them correlate. Clauses spanning *two* rows are two block joins ANDed at the entity: "has some Au above 0.5 **and** some Cu above 100", not "in the same measurement event". See [Wide children](#wide-children--one-row-is-one-event).
 
 ## Multi-Index Notes
 

@@ -548,10 +548,31 @@ count is always reported and `idx:minMatchRate` turns it into a hard failure.
    still the one decision that is not cheaply reversible.** Phase 1 does not force
    it either way: the mechanism is identical at both grains, only the child count
    differs. Confirm against the actual deployment before loading at scale.
-2. **Same-event co-occurrence** — if required, the child must be the event rather
-   than the measurement, which reintroduces flat fields at child scope. **Still
-   open.** Phase 1 provides entity-level conjunction only, and the test suite
-   asserts that boundary explicitly rather than leaving it to be discovered.
+2. **Same-event co-occurrence** — **partly answered by the implementation.**
+   `idx:column` is repeatable without limit and every bound column lands on the
+   *same* child, so making the child the event costs nothing but a wider row:
+
+   ```
+   hole_iri,depth_from,depth_to,analyte,value
+   https://ex.org/hole/A1,0,10,Au,12.4
+   ```
+
+   All four fields then correlate in one block join — the same-scope fold groups
+   every AND-ed leaf in a scope, with no arity limit — so "Au above 1 g/t in the
+   0–10 m interval" is one exact child query.
+
+   What stays true is narrower than the original framing. Widening the child
+   **moves** the boundary rather than removing it: two analytes are still two rows,
+   so "Au *and* Cu in the same interval" remains unanswerable same-child. That
+   needs both analytes as columns of one row — which is the flat-at-child-scope
+   design this note describes, and it is available incrementally, per column,
+   rather than as an all-or-nothing switch.
+
+   The [Same-child limits](#same-child-limits) section above is therefore slightly
+   too pessimistic as written: it treats "the child must *be* the event" as a
+   different design, when in practice it is a wider extract and a longer
+   `idx:column` list. The cost it names is real but bounded — flat fields appear at
+   child scope only for the properties actually co-queried, not for all of them.
 3. **Multiple sources per nested block** — allow several `idx:externalSource`
    blocks feeding one child collection (N-way merge on the same ordering)?
    **Deferred.** One source per block in Phase 1. `idx:externalSource` is a
