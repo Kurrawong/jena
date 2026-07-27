@@ -40,15 +40,20 @@ LAT_MIN, LAT_MAX = -35.0, -14.0
 
 
 def collar_ids(measurements_path):
-    """Distinct collar ids, in file order."""
-    ids = []
+    """Distinct collar ids, in file order.
+
+    Yields rather than collecting: the full dump has ~2.5 M distinct collars, and
+    there is no reason to hold them all at once. Relies on the file being grouped
+    by collar_id, which tools/check-sorted.py verifies.
+    """
     with io.open(measurements_path, encoding="utf-8") as handle:
         reader = csv.reader(handle)
         next(reader)
+        previous = None
         for row in reader:
-            if not ids or ids[-1] != row[0]:
-                ids.append(row[0])
-    return ids
+            if row[0] != previous:
+                previous = row[0]
+                yield row[0]
 
 
 def collar_turtle(collar_id):
@@ -130,13 +135,16 @@ def main():
         return 2
     measurements_path, output_path = sys.argv[1], sys.argv[2]
 
-    ids = collar_ids(measurements_path)
+    count = 0
     with io.open(output_path, "w", encoding="utf-8") as out:
         out.write(HEADER)
-        for collar_id in ids:
+        for collar_id in collar_ids(measurements_path):
             out.write(collar_turtle(collar_id))
+            count += 1
+            if count % 250000 == 0:
+                print("  %d collars…" % count, flush=True)
 
-    print("Wrote %d collars to %s" % (len(ids), output_path))
+    print("Wrote %d collars to %s" % (count, output_path))
     return 0
 
 

@@ -54,9 +54,15 @@ demo/geochem-external/DB/
 demo/geochem-external/Lucene/
 demo/geochem-external/Taxonomy/
 
+# Demo runtime data — full-scale build (generated; the dump itself lives outside the repo)
+demo/geochem-external/DB-full/
+demo/geochem-external/Lucene-full/
+demo/geochem-external/Taxonomy-full/
+demo/geochem-external/data/collars-full.ttl
+demo/geochem-external/data/full-measurements.csv
+
 # Benchmark JSON results
 jena-benchmarks/jena-benchmarks-jmh/*.json
 
 # Docker image vulnerability scan reports (task scan)
 build-files/docker/scan-reports/
-

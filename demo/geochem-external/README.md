@@ -126,6 +126,46 @@ returned. The assay database stays the source of truth and the index cannot serv
 number. Note this removes *display* staleness only — the filter is still a snapshot, so
 rebuild cadence must match the source's release cadence.
 
+## Full scale
+
+The slice above is for reading. To index the **whole dump**:
+
+```bash
+task link-full          # symlink the dump (SRC=... to point elsewhere)
+task check-sorted-full  # optional; a few minutes over 29.7 M rows
+task reindex-full       # collars -> TDB2 -> Lucene
+task serve-full         # port 3032
+task smoke-full
+```
+
+Everything lives in its own directories — `DB-full/`, `Lucene-full/`,
+`Taxonomy-full/` — so a full build never disturbs the small demo, and the two can
+be served side by side.
+
+| | |
+|---|---|
+| Collars | 2,470,212 |
+| Measurement rows | 29,707,584 |
+| Rows per collar | ~12 |
+| Lucene documents | ~32 M (29.7 M children + 2.47 M parents) |
+| `IndexWriter.MAX_DOCS` ceiling | ~2.15 billion |
+
+That last row is the point. Child-document count is `entities × populated properties`,
+and it is the constraint that decides whether the nested EAV model is viable at all
+— see [The granularity constraint](../../docs/2026-07-27_external_content_indexing_design.md#the-granularity-constraint).
+At this grain the model has roughly two orders of magnitude of headroom.
+
+Two things make the build practical at this size:
+
+- **`idx:sorted true`** keeps the join streaming — O(N + M), constant memory,
+  sequential I/O. Buffering 29.7 M rows instead is not an option.
+- **Heap.** Discovery materialises every work item before sorting them by entity IRI,
+  which the merge requires, so the tasks pass `-Xmx8g`. That is a real characteristic
+  of the current implementation, not a tuning preference.
+
+`data/collars-full.ttl` (~970 MB) and the symlink are generated and git-ignored; the
+dump itself stays outside the repo.
+
 ## Regenerating from a different slice
 
 ```bash
