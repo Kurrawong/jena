@@ -23,13 +23,13 @@
   <modelVersion>4.0.0</modelVersion>
 
   <artifactId>jena-serviceenhancer</artifactId>
-  <name>Apache Jena - Extras - Service Enhancer</name>
+  <name>Apache Jena - Service Enhancer</name>
   <description>A plugin that extends the sparql SERVICE clauses with bulk requests, lateral joins and advanced result set caching.</description>
 
   <parent>
     <groupId>org.apache.jena</groupId>
     <artifactId>jena</artifactId>
-    <version>6.1.0-SNAPSHOT</version>
+    <version>6.2.0-SNAPSHOT</version>
   </parent>
 
   <properties>
@@ -95,7 +95,7 @@
         <dependency>
           <groupId>org.apache.jena</groupId>
           <artifactId>jena-arq</artifactId>
-          <version>6.1.0-SNAPSHOT</version>
+          <version>6.2.0-SNAPSHOT</version>
           <scope>provided</scope>
         </dependency>
       </dependencies>

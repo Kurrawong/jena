@@ -28,7 +28,7 @@
   <parent>
     <groupId>org.apache.jena</groupId>
     <artifactId>jena</artifactId>
-    <version>6.1.0-SNAPSHOT</version>
+    <version>6.2.0-SNAPSHOT</version>
   </parent>
 
   <description>Jena is a Java framework for building Semantic Web applications. It provides a programmatic environment for RDF, RDFS and OWL, SPARQL and includes a rule-based inference engine.</description>
@@ -43,24 +43,36 @@
     <dependency>
       <groupId>org.apache.jena</groupId>
       <artifactId>jena-base</artifactId>
-      <version>6.1.0-SNAPSHOT</version>
+      <version>6.2.0-SNAPSHOT</version>
     </dependency>
 
     <dependency>
       <groupId>org.apache.jena</groupId>
       <artifactId>jena-iri3986</artifactId>
-      <version>6.1.0-SNAPSHOT</version>
+      <version>6.2.0-SNAPSHOT</version>
     </dependency>
 
     <dependency>
       <groupId>org.apache.jena</groupId>
       <artifactId>jena-langtag</artifactId>
-      <version>6.1.0-SNAPSHOT</version>
+      <version>6.2.0-SNAPSHOT</version>
     </dependency>
 
     <dependency>
       <groupId>org.roaringbitmap</groupId>
       <artifactId>RoaringBitmap</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.platform</groupId>
+      <artifactId>junit-platform-suite</artifactId>
+      <scope>test</scope>
     </dependency>
 
     <dependency>
@@ -71,14 +83,8 @@
 
     <!--
     <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter</artifactId>
-      <scope>test</scope>
-    </dependency>
-
-    <dependency>
-      <groupId>org.junit.platform</groupId>
-      <artifactId>junit-platform-suite</artifactId>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
       <scope>test</scope>
     </dependency>
     -->
@@ -113,13 +119,6 @@
 
     <resources>
 
-      <!-- Legacy -->
-      <resource>
-        <directory>etc</directory>
-        <targetPath>etc</targetPath>
-        <filtering>false</filtering>
-      </resource>
-
       <resource>
         <filtering>false</filtering>
         <directory>src/main/resources</directory>
@@ -142,17 +141,6 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
-        <!-- 
-             Choose the provider if necessary. 
-             Necessary if surefire is not reporting during test runs.
-        -->
-        <dependencies>
-          <dependency>
-            <groupId>org.apache.maven.surefire</groupId>
-            <artifactId>surefire-junit47</artifactId>
-            <version>${ver.plugin.surefire}</version>
-          </dependency>
-        </dependencies>
         <configuration>
           <!-- One possibility
           <argLine>-javaagent:${org.mockito:mockito-core:jar} -Xshare:off</argLine>
@@ -160,7 +148,8 @@
           <!-- Without needing ${org.mockito:mockito-core:jar} -->
           <argLine>-XX:+EnableDynamicAgentLoading -Xshare:off</argLine>
           <includes>
-            <include>org/apache/jena/test/JenaCoreTestAll.java</include>
+            <include>org/apache/jena/test/JenaCoreTestAll_JU6.java</include>
+            <include>org/apache/jena/test/JenaCoreTestAll_JU4.java</include>
           </includes>
         </configuration>
       </plugin>

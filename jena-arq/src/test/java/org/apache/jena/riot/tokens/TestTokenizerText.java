@@ -39,6 +39,7 @@ import org.apache.jena.riot.system.ErrorHandlerFactory.ErrorHandlerRecorder;
 import org.apache.jena.sparql.ARQConstants;
 
 public class TestTokenizerText {
+    // Surrogate related tests in TestTokenizerTextNoSurrogates.
 
     private static Tokenizer tokenizer(String string) {
         return tokenizer(string, false);
@@ -1380,264 +1381,31 @@ public class TestTokenizerText {
         assertFalse(tokenizer.hasNext());
     }
 
-    // U+D800-U+DBFF is a high surrogate (first part of a pair)
-    // U+DC00-U+DFFF is a low surrogate (second part of a pair)
-    // so D800-DC00 is legal.
+    // \-u{...} style Unicode escapes
+    @Test public void unescape_unicode_20()   { test_unesc_unicode("\\u{41}", "A") ; }
+    @Test public void unescape_unicode_21()   { test_unesc_unicode("\\u{000000}", "\u0000") ; }
+    @Test public void unescape_unicode_22()   { test_unesc_unicode("\\u{1F0A1}", "🂡") ; }
+    @Test public void unescape_unicode_23()   { test_unesc_unicode("\\u{01F0A1}", "🂡") ; }
+    @Test public void unescape_unicode_24()   { test_unesc_unicode("\\u{10FFFF}", 0x10FFFF) ; }
 
-    @Test public void turtle_surrogate_pair_esc_esc_01() {
-        // escaped high, escaped low
-        surrogate("'\\ud800\\udc00'");
+    @Test public void unescape_unicode_30()   { assertThrows(RiotParseException.class, ()->test_unesc_unicode("\\u{}", "")) ; }
+    @Test public void unescape_unicode_31()   { assertThrows(RiotParseException.class, ()->test_unesc_unicode("\\u{123456789}", "")) ; }
+    @Test public void unescape_unicode_32()   { assertThrows(RiotParseException.class, ()->test_unesc_unicode("\\u{000000000}", "")) ; }
+    // If the limit is 6
+    @Test public void unescape_unicode_33()   { assertThrows(RiotParseException.class, ()->test_unesc_unicode("\\u{1234567}", "")) ; }
+    @Test public void unescape_unicode_34()   { assertThrows(RiotParseException.class, ()->test_unesc_unicode("\\u{0000000}", "")) ; }
+
+    private void test_unesc_unicode(String string, String expected) {
+        string = "'"+string+"'";
+        tokenizeAndTestExact(string, StringType.STRING1, expected);
     }
 
-    @Test public void turtle_surrogate_pair_esc_esc_02() {
-        // escaped high, escaped low
-        surrogate("'''\\ud800\\udc00'''");
-    }
-
-    @Test public void turtle_surrogate_pair_esc_esc_03() {
-        // escaped high, escaped low
-        surrogate("<\\ud800\\udc00>");
-    }
-
-    @Test public void turtle_surrogate_pair_esc_raw_01() {
-        // escaped high, raw low
-        surrogate("'\\ud800\udc00'");
-    }
-
-    @Test public void turtle_surrogate_pair_esc_raw_02() {
-        // escaped high, raw low
-        surrogate("'''\\ud800\udc00'''");
-    }
-    @Test public void turtle_surrogate_pair_esc_raw_03() {
-        // escaped high, raw low
-        surrogate("<\\ud800\udc00>");
-    }
-    @Test public void turtle_surrogate_pair_esc_raw_04() {
-        // escaped high, raw low
-        surrogate("_:b\ud800\udc00");
-    }
-
-    // Compilation failure - illegal escape character
-//    @Test public void turtle_surrogate_pair_raw_esc_01() {
-//        // raw high, escaped low
-//        surrogate("'\ud800\\udc00'");
-//    }
-
-    @Test public void turtle_surrogate_pair_raw_raw_01() {
-        // raw high, raw low
-        surrogate("'\ud800\udc00'");
-    }
-
-    @Test public void turtle_surrogate_pair_raw_raw_02() {
-        // raw high, raw low
-        surrogate("'''\ud800\udc00'''");
-    }
-
-    @Test public void turtle_surrogate_pair_raw_raw_03() {
-        // raw high, raw low
-        surrogate("<\ud800\udc00>");
-    }
-
-    // Blank nodes label allow unicode but not unicode escapes.
-    @Test public void turtle_surrogate_pair_raw_raw_04() {
-        // raw high, raw low
-        surrogate("_:b\ud800\udc00");
-    }
-
-    @Test public void turtle_surrogate_pair_raw_raw_05() {
-        // escaped high, escaped low
-        surrogate("ns:\ud800\udc00");
-    }
-
-    @Test public void turtle_surrogate_pair_raw_raw_06() {
-        // escaped high, escaped low
-        surrogate("\ud800\udc00:local");
-    }
-
-    @Test public void turtle_surrogate_pair_esc_esc_internal_01() {
-        // escaped high, escaped low
-        surrogate("'a\\ud800\\udc00x'");
-    }
-
-    @Test public void turtle_surrogate_pair_esc_esc_internal_02() {
-        // escaped high, escaped low
-        surrogate("'''a\\ud800\\udc00x'''");
-    }
-
-    @Test public void turtle_surrogate_pair_esc_esc_internal_03() {
-        // escaped high, escaped low
-        surrogate("<a\\ud800\\udc00x>");
-    }
-
-    @Test public void turtle_surrogate_pair_esc_raw_internal_01() {
-        // escaped high, raw low
-        surrogate("'z\\ud800\udc00z'");
-    }
-
-    @Test public void turtle_surrogate_pair_esc_raw_internal_02() {
-        // escaped high, raw low
-        surrogate("'''z\\ud800\udc00z'''");
-    }
-
-    @Test public void turtle_surrogate_pair_esc_raw_internal_03() {
-        // escaped high, raw low
-        surrogate("<z\\ud800\udc00z>");
-    }
-
-    // Compilation failure - illegal escape character
-//    @Test public void turtle_surrogate_pair_raw_esc() {
-//        // raw high, escaped low
-//        surrogate("'a\ud800\\udc00'z");
-//    }
-
-    @Test public void turtle_surrogate_pair_raw_raw_internal_01() {
-        // raw high, raw low
-        surrogate("'a\ud800\udc00z'");
-    }
-
-    @Test public void turtle_surrogate_pair_raw_raw_internal_02() {
-        // raw high, raw low
-        surrogate("'''a\ud800\udc00z'''");
-    }
-
-    @Test public void turtle_surrogate_pair_raw_raw_internal_03() {
-        // raw high, raw low
-        surrogate("<a\ud800\udc00z>");
-    }
-
-    @Test public void turtle_surrogate_pair_raw_raw_internal_04() {
-        // raw high, raw low
-        surrogate("_:ba\ud800\udc00z");
-    }
-
-    @Test public void turtle_surrogate_pair_raw_raw__internal05() {
-        // escaped high, escaped low
-        surrogate("ns:x\ud800\udc00y");
-    }
-
-    @Test public void turtle_surrogate_pair_raw_raw__internal06() {
-        // escaped high, escaped low
-        surrogate("x\ud800\udc00y:local");
-    }
-
-    @Test
-    public void turtle_bad_surrogate_01() {
-		assertThrows(RiotParseException.class, ()->
-					 surrogate("'\\ud800'"));
-    }
-
-    @Test
-    public void turtle_bad_surrogate_01a() {
-		assertThrows(RiotParseException.class, ()->
-					 surrogate("'''\\ud800''''"));
-    }
-
-    @Test
-    public void turtle_bad_surrogate_02() {
-		assertThrows(RiotParseException.class, ()->
-					 surrogate("'a\\ud800z'"));
-    }
-
-    @Test
-    public void turtle_bad_surrogate_02a() {
-		assertThrows(RiotParseException.class, ()->
-					 surrogate("'''a\\ud800z'''"));
-    }
-
-    @Test
-    public void turtle_bad_surrogate_02b() {
-		assertThrows(RiotParseException.class, ()->
-					 surrogate("<a\\ud800z>"));
-    }
-
-    @Test
-    public void turtle_bad_surrogate_03() {
-		assertThrows(RiotParseException.class, ()->
-					 surrogate("'\\udfff'"));
-    }
-
-    @Test
-    public void turtle_bad_surrogate_04() {
-		assertThrows(RiotParseException.class, ()->
-					 surrogate("'a\\udfffz'"));
-    }
-
-    @Test
-    public void turtle_bad_surrogate_05() {
-		assertThrows(RiotParseException.class, ()->
-					 surrogate("'\\U0000d800'"));
-    }
-
-    @Test
-    public void turtle_bad_surrogate_06() {
-		assertThrows(RiotParseException.class, ()->
-					 surrogate("'a\\U0000d800z'"));
-    }
-
-    @Test
-    public void turtle_bad_surrogate_07() {
-		assertThrows(RiotParseException.class, ()->
-					 surrogate("'\\U0000dfff'"));
-    }
-
-    @Test
-    public void turtle_bad_surrogate_08() {
-		assertThrows(RiotParseException.class, ()->
-					 surrogate("'a\\U0000dfffz'"));
-    }
-
-    @Test
-    public void turtle_bad_surrogate_09() {
-        // Wrong way round: low-hig);
-		assertThrows(RiotParseException.class, ()->
-					 surrogate("'\\uc800\\ud800'")
-					 );
-    }
-
-    @Test
-    public void turtle_bad_surrogate_10() {
-		assertThrows(RiotParseException.class, ()->
-        // Wrong way round: low-high
-        surrogate("'a\\uc800\\ud800z'")
-					 );
-    }
-
-    // Compilation failure - illegal escape character
-//    @Test
-//     public void turtle_bad_surrogate_11() {
-//      // raw low - escaped high
-// 		assertThrows(RiotParseException.class, ()->
-// 					 surrogate("'\ud800\\ud800'"));
-//     }
-//
-//     @Test
-//     public void turtle_bad_surrogate_12() {
-//      // raw low - escaped high
-// 		assertThrows(RiotParseException.class, ()->
-// 					 surrogate("'a\ud800\\ud800z'"));
-//     }
-
-    @Test
-    public void turtle_bad_surrogate_13() {
-        // escaped low - raw high
-		assertThrows(RiotParseException.class, ()->
-        surrogate("'\\uc800\ud800'")
-					 );
-    }
-
-    @Test
-    public void turtle_bad_surrogate_14() {
-        // escaped low - raw high
-		assertThrows(RiotParseException.class, ()->
-        surrogate("'a\\uc800\ud800z'")
-					 );
-    }
-
-    private void surrogate(String string) {
+    private void test_unesc_unicode(String string, int expected) {
+        string = "'"+string+"'";
         Tokenizer tokenizer = tokenizer(string);
-        assertTrue(tokenizer.hasNext());
-        tokenizer.next();
-        assertFalse(tokenizer.hasNext());
+        Token token = testNextToken(tokenizer, TokenType.STRING);
+        int codepoint = token.getImage().codePointAt(0);
+        assertEquals(expected, codepoint);
     }
 
     @Test

@@ -22,6 +22,7 @@
 package org.apache.jena.fuseki.main.runner;
 
 import static arq.cmdline.ModAssembler.assemblerDescDecl;
+import static org.apache.jena.fuseki.Fuseki.serverFunctionPath;
 import static org.apache.jena.fuseki.main.runner.SetupType.*;
 
 import java.nio.file.Path;
@@ -178,9 +179,10 @@ public class FusekiArgs extends CmdGeneral {
 
     static String argUsage = "[--config=FILE|--mem|--loc=DIR|--file=FILE] [--port PORT] /DatasetPathName";
 
+    /** Calls to {@code FusekiArgs} should provide the intended fuseki modules. */
     /*package*/ FusekiArgs(FusekiModules fusekiModules, String... args) {
         super(args);
-        Objects.requireNonNull(fusekiModules);
+        Objects.requireNonNull(fusekiModules, "FusekiModules argument must not be null");
         this.serverArgs.fusekiModules = fusekiModules;
         // serverArgsHandlers for argument processing.
         this.serverArgsHandlersList = ( fusekiModules == null ) ? FusekiModules.empty().asList() : fusekiModules.asList();
@@ -209,7 +211,7 @@ public class FusekiArgs extends CmdGeneral {
     }
 
     private void argumentsSetup() {
-        modVersion.addClass("Fuseki", Fuseki.class);
+        //modVersion.addClass("Fuseki", Fuseki.class);
 
         getUsage().startCategory("Fuseki");
         add(argConfig, "--config=FILE",
@@ -547,28 +549,6 @@ public class FusekiArgs extends CmdGeneral {
             serverArgs.jettyConfigFile = jettyConfigFile;
         }
 
-        // No-op.
-        // To be removed.
-//        boolean withModules = hasValueOfTrue(argEnableModules);
-//        if ( withModules ) {
-//            // Passed in when the FusekiArgs object was created
-//            FusekiModules presetModules = serverArgs.fusekiModules;
-//            // Get auto modules from system-wide setup.
-//            FusekiModules autoModules = FusekiModules.getSystemModules();
-//
-//            // Merge preset and auto-loaded modules into one FusekiModules instance.
-//            if ( presetModules == null ) {
-//                serverArgs.fusekiModules = autoModules;
-//            } else {
-//                List<FusekiModule> allModules = Stream.concat(
-//                        presetModules.asList().stream(),
-//                        autoModules.asList().stream())
-//                    .distinct()
-//                    .toList();
-//                serverArgs.fusekiModules = FusekiModules.create(allModules);
-//            }
-//        }
-
         if ( contains(argCORS) ) {
             String corsConfigFile = getValue(argCORS);
             if ( ! FileOps.exists(corsConfigFile) )
@@ -614,11 +594,11 @@ public class FusekiArgs extends CmdGeneral {
 
         if ( serverArgs.validators ) {
             // Validators.
-            builder.addServlet("/$/validate/query",     new QueryValidator());
-            builder.addServlet("/$/validate/update",    new UpdateValidator());
-            builder.addServlet("/$/validate/iri",       new IRIValidator());
-            builder.addServlet("/$/validate/langtag",   new LangTagValidator());
-            builder.addServlet("/$/validate/data",      new DataValidator());
+            builder.addServlet(serverFunctionPath("/validate/query"),     new QueryValidator());
+            builder.addServlet(serverFunctionPath("/validate/update"),    new UpdateValidator());
+            builder.addServlet(serverFunctionPath("/validate/iri"),       new IRIValidator());
+            builder.addServlet(serverFunctionPath("/validate/langtag"),   new LangTagValidator());
+            builder.addServlet(serverFunctionPath("/validate/data"),      new DataValidator());
         }
 
         // Apply argument for the database services

@@ -27,12 +27,13 @@ import org.apache.jena.graph.Node;
 import org.apache.jena.query.Query;
 import org.apache.jena.query.QueryParseException;
 import org.apache.jena.sparql.ARQInternalErrorException;
-import org.apache.jena.sparql.core.Prologue;
-import org.apache.jena.sparql.core.Var;
+import org.apache.jena.sparql.core.*;
 import org.apache.jena.sparql.engine.binding.Binding;
 import org.apache.jena.sparql.engine.binding.BindingBuilder;
+import org.apache.jena.sparql.modify.TemplateLib;
 import org.apache.jena.sparql.modify.UpdateSink;
 import org.apache.jena.sparql.modify.request.*;
+import org.apache.jena.sparql.syntax.*;
 import org.apache.jena.update.Update;
 
 /** Class that has all the parse event operations and other query/update specific things */
@@ -48,21 +49,6 @@ public class SPARQLParserBase extends QueryParserBase {
     }
 
     public Query getQuery() { return query; }
-
-    // The ARQ parser is both query and update languages.
-
-//    // ---- SPARQL/Update (Submission)
-//    private UpdateRequest requestSubmission = null;
-//
-//    protected UpdateRequest getUpdateRequestSubmission() { return requestSubmission; }
-//    public void setUpdateRequest(UpdateRequest request)
-//    {
-//        setPrologue(request);
-//        this.requestSubmission = request;
-//        // And create a query because we may have nested selects.
-//        this.query = new Query ();
-//    }
-
     private UpdateSink sink = null;
 
     // Places to push settings across points where we reset.
@@ -241,8 +227,7 @@ public class SPARQLParserBase extends QueryParserBase {
         rowBuilder = Binding.builder();
     }
 
-    protected void finishValuesClause(int line, int col)
-    {
+    protected void finishValuesClause(int line, int col) {
         getQuery().setValuesDataBlock(variables, values);
     }
 
@@ -284,13 +269,16 @@ public class SPARQLParserBase extends QueryParserBase {
 
     protected void finishDataBlockValueRow(int line, int col) {
         //if ( variables.size() != currentValueRow().size() )
-        if ( currentColumn+1 != variables.size() )
-        {
-            String msg = String.format("Mismatch: %d variables but %d values",variables.size(), currentColumn+1);
+        if ( currentColumn + 1 != variables.size() ) {
+            String msg = String.format("Mismatch: %d variables but %d values", variables.size(), currentColumn + 1);
             msg = QueryParseException.formatMessage(msg, line, col);
-            throw new QueryParseException(msg, line , col);
+            throw new QueryParseException(msg, line, col);
         }
         values.add(rowBuilder.build());
+    }
+
+    protected ElementGroup templateToQueryPattern(Template template){
+        return TemplateLib.templateToQueryPattern(template);
     }
 
     private void pushLabelState() {

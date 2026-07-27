@@ -18,33 +18,26 @@
  *
  *   SPDX-License-Identifier: Apache-2.0
  */
+
 package org.apache.jena.mem.store.roaring;
 
 import org.apache.jena.graph.Triple;
-import org.apache.jena.mem.collection.FastHashSet;
 import org.hamcrest.collection.IsIterableContainingInAnyOrder;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.roaringbitmap.RoaringBitmap;
 
 import java.util.ConcurrentModificationException;
 import java.util.HashSet;
 import java.util.NoSuchElementException;
 
-import static org.apache.jena.testing_framework.GraphHelper.triple;
+import static org.apache.jena.junit.GraphHelper.triple;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class RoaringBitmapTripleIteratorTest {
 
-
-    private static FastHashSet<Triple> createTripleSet() {
-        return new FastHashSet<Triple>() {
-
-            @Override
-            protected Triple[] newKeysArray(int size) {
-                return new Triple[size];
-            }
-        };
+    private static TripleSet createTripleSet() {
+        return new TripleSet();
     }
 
     @Test
@@ -53,7 +46,7 @@ public class RoaringBitmapTripleIteratorTest {
         final var set = createTripleSet();
         final var sut = new RoaringBitmapTripleIterator(bitmap, set);
         assertFalse(sut.hasNext());
-        assertThrows(NoSuchElementException.class, () -> sut.next());
+        assertThrows(NoSuchElementException.class, sut::next);
     }
 
     @Test
@@ -98,9 +91,7 @@ public class RoaringBitmapTripleIteratorTest {
         final var sut = new RoaringBitmapTripleIterator(bitmap, set);
         assertTrue(sut.hasNext());
         assertTrue(triples.remove(sut.next()));
-        sut.forEachRemaining(t -> {
-            assertTrue(triples.remove(t));
-        });
+        sut.forEachRemaining(t -> assertTrue(triples.remove(t)));
         assertFalse(sut.hasNext());
         assertTrue(triples.isEmpty());
     }
@@ -114,7 +105,7 @@ public class RoaringBitmapTripleIteratorTest {
         final var sut = new RoaringBitmapTripleIterator(bitmap, set);
         set.removeUnchecked(triple("s P o"));
         assertTrue(sut.hasNext());
-        assertThrows(ConcurrentModificationException.class, () -> sut.next());
+        assertThrows(ConcurrentModificationException.class, sut::next);
     }
 
     @Test

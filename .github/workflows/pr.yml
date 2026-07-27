@@ -6,10 +6,17 @@ on:
   pull_request:
     types:
       - opened
+      ## `synchronize` matters for Dependabot auto-merge: a rebase pushes a new
+      ## head SHA, and without a check against it the merge waits forever.
+      - synchronize
       - reopened
     branches:
       - 'main'
       
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+  
 permissions:
   contents: read
 
@@ -31,7 +38,7 @@ jobs:
     steps:
 
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up JDK ${{ matrix.java_version }}
         uses: actions/setup-java@v5
@@ -42,3 +49,21 @@ jobs:
       - name: Build with Maven (Java${{ matrix.java_version }} ${{ matrix.jdk_distribution }})
         ## No javadoc - that needs visual check
         run: mvn -B --file pom.xml -Dmaven.javadoc.skip=true install
+
+  ## Single stable check context for the `main` ruleset to require. The matrix
+  ## jobs above report as "build-pr (temurin, ubuntu-latest, 25)", which changes
+  ## name whenever the matrix changes; this one does not.
+  pr-gate:
+    needs: build-pr
+    ## `always()` so a skipped/cancelled dependency fails the gate rather than
+    ## silently skipping it (a skipped required check never turns green).
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check build result
+        run: |
+          if [ "${{ needs.build-pr.result }}" != "success" ]; then
+            echo "build-pr result: ${{ needs.build-pr.result }}"
+            exit 1
+          fi
+          echo "build-pr passed"

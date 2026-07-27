@@ -21,17 +21,17 @@
 
 package org.apache.jena.mem.graph;
 
+import java.util.function.Supplier;
+
+import org.apache.jena.jmh.JmhDefaultOptions;
 import org.apache.jena.mem.GraphMem;
 import org.apache.jena.mem.graph.helper.Context;
-import org.apache.jena.mem.graph.helper.JMHDefaultOptions;
 import org.apache.jena.mem.graph.helper.Releases;
 
 import org.junit.Assert;
 import org.junit.Test;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.runner.Runner;
-
-import java.util.function.Supplier;
 
 
 @State(Scope.Benchmark)
@@ -46,16 +46,20 @@ public class TestGraphCopy {
 
     @Param({
             "GraphMemFast (current)",
-            "GraphMemRoaring EAGER (current)",
-            "GraphMemRoaring LAZY (current)",
-            "GraphMemRoaring LAZY_PARALLEL (current)",
-            "GraphMemRoaring MINIMAL (current)",
+            "GraphMemIndexedSet EAGER (current)",
+//            "GraphMemIndexedSet LAZY (current)",
+//            "GraphMemIndexedSet LAZY_PARALLEL (current)",
+//            "GraphMemIndexedSet MINIMAL (current)",
+//            "GraphMemRoaring EAGER (current)",
+//            "GraphMemRoaring LAZY (current)",
+//            "GraphMemRoaring LAZY_PARALLEL (current)",
+//            "GraphMemRoaring MINIMAL (current)",
     })
     public String param1_GraphImplementation;
 
     @Param({
             "copy",
-            "findAndAddAll",
+//            "findAndAddAll",
     })
     public String param2_CopyOrConstruct;
 
@@ -80,7 +84,7 @@ public class TestGraphCopy {
     }
 
     @Setup(Level.Trial)
-    public void setupTrial() throws Exception {
+    public void setupTrial() {
         var trialContext = new Context(param1_GraphImplementation);
         switch (trialContext.getJenaVersion()) {
             case CURRENT: {
@@ -91,6 +95,7 @@ public class TestGraphCopy {
                 triples.forEach(this.sutCurrent::add);
             }
             break;
+            case JENA_5_6_0:
             default:
                 throw new IllegalArgumentException("Unsupported Jena version: " + trialContext.getJenaVersion());
         }
@@ -108,7 +113,7 @@ public class TestGraphCopy {
 
     @Test
     public void benchmark() throws Exception {
-        var opt = JMHDefaultOptions.getDefaults(this.getClass())
+        var opt = JmhDefaultOptions.getDefaults(this.getClass())
                 .build();
         var results = new Runner(opt).run();
         Assert.assertNotNull(results);

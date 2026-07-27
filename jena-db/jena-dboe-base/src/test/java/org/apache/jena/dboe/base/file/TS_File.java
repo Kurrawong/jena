@@ -35,12 +35,15 @@ import org.junit.platform.suite.api.Suite;
     , TestBlockAccessByteArray.class
     , TestBlockAccessDirect.class
     , TestBlockAccessMapped.class
+    , TestBlockAccessMappedSegmentState.class
 
     , TestBinaryDataMem.class
     , TestBinaryDataFileWriteBufferedMem.class
     , TestBinaryDataRAFInitial.class
     , TestBinaryDataRAF.class
     , TestBinaryDataFileWriteBufferedFile.class
+    , TestBinaryDataFileRandomAccessTruncate.class
+    , TestBinaryDataFileRandomAccess.class
 
     , TestProcessFileLock.class
 })

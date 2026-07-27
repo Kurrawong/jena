@@ -62,7 +62,6 @@ import org.apache.jena.query.ARQ;
 import org.apache.jena.riot.web.HttpNames;
 import org.apache.jena.sparql.exec.http.Params;
 import org.apache.jena.sparql.util.Context;
-import org.apache.jena.web.HttpSC;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -97,7 +96,9 @@ public class HttpLib {
             InputStream in = r.body();
             String msg = IO.readWholeFileAsUTF8(in);
             return msg;
-        } catch (Throwable ex) { throw new HttpException(ex); }
+        } catch (Throwable ex) {
+            throw HttpException.builder().cause(ex).build();
+        }
     };
 
     /**
@@ -183,7 +184,7 @@ public class HttpLib {
         int httpStatusCode = response.statusCode();
         // There is no status message in HTTP/2.
         if ( ! inRange(httpStatusCode, 100, 599) ) {
-            throw new HttpException("Status code out of range: "+httpStatusCode);
+            throw HttpException.error("Status code out of range: "+httpStatusCode);
         }
         if ( inRange(httpStatusCode, 100, 199) ) {
             // Informational
@@ -269,7 +270,7 @@ public class HttpLib {
         try {
             return IO.readWholeFileAsUTF8(input);
         } catch (RuntimeIOException e) {
-            throw new HttpException(e);
+            throw HttpException.builder().cause(e).build();
         } finally {
             finishInputStream(input);
         }
@@ -282,7 +283,7 @@ public class HttpLib {
     static HttpException exception(HttpResponse<InputStream> response, int httpStatusCode) {
         InputStream in = response.body();
         if ( in == null )
-            return new HttpException(httpStatusCode, HttpSC.getMessage(httpStatusCode));
+            return HttpException.create(response);
         try {
             String msg;
             try {
@@ -292,7 +293,11 @@ public class HttpLib {
             } catch (RuntimeIOException e) {
                 msg = null;
             }
-            return new HttpException(httpStatusCode, HttpSC.getMessage(httpStatusCode), msg);
+            return HttpException.builder()
+                    .statusCode(httpStatusCode)
+                    .responseMessage(msg)
+                    .httpResponseHeaders(response.headers())
+                    .build();
         } finally { IO.close(in); }
     }
 
@@ -360,14 +365,14 @@ public class HttpLib {
         try {
             URI uri = new URI(uriStr);
             if ( ! uri.isAbsolute() )
-                throw new HttpException("Not an absolute URL: <"+uriStr+">");
+                throw HttpException.error("Not an absolute URL: <"+uriStr+">");
             return uri;
         } catch (URISyntaxException ex) {
             int idx = ex.getIndex();
             String msg = (idx<0)
                 ? String.format("Bad URL: %s", uriStr)
                 : String.format("Bad URL: %s starting at character %d", uriStr, idx);
-            throw new HttpException(msg, ex);
+            throw HttpException.error(msg, ex);
         }
     }
 
@@ -440,7 +445,11 @@ public class HttpLib {
         String path = uri.getRawPath();
         if ( path == null || path.isEmpty() )
             path = "/";
-        return path;
+        String target = path;
+        String qs = uri.getRawQuery();
+        if ( qs != null )
+            target = target+"?"+qs;
+        return target;
     }
 
     /** Return a HttpRequest */
@@ -686,19 +695,49 @@ public class HttpLib {
         return httpClient.sendAsync(httpRequest, BodyHandlers.ofInputStream());
     }
 
-    /** Push data. POST, PUT, PATCH request with no response body data. */
-    public static void httpPushData(HttpClient httpClient, Push style, String url, Consumer<HttpRequest.Builder> modifier, BodyPublisher body) {
-        HttpResponse<InputStream> response = httpPushWithResponse(httpClient, style, url, modifier, body);
+    /**
+     * Push data. POST, PUT, PATCH request with no response body data.
+     * @deprecated Use {@link #httpPushData(HttpClient, HttpMethod, String, Consumer, BodyPublisher)}
+     */
+    @Deprecated(forRemoval = true)
+    public static void httpPushData(HttpClient httpClient, @SuppressWarnings("removal") Push style, String url, Consumer<HttpRequest.Builder> modifier, BodyPublisher body) {
+        HttpResponse<InputStream> response = httpPushWithResponse(httpClient, style.method(), url, modifier, body);
         handleResponseNoBody(response);
     }
 
-    // Worker
-    public static HttpResponse<InputStream> httpPushWithResponse(HttpClient httpClient, Push style, String url,
+    /** Push data. POST, PUT, PATCH request with no response body data. */
+    public static void httpPushData(HttpClient httpClient, HttpMethod method, String url, Consumer<HttpRequest.Builder> modifier, BodyPublisher body) {
+        HttpResponse<InputStream> response = httpPushWithResponse(httpClient, method, url, modifier, body);
+        handleResponseNoBody(response);
+    }
+
+    /**
+     * Push data. POST, PUT, PATCH request with no response body data.
+     * @deprecated Use {@link #httpPushWithResponse(HttpClient, HttpMethod, String, Consumer, BodyPublisher)}
+     */
+    @Deprecated(forRemoval = true)
+    public static HttpResponse<InputStream> httpPushWithResponse(HttpClient httpClient, @SuppressWarnings("removal") Push style, String url,
                                                                  Consumer<HttpRequest.Builder> modifier, BodyPublisher body) {
+        return httpPushWithResponse(httpClient, style.method(), url, modifier, body);
+
+    }
+    // Worker
+    public static HttpResponse<InputStream> httpPushWithResponse(HttpClient httpClient, HttpMethod method, String url,
+                                                                 Consumer<HttpRequest.Builder> modifier, BodyPublisher body) {
+        switch(method) {
+            case POST,PUT, PATCH -> {}
+            default -> { throw HttpException.error("Method not suitable for push operation: "+method); }
+        }
+        return httpPushWithResponse(httpClient, method.method(), url, modifier, body);
+    }
+
+
+    private static HttpResponse<InputStream> httpPushWithResponse(HttpClient httpClient, String method, String url,
+                                                                  Consumer<HttpRequest.Builder> modifier, BodyPublisher body) {
         URI uri = toRequestURI(url);
         HttpRequest.Builder builder = requestBuilderFor(url);
         builder.uri(uri);
-        builder.method(style.method(), body);
+        builder.method(method, body);
         if ( modifier != null )
             modifier.accept(builder);
         HttpResponse<InputStream> response = execute(httpClient, builder.build());
@@ -808,9 +847,9 @@ public class HttpLib {
      */
     public static boolean isFuseki(String datasetURL) {
         HttpRequest.Builder builder =
-                HttpRequest.newBuilder().uri(toRequestURI(datasetURL)).method(HttpNames.METHOD_HEAD, BodyPublishers.noBody());
+                HttpRequest.newBuilder().uri(toRequestURI(datasetURL)).method(HttpMethod.METHOD_HEAD, BodyPublishers.noBody());
         HttpRequest request = builder.build();
-        HttpClient httpClient = HttpEnv.getDftHttpClient();
+        HttpClient httpClient = HttpEnv.getHttpClient(datasetURL);
         HttpResponse<InputStream> response = execute(httpClient, request);
         handleResponseNoBody(response);
 

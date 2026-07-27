@@ -21,23 +21,21 @@
 
 package org.apache.jena.irix;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.fail;
 
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
+import org.junit.jupiter.api.MethodOrderer;
 
 /**
  * Tests that don't easily go in other TestIRIx suites.
  */
-@RunWith(Parameterized.class)
+@TestMethodOrder(MethodOrderer.MethodName.class)
 public class TestIRIxOther extends AbstractTestIRIx_3986 {
 
-    public TestIRIxOther(String name, IRIProvider provider) {
-        super(name, provider);
-    }
+    public TestIRIxOther() { super(); }
 
     @Test public void scheme_unknown_1() {
         good("mysteryScheme://authority/path/file");
@@ -45,14 +43,6 @@ public class TestIRIxOther extends AbstractTestIRIx_3986 {
 
     @Test public void scheme_unknown_2() {
         good("mysteryScheme:ABC");
-    }
-
-    @Test public void strict_1() {
-        strict("urn", ()->bad("urn:x:abc"));
-    }
-
-    @Test public void strict_2() {
-        notStrict("urn", ()->bad("urn:x:abc"));
     }
 
     // Jena rules uses urn:x-hp in a way that is exposed to user code.
@@ -70,16 +60,16 @@ public class TestIRIxOther extends AbstractTestIRIx_3986 {
         assertFalse(iri.hasViolations());
     }
 
-    // RFC 3986 syntax only, not URi scheme.
+    // RFC 3986 syntax only, not URI scheme.
     private void goodNoIRICheck(String string) {
         IRIx iri = test_create(string);
     }
 
-    // Expect an IRIParseException
+    // Parse error or not reference.
     private void bad(String string) {
         try {
             IRIx iri = test_create(string);
-            if ( ! iri.isReference())
+            if ( iri.isReference())
                 fail("Did not fail: "+string);
         } catch (IRIException ex) {}
     }

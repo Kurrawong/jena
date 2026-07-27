@@ -29,7 +29,7 @@
   <parent>
     <groupId>org.apache.jena</groupId>
     <artifactId>jena</artifactId>
-    <version>6.1.0-SNAPSHOT</version>
+    <version>6.2.0-SNAPSHOT</version>
   </parent>
   <profiles>
    <!-- apache lucene emits warnings for native access and for the vector module for java version >= 21 -->
@@ -53,25 +53,25 @@
     <dependency>
       <groupId>org.apache.jena</groupId>
       <artifactId>jena-arq</artifactId>
-      <version>6.1.0-SNAPSHOT</version>
+      <version>6.2.0-SNAPSHOT</version>
     </dependency>
 
     <dependency>
       <groupId>org.apache.jena</groupId>
       <artifactId>jena-tdb1</artifactId>
-      <version>6.1.0-SNAPSHOT</version>
+      <version>6.2.0-SNAPSHOT</version>
     </dependency>
 
     <dependency>
       <groupId>org.apache.jena</groupId>
       <artifactId>jena-tdb2</artifactId>
-      <version>6.1.0-SNAPSHOT</version>
+      <version>6.2.0-SNAPSHOT</version>
     </dependency>
 
     <dependency>
       <groupId>org.apache.jena</groupId>
       <artifactId>jena-cmds</artifactId>
-      <version>6.1.0-SNAPSHOT</version>
+      <version>6.2.0-SNAPSHOT</version>
     </dependency>
 
     <!-- Lucene dependencies -->
@@ -119,6 +119,24 @@
       <version>${project.version}</version>
     </dependency>
 
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.platform</groupId>
+      <artifactId>junit-platform-suite</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!--
+         Upstream migrated jena-text's tests to JUnit 5. The fork's SHACL /
+         faceting tests are still JUnit 4, so the vintage engine is required
+         for the JUnit Platform to discover and run them. Without it they are
+         silently skipped rather than failed. Remove once those are migrated.
+    -->
     <dependency>
       <groupId>org.junit.vintage</groupId>
       <artifactId>junit-vintage-engine</artifactId>

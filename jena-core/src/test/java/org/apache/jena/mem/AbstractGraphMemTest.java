@@ -21,15 +21,13 @@
 
 package org.apache.jena.mem;
 
-import static org.apache.jena.testing_framework.GraphHelper.node;
-import static org.apache.jena.testing_framework.GraphHelper.triple;
+import static org.apache.jena.junit.GraphHelper.node;
+import static org.apache.jena.junit.GraphHelper.triple;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import org.apache.jena.datatypes.xsd.impl.XSDDouble;
 import org.apache.jena.graph.NodeFactory;
@@ -37,14 +35,16 @@ import org.apache.jena.graph.Triple;
 import org.hamcrest.collection.IsEmptyCollection;
 import org.hamcrest.collection.IsIterableContainingInAnyOrder;
 
+import java.util.ArrayList;
+
 public abstract class AbstractGraphMemTest {
 
     protected GraphMem sut;
 
     protected abstract GraphMem createGraph();
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeEach
+    public void setUp() {
         sut = createGraph();
     }
 
@@ -1044,4 +1044,38 @@ public abstract class AbstractGraphMemTest {
         assertFalse(sut.contains(triple("s3 p3 o3")));
     }
 
+    @Test
+    public void testDeleteAll() {
+        deleteAllWorker() ;
+    }
+
+    protected void deleteAllWorker() {
+        for(var subjects=1; subjects <= 8 ; subjects++) {
+            for(var predicates=1; predicates <= 8 ; predicates++) {
+                for(var objects=1; objects <= 8 ; objects++) {
+                    sut = createGraph();
+                    var triples = new ArrayList<Triple>();
+                    for(var s=0; s < subjects ; s++) {
+                        for(var p=0; p < predicates ; p++) {
+                            for(var o=0; o < objects ; o++) {
+                                var t = triple("s" + s + " p" + p + " o" + o);
+                                triples.add(t);
+                                sut.add(t);
+                                assertTrue(sut.contains(t));
+                            }
+                        }
+                    }
+                    assertEquals(subjects*predicates*objects, sut.size());
+                    // print subjects, predicates, objects and size
+                    // System.out.println(subjects + " - " + predicates + " - " + objects + " : " + sut.size());
+                    for (var triple : triples) {
+                        assertTrue(sut.contains(triple));
+                        sut.delete(triple);
+                        assertFalse(sut.contains(triple));
+                    }
+                    assertEquals(0, sut.size());
+                }
+            }
+        }
+    }
 }

@@ -70,10 +70,7 @@ import org.apache.jena.sparql.util.ContextAccumulator;
 import org.apache.jena.sys.JenaSystem;
 import org.apache.jena.system.G;
 import org.apache.jena.system.RDFDataException;
-import org.eclipse.jetty.ee11.servlet.DefaultServlet;
-import org.eclipse.jetty.ee11.servlet.FilterHolder;
-import org.eclipse.jetty.ee11.servlet.ServletContextHandler;
-import org.eclipse.jetty.ee11.servlet.ServletHolder;
+import org.eclipse.jetty.ee11.servlet.*;
 import org.eclipse.jetty.ee11.servlet.security.ConstraintSecurityHandler;
 import org.eclipse.jetty.security.SecurityHandler;
 import org.eclipse.jetty.security.UserStore;
@@ -120,7 +117,7 @@ public class FusekiServer {
     /**
      * Construct a Fuseki server from command line arguments.
      * The return server has not been started.
-     * @deprecated Use {@link FusekiMain#construct} or {@link FusekiRunner#basic()}
+     * @deprecated Use {@link FusekiMain#construct} or {@link FusekiRunner#serverBasic()}
      */
     @Deprecated
     static public FusekiServer construct(String... args) {
@@ -130,7 +127,7 @@ public class FusekiServer {
     /**
      * Run a Fuseki server using the command line arguments for setup
      * The returned server has been started.
-     * @deprecated Use {@link FusekiMain#run} or {@link FusekiRunner#basic()}
+     * @deprecated Use {@link FusekiMain#run} or {@link FusekiRunner#serverBasic()}
      */
     @Deprecated
     static public FusekiServer run(String...args) {
@@ -139,6 +136,8 @@ public class FusekiServer {
 
     /** Return a fresh builder configured according to the the argument list */
     public static Builder builder(String...args) {
+        if ( args == null || args.length == 0 )
+            return new Builder();
         return new Builder().applyArgs(args);
     }
 
@@ -1839,8 +1838,29 @@ public class FusekiServer {
             if ( staticContentDir != null ) {
                 DefaultServlet staticServlet = new DefaultServlet();
                 ServletHolder staticContent = new ServletHolder(staticServlet);
-                staticContent.setInitParameter("baseResource", staticContentDir);
                 //staticContent.setInitParameter("cacheControl", "false");
+                // Jetty other than 12.1.9
+                staticContent.setInitParameter("baseResource", staticContentDir);
+
+//                // == Jetty 12.1.9 (only) issue
+//                // When a fixed Jetty is available, replace block with
+//                  //   staticContent.setInitParameter("baseResource", staticContentDir);
+//                if ( staticContentDir.startsWith("jar:") ) {
+//                    staticContent.setInitParameter("baseResource", staticContentDir);
+//                } else {
+//                    try {
+//                        // Use URLResourceFactory instead of ResourceFactory.of(context) (which yields PathResource)
+//                        // to work around a Windows bug in Jetty 12.1.9 PathResource.resolve(URI) where
+//                        // path.resolve(uri.getPath()) fails for absolute Windows paths.
+//                        // See: https://github.com/jetty/jetty.project/pull/15020
+//                        java.net.URL url = Path.of(staticContentDir).toUri().toURL();
+//                        org.eclipse.jetty.util.resource.Resource base = new org.eclipse.jetty.util.resource.URLResourceFactory().newResource(url);
+//                        context.setBaseResource(base);
+//                    } catch (java.net.MalformedURLException e) {
+//                        staticContent.setInitParameter("baseResource", staticContentDir);
+//                    }
+//                }
+//                // == Jetty 12.1.9 issue
                 context.addServlet(staticContent, "/");
             } else {
                 // Backstop servlet
