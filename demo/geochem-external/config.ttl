@@ -1,0 +1,190 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+#
+# External content indexing demo.
+#
+# One Lucene document per drillhole collar, carrying:
+#   - graph-derived fields  (label, operator, region, drill type, depth, geometry)
+#   - external child records from a CSV of geochemical measurements
+#
+# The two sides meet on the collar IRI at document-construction time. The CSV
+# carries a bare integer collar_id; idx:subjectPrefix makes it an IRI.
+#
+# See docs/2026-07-27_external_content_indexing_design.md and
+#     docs/03-configuration.md#external-content-csvtsv
+
+PREFIX :        <#>
+PREFIX field:   <urn:jena:lucene:field#>
+PREFIX fuseki:  <http://jena.apache.org/fuseki#>
+PREFIX rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX ja:      <http://jena.hpl.hp.com/2005/11/Assembler#>
+PREFIX tdb2:    <http://jena.apache.org/2016/tdb#>
+PREFIX text:    <http://jena.apache.org/text#>
+PREFIX idx:     <urn:jena:lucene:index#>
+PREFIX sh:      <http://www.w3.org/ns/shacl#>
+PREFIX geo:     <http://www.opengis.net/ont/geosparql#>
+PREFIX ex:      <http://example.org/geochem/>
+PREFIX xsd:     <http://www.w3.org/2001/XMLSchema#>
+
+## --- Fuseki server ---
+
+[] rdf:type fuseki:Server ;
+   fuseki:services ( :service ) .
+
+:service rdf:type fuseki:Service ;
+    fuseki:name "geochem" ;
+    fuseki:endpoint [ fuseki:operation fuseki:query  ; fuseki:name "query"  ] ;
+    fuseki:endpoint [ fuseki:operation fuseki:update ; fuseki:name "update" ] ;
+    fuseki:endpoint [ fuseki:operation fuseki:gsp-rw ; fuseki:name "data"   ] ;
+    fuseki:dataset :text_dataset .
+
+## --- Text-indexed dataset ---
+
+:text_dataset rdf:type text:TextDataset ;
+    text:dataset :base_dataset ;
+    text:indexes :index .
+
+:base_dataset rdf:type tdb2:DatasetTDB ;
+    tdb2:location "DB" .
+
+:index rdf:type text:TextIndexShacl ;
+    text:indexId "default" ;
+    text:directory <file:Lucene> ;
+
+    # Required here, not optional: this profile is rebuild-only, so the index is built
+    # by a separate `shacltextindexer` process. Without a taxonomy on disk the
+    # hierarchical facet ordinals die with that process and the server reports no
+    # hierarchical facet counts at all — silently.
+    text:taxonomyDirectory <file:Taxonomy> ;
+
+    text:shapes ( :CollarShape ) ;
+    text:storeValues false ;
+    text:maxFacetHits 50000 .
+
+## --- Graph-derived fields ---
+
+field:collarLabel
+    idx:fieldName "collarLabel" ;
+    idx:fieldType idx:TextField ;
+    idx:stored true ;
+    idx:defaultSearch true .
+
+field:prospect
+    idx:fieldName "prospect" ;
+    idx:fieldType idx:TextField ;
+    idx:stored true ;
+    idx:defaultSearch true .
+
+field:holeId
+    idx:fieldName "holeId" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true .
+
+field:operator
+    idx:fieldName "operator" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:facetable true .
+
+field:region
+    idx:fieldName "region" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:facetable true .
+
+field:drillType
+    idx:fieldName "drillType" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:facetable true .
+
+field:status
+    idx:fieldName "status" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:facetable true .
+
+field:yearDrilled
+    idx:fieldName "yearDrilled" ;
+    idx:fieldType idx:IntField ;
+    idx:stored true ;
+    idx:facetable true ;
+    idx:sortable true .
+
+field:totalDepth
+    idx:fieldName "totalDepth" ;
+    idx:fieldType idx:DoubleField ;
+    idx:stored true ;
+    idx:facetable true ;
+    idx:sortable true .
+
+field:location
+    idx:fieldName "location" ;
+    idx:fieldType idx:LatLonField ;
+    idx:stored false .
+
+## --- External fields (no sh:path — values come from bound CSV columns) ---
+
+field:analyte
+    idx:fieldName "analyte" ;
+    idx:fieldType idx:KeywordField ;
+    idx:indexed   true ;
+    idx:facetable true ;
+    idx:stored    true .        # short, non-volatile label — safe to store
+
+field:analyteValue
+    idx:fieldName "analyteValue" ;
+    idx:fieldType idx:DoubleField ;
+    idx:indexed   true ;        # range filters -> DoublePoint
+    idx:facetable true ;        # range facets
+    idx:sortable  true ;        # nested sort selector -> docvalues
+    idx:stored    false .       # the assay database is the source of truth
+
+field:belowDetection
+    idx:fieldName "belowDetection" ;
+    idx:fieldType idx:KeywordField ;
+    idx:indexed   true ;
+    idx:facetable true ;
+    idx:stored    true .
+
+## --- Shape ---
+
+:CollarShape
+    sh:targetClass ex:Collar ;
+
+    sh:property [ idx:field field:collarLabel ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:prospect    ; sh:path ex:prospect ] ;
+    sh:property [ idx:field field:holeId      ; sh:path ex:holeId ] ;
+    sh:property [ idx:field field:operator    ; sh:path ex:operator ] ;
+    sh:property [ idx:field field:region      ; sh:path ex:region ] ;
+    sh:property [ idx:field field:drillType   ; sh:path ex:drillType ] ;
+    sh:property [ idx:field field:status      ; sh:path ex:status ] ;
+    sh:property [ idx:field field:yearDrilled ; sh:path ex:yearDrilled ] ;
+    sh:property [ idx:field field:totalDepth  ; sh:path ex:totalDepth ] ;
+    sh:property [ idx:field field:location    ; sh:path geo:asWKT ] ;
+
+    # One child document per CSV row. The bare collar_id becomes the collar IRI.
+    idx:nested [
+        idx:nestedName "measurement" ;
+        idx:externalSource [
+            idx:format        idx:CsvFile ;
+            idx:location      "data/measurements.csv" ;
+            idx:subjectColumn "collar_id" ;
+            idx:subjectPrefix "https://linked.data.gov.au/dataset/gswa/collar/" ;
+
+            # The extract is sorted as TEXT, which is what the streaming merge needs.
+            # Collar ids are 6 and 7 digits, so text and numeric order disagree —
+            # re-exporting with ORDER BY on the integer column would break this, and
+            # the build would say so rather than silently matching nothing.
+            idx:sorted        true ;
+
+            # A wrong subjectPrefix produces a successful build with an empty index.
+            # Fail instead.
+            idx:minMatchRate  "0.5"^^xsd:double ;
+
+            idx:column [ idx:columnName "property"        ; idx:field field:analyte ] ;
+            idx:column [ idx:columnName "value"           ; idx:field field:analyteValue ] ;
+            idx:column [ idx:columnName "below_detection" ; idx:field field:belowDetection ] ;
+        ] ;
+        idx:facetHierarchy ( field:analyte field:belowDetection ) ;
+    ] .

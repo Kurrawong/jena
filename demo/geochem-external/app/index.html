@@ -1,0 +1,358 @@
+<!-- Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0 -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Geochem &mdash; graph + external content in one index</title>
+<style>
+  :root {
+    --bg: #12151c; --panel: #1a1f29; --panel-2: #212836; --line: #2c3444;
+    --ink: #e6eaf2; --muted: #8f9bb3; --accent: #5eead4; --accent-2: #7dd3fc;
+    --warn: #fbbf24; --graph: #7dd3fc; --external: #5eead4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header { padding: 20px 28px 16px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0 0 6px; font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13.5px; max-width: 78ch; }
+  .legend { margin-top: 10px; display: flex; gap: 18px; flex-wrap: wrap; font-size: 12.5px; }
+  .legend span { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .dot.graph { background: var(--graph); }
+  .dot.external { background: var(--external); }
+
+  main { display: grid; grid-template-columns: 320px 1fr; gap: 0; align-items: start; }
+  .controls { padding: 20px 20px 40px; border-right: 1px solid var(--line); }
+  .results { padding: 20px 28px 60px; min-width: 0; }
+
+  fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px 14px; margin: 0 0 16px; }
+  legend { padding: 0 6px; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+  legend .tag { font-size: 10px; padding: 1px 5px; border-radius: 3px; margin-left: 5px; }
+  .tag.graph { background: rgba(125,211,252,.15); color: var(--graph); }
+  .tag.external { background: rgba(94,234,212,.15); color: var(--external); }
+
+  label { display: block; font-size: 12.5px; color: var(--muted); margin: 8px 0 3px; }
+  input, select, button {
+    width: 100%; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--ink); font: inherit; font-size: 13.5px;
+  }
+  input:focus, select:focus { outline: 1px solid var(--accent-2); border-color: var(--accent-2); }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--ink); }
+  .check input { width: auto; }
+  button.go {
+    margin-top: 14px; background: var(--accent); color: #05221d; border: none;
+    font-weight: 650; cursor: pointer; padding: 9px;
+  }
+  button.go:hover { filter: brightness(1.08); }
+  button.reset { margin-top: 8px; background: transparent; color: var(--muted); cursor: pointer; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .chip {
+    font-size: 12px; padding: 3px 8px; border-radius: 20px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); color: var(--muted); width: auto;
+  }
+  .chip.on { background: rgba(125,211,252,.16); border-color: var(--graph); color: var(--graph); }
+  .chip .n { opacity: .6; margin-left: 4px; }
+
+  .summary { color: var(--muted); font-size: 13.5px; margin-bottom: 14px; }
+  .summary b { color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; }
+  tbody tr:hover { background: var(--panel); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pill { font-size: 11.5px; padding: 2px 7px; border-radius: 4px; background: var(--panel-2); color: var(--muted); }
+
+  details { margin-top: 22px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  summary { cursor: pointer; padding: 10px 14px; font-size: 13px; color: var(--muted); }
+  pre {
+    margin: 0; padding: 0 14px 14px; overflow-x: auto; font-size: 12px; line-height: 1.5;
+    color: #cbd5e1; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .note {
+    margin-top: 18px; padding: 11px 13px; border-left: 3px solid var(--warn);
+    background: rgba(251,191,36,.07); font-size: 13px; color: #d9c89a; border-radius: 0 6px 6px 0;
+  }
+  .err { border-left-color: #f87171; background: rgba(248,113,113,.08); color: #fca5a5; }
+  .facets { display: flex; gap: 26px; flex-wrap: wrap; margin-bottom: 18px; }
+  .facet h4 { margin: 0 0 6px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 500; }
+  .facet div { font-size: 12.5px; color: var(--muted); }
+  .facet b { color: var(--ink); font-weight: 500; }
+  @media (max-width: 880px) { main { grid-template-columns: 1fr; } .controls { border-right: none; border-bottom: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Drillhole geochemistry &mdash; one Lucene document per collar</h1>
+  <div class="sub">
+    Collar attributes come from the RDF graph. Assay measurements come from a CSV that was
+    never loaded into the graph &mdash; they are nested child documents inside the same
+    Lucene block, joined on the collar IRI at index time. Every query below constrains
+    across both at once.
+  </div>
+  <div class="legend">
+    <span><i class="dot graph"></i> from the graph (SHACL <code>sh:path</code>)</span>
+    <span><i class="dot external"></i> from <code>data/measurements.csv</code> (<code>idx:externalSource</code>)</span>
+  </div>
+</header>
+
+<main>
+  <section class="controls">
+    <fieldset>
+      <legend>Endpoint</legend>
+      <input id="endpoint" value="http://localhost:3031/geochem/query">
+    </fieldset>
+
+    <fieldset>
+      <legend>Text <span class="tag graph">graph</span></legend>
+      <label for="q">Collar name or prospect</label>
+      <input id="q" placeholder="e.g. Dingo, Mount" value="*">
+    </fieldset>
+
+    <fieldset>
+      <legend>Assay <span class="tag external">external</span></legend>
+      <label for="analyte">Analyte</label>
+      <select id="analyte"><option value="">(any)</option></select>
+
+      <label for="op">Grade</label>
+      <div class="row">
+        <select id="op">
+          <option value="">(any)</option>
+          <option value="&gt;">&gt;</option>
+          <option value="&gt;=">&ge;</option>
+          <option value="&lt;">&lt;</option>
+          <option value="&lt;=">&le;</option>
+        </select>
+        <input id="val" type="number" step="any" placeholder="value">
+      </div>
+
+      <label class="check"><input type="checkbox" id="above"> Above detection limit only</label>
+      <div class="sub" style="font-size:11.5px;margin-top:8px">
+        These three clauses fold into <b>one</b> block join, so they must be satisfied by the
+        same measurement &mdash; not by three different ones on the same hole.
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Collar <span class="tag graph">graph</span></legend>
+      <label>Region</label>
+      <div class="chips" id="regionChips"></div>
+      <label style="margin-top:10px">Drill type</label>
+      <div class="chips" id="drillChips"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Sort</legend>
+      <select id="sort">
+        <option value="">relevance</option>
+        <option value="grade-desc">grade of selected analyte &mdash; highest first</option>
+        <option value="grade-asc">grade of selected analyte &mdash; lowest first</option>
+        <option value="depth-desc">total depth &mdash; deepest first</option>
+        <option value="year-desc">year drilled &mdash; newest first</option>
+      </select>
+      <div class="sub" style="font-size:11.5px;margin-top:8px">
+        Sorting by grade uses the nested sort selector: the key is taken from the child
+        whose analyte matches, not from a flattened bag of every value on the hole.
+      </div>
+    </fieldset>
+
+    <button class="go" id="run">Search</button>
+    <button class="reset" id="reset">Reset</button>
+  </section>
+
+  <section class="results">
+    <div class="summary" id="summary">Loading&hellip;</div>
+    <div class="facets" id="facets"></div>
+    <div id="out"></div>
+    <details>
+      <summary>SPARQL sent to the server</summary>
+      <pre id="sparql"></pre>
+    </details>
+    <div class="note">
+      <b>Grades are not shown, by design.</b> <code>field:analyteValue</code> is configured
+      <code>idx:stored false</code>: the index holds points and docvalues, so the value can be
+      filtered, faceted and sorted on, but it is never returned. The assay database stays the
+      source of truth, and the index cannot serve a stale number.
+    </div>
+  </section>
+</main>
+
+<script>
+const FP = 'urn:jena:lucene:field#';
+const $ = id => document.getElementById(id);
+const state = { regions: new Set(), drills: new Set(), analytes: [] };
+
+function sq(s) { return "'" + String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'"; }
+
+/** CQL leaves. Values are JSON-encoded, so quoting is handled once, here. */
+const eq = (field, v) => ({ op: '=', args: [{ property: FP + field }, v] });
+const cmp = (op, field, v) => ({ op, args: [{ property: FP + field }, v] });
+
+function buildFilter() {
+  const clauses = [];
+
+  // Assay clauses share one nested scope, so an AND of them folds into a single
+  // block join — the same-child semantics this demo is about.
+  const assay = [];
+  const analyte = $('analyte').value;
+  const op = $('op').value, val = $('val').value;
+  if (analyte) assay.push(eq('analyte', analyte));
+  if (op && val !== '') assay.push(cmp(op, 'analyteValue', Number(val)));
+  if ($('above').checked) assay.push(eq('belowDetection', 'f'));
+  if (assay.length === 1) clauses.push(assay[0]);
+  else if (assay.length > 1) clauses.push({ op: 'and', args: assay });
+
+  // Graph clauses are parent-level; several selected values are an OR within a field.
+  for (const [field, set] of [['region', state.regions], ['drillType', state.drills]]) {
+    const picked = [...set];
+    if (picked.length === 1) clauses.push(eq(field, picked[0]));
+    else if (picked.length > 1) clauses.push({ op: 'or', args: picked.map(v => eq(field, v)) });
+  }
+
+  if (!clauses.length) return '';
+  return JSON.stringify(clauses.length === 1 ? clauses[0] : { op: 'and', args: clauses });
+}
+
+function buildSort() {
+  const mode = $('sort').value;
+  if (!mode) return '';
+  if (mode.startsWith('grade')) {
+    const analyte = $('analyte').value;
+    if (!analyte) return '';           // a selector needs a discriminator to select on
+    return JSON.stringify({
+      field: FP + 'analyteValue',
+      filter: { field: FP + 'analyte', eq: analyte },
+      order: mode.endsWith('desc') ? 'desc' : 'asc',
+      missing: 'last'
+    });
+  }
+  if (mode === 'depth-desc') return JSON.stringify({ field: FP + 'totalDepth', order: 'desc' });
+  if (mode === 'year-desc') return JSON.stringify({ field: FP + 'yearDrilled', order: 'desc' });
+  return '';
+}
+
+function searchQuery() {
+  const term = $('q').value.trim() || '*';
+  return `PREFIX luc:  <urn:jena:lucene:index#>
+PREFIX ex:   <http://example.org/geochem/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?s ?label ?operator ?region ?drillType ?status ?depth ?year ?totalHits WHERE {
+  (?hit ?s ?score ?totalHits) luc:query ('default' 'default' ${sq(term)}
+      ${sq(buildFilter())} ${sq(buildSort())} 50 0) .
+  ?s rdfs:label     ?label ;
+     ex:operator    ?operator ;
+     ex:region      ?region ;
+     ex:drillType   ?drillType ;
+     ex:status      ?status ;
+     ex:totalDepth  ?depth ;
+     ex:yearDrilled ?year .
+}`;
+}
+
+function facetQuery(fields) {
+  const term = $('q').value.trim() || '*';
+  return `PREFIX luc: <urn:jena:lucene:index#>
+SELECT ?field ?value ?count WHERE {
+  (?field ?value ?low ?high ?count) luc:facet ('default' 'default' ${sq(term)}
+      ${sq(JSON.stringify(fields.map(f => FP + f)))} ${sq(buildFilter())} 40 0) .
+}`;
+}
+
+async function ask(sparql) {
+  const res = await fetch($('endpoint').value, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded',
+               'Accept': 'application/sparql-results+json' },
+    body: new URLSearchParams({ query: sparql })
+  });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} — ${(await res.text()).slice(0, 300)}`);
+  return (await res.json()).results.bindings;
+}
+
+function chips(host, values, set) {
+  host.innerHTML = '';
+  for (const { value, count } of values) {
+    const b = document.createElement('button');
+    b.className = 'chip' + (set.has(value) ? ' on' : '');
+    b.innerHTML = `${value}<span class="n">${count}</span>`;
+    b.onclick = () => { set.has(value) ? set.delete(value) : set.add(value); run(); };
+    host.appendChild(b);
+  }
+}
+
+function facetValues(rows, field) {
+  return rows.filter(r => r.field.value === FP + field || r.field.value === field)
+             .map(r => ({ value: r.value.value, count: Number(r.count.value) }))
+             .sort((a, b) => b.count - a.count);
+}
+
+async function run() {
+  const sparql = searchQuery();
+  $('sparql').textContent = sparql + '\n\n/* facets */\n' + facetQuery(['region', 'drillType', 'analyte']);
+  $('summary').textContent = 'Searching…';
+  try {
+    const [hits, facets] = await Promise.all([ask(sparql), ask(facetQuery(['region', 'drillType', 'analyte']))]);
+
+    // 'analyte' resolves to the analyte_belowDetection hierarchy dimension; its
+    // top level is the analyte, which is what the picker wants.
+    const analyteRows = facets.filter(r => r.field.value.includes('analyte'));
+    if (!state.analytes.length && analyteRows.length) {
+      state.analytes = analyteRows.map(r => r.value.value).sort();
+      const sel = $('analyte'), keep = sel.value;
+      sel.innerHTML = '<option value="">(any)</option>' +
+        state.analytes.map(a => `<option>${a}</option>`).join('');
+      sel.value = keep;
+    }
+    chips($('regionChips'), facetValues(facets, 'region'), state.regions);
+    chips($('drillChips'), facetValues(facets, 'drillType'), state.drills);
+
+    const total = hits.length ? Number(hits[0].totalHits?.value ?? hits.length) : 0;
+    $('summary').innerHTML = `<b>${hits.length}</b> shown of <b>${total}</b> matching collars`;
+
+    $('facets').innerHTML = '';
+    $('out').innerHTML = hits.length ? `
+      <table>
+        <thead><tr>
+          <th>Collar</th><th>Operator</th><th>Region</th><th>Type</th>
+          <th>Status</th><th class="num">Depth&nbsp;m</th><th class="num">Year</th>
+        </tr></thead>
+        <tbody>${hits.map(h => `<tr>
+          <td>${h.label.value}</td>
+          <td>${h.operator.value}</td>
+          <td>${h.region.value}</td>
+          <td><span class="pill">${h.drillType.value}</span></td>
+          <td>${h.status.value}</td>
+          <td class="num">${Number(h.depth.value).toFixed(1)}</td>
+          <td class="num">${h.year.value}</td>
+        </tr>`).join('')}</tbody>
+      </table>` : '<div class="note">No collars match. Try widening the grade threshold.</div>';
+  } catch (e) {
+    $('summary').textContent = '';
+    $('out').innerHTML = `<div class="note err"><b>Query failed.</b> ${e.message}
+      <br><br>Is the server running? <code>task serve</code> in <code>demo/geochem-external</code>.</div>`;
+  }
+}
+
+$('run').onclick = run;
+$('reset').onclick = () => {
+  state.regions.clear(); state.drills.clear();
+  $('q').value = '*'; $('analyte').value = ''; $('op').value = ''; $('val').value = '';
+  $('above').checked = false; $('sort').value = '';
+  run();
+};
+for (const id of ['q', 'analyte', 'op', 'val', 'above', 'sort']) {
+  $(id).addEventListener('change', run);
+}
+$('q').addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+run();
+</script>
+</body>
+</html>

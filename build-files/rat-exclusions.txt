@@ -31,6 +31,11 @@ archive.md
 ## demo test-case captured run outputs (pre/post-work snapshots)
 demo/test-cases/**/results/**
 
+## external-content demo: a delimited data file cannot carry a licence header —
+## its first line is the column header, and a comment line would be read as data.
+## Provenance is recorded in demo/geochem-external/README.md.
+demo/geochem-external/data/*.csv
+
 ## jena-core exclusions
 **/src-examples/data/*
 

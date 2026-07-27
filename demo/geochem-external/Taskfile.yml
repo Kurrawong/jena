@@ -1,0 +1,90 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# https://taskfile.dev
+version: '3'
+
+vars:
+  VERSION: 6.1.0-SNAPSHOT
+  FUSEKI_JAR: ../../jena-fuseki2/jena-fuseki-server/target/jena-fuseki-server-{{.VERSION}}.jar
+  # 3031, not 3030: the other demos in this repo use 3030, so this one can run
+  # alongside them. Override with FUSEKI_PORT=... if you want the usual port.
+  FUSEKI_PORT: '{{.FUSEKI_PORT | default "3031"}}'
+  APP_PORT: '{{.APP_PORT | default "8010"}}'
+  SERVER_URL: http://localhost:{{.FUSEKI_PORT}}
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  build:
+    desc: Build the Fuseki server JAR (includes jena-text)
+    dir: ../..
+    cmds:
+      - mvn install -pl jena-fuseki2/jena-fuseki-server -am -DskipTests
+
+  # ── Data ─────────────────────────────────────────────────
+
+  extract:
+    desc: "Re-extract measurements from the full GSWA dump (usage: task extract ROWS=5000 SRC=/path/dump.csv)"
+    vars:
+      ROWS: '{{.ROWS | default "1000"}}'
+      SRC: '{{.SRC | default "/home/david/gswa-pg/dumps/dh_summary_measurements.csv"}}'
+    cmds:
+      - python3 tools/extract-measurements.py {{.SRC}} data/measurements.csv {{.ROWS}}
+      - python3 tools/make-collars.py data/measurements.csv data/collars.ttl
+
+  check-sorted:
+    desc: Verify the extract is sorted the way the streaming merge needs (lexically, LC_ALL=C)
+    cmds:
+      - python3 tools/check-sorted.py data/measurements.csv
+
+  # ── Index ────────────────────────────────────────────────
+
+  load:
+    desc: Load the collars into TDB2 (bypasses the change listener, as tdb2.tdbloader does)
+    cmds:
+      - rm -rf DB Lucene
+      - java -cp {{.FUSEKI_JAR}} tdb2.tdbloader --loc=DB data/collars.ttl
+
+  index:
+    desc: Bulk-index collars + external measurements into Lucene
+    cmds:
+      - java -cp {{.FUSEKI_JAR}} org.apache.jena.query.text.cmd.shacltextindexer --desc=config.ttl
+
+  rebuild:
+    desc: Wipe and rebuild everything (load + index)
+    cmds:
+      - task: load
+      - task: index
+
+  # ── Serve ────────────────────────────────────────────────
+
+  serve:
+    desc: Start Fuseki on the built index
+    cmds:
+      - java -jar {{.FUSEKI_JAR}} --config=config.ttl --port={{.FUSEKI_PORT}}
+
+  app:
+    desc: Serve the standalone demo page
+    cmds:
+      - echo "Demo page at http://localhost:{{.APP_PORT}}/index.html"
+      - python3 -m http.server {{.APP_PORT}} --directory app
+
+  stop:
+    desc: Stop the running Fuseki server
+    cmds:
+      - pkill -f "jena-fuseki-server" && echo "Server stopped" || echo "No server running"
+
+  clean:
+    desc: Remove the TDB2 database and Lucene index
+    cmds:
+      - rm -rf DB Lucene
+      - echo "Removed DB/ and Lucene/"
+
+  # ── Checks ───────────────────────────────────────────────
+
+  smoke:
+    desc: Run the demo queries against a running server and print the results
+    cmds:
+      - ./tools/smoke.sh {{.SERVER_URL}}
