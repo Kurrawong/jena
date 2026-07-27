@@ -99,6 +99,7 @@ import org.junit.runners.Suite.SuiteClasses;
 
     // External content indexing: nested children built from a CSV/tabular source
     , TestExternalContentIndexing.class
+    , TestGswaMeasurementCsv.class
     , org.apache.jena.query.text.external.TestCsvRowSource.class
     , org.apache.jena.query.text.assembler.TestExternalSourceAssembler.class
 
