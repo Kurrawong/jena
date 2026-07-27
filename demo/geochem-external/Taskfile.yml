@@ -119,10 +119,27 @@ tasks:
     cmds:
       - ./tools/smoke.sh http://localhost:{{.FULL_PORT}}
 
+  size-full:
+    desc: On-disk size of the full-scale index, broken down by what the bytes are
+    cmds:
+      - ./tools/index-size.sh Lucene-full
+
+  index-graphonly:
+    desc: Build the A/B twin — same collars, no external content — into Lucene-graphonly
+    cmds:
+      - rm -rf Lucene-graphonly
+      - java -Xmx8g -cp {{.FUSEKI_JAR}} org.apache.jena.query.text.cmd.shacltextindexer --desc=config-full-graphonly.ttl
+
+  measure-split:
+    desc: How much of the index is external content? Builds the A/B twin and differences it
+    cmds:
+      - task: index-graphonly
+      - ./tools/index-size.sh Lucene-full Lucene-graphonly
+
   clean-full:
     desc: Remove the full-scale database, index, taxonomy and generated collars
     cmds:
-      - rm -rf DB-full Lucene-full Taxonomy-full data/collars-full.ttl
+      - rm -rf DB-full Lucene-full Taxonomy-full Lucene-graphonly data/collars-full.ttl
       - echo "Removed full-scale artifacts (the symlink and the dump are left alone)"
 
   # ── Serve ────────────────────────────────────────────────

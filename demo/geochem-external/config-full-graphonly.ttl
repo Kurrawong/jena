@@ -1,0 +1,144 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+#
+# A/B twin of config-full.ttl with the external content REMOVED.
+#
+# Same collars, same graph fields, same everything — but no idx:nested block, so the
+# index holds parent documents only. Differencing the two Lucene directories
+# attributes bytes to origin exactly, which is otherwise impossible: within one
+# index the two sides share segment files.
+#
+#   Lucene-full  -  Lucene-graphonly  =  what the 29.7 M external children cost
+#
+#   ~2.47 M collars  x  ~12 measurements each  =  ~29.7 M child documents
+#   plus 2.47 M parents  =  ~32 M Lucene documents in one index
+#
+# Comfortably inside Lucene's IndexWriter.MAX_DOCS ceiling (~2.15 billion), which is
+# the constraint that decides whether the nested EAV model is viable at all. See
+# "The granularity constraint" in
+# docs/2026-07-27_external_content_indexing_design.md.
+#
+# Everything lives in its own directories (DB-full / Lucene-full / Taxonomy-full) so
+# a full build never disturbs the small demo. Run it with:  task reindex-full
+#
+# data/full-measurements.csv is a SYMLINK to the dump, created by `task link-full`,
+# so this config stays free of machine-specific paths.
+
+PREFIX :        <#>
+PREFIX field:   <urn:jena:lucene:field#>
+PREFIX fuseki:  <http://jena.apache.org/fuseki#>
+PREFIX rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX ja:      <http://jena.hpl.hp.com/2005/11/Assembler#>
+PREFIX tdb2:    <http://jena.apache.org/2016/tdb#>
+PREFIX text:    <http://jena.apache.org/text#>
+PREFIX idx:     <urn:jena:lucene:index#>
+PREFIX sh:      <http://www.w3.org/ns/shacl#>
+PREFIX geo:     <http://www.opengis.net/ont/geosparql#>
+PREFIX ex:      <http://example.org/geochem/>
+PREFIX xsd:     <http://www.w3.org/2001/XMLSchema#>
+
+## --- Fuseki server ---
+
+[] rdf:type fuseki:Server ;
+   fuseki:services ( :service ) .
+
+:service rdf:type fuseki:Service ;
+    fuseki:name "geochem" ;
+    fuseki:endpoint [ fuseki:operation fuseki:query  ; fuseki:name "query"  ] ;
+    fuseki:endpoint [ fuseki:operation fuseki:update ; fuseki:name "update" ] ;
+    fuseki:endpoint [ fuseki:operation fuseki:gsp-rw ; fuseki:name "data"   ] ;
+    fuseki:dataset :text_dataset .
+
+## --- Text-indexed dataset ---
+
+:text_dataset rdf:type text:TextDataset ;
+    text:dataset :base_dataset ;
+    text:indexes :index .
+
+:base_dataset rdf:type tdb2:DatasetTDB ;
+    tdb2:location "DB-full" .
+
+:index rdf:type text:TextIndexShacl ;
+    text:indexId "default" ;
+    text:directory <file:Lucene-graphonly> ;
+    text:shapes ( :CollarShape ) ;
+    text:storeValues false ;
+    text:maxFacetHits 50000 .
+
+## --- Graph-derived fields ---
+
+field:collarLabel
+    idx:fieldName "collarLabel" ;
+    idx:fieldType idx:TextField ;
+    idx:stored true ;
+    idx:defaultSearch true .
+
+field:prospect
+    idx:fieldName "prospect" ;
+    idx:fieldType idx:TextField ;
+    idx:stored true ;
+    idx:defaultSearch true .
+
+field:holeId
+    idx:fieldName "holeId" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true .
+
+field:operator
+    idx:fieldName "operator" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:facetable true .
+
+field:region
+    idx:fieldName "region" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:facetable true .
+
+field:drillType
+    idx:fieldName "drillType" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:facetable true .
+
+field:status
+    idx:fieldName "status" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:facetable true .
+
+field:yearDrilled
+    idx:fieldName "yearDrilled" ;
+    idx:fieldType idx:IntField ;
+    idx:stored true ;
+    idx:facetable true ;
+    idx:sortable true .
+
+field:totalDepth
+    idx:fieldName "totalDepth" ;
+    idx:fieldType idx:DoubleField ;
+    idx:stored true ;
+    idx:facetable true ;
+    idx:sortable true .
+
+field:location
+    idx:fieldName "location" ;
+    idx:fieldType idx:LatLonField ;
+    idx:stored false .
+
+## --- Shape ---
+
+:CollarShape
+    sh:targetClass ex:Collar ;
+
+    sh:property [ idx:field field:collarLabel ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:prospect    ; sh:path ex:prospect ] ;
+    sh:property [ idx:field field:holeId      ; sh:path ex:holeId ] ;
+    sh:property [ idx:field field:operator    ; sh:path ex:operator ] ;
+    sh:property [ idx:field field:region      ; sh:path ex:region ] ;
+    sh:property [ idx:field field:drillType   ; sh:path ex:drillType ] ;
+    sh:property [ idx:field field:status      ; sh:path ex:status ] ;
+    sh:property [ idx:field field:yearDrilled ; sh:path ex:yearDrilled ] ;
+    sh:property [ idx:field field:totalDepth  ; sh:path ex:totalDepth ] ;
+    sh:property [ idx:field field:location ; sh:path geo:asWKT ] .
