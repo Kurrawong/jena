@@ -36,6 +36,16 @@ import org.apache.jena.atlas.json.JsonValue;
  * Single: {@code {"field": "year", "order": "desc"}}
  * Multi:  {@code [{"field": "year", "order": "desc"}, {"field": "title"}]}
  * Default order is ascending.
+ * <p>
+ * A spec may also carry a nested sort selector — sort by a child field, choosing the
+ * child by a co-located discriminator:
+ * <pre>{@code
+ * {"field": "...#identifierValue",
+ *  "filter": {"field": "...#identifierType", "eq": "companyID"},
+ *  "order": "asc", "missing": "last"}
+ * }</pre>
+ * Parsing here is purely syntactic; the nested scope is inferred and validated against
+ * the SHACL mapping in {@code ShaclTextIndexLucene.buildLuceneSort}.
  */
 public class SortSpecParser {
 
@@ -67,7 +77,54 @@ public class SortSpecParser {
             String order = obj.get("order").getAsString().value();
             descending = "desc".equalsIgnoreCase(order);
         }
-        return new SortSpec(field, descending);
+
+        String filterField = null;
+        String filterValue = null;
+        if (obj.hasKey("filter")) {
+            JsonValue filterVal = obj.get("filter");
+            if (!filterVal.isObject()) {
+                throw new TextIndexException(
+                    "Sort spec 'filter' must be an object {\"field\":..., \"eq\":...}: " + obj);
+            }
+            JsonObject filter = filterVal.getAsObject();
+            if (!filter.hasKey("field") || !filter.hasKey("eq")) {
+                throw new TextIndexException(
+                    "Sort spec 'filter' must have both 'field' and 'eq' keys: " + obj);
+            }
+            filterField = filter.get("field").getAsString().value();
+            filterValue = asLexicalForm(filter.get("eq"), obj);
+        }
+
+        SortSpec.MissingPlacement missing = null;
+        if (obj.hasKey("missing")) {
+            String placement = obj.get("missing").getAsString().value();
+            if ("first".equalsIgnoreCase(placement)) {
+                missing = SortSpec.MissingPlacement.FIRST;
+            } else if ("last".equalsIgnoreCase(placement)) {
+                missing = SortSpec.MissingPlacement.LAST;
+            } else {
+                throw new TextIndexException(
+                    "Sort spec 'missing' must be 'first' or 'last', got '" + placement + "'");
+            }
+        }
+
+        return new SortSpec(field, descending, filterField, filterValue, missing);
+    }
+
+    /** Lexical form of a filter's {@code eq} value — strings, numbers and booleans all
+     *  become the term text the discriminator field was indexed with. */
+    private static String asLexicalForm(JsonValue value, JsonObject context) {
+        if (value.isString()) {
+            return value.getAsString().value();
+        }
+        if (value.isNumber()) {
+            return value.getAsNumber().value().toString();
+        }
+        if (value.isBoolean()) {
+            return Boolean.toString(value.getAsBoolean().value());
+        }
+        throw new TextIndexException(
+            "Sort spec filter 'eq' must be a string, number or boolean: " + context);
     }
 
     /**

@@ -7,7 +7,12 @@ date: "2026-07-02"
 
 ## Status
 
-Proposed. Not yet implemented. This note records the design for ordering parent
+Implemented. See `docs/02-sparql-api.md` → "Nested Sort Selector" for the user-facing
+API, and `TestNestedSortSelector` / `TestSortSpec` for the behaviour this note specifies.
+The named-sort-preset variant below was **not** implemented — the inline form covers the
+requirement and a preset adds config surface for no new capability.
+
+This note records the design for ordering parent
 (entity-per-document) search results by a value drawn from a specific nested
 child record — e.g. "sort by the identifier value **where** identifierType =
 companyID", or "sort by the agent name **where** attributionRole = owner".

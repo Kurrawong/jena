@@ -63,6 +63,7 @@ import org.apache.lucene.search.SearcherManager;
 import org.apache.lucene.search.join.BitSetProducer;
 import org.apache.lucene.search.join.QueryBitSetProducer;
 import org.apache.lucene.search.join.ToParentBlockJoinQuery;
+import org.apache.lucene.search.join.ToParentBlockJoinSortField;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
@@ -201,6 +202,16 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     /** Key for {@link #openFacetCache}. {@code searchFields} are intentionally omitted —
      *  with no query and no filter they have no effect on the result. */
     private record OpenFacetCacheKey(FacetRequest facetRequest, int maxValues, int minCount) {}
+
+    /**
+     * Child-filter {@link BitSetProducer}s for nested sort selectors, keyed by
+     * {@code scope + field + value}. See {@link #childSortFilter}.
+     */
+    private final java.util.concurrent.ConcurrentMap<String, BitSetProducer> childSortFilterCache =
+        new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Upper bound on {@link #childSortFilterCache} entries. */
+    private static final int MAX_CHILD_SORT_FILTERS = 256;
 
     public ShaclTextIndexLucene(Directory directory, TextIndexConfig config) {
         this(directory, null, config);
@@ -2382,26 +2393,15 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         SortField[] fields = new SortField[sortSpecs.size()];
         for (int i = 0; i < sortSpecs.size(); i++) {
             SortSpec spec = sortSpecs.get(i);
-            SortField.Type sortType = SortField.Type.STRING; // default
 
             // Resolve field identifier (IRI) to Lucene field name
             ShaclIndexMapping.FieldDef fd = shaclMapping.findField(spec.field());
             String luceneFieldName = fd != null ? LiteralFieldSupport.queryFieldName(fd) : spec.field();
-            if (fd != null) {
-                sortType = switch (fd.getFieldType()) {
-                    case KEYWORD -> SortField.Type.STRING;
-                    case INT -> SortField.Type.INT;
-                    case LONG -> SortField.Type.LONG;
-                    case DOUBLE -> SortField.Type.DOUBLE;
-                    case TEMPORAL -> SortField.Type.LONG;
-                    case TEXT -> throw new TextIndexException(
-                        "Cannot sort on TEXT field '" + spec.field() + "'. Use KEYWORD for sortable fields.");
-                    case LATLON -> throw new TextIndexException(
-                        "Cannot sort on LATLON field '" + spec.field() + "'.");
-                };
-            }
+            SortField.Type sortType = fd != null ? sortTypeFor(fd, spec.field()) : SortField.Type.STRING;
 
-            if (fd != null && isNumericField(fd)) {
+            if (spec.hasSelector()) {
+                fields[i] = buildSelectorSortField(spec, fd, luceneFieldName, sortType);
+            } else if (fd != null && isNumericField(fd)) {
                 SortedNumericSelector.Type selector = spec.descending()
                     ? SortedNumericSelector.Type.MAX
                     : SortedNumericSelector.Type.MIN;
@@ -2415,7 +2415,163 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             } else {
                 fields[i] = new SortField(luceneFieldName, sortType, spec.descending());
             }
+
+            // A selector spec has already applied its (defaulted) missing placement.
+            if (!spec.hasSelector()) {
+                applyMissingPlacement(fields[i], spec.missing(), sortType, spec.descending());
+            }
         }
         return new Sort(fields);
+    }
+
+    /** The Lucene sort value type for a mapped field, rejecting the types that have no order. */
+    private static SortField.Type sortTypeFor(ShaclIndexMapping.FieldDef fd, String fieldIRI) {
+        return switch (fd.getFieldType()) {
+            case KEYWORD -> SortField.Type.STRING;
+            case INT -> SortField.Type.INT;
+            case LONG -> SortField.Type.LONG;
+            case DOUBLE -> SortField.Type.DOUBLE;
+            case TEMPORAL -> SortField.Type.LONG;
+            case TEXT -> throw new TextIndexException(
+                "Cannot sort on TEXT field '" + fieldIRI + "'. Use KEYWORD for sortable fields.");
+            case LATLON -> throw new TextIndexException(
+                "Cannot sort on LATLON field '" + fieldIRI + "'.");
+        };
+    }
+
+    /**
+     * Build the {@link ToParentBlockJoinSortField} for a nested sort selector: order parent
+     * docs by {@code spec.field()} taken from the child docs where the co-located
+     * discriminator {@code spec.filterField()} equals {@code spec.filterValue()}, collapsing
+     * MIN (ascending) / MAX (descending) when an entity has several matching children.
+     * <p>
+     * The selector chooses the sort key only — it never removes entities. Parents with no
+     * matching child have no key and are placed by {@code spec.missing()} (default last).
+     */
+    private SortField buildSelectorSortField(SortSpec spec, ShaclIndexMapping.FieldDef fd,
+            String luceneFieldName, SortField.Type sortType) {
+        if (fd == null) {
+            throw new TextIndexException("Unknown sort field: '" + spec.field() + "'. "
+                + "Available fields: " + shaclMapping.getAllFieldNames());
+        }
+        ShaclIndexMapping.NestedDef scope = shaclMapping.findNestedDefForFieldName(fd.getFieldName());
+        if (scope == null) {
+            throw new TextIndexException("Sort filter requires a nested field: '" + spec.field()
+                + "' is not part of an idx:nested block. A flat multivalued field keeps no "
+                + "per-value discriminator to filter on.");
+        }
+        if (!fd.isSortable()) {
+            throw new TextIndexException("Sort field '" + spec.field()
+                + "' is not idx:sortable, so it has no sort doc-values to select from.");
+        }
+
+        ShaclIndexMapping.FieldDef filterFd = shaclMapping.findField(spec.filterField());
+        if (filterFd == null) {
+            throw new TextIndexException("Unknown sort filter field: '" + spec.filterField() + "'. "
+                + "Available fields: " + shaclMapping.getAllFieldNames());
+        }
+        ShaclIndexMapping.NestedDef filterScope =
+            shaclMapping.findNestedDefForFieldName(filterFd.getFieldName());
+        if (filterScope == null || !filterScope.getNestedName().equals(scope.getNestedName())) {
+            throw new TextIndexException("Sort filter field '" + spec.filterField()
+                + "' must belong to the same idx:nested block as sort field '" + spec.field()
+                + "' (block '" + scope.getNestedName() + "'); the type/value correlation only "
+                + "survives on a single child document.");
+        }
+
+        BitSetProducer childFilter = childSortFilter(scope, filterFd, spec.filterValue());
+        SortField sortField = new ToParentBlockJoinSortField(
+            luceneFieldName, sortType, spec.descending(), PARENTS_FILTER, childFilter);
+        SortSpec.MissingPlacement missing =
+            spec.missing() != null ? spec.missing() : SortSpec.MissingPlacement.LAST;
+        applyMissingPlacement(sortField, missing, sortType, spec.descending());
+        return sortField;
+    }
+
+    /**
+     * {@link BitSetProducer} matching the child docs a sort selector may draw its key from:
+     * children of the given nested scope whose discriminator field equals {@code value}.
+     * <p>
+     * Cached per selector — a {@link QueryBitSetProducer} memoises its per-segment bitset for
+     * the life of a reader generation (Lucene evicts on reader close), so paging through a
+     * large result set re-runs the child filter once rather than once per page. The key space
+     * is caller-supplied (the selector's discriminator value), so the cache is bounded and
+     * stops admitting entries once full rather than growing with query traffic.
+     */
+    private BitSetProducer childSortFilter(ShaclIndexMapping.NestedDef scope,
+            ShaclIndexMapping.FieldDef filterFd, String value) {
+        String key = scope.getNestedName() + ' ' + filterFd.getFieldName() + ' ' + value;
+        BitSetProducer cached = childSortFilterCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        BooleanQuery.Builder builder = new BooleanQuery.Builder();
+        builder.add(new TermQuery(new Term(NESTED_SCOPE_FIELD, scope.getNestedName())),
+            BooleanClause.Occur.FILTER);
+        builder.add(childDiscriminatorQuery(filterFd, value), BooleanClause.Occur.MUST);
+        BitSetProducer producer = new QueryBitSetProducer(builder.build());
+        if (childSortFilterCache.size() >= MAX_CHILD_SORT_FILTERS) {
+            return producer;
+        }
+        BitSetProducer existing = childSortFilterCache.putIfAbsent(key, producer);
+        return existing != null ? existing : producer;
+    }
+
+    /** Exact-match query for a sort selector's discriminator value on a child doc. */
+    private static Query childDiscriminatorQuery(ShaclIndexMapping.FieldDef filterFd, String value) {
+        String fieldName = filterFd.getFieldName();
+        if (!filterFd.isIndexed()) {
+            throw new TextIndexException("Sort filter field '" + fieldName
+                + "' is not idx:indexed, so it cannot be matched.");
+        }
+        try {
+            return switch (filterFd.getFieldType()) {
+                // KEYWORD with a normalizer indexes the normalized term, so normalize the
+                // comparison value the same way (mirrors the CQL compiler's = handling).
+                case KEYWORD, TEXT -> {
+                    Analyzer norm = filterFd.getNormalizer();
+                    BytesRef term = norm != null ? norm.normalize(fieldName, value) : new BytesRef(value);
+                    yield new TermQuery(new Term(fieldName, term));
+                }
+                case INT -> IntPoint.newExactQuery(fieldName, Integer.parseInt(value));
+                case LONG -> LongPoint.newExactQuery(fieldName, Long.parseLong(value));
+                case DOUBLE -> DoublePoint.newExactQuery(fieldName, Double.parseDouble(value));
+                case TEMPORAL, LATLON -> throw new TextIndexException(
+                    "Sort filter field '" + fieldName + "' has unsupported type "
+                        + filterFd.getFieldType() + "; use a KEYWORD discriminator.");
+            };
+        } catch (NumberFormatException ex) {
+            throw new TextIndexException("Sort filter value '" + value + "' is not a valid "
+                + filterFd.getFieldType() + " for field '" + fieldName + "'");
+        }
+    }
+
+    /**
+     * Set the sort field's missing value so that {@code missing} means absolute placement in
+     * the final result order.
+     * <p>
+     * Lucene applies the sort's reverse multiplier <em>outside</em> the comparator, so a
+     * "missing sorts high" sentinel would surface first under a descending sort. Flipping the
+     * sentinel by {@code reverse} keeps {@code first}/{@code last} meaning what the caller
+     * sees. A no-op when {@code missing} is null, which leaves Lucene's own default.
+     */
+    private static void applyMissingPlacement(SortField sortField, SortSpec.MissingPlacement missing,
+            SortField.Type sortType, boolean reverse) {
+        if (missing == null) {
+            return;
+        }
+        boolean sentinelHigh = (missing == SortSpec.MissingPlacement.LAST) != reverse;
+        switch (sortType) {
+            case STRING -> sortField.setMissingValue(
+                sentinelHigh ? SortField.STRING_LAST : SortField.STRING_FIRST);
+            case INT -> sortField.setMissingValue(
+                sentinelHigh ? Integer.MAX_VALUE : Integer.MIN_VALUE);
+            case LONG -> sortField.setMissingValue(
+                sentinelHigh ? Long.MAX_VALUE : Long.MIN_VALUE);
+            case DOUBLE -> sortField.setMissingValue(
+                sentinelHigh ? Double.POSITIVE_INFINITY : Double.NEGATIVE_INFINITY);
+            default -> throw new TextIndexException(
+                "Cannot apply 'missing' placement to sort type " + sortType);
+        }
     }
 }
