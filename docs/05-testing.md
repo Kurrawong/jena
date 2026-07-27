@@ -57,9 +57,17 @@ All tests run via JUnit 4 and are aggregated in `TS_Text.java` (Surefire only pi
 | `TestSortSpec` | 9 | Sort JSON parsing, field-IRI sort specs, Lucene sort construction, numeric selector semantics, invalid text-field sorting |
 | `TestTextQueryPFFilters` | 13 | End-to-end SPARQL `luc:query` sorting with field IRIs, including descending and filtered ascending order |
 
+### External Content Tests
+
+| Class | Tests | What it covers |
+|-------|-------|---------------|
+| `TestCsvRowSource` | 15 | CSV/TSV reading: header and positional binding, `idx:subjectPrefix`, glob expansion in filename order, empty cell → null, blank join key skipped-but-counted, `idx:sorted` order verification (descending *and* ungrouped), and the config errors on open — missing file, empty glob, missing subject/bound column |
+| `TestExternalSourceAssembler` | 13 | Turtle config: narrow source, optional properties, headerless positional binding, bound fields becoming profile fields, hierarchy over external fields, and the validation rules — `idx:joinPath` xor `idx:externalSource`, required `idx:nestedName`, no `sh:path` on a bound column, exactly one of `idx:columnName`/`idx:columnIndex`, unknown format, unsupported field type |
+| `TestExternalContentIndexing` | 14 | End-to-end: rows become children of the matching entity; entities with no rows still indexed; unmatched rows counted and dropped; same-child `=` + range correlation; entity-level AND across two properties is *not* same-child; sort by a not-stored external value with `missing` placement; `idx:subjectPrefix`; `idx:minMatchRate` failing a bad join key; unsorted buffering; empty and unparseable cells; `idx:onError "fail"`; hierarchical facets over external children; live graph change does not strip external children |
+
 ### Existing Tests (unchanged, verifying no regressions)
 
-The remaining suite covers text search, multilingual support, graph indexing, deletion, analyzers, property lists, spatial filtering, nested identifiers, and demo mining scenarios. The full `jena-text` module currently passes at 546 tests.
+The remaining suite covers text search, multilingual support, graph indexing, deletion, analyzers, property lists, spatial filtering, nested identifiers, and demo mining scenarios. The full `jena-text` module currently passes at 688 tests.
 
 ---
 
@@ -135,6 +143,7 @@ TextIndexLucene index = (TextIndexLucene) Assembler.general().open(indexSpec);
 - Hierarchical facets: taxonomy indexing, top-level counts, drill-down via CQL filters, flat+hierarchy coexistence
 - Range facets on numeric fields: single-valued, multi-valued, open-ended buckets, mixed flat+range requests, and 5-slot `luc:facet` bindings
 - Multi-valued numeric sorting semantics (`MIN` for ascending, `MAX` for descending)
+- External content from CSV/TSV: the IRI join, match/unmatch counters, `idx:minMatchRate`, sortedness verification, and the same-child vs entity-level correlation boundary
 
 ### Not yet covered (candidates for future tests)
 

@@ -191,7 +191,7 @@ field:identifierValueExact
     ] .
 ```
 
-Query-time same-child via `=` only — see [02-sparql-api.md → Nested same-child filters](02-sparql-api.md#nested-same-child-filters).
+Query-time same-child correlation is not limited to `=`. AND-ed leaves that target the same nested scope fold into one block join, so `=`, ranges (`<`, `>`, `<=`, `>=`), `in`, `between`, `like` and `text_query` all correlate within a single child — see [02-sparql-api.md → Nested same-child filters](02-sparql-api.md#nested-same-child-filters).
 
 ### Pattern 2 — Identifier with text/typeahead on a child field
 
@@ -265,6 +265,102 @@ Then at query time:
 - `idx:joinPath` may be a simple predicate, an inverse predicate, or a sequence of predicate steps. It does not support alternative paths.
 - Both the exact-keyword and edge-ngram-text variants can sit on the same SHACL path — they are different Lucene fields driven by their own analyzers.
 - `idx:facetHierarchy` inside an `idx:nested` block defines a hierarchy whose levels are correlated per child record (no cartesian products).
+
+## External Content (CSV/TSV)
+
+An `idx:nested` block can draw its children from a **tabular file** instead of the graph, joined to the entity on the entity IRI. Use it when an attribute set is large, authoritative somewhere else, and needed only as search machinery — range filters, range facets and sort — with the values themselves retrieved from the source of truth.
+
+Design note: [2026-07-27_external_content_indexing_design.md](2026-07-27_external_content_indexing_design.md).
+
+A nested block has **either** `idx:joinPath` **or** `idx:externalSource`, never both.
+
+### Configuration
+
+```turtle
+field:measuredProperty
+    idx:fieldName "measuredProperty" ;
+    idx:fieldType idx:KeywordField ;
+    idx:indexed   true ;
+    idx:facetable true ;
+    idx:stored    true .        # short, non-volatile label — safe to store
+
+field:measuredValue
+    idx:fieldName "measuredValue" ;
+    idx:fieldType idx:DoubleField ;
+    idx:indexed   true ;        # range filters -> DoublePoint
+    idx:facetable true ;        # range facets
+    idx:sortable  true ;        # sort selector -> docvalues
+    idx:stored    false .       # values live in the source of truth
+
+<#SampleShape>
+    sh:targetClass ex:Sample ;
+    sh:property [ idx:field field:sampleName ; sh:path ex:name ] ;
+
+    idx:nested [
+        idx:nestedName "measurement" ;
+        idx:externalSource [
+            idx:format        idx:CsvFile ;
+            idx:location      "/data/measurements.csv" ;
+            idx:subjectColumn "sample_iri" ;
+            idx:sorted        true ;
+            idx:minMatchRate  "0.5"^^xsd:double ;
+            idx:column [ idx:columnName "property" ; idx:field field:measuredProperty ] ;
+            idx:column [ idx:columnName "value" ;    idx:field field:measuredValue ] ;
+        ] ;
+        idx:facetHierarchy ( field:measuredProperty field:measuredBand ) ;
+    ] .
+```
+
+Bound fields carry **no `sh:path`** — their values come from the column. There is no `idx:external` flag: a field is external because a column binds it, exactly as a field is nested because it appears in an `idx:nested` block.
+
+### Source properties
+
+| Property | Required | Meaning |
+|---|---|---|
+| `idx:format` | yes | `idx:CsvFile` or `idx:TsvFile` |
+| `idx:location` | yes | Path, or a glob such as `/data/meas-*.csv` (read in filename order) |
+| `idx:subjectColumn` | yes¹ | Column holding the entity IRI, or the key to be prefixed |
+| `idx:subjectColumnIndex` | yes¹ | Zero-based subject column, when `idx:headerless` is true |
+| `idx:subjectPrefix` | no | String prepended to the subject column value. Concatenation only |
+| `idx:sorted` | no | Asserts rows are grouped and ascending by the subject column. Default `false` |
+| `idx:delimiter` | no | Single-character delimiter override |
+| `idx:headerless` | no | No header row; bind columns with `idx:columnIndex`. Default `false` |
+| `idx:onError` | no | `"skip"` (default, counted) or `"fail"` |
+| `idx:minMatchRate` | no | Build fails if a smaller fraction of entities matched. Default `0.0` (off) |
+| `idx:column` | yes | Repeatable binding: `idx:columnName` **or** `idx:columnIndex`, plus `idx:field` |
+
+¹ `idx:subjectColumn` with a header, `idx:subjectColumnIndex` when headerless.
+
+Columns may bind `TEXT`, `KEYWORD`, `INT`, `LONG` and `DOUBLE` fields. `TEMPORAL` and `LATLON` are rejected at config time — they need literal metadata or WKT handling a bare cell cannot carry unambiguously.
+
+### Input shape
+
+One row per measurement, joined on the entity IRI:
+
+```
+sample_iri,property,value
+https://ex.org/sample/A1,Au,12.4
+https://ex.org/sample/A1,Cu,0.7
+https://ex.org/sample/A2,Au,0.3
+```
+
+Each row becomes one child document. Two field IRIs cover any number of measured properties, and a new property in the source needs no config change.
+
+### Sortedness
+
+`idx:sorted true` lets the build stream a sort-merge join: O(N + M), constant memory, sequential I/O. Sort the source in byte order — `LC_ALL=C sort` — and the assertion is **verified** while reading: a subject that sorts before its predecessor fails the build rather than merging to mostly-unmatched.
+
+Without it, the source is buffered into memory. That is fine for a small sidecar and untenable at scale.
+
+### Rules and limits
+
+- **Bulk build only.** `ShaclBulkIndexer` is the only path that populates external children. A live graph change to an entity of such a shape is refused with a warning — rebuilding from the graph alone would silently strip its children, and Lucene has no partial document update. Re-run the bulk indexer.
+- **Rows augment entities; they never create them.** A row whose subject matches no entity is counted and dropped. The count is always logged; `idx:minMatchRate` turns the catastrophic case — usually a wrong `idx:subjectPrefix` — into a build failure.
+- **An entity with no rows is still indexed**, with its graph fields and no children.
+- **A row with an empty or unparseable bound cell is dropped whole**, never coerced to `0` and never emitted as a half-populated child.
+- **No transformations.** No units, no `<0.5` detection-limit markers, no null sentinels, no computed columns. A cell either parses as its declared type or it is an error. That work belongs upstream, in whatever produced the file.
+- **`idx:stored false` costs the value binding only.** Filters, range facets and sort all still work; `luc:match` has nothing to return. Note this removes *display* staleness, not filter staleness — the index is still a snapshot, so rebuild cadence must match the source's release cadence.
+- **Same-child correlation is per row.** `property = "Au" AND value > 0.5` is one child, exact. Two clauses on *different* properties are two children ANDed at the entity: "has some Au above 0.5 **and** some Cu above 100", not "in the same measurement event".
 
 ## Multi-Index Notes
 

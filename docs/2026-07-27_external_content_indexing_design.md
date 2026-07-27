@@ -7,7 +7,12 @@ date: "2026-07-27"
 
 ## Status
 
-Proposed. Not yet implemented. This note records the design for populating
+**Phase 1 implemented** (CSV/TSV, narrow input, sorted streaming merge, rebuild-only,
+counters). Phases 2 and 3 remain proposed. Where the config sketch below differs from
+what shipped, the shipped form is noted inline; the reference is
+[03-configuration.md → External Content](03-configuration.md#external-content-csvtsv).
+
+This note records the design for populating
 **nested child records of an entity document from an external tabular source**
 (CSV, TSV, Parquet, JDBC) rather than from the RDF graph, joined to
 graph-derived fields on the **same** entity document via the entity IRI.
@@ -146,8 +151,8 @@ Verified against the current codebase.
 | Hierarchical facet property → value bands | Existing `idx:facetHierarchy` inside a nested block |
 | **Sort entities by one property's value** | **Requires the block-join sort selector** — assumed implemented per Status |
 
-`docs/03-configuration.md` currently states nested same-child correlation is
-"via `=` only". That is **stale** — range predicates fold correctly. Correct it.
+`docs/03-configuration.md` stated nested same-child correlation was "via `=` only".
+That was **stale** — range predicates fold correctly. Corrected 2026-07-27.
 
 ## Input formats and library choices
 
@@ -199,12 +204,20 @@ becomes one child document.
             idx:location      "/data/measurements.csv" ;
             idx:subjectColumn "sample_iri" ;
             idx:sorted        true ;
-            idx:column [ idx:columnName "property" ; idx:property field:measuredProperty ] ;
-            idx:column [ idx:columnName "value"    ; idx:property field:measuredValue ] ;
+            idx:column [ idx:columnName "property" ; idx:field field:measuredProperty ] ;
+            idx:column [ idx:columnName "value"    ; idx:field field:measuredValue ] ;
         ] ;
-        idx:facetHierarchy ( field:measuredProperty field:measuredValue ) ;
+        idx:facetHierarchy ( field:measuredProperty field:measuredBand ) ;
     ] .
 ```
+
+> **As shipped.** The column's canonical-field pointer is `idx:field`, not
+> `idx:property` as sketched above — `idx:property` already means "a nested field
+> occurrence", and reusing it here would collide. `idx:field` is how occurrences
+> already reference fields.
+>
+> A facet hierarchy needs KEYWORD levels, so the example pairs the property with a
+> band column rather than the raw numeric value.
 
 Field definitions are ordinary definitions with **no `sh:path`**:
 
@@ -244,6 +257,7 @@ no join path to derive a scope name from.
 | `idx:location` | Path, glob (`/data/meas-*.csv`), or JDBC URL |
 | `idx:query` | SQL text, `idx:JdbcQuery` only |
 | `idx:subjectColumn` | Column holding the entity IRI (or the key to be prefixed) |
+| `idx:subjectColumnIndex` | Zero-based subject column, used instead of the above when `idx:headerless` |
 | `idx:subjectPrefix` | Optional string prepended to the subject column value |
 | `idx:sorted` | Asserts input is grouped and sorted ascending by `subjectColumn` |
 | `idx:delimiter` | Delimiter override for delimited text |
@@ -530,19 +544,37 @@ count is always reported and `idx:minMatchRate` turns it into a hard failure.
 ## Open questions
 
 1. **Entity grain** — nested EAV is viable only at coarse grain (see
-   [The granularity constraint](#the-granularity-constraint)). Confirm before
-   building; it is not cheaply reversible.
+   [The granularity constraint](#the-granularity-constraint)). **Still open, and
+   still the one decision that is not cheaply reversible.** Phase 1 does not force
+   it either way: the mechanism is identical at both grains, only the child count
+   differs. Confirm against the actual deployment before loading at scale.
 2. **Same-event co-occurrence** — if required, the child must be the event rather
-   than the measurement, which reintroduces flat fields at child scope. Confirm
-   it is not required.
+   than the measurement, which reintroduces flat fields at child scope. **Still
+   open.** Phase 1 provides entity-level conjunction only, and the test suite
+   asserts that boundary explicitly rather than leaving it to be discovered.
 3. **Multiple sources per nested block** — allow several `idx:externalSource`
    blocks feeding one child collection (N-way merge on the same ordering)?
-   Cheap given sort-merge; confirm before fixing the config shape.
-4. **`idx:sorted` verification** — trust the assertion, or verify order while
-   streaming and fail on violation? Cheap, and catches a silent-wrong-results
-   class of bug where an unsorted file merges to mostly-unmatched.
-5. **Wide input** — build the multi-column binding in Phase 1, or defer until an
-   actual pivoted source appears?
+   **Deferred.** One source per block in Phase 1. `idx:externalSource` is a
+   repeatable property, so admitting more later is additive.
+4. **`idx:sorted` verification** — **resolved: verify.** The assertion is checked
+   as rows stream past, and a subject that sorts before its predecessor fails the
+   build. Trusting it would let an unsorted file merge to mostly-unmatched — a
+   successful build with almost nothing in it, which is the worst failure mode
+   available here. The check costs one string comparison per row.
+5. **Wide input** — **deferred to Phase 2**, as proposed. Narrow input is the
+   primary form and no pivoted source has appeared yet.
+
+Two further decisions were settled during implementation:
+
+6. **Unsorted input** — buffered in memory rather than rejected, with a warning.
+   The design listed this as a fallback; making it the default for
+   `idx:sorted false` means a small sidecar works out of the box while the
+   external merge sort stays deferred to Phase 2.
+7. **Partial rows** — a row with an empty or unparseable bound cell is dropped
+   *whole*, not partially. A child carrying `property = "Au"` and no value would
+   match a same-child filter on the property while contributing nothing to the
+   range clause, which is precisely the correlation trap the nested model exists
+   to avoid.
 
 ## Out of scope
 
