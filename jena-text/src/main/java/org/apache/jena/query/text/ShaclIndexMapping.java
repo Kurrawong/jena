@@ -311,8 +311,168 @@ public class ShaclIndexMapping {
     }
 
     /**
-     * Defines a repeated correlated child collection whose occurrences are evaluated
-     * relative to child nodes reached from the parent entity.
+     * Binding of one external source column to a canonical field. The column is
+     * identified by name (header row present) or by zero-based position
+     * ({@code idx:headerless}); exactly one of the two is set.
+     */
+    public static class ColumnBinding {
+        private final String columnName;
+        private final int columnIndex;
+        private final FieldDef field;
+
+        public ColumnBinding(String columnName, int columnIndex, FieldDef field) {
+            this.field = Objects.requireNonNull(field, "field");
+            this.columnName = columnName;
+            this.columnIndex = columnIndex;
+            if ((columnName == null) == (columnIndex < 0)) {
+                throw new IllegalArgumentException(
+                    "Column binding for field " + field.getFieldName()
+                    + " must set exactly one of idx:columnName or idx:columnIndex");
+            }
+        }
+
+        public String getColumnName()   { return columnName; }
+        public int getColumnIndex()     { return columnIndex; }
+        public FieldDef getField()      { return field; }
+        public boolean isPositional()   { return columnName == null; }
+
+        @Override
+        public String toString() {
+            return (isPositional() ? "[" + columnIndex + "]" : columnName) + " -> " + field.getFieldName();
+        }
+    }
+
+    /** How an unparseable cell is handled. */
+    public enum ErrorPolicy { SKIP, FAIL }
+
+    /** Input formats an {@code idx:externalSource} can read. */
+    public enum ExternalFormat { CSV, TSV }
+
+    /**
+     * A tabular source supplying nested child records for entities that already exist
+     * in the graph, joined on the entity IRI. See
+     * {@code docs/2026-07-27_external_content_indexing_design.md}.
+     * <p>
+     * Values are parsed as their declared {@link FieldType} and never transformed —
+     * the indexer parses, it never computes. The single concession to derivation is
+     * {@link #getSubjectPrefix()}, a plain string concatenation onto the join key.
+     */
+    public static class ExternalSourceDef {
+        /** Field types a source column may bind to. TEMPORAL and LATLON need literal
+         *  metadata / WKT parsing that a bare cell cannot carry unambiguously. */
+        private static final Set<FieldType> SUPPORTED_COLUMN_TYPES =
+            Collections.unmodifiableSet(EnumSet.of(FieldType.TEXT, FieldType.KEYWORD,
+                FieldType.INT, FieldType.LONG, FieldType.DOUBLE));
+
+        private final ExternalFormat format;
+        private final String location;
+        private final String subjectColumn;
+        private final int subjectColumnIndex;
+        private final String subjectPrefix;
+        private final boolean sorted;
+        private final Character delimiter;
+        private final boolean headerless;
+        private final ErrorPolicy onError;
+        private final double minMatchRate;
+        private final List<ColumnBinding> columns;
+        private final List<FieldDef> fields;
+
+        public ExternalSourceDef(ExternalFormat format, String location,
+                                 String subjectColumn, int subjectColumnIndex, String subjectPrefix,
+                                 boolean sorted, Character delimiter, boolean headerless,
+                                 ErrorPolicy onError, double minMatchRate,
+                                 List<ColumnBinding> columns) {
+            this.format = Objects.requireNonNull(format, "format");
+            this.location = Objects.requireNonNull(location, "location");
+            this.subjectColumn = subjectColumn;
+            this.subjectColumnIndex = subjectColumnIndex;
+            this.subjectPrefix = subjectPrefix;
+            this.sorted = sorted;
+            this.delimiter = delimiter;
+            this.headerless = headerless;
+            this.onError = onError != null ? onError : ErrorPolicy.SKIP;
+            this.minMatchRate = minMatchRate;
+            this.columns = columns != null
+                ? Collections.unmodifiableList(new ArrayList<>(columns))
+                : Collections.emptyList();
+            this.fields = Collections.unmodifiableList(distinctBoundFields(this.columns));
+            validate();
+        }
+
+        public ExternalFormat getFormat()        { return format; }
+        public String getLocation()              { return location; }
+        public String getSubjectColumn()         { return subjectColumn; }
+        public int getSubjectColumnIndex()       { return subjectColumnIndex; }
+        public String getSubjectPrefix()         { return subjectPrefix; }
+        public boolean isSorted()                { return sorted; }
+        public Character getDelimiter()          { return delimiter; }
+        public boolean isHeaderless()            { return headerless; }
+        public ErrorPolicy getOnError()          { return onError; }
+        public double getMinMatchRate()          { return minMatchRate; }
+        public List<ColumnBinding> getColumns()  { return columns; }
+        public List<FieldDef> getFields()        { return fields; }
+
+        private void validate() {
+            if (columns.isEmpty()) {
+                throw new TextIndexException(
+                    "idx:externalSource " + location + " declares no idx:column bindings");
+            }
+            if (headerless) {
+                if (subjectColumnIndex < 0) {
+                    throw new TextIndexException(
+                        "Headerless idx:externalSource " + location
+                        + " requires idx:subjectColumnIndex");
+                }
+            } else if (subjectColumn == null) {
+                throw new TextIndexException(
+                    "idx:externalSource " + location + " requires idx:subjectColumn");
+            }
+            Set<String> boundIris = new LinkedHashSet<>();
+            for (ColumnBinding binding : columns) {
+                if (headerless != binding.isPositional()) {
+                    throw new TextIndexException(
+                        "idx:externalSource " + location + " binds column " + binding
+                        + " by " + (binding.isPositional() ? "index" : "name")
+                        + " but idx:headerless is " + headerless);
+                }
+                FieldDef field = binding.getField();
+                if (!SUPPORTED_COLUMN_TYPES.contains(field.getFieldType())) {
+                    throw new TextIndexException(
+                        "Field " + field.getFieldIRI().getURI() + " has type " + field.getFieldType()
+                        + ", which cannot be bound to an idx:column. Supported types: "
+                        + SUPPORTED_COLUMN_TYPES);
+                }
+                if (!boundIris.add(field.getFieldIRI().getURI())) {
+                    throw new TextIndexException(
+                        "Field " + field.getFieldIRI().getURI()
+                        + " is bound to more than one column of idx:externalSource " + location);
+                }
+            }
+            if (minMatchRate < 0.0 || minMatchRate > 1.0) {
+                throw new TextIndexException(
+                    "idx:minMatchRate on " + location + " must be between 0.0 and 1.0, got " + minMatchRate);
+            }
+        }
+
+        private static List<FieldDef> distinctBoundFields(List<ColumnBinding> columns) {
+            Map<String, FieldDef> byIri = new LinkedHashMap<>();
+            for (ColumnBinding binding : columns) {
+                byIri.putIfAbsent(binding.getField().getFieldIRI().getURI(), binding.getField());
+            }
+            return new ArrayList<>(byIri.values());
+        }
+
+        @Override
+        public String toString() {
+            return "ExternalSourceDef(" + format + " " + location + ", columns=" + columns + ")";
+        }
+    }
+
+    /**
+     * Defines a repeated correlated child collection. Children come either from the
+     * graph — reached from the parent entity by {@code idx:joinPath}, with field values
+     * evaluated relative to each child node — or from an {@code idx:externalSource},
+     * one child per source row. Never both.
      */
     public static class NestedDef {
         private final String nestedName;
@@ -322,6 +482,7 @@ public class ShaclIndexMapping {
         private final List<FieldOccurrence> occurrences;
         private final List<FieldDef> fields;
         private final List<HierarchyDef> hierarchies;
+        private final ExternalSourceDef externalSource;
 
         public NestedDef(String nestedName, Path joinPath, List<JoinStep> joinSteps,
                          Set<Node> joinPredicates, List<FieldOccurrence> occurrences,
@@ -341,12 +502,33 @@ public class ShaclIndexMapping {
             this.hierarchies = hierarchies != null
                 ? Collections.unmodifiableList(new ArrayList<>(hierarchies))
                 : Collections.emptyList();
+            this.externalSource = null;
             if (this.occurrences.isEmpty()) {
                 throw new IllegalArgumentException("NestedDef must contain at least one occurrence");
             }
             if (this.joinSteps.isEmpty()) {
                 throw new IllegalArgumentException("NestedDef must contain at least one join step");
             }
+        }
+
+        /**
+         * External variant: children come from {@code externalSource} rows rather than
+         * from the graph, so there is no join path and no field occurrences. The scope
+         * name must be given explicitly ({@code idx:nestedName}) since there is no join
+         * path to derive one from.
+         */
+        public NestedDef(String nestedName, ExternalSourceDef externalSource,
+                         List<HierarchyDef> hierarchies) {
+            this.nestedName = Objects.requireNonNull(nestedName);
+            this.externalSource = Objects.requireNonNull(externalSource);
+            this.joinPath = null;
+            this.joinSteps = Collections.emptyList();
+            this.joinPredicates = Collections.emptySet();
+            this.occurrences = Collections.emptyList();
+            this.fields = externalSource.getFields();
+            this.hierarchies = hierarchies != null
+                ? Collections.unmodifiableList(new ArrayList<>(hierarchies))
+                : Collections.emptyList();
         }
 
         public String getNestedName()             { return nestedName; }
@@ -356,10 +538,15 @@ public class ShaclIndexMapping {
         public List<FieldOccurrence> getOccurrences() { return occurrences; }
         public List<FieldDef> getFields()         { return fields; }
         public List<HierarchyDef> getHierarchies() { return hierarchies; }
+        public ExternalSourceDef getExternalSource() { return externalSource; }
+        /** True when children are supplied by an external source rather than the graph. */
+        public boolean isExternal()               { return externalSource != null; }
 
         @Override
         public String toString() {
-            return "NestedDef(" + nestedName + ", joinPath=" + joinPath + ", occurrences=" + occurrences + ")";
+            return isExternal()
+                ? "NestedDef(" + nestedName + ", external=" + externalSource + ")"
+                : "NestedDef(" + nestedName + ", joinPath=" + joinPath + ", occurrences=" + occurrences + ")";
         }
     }
 
@@ -420,6 +607,29 @@ public class ShaclIndexMapping {
         public List<FieldOccurrence> getRootOccurrences() { return rootOccurrences; }
         public List<HierarchyDef> getHierarchies() { return hierarchies; }
         public List<NestedDef> getNestedDefs()   { return nestedDefs; }
+
+        /** True when any nested block of this profile draws its children from an
+         *  external source. Such a profile can only be built by {@link ShaclBulkIndexer};
+         *  a live graph-driven rebuild would drop the external children. */
+        public boolean hasExternalSource() {
+            for (NestedDef nestedDef : nestedDefs) {
+                if (nestedDef.isExternal()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /** Nested blocks fed by an external source, in declaration order. */
+        public List<NestedDef> getExternalNestedDefs() {
+            List<NestedDef> result = new ArrayList<>();
+            for (NestedDef nestedDef : nestedDefs) {
+                if (nestedDef.isExternal()) {
+                    result.add(nestedDef);
+                }
+            }
+            return result;
+        }
 
         @Override
         public String toString() {
@@ -563,14 +773,25 @@ public class ShaclIndexMapping {
         if (fieldName == null) return null;
         for (IndexProfile profile : profiles) {
             for (NestedDef nestedDef : profile.getNestedDefs()) {
-                for (FieldOccurrence occ : nestedDef.getOccurrences()) {
-                    if (fieldName.equals(occ.getField().getFieldName())) {
+                for (FieldDef field : nestedDef.getFields()) {
+                    if (fieldName.equals(field.getFieldName())) {
                         return nestedDef;
                     }
                 }
             }
         }
         return null;
+    }
+
+    /** True when any profile carries an {@code idx:externalSource} — such profiles are
+     *  rebuild-only (see {@link ShaclTextDocProducer}). */
+    public boolean hasExternalSources() {
+        for (IndexProfile profile : profiles) {
+            if (profile.hasExternalSource()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public List<String> getDefaultSearchFieldNames() {

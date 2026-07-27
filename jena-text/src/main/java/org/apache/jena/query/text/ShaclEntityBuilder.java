@@ -63,6 +63,11 @@ final class ShaclEntityBuilder {
         }
 
         for (NestedDef nestedDef : profile.getNestedDefs()) {
+            if (nestedDef.isExternal()) {
+                // Children come from rows, not from the graph. ShaclBulkIndexer attaches
+                // them after this call; there is nothing to traverse here.
+                continue;
+            }
             Iterator<Node> childIter = PathEval.eval(graph, subject, nestedDef.getJoinPath(), indexingContext());
             while (childIter.hasNext()) {
                 Node child = childIter.next();

@@ -814,9 +814,11 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             if (records == null || records.isEmpty()) {
                 continue;
             }
+            // Fields, not occurrences: an external nested block has no occurrences, its
+            // fields come from the idx:column bindings instead.
             Map<String, ShaclIndexMapping.FieldDef> childFieldDefs = new LinkedHashMap<>();
-            for (ShaclIndexMapping.FieldOccurrence occ : nestedDef.getOccurrences()) {
-                childFieldDefs.put(occ.getField().getFieldName(), occ.getField());
+            for (ShaclIndexMapping.FieldDef field : nestedDef.getFields()) {
+                childFieldDefs.put(field.getFieldName(), field);
             }
 
             for (Entity.NestedRecord record : records) {
