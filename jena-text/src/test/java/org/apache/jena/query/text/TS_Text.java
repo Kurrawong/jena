@@ -97,6 +97,10 @@ import org.junit.runners.Suite.SuiteClasses;
     , TestFacetCachingInvalidation.class
     , TestBlockJoinIndexModel.class
 
+    // External content indexing: nested children built from a CSV/tabular source
+    , TestExternalContentIndexing.class
+    , org.apache.jena.query.text.external.TestCsvRowSource.class
+
     // CQL and multi-index tests
     , TestCqlParser.class
     , TestCqlToLuceneCompiler.class

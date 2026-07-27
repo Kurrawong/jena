@@ -30,6 +30,7 @@ import org.apache.jena.graph.Node;
 import org.apache.jena.graph.Triple;
 import org.apache.jena.query.ReadWrite;
 import org.apache.jena.query.text.ShaclIndexMapping.*;
+import org.apache.jena.query.text.external.ExternalChildMerger;
 import org.apache.jena.sparql.core.DatasetGraph;
 import org.apache.jena.sparql.core.Quad;
 import org.apache.jena.util.iterator.ExtendedIterator;
@@ -70,6 +71,7 @@ public class ShaclBulkIndexer {
     private final ShaclIndexMapping mapping;
 
     private final AtomicLong entityCount = new AtomicLong();
+    private List<ExternalChildMerger.SourceStats> externalStats = Collections.emptyList();
     private long progressInterval = 10000;
     private long maxEntitiesPerProfile = 0;
     private boolean freshIndex = false;
@@ -125,6 +127,14 @@ public class ShaclBulkIndexer {
     }
 
     /**
+     * Row/entity match counters for each {@code idx:externalSource}, from the last
+     * {@link #index()} run. Empty when no profile declares one.
+     */
+    public List<ExternalChildMerger.SourceStats> getExternalSourceStats() {
+        return externalStats;
+    }
+
+    /**
      * Index all entities matching SHACL profiles.
      * <p>
      * Phase 1 (discovery): walks type triples in default + named graphs,
@@ -135,6 +145,7 @@ public class ShaclBulkIndexer {
      */
     public void index() {
         entityCount.set(0);
+        externalStats = Collections.emptyList();
         Double previousRamBuffer = null;
         if (ramBufferSizeMB > 0) {
             try {
@@ -152,15 +163,27 @@ public class ShaclBulkIndexer {
             ownTxn = true;
         }
 
+        ExternalChildMerger merger = new ExternalChildMerger(mapping);
         try {
             List<WorkItem> items = discoverWorkItems();
             log.info("Discovered {} entities across {} profile(s)",
                 formatCount(items.size()), mapping.getProfiles().size());
-            processItems(items);
+            if (!merger.isEmpty()) {
+                // The merge join needs both sides on one ordering, and it is the only
+                // way to get an entity's complete child set in hand before the block
+                // is written. Sorting only when external sources exist keeps the
+                // graph-only path byte-for-byte as it was.
+                items.sort(Comparator.comparing(WorkItem::entityUri));
+                merger.open();
+            }
+            processItems(items, merger);
+            merger.finish();
+            externalStats = merger.getStats();
             log.info("Flushing and committing index...");
             textIndex.commit();
             log.info("Bulk indexing complete: {} entities indexed", formatCount(entityCount.get()));
         } finally {
+            merger.close();
             if (ownTxn) {
                 baseDataset.end();
             }
@@ -233,12 +256,15 @@ public class ShaclBulkIndexer {
 
     // ----- Phase 2: indexing -----
 
-    private void processItems(List<WorkItem> items) {
+    private void processItems(List<WorkItem> items, ExternalChildMerger merger) {
         Graph unionGraph = baseDataset.getUnionGraph();
         Graph defaultGraph = baseDataset.getDefaultGraph();
         for (WorkItem item : items) {
             Graph graph = (item.scope == GraphScope.UNION) ? unionGraph : defaultGraph;
             Entity entity = ShaclEntityBuilder.buildEntity(graph, item.subject, item.entityUri, item.profile);
+            // Children from rows join the graph-derived parent here, before the block
+            // is written — Lucene cannot add them to an existing document afterwards.
+            merger.attach(item.profile, item.entityUri, entity);
             textIndex.updateEntityForProfile(entity, item.profile, freshIndex);
             long count = entityCount.incrementAndGet();
             maybeLogProgress(count);
