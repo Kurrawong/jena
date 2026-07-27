@@ -44,7 +44,9 @@ tasks:
   load:
     desc: Load the collars into TDB2 (bypasses the change listener, as tdb2.tdbloader does)
     cmds:
-      - rm -rf DB Lucene
+      # Taxonomy goes too: facet ordinals left over from a previous build would no
+      # longer line up with the freshly written documents.
+      - rm -rf DB Lucene Taxonomy
       - java -cp {{.FUSEKI_JAR}} tdb2.tdbloader --loc=DB data/collars.ttl
 
   index:
@@ -77,10 +79,10 @@ tasks:
       - pkill -f "jena-fuseki-server" && echo "Server stopped" || echo "No server running"
 
   clean:
-    desc: Remove the TDB2 database and Lucene index
+    desc: Remove the TDB2 database, Lucene index and facet taxonomy
     cmds:
-      - rm -rf DB Lucene
-      - echo "Removed DB/ and Lucene/"
+      - rm -rf DB Lucene Taxonomy
+      - echo "Removed DB/, Lucene/ and Taxonomy/"
 
   # ── Checks ───────────────────────────────────────────────
 
