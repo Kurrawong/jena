@@ -44,6 +44,9 @@ public class TextVocab
     public static final Resource textIndexShacl     = Vocab.resource(NS, "TextIndexShacl") ;
     public static final Property pLanguage          = Vocab.property(NS, "language") ;
     public static final Property pDirectory         = Vocab.property(NS, "directory") ;         // Lucene
+    /** Where hierarchical facet ordinals are written. Without it the taxonomy is
+     *  in-memory and does not survive the process that built it. */
+    public static final Property pTaxonomyDirectory = Vocab.property(NS, "taxonomyDirectory") ;
     public static final Property pMultilingualSupport   = Vocab.property(NS, "multilingualSupport") ;
     public static final Property pMaxBasicQueries   = Vocab.property(NS, "maxBasicQueries") ;
     public static final Property pStoreValues       = Vocab.property(NS, "storeValues") ;

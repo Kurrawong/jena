@@ -50,6 +50,9 @@ run/
 # Demo runtime data
 demo/DB/
 demo/Lucene/
+demo/geochem-external/DB/
+demo/geochem-external/Lucene/
+demo/geochem-external/Taxonomy/
 
 # Benchmark JSON results
 jena-benchmarks/jena-benchmarks-jmh/*.json
