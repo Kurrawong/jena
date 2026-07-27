@@ -6,18 +6,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Apache Jena — a Java framework for semantic web and linked data applications. This fork adds **SHACL-based entity-per-document indexing with faceted search** to the `jena-text` module using Lucene, alongside the existing triple-per-document model.
 
-**Version**: 6.1.0-SNAPSHOT | **Java**: 21+ | **Build**: Maven 3.9+
+**Version**: 6.2.0-SNAPSHOT | **Java**: 21+ | **Build**: Maven 3.9+
 
 ## Repository
 
-This is a **fork** of `apache/jena`. The upstream repo is a read-only reference.
+This tracks `apache/jena` as an upstream source, but is a **standalone repo**, not a
+GitHub-level fork (`isFork: false`).
 
-- **Fork (ours):** `aiworkerjohns/jena` — all issues, PRs, and pushes go here
+- **Ours:** `Kurrawong/jena` (`origin`) — all issues, PRs, and pushes go here
 - **Upstream:** `apache/jena` — do NOT create issues, PRs, or push to this repo
 
-The `gh` CLI default is set to `aiworkerjohns/jena`. Always use `-R aiworkerjohns/jena` if there is any ambiguity. Never use `-R apache/jena` for write operations.
+Always use `-R Kurrawong/jena` if there is any ambiguity. Never use `-R apache/jena`
+for write operations.
 
-**Docker image pushes to GHCR**: The `gh` CLI must have `aiworkerjohns` as the active account (not `hjohns`) with the `write:packages` scope. Before pushing, verify with `gh auth status` and switch if needed: `gh auth switch --user aiworkerjohns`.
+`upstream` is not configured by default. To add it:
+
+```bash
+git remote add upstream https://github.com/apache/jena.git
+git fetch upstream main
+```
+
+**Docker image pushes to GHCR**: images still publish to `ghcr.io/aiworkerjohns/*`
+(`Taskfile.yml` defaults `GHCR_OWNER` to `aiworkerjohns`), which has not moved with the
+repo. The `gh` CLI must have `aiworkerjohns` as the active account with the
+`write:packages` scope — verify with `gh auth status` and switch if needed:
+`gh auth switch --user aiworkerjohns`. Override per-invocation with `GHCR_OWNER=...`.
 
 ## Build Commands
 
@@ -41,7 +54,7 @@ mvn clean install -Drat.skip
 ## Running Tests
 
 ```bash
-# Run all jena-text tests (366 tests)
+# Run all jena-text tests (646 tests)
 mvn test -pl jena-text
 
 # Run a single test class
@@ -54,7 +67,26 @@ mvn test -pl jena-text -Dtest=TestNativeFacetCounts#testBasicFacetCounts
 mvn test -pl jena-text -Dtest="TestShaclIndexMapping,TestShaclDocumentBuilding,TestShaclTextDocProducer,TestShaclAssembler,TestShaclEntityPerDocument,TestNativeFacetCounts,TestTextFacetPF,TestTextQueryPFFilters,TestSearchExecution"
 ```
 
-**Important**: Surefire only discovers `**/TS_*.java` suite files. New test classes must be added to `TS_Text.java` or they won't run in CI.
+**Important**: `jena-text/pom.xml` restricts surefire to `**/TS_*.java`, so `TS_Text.java`
+is the only entry point. A new test class that is not added to its `@SelectClasses` list
+is **silently never run** — it is not reported as skipped, it simply does not appear.
+After adding a test, confirm its name appears in the `-- in <class>` lines of the output.
+
+Three classes are currently unregistered and therefore dead: `TestDateLiteralRoundTrip`,
+`TestFacetedResults`, `TestUpdateDocumentFacets` (12 `@Test` methods).
+
+### JUnit 4 vs JUnit 5
+
+Upstream migrated `jena-text` to JUnit 5. The fork's ~40 SHACL/faceting test classes are
+still JUnit 4, so `jena-text/pom.xml` carries **`junit-vintage-engine`** to let the JUnit
+Platform run them. Do not remove it while any JUnit 4 test remains — without it those
+classes stop running and the build still passes green.
+
+`TS_Text` itself uses the JUnit 5 `@Suite` / `@SelectClasses` annotations; JUnit 4 classes
+can be listed there and the vintage engine picks them up. New tests should be written in
+JUnit 5. If migrating existing ones, note that `assertEquals` flips argument order between
+the two (JUnit 4 puts the message first, JUnit 5 last) — there are ~197 message-first call
+sites, so a blind find-and-replace will silently invert assertions.
 
 ### Test discipline
 
@@ -113,6 +145,49 @@ When `luc:query` and `luc:facet` appear in the same SPARQL query, both build a n
 ### Change Listener Flow
 
 `DatasetGraphTextMonitor.add()` → `super.add()` (base dataset updated first) → `ShaclTextDocProducer.change()` → if relevant predicate or `rdf:type`, calls `rebuildEntityDocuments()` which reads all entity triples from base dataset and replaces the Lucene document.
+
+## Dependencies and Upstream Sync
+
+**Dependency version updates come from upstream, not Dependabot.** Apache Jena runs
+Dependabot over the same tree — roughly half of all upstream commits are dependency
+bumps — so raising them here duplicates that work and turns every root-pom version
+property into a conflict on the next sync.
+
+`.github/dependabot.yml` therefore covers only what this repo owns:
+
+| Ecosystem | Status |
+|-----------|--------|
+| `github-actions` | Tracked — our workflows |
+| `docker` (`/build-files/docker`) | Tracked — our Fuseki images |
+| `maven` | **Not tracked** — comes from upstream sync |
+| `npm` (`jena-fuseki-ui`) | **Not tracked** — upstream's module |
+
+Dependabot *security* updates are a separate repository-level feature and are unaffected;
+they still raise PRs for CVEs across the full Maven/npm tree between syncs.
+
+**Do not re-add the `maven` or `npm` ecosystems** without also deciding what happens to
+the sync workflow — they conflict by design.
+
+### Syncing upstream
+
+`.github/workflows/upstream-sync.yml` runs monthly (and on demand), merging
+`apache/jena@main` onto a dated branch. Clean merges open a draft PR; conflicts file an
+issue for manual resolution.
+
+**Merge, never rebase.** The fork carries ~180 commits and many live branches. Rebasing
+would rewrite published history and replay the same pom conflicts once per commit; a
+merge resolves the whole gap once.
+
+Conflicts recur in a predictable set — the root `pom.xml` version properties,
+`jena-benchmarks` module lists, `TS_Text.java`, and `jena-text/pom.xml`. When resolving:
+
+- Prefer upstream's version for anything upstream owns; it minimises divergence and keeps
+  eventual contribution back to Apache tractable.
+- Check `junit-vintage-engine` survived in `jena-text/pom.xml` — an auto-merge has
+  silently dropped it before.
+- Use `${project.version}` for intra-project deps the fork adds, so a version bump cannot
+  strand them.
+- Re-run `mvn test -pl jena-text` and confirm the test count, not just a green build.
 
 ## Git Commits
 
