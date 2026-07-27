@@ -138,6 +138,13 @@ task serve-full         # port 3032
 task smoke-full
 ```
 
+The page points at whichever index you give it:
+
+```
+http://localhost:8010/index.html              # the 996-row slice (:3031)
+http://localhost:8010/index.html?port=3032    # the full 29.7 M-row index
+```
+
 Everything lives in its own directories — `DB-full/`, `Lucene-full/`,
 `Taxonomy-full/` — so a full build never disturbs the small demo, and the two can
 be served side by side.

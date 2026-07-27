@@ -108,6 +108,10 @@
     <fieldset>
       <legend>Endpoint</legend>
       <input id="endpoint" value="http://localhost:3031/geochem/query">
+      <div class="sub" style="font-size:11.5px;margin-top:6px">
+        <code>?port=3032</code> for the full-scale index, or <code>?endpoint=</code> for
+        anything else.
+      </div>
     </fieldset>
 
     <fieldset>
@@ -188,6 +192,15 @@
 const FP = 'urn:jena:lucene:field#';
 const $ = id => document.getElementById(id);
 const state = { regions: new Set(), drills: new Set(), analytes: [] };
+
+// ?port=3032 (the full-scale index) or ?endpoint=<url>, so a given index is linkable.
+{
+  const params = new URLSearchParams(location.search);
+  const endpoint = params.get('endpoint');
+  const port = params.get('port');
+  if (endpoint) $('endpoint').value = endpoint;
+  else if (port) $('endpoint').value = `http://localhost:${port}/geochem/query`;
+}
 
 function sq(s) { return "'" + String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'"; }
 
