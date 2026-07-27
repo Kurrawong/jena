@@ -439,15 +439,45 @@ documents.
 
 ## Sizing expectation
 
-Dominated by child-document count, not by the number of distinct properties. For
-10⁷ entities × ~35 populated properties: ~5 × 10⁸ children, expect **tens of GB**
-not stored. Per child: one keyword term, one numeric point, one docvalue, plus
-`_blockKind` and `_nestedScope`. The distinct-property term dictionary is
-negligible — hundreds of terms regardless of row count.
+Dominated by child-document count, not by the number of distinct properties. Per
+child: one keyword term, one numeric point, one docvalue, plus `_blockKind` and
+`_nestedScope`. The distinct-property term dictionary is negligible — hundreds of
+terms regardless of row count.
 
-Compare: a flat model at the same grain is ~3–5× smaller. That is the price paid
-for the two-field API surface, and it is the right trade while entity grain stays
-coarse.
+### Measured, 2026-07-27
+
+The full GSWA downhole summary extract, built by `demo/geochem-external`
+(`task reindex-full`, then `task measure-split`), which builds the same collars a
+second time without the `idx:nested` block and differences the two indexes:
+
+| | |
+|---|---|
+| Collars (parents) | 2,470,212 |
+| Measurements (children) | 29,707,584 |
+| Lucene documents | ~32.2 M |
+| Total index | **1,338 MB** |
+| — graph-derived (parents only) | 257 MB (109 bytes/collar) |
+| — external content | **1,082 MB (38.2 bytes per child)** |
+| Facet taxonomy | 104 KB |
+| Build | 6m08 @ 6,730 entities/sec |
+
+**38 bytes per child document**, with the value not stored. That makes the earlier
+"tens of GB" projection concrete: 10⁷ entities × ~35 properties = 5 × 10⁸ children
+× 38 bytes ≈ **19 GB**. The estimate holds.
+
+Two caveats on the figure. The full index still carried ~662 MB in unmerged
+compound segments at measurement time while the graph-only twin had ~3 MB, so a
+`forceMerge` would likely move the split somewhat in the external side's favour.
+And the ~3–5× flat-vs-nested ratio below remains an **estimate** — no flat index
+was built, so it is not backed by this measurement.
+
+Compare: a flat model at the same grain is ~3–5× smaller (estimated, untested).
+That is the price paid for the two-field API surface, and it is the right trade
+while entity grain stays coarse.
+
+For scale context, the same measurements as RDF would have been ~30 M triples
+*in addition to* the graph, against 1 GB of index — which is the "why not load it
+as triples" argument in numbers.
 
 ## Proposed code changes
 

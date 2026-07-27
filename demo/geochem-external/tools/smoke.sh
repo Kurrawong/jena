@@ -24,16 +24,16 @@ ask() {
 
 ask "1. Collars carrying a gold assay (external child filter)" "
 PREFIX luc: <urn:jena:lucene:index#>
-SELECT (COUNT(DISTINCT ?s) AS ?collars) WHERE {
-  (?hit ?s ?score) luc:query ('default' 'default' '*'
-    '{\"op\":\"=\",\"args\":[{\"property\":\"${FP}analyte\"},\"Au\"]}' '' 500 0) .
+SELECT ?collars WHERE {
+  (?hit ?s ?score ?collars) luc:query ('default' 'default' '*'
+    '{\"op\":\"=\",\"args\":[{\"property\":\"${FP}analyte\"},\"Au\"]}' '' 1 0) .
 }"
 
 ask "2. Au above 0.05 ppm, ABOVE detection — one child must satisfy all three" "
 PREFIX luc: <urn:jena:lucene:index#>
-SELECT (COUNT(DISTINCT ?s) AS ?collars) WHERE {
-  (?hit ?s ?score) luc:query ('default' 'default' '*'
-    '{\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"${FP}analyte\"},\"Au\"]},{\"op\":\">\",\"args\":[{\"property\":\"${FP}analyteValue\"},0.05]},{\"op\":\"=\",\"args\":[{\"property\":\"${FP}belowDetection\"},\"f\"]}]}' '' 500 0) .
+SELECT ?collars WHERE {
+  (?hit ?s ?score ?collars) luc:query ('default' 'default' '*'
+    '{\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"${FP}analyte\"},\"Au\"]},{\"op\":\">\",\"args\":[{\"property\":\"${FP}analyteValue\"},0.05]},{\"op\":\"=\",\"args\":[{\"property\":\"${FP}belowDetection\"},\"f\"]}]}' '' 1 0) .
 }"
 
 ask "3. Graph field AND external field together — Diamond holes with Cu over 50 ppm" "

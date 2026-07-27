@@ -142,18 +142,67 @@ Everything lives in its own directories — `DB-full/`, `Lucene-full/`,
 `Taxonomy-full/` — so a full build never disturbs the small demo, and the two can
 be served side by side.
 
+### Measured, not projected
+
 | | |
 |---|---|
 | Collars | 2,470,212 |
 | Measurement rows | 29,707,584 |
 | Rows per collar | ~12 |
-| Lucene documents | ~32 M (29.7 M children + 2.47 M parents) |
+| Lucene documents | ~32.2 M (29.7 M children + 2.47 M parents) |
 | `IndexWriter.MAX_DOCS` ceiling | ~2.15 billion |
+| **Rows matched** | **29,707,584 — 0 unmatched, 0 skipped** |
+| **Collars matched** | **2,470,212 of 2,470,212 (100%)** |
+| TDB2 load | 27.2 M triples in 2m07 (216 K triples/sec) |
+| Index build | 6m08 (6,730 entities/sec) |
 
-That last row is the point. Child-document count is `entities × populated properties`,
-and it is the constraint that decides whether the nested EAV model is viable at all
-— see [The granularity constraint](../../docs/2026-07-27_external_content_indexing_design.md#the-granularity-constraint).
-At this grain the model has roughly two orders of magnitude of headroom.
+The ceiling row is the point. Child-document count is `entities × populated
+properties`, and it is the constraint that decides whether the nested EAV model is
+viable at all — see [The granularity constraint](../../docs/2026-07-27_external_content_indexing_design.md#the-granularity-constraint).
+At this grain the model has roughly **two orders of magnitude of headroom**.
+
+### What it costs on disk
+
+`task measure-split` builds the same collars a second time without the `idx:nested`
+block and differences the two indexes, which attributes bytes to origin exactly:
+
+| | |
+|---|---|
+| Total Lucene index | **1,338 MB** |
+| — graph-derived (parents only) | 257 MB — 109 bytes/collar |
+| — external content | **1,082 MB — 38.2 bytes per child** |
+| Facet taxonomy | 104 KB |
+| TDB2 (the synthetic graph) | 4.3 GB |
+
+Where the external bytes go: docvalues (sort keys, facet values) and BKD point trees
+(range filters), with almost nothing in stored fields — `analyteValue` is
+`idx:stored false`, so the value is searchable but never returned. The term
+dictionary is 13 MB for 29.7 M measurements, because the nested model has ~37
+distinct analyte terms regardless of row count. A flat model would have put a field
+per analyte into the schema and the API.
+
+Note the whole search index is smaller than the TDB2 store holding only ~11 triples
+per collar. Materialising these measurements as triples would have cost far more
+than indexing them does.
+
+Caveat: at measurement time the full index still held ~662 MB in unmerged compound
+segments against the twin's ~3 MB, so a `forceMerge` would likely shift the split
+somewhat toward the external side. Good enough for capacity planning, not a
+precision figure.
+
+### A data-quality note: sentinel values
+
+Sorting the full index by gold grade returns collars whose Au value is `999909`.
+That is not a grade — it is a placeholder in the source data, and 999909 sorts above
+every real assay.
+
+The indexer will not fix this, by design: it parses, it never computes, so there is
+no config in which `999909` becomes "no data". A sentinel either gets filtered out of
+the extract upstream, or every "highest grade" query in the deployment leads with it.
+This is exactly the boundary the design draws in
+[Why no transformation language](../../docs/2026-07-27_external_content_indexing_design.md#discussion)
+— worth resolving in the `SELECT` that produces the CSV before this goes anywhere
+near users.
 
 Two things make the build practical at this size:
 
