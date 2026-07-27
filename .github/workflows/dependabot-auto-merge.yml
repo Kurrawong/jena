@@ -1,0 +1,55 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+name: Dependabot Auto-Merge
+
+on:
+  pull_request:
+    branches:
+      - 'main'
+
+## Dependabot-triggered workflows get a read-only GITHUB_TOKEN by default;
+## these grant the write scopes `gh pr merge` needs.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      ## Auto-merge policy:
+      ##   - patch  : every ecosystem
+      ##   - minor  : github-actions and npm only
+      ##   - major  : never (always reviewed by hand)
+      ## Maven minor bumps are held back deliberately: a minor Lucene bump
+      ## (${ver.lucene}, currently 10.3.1) can change index/codec behaviour
+      ## that jena-text's SHACL entity-per-document index depends on.
+      - name: Enable auto-merge
+        if: >-
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          (steps.metadata.outputs.update-type == 'version-update:semver-minor' &&
+           contains(fromJSON('["github_actions", "npm_and_yarn"]'), steps.metadata.outputs.package-ecosystem))
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Label PRs left for manual review
+        if: >-
+          steps.metadata.outputs.update-type == 'version-update:semver-major' ||
+          (steps.metadata.outputs.update-type == 'version-update:semver-minor' &&
+           !contains(fromJSON('["github_actions", "npm_and_yarn"]'), steps.metadata.outputs.package-ecosystem))
+        run: gh pr edit "$PR_URL" --add-label "needs-manual-review"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

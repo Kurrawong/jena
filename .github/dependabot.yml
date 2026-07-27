@@ -1,50 +1,41 @@
 ## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
 
+##
+## Scope: this fork only tracks dependencies it actually owns.
+##
+## The `maven` and `npm` ecosystems are deliberately NOT configured here.
+## Apache Jena upstream runs Dependabot over the same dependency tree
+## (~47% of upstream commits are dependency bumps), so configuring them
+## here duplicates that work and turns every root-pom version property
+## into a conflict on the next upstream sync. Those versions arrive via
+## the scheduled upstream merge instead -- see
+## .github/workflows/upstream-sync.yml
+##
+## Dependabot SECURITY updates are unaffected by this file: they are a
+## separate repository-level feature and still raise PRs for CVEs in the
+## full Maven/npm tree between syncs.
+##
+
 version: 2
 updates:
 
-  - package-ecosystem: "maven"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    cooldown:
-      default-days: 7
-    groups:
-      maven-patch-group:
-        update-types:
-        - "patch"
-        exclude-patterns:
-        - "org.apache.commons:*"
-        - "commons-*:*"
-      apache-commons-group:
-        patterns:
-        - "org.apache.commons:*"
-        - "commons-*:*"
-        update-types:
-        - "minor"
-
-    open-pull-requests-limit: 10
-
+  ## Our workflows: docker.yml, scan-published.yml, pr.yml, upstream-sync.yml
   - package-ecosystem: "github-actions"
     directory: "/"
-    schedule: 
+    schedule:
       interval: monthly
       day: "tuesday"
     open-pull-requests-limit: 10
     cooldown:
       default-days: 7
 
-  - package-ecosystem: "npm"
-    directory: "/jena-fuseki2/jena-fuseki-ui"
+  ## Our Fuseki images (Dockerfile.runtime, Dockerfile.loader), which are
+  ## the ones scan-published.yml runs trivy against.
+  - package-ecosystem: "docker"
+    directory: "/build-files/docker"
     schedule:
       interval: "weekly"
-      day: "wednesday"
-    versioning-strategy: increase-if-necessary
+      day: "tuesday"
+    open-pull-requests-limit: 10
     cooldown:
       default-days: 7
-    groups:
-      npm-patch-group:
-        update-types:
-        - "patch"
-    open-pull-requests-limit: 10
