@@ -21,7 +21,7 @@
 
 package org.apache.jena.sparql.modify;
 
-import org.apache.jena.arq.ARQTestSuite;
+import org.apache.jena.arq.TestConsts;
 import org.apache.jena.graph.Graph;
 import org.apache.jena.graph.GraphUtil;
 import org.apache.jena.graph.Node;
@@ -43,14 +43,14 @@ public abstract class AbstractTestUpdateBase
     protected void namedGraphData(DatasetGraph gStore, Node uri, Graph data) {
         Graph g = gStore.getGraph(uri);
         if ( g == null ) {
-            gStore.addGraph(uri, GraphFactory.createJenaDefaultGraph());
+            gStore.addGraph(uri, GraphFactory.createDefaultGraph());
             g = gStore.getGraph(uri);
         } else
             g.clear();
         GraphUtil.addInto(g, data);
     }
 
-    protected static final String FileBase = ARQTestSuite.testDirUpdate;
+    protected static final String FileBase = TestConsts.testDirUpdate;
 
     protected static void script(DatasetGraph gStore, String filename) {
         UpdateAction.readExecute(FileBase + "/" + filename, gStore);

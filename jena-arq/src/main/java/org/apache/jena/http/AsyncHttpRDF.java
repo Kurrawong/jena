@@ -58,7 +58,7 @@ public class AsyncHttpRDF {
 
     /** Get a graph, asynchronously */
     public static CompletableFuture<Graph> asyncGetGraph(String url) {
-        return asyncGetGraph(HttpEnv.getDftHttpClient(), url);
+        return asyncGetGraph(HttpEnv.getHttpClient(url), url);
     }
 
     /** Get a graph, asynchronously */
@@ -73,7 +73,7 @@ public class AsyncHttpRDF {
 
     /** Get a dataset, asynchronously */
     public static CompletableFuture<DatasetGraph> asyncGetDatasetGraph(String url) {
-        return asyncGetDatasetGraph(HttpEnv.getDftHttpClient(), url);
+        return asyncGetDatasetGraph(HttpEnv.getHttpClient(url), url);
     }
 
     /** Get a dataset, asynchronously */
@@ -91,7 +91,7 @@ public class AsyncHttpRDF {
      * The dataset is updated inside a transaction.
      */
     public static CompletableFuture<Void> asyncLoadDatasetGraph(String url, DatasetGraph dsg) {
-        return asyncLoadDatasetGraph(HttpEnv.getDftHttpClient(), url, dsg);
+        return asyncLoadDatasetGraph(HttpEnv.getHttpClient(url), url, dsg);
     }
 
     /**
@@ -182,10 +182,9 @@ public class AsyncHttpRDF {
         } catch (CompletionException ex) {
             Throwable cause = ex.getCause();
             if ( cause != null ) {
-
                 // Pass on our own HttpException instances such as 401 Unauthorized.
                 if ( cause instanceof HttpException httpEx ) {
-                    throw new HttpException(httpEx.getStatusCode(), httpEx.getStatusLine(), httpEx.getResponse(), cause);
+                    throw HttpException.create(httpEx);
                 }
 
                 final String msg = cause.getMessage();
@@ -195,17 +194,17 @@ public class AsyncHttpRDF {
                     if ( msg != null &&
                             ( msg.contains("too many authentication attempts") ||
                               msg.contains("No credentials provided") ) ) {
-                        throw new HttpException(401, HttpSC.getMessage(401), null, cause);
+                        throw HttpException.builder().statusCode(HttpSC.UNAUTHORIZED_401).cause(cause).build();
                     }
                     if (httpRequest != null) {
-                        throw new HttpException(httpRequest.method()+" "+httpRequest.uri().toString(), cause);
+                        throw HttpException.error(httpRequest.method()+" "+httpRequest.uri().toString(), cause);
                     }
                 }
 
-                throw new HttpException(msg, cause);
+                throw HttpException.error(msg, cause);
             }
             // Note: CompletionException without cause should never happen.
-            throw new HttpException(ex);
+            throw HttpException.builder().cause(ex).build();
         }
     }
 

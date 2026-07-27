@@ -26,8 +26,10 @@ import org.junit.platform.suite.api.Suite;
 
 @Suite
 @SelectClasses({
-      TestTokenizerText.class
-    , TestTokenForNode.class
+      TestTokenForNode.class
+    , TestTokenizerText.class
+    , TestTokenizerTextNoSurrogates.class
+    , TestTokenizerTextAllowEscSurrogates.class
 })
 
 public class TS_Tokens

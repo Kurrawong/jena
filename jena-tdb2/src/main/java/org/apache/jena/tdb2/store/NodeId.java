@@ -21,7 +21,6 @@
 
 package org.apache.jena.tdb2.store;
 
-import static org.apache.jena.sparql.expr.Expr.CMP_EQUAL;
 import static org.apache.jena.tdb2.store.NodeIdType.*;
 
 import org.apache.jena.atlas.lib.BitsLong;
@@ -222,8 +221,8 @@ public class NodeId implements Comparable<NodeId>
     /** Compare - provides an ordering of {@code NodeIds}. */
     public static int compare(NodeId n1, NodeId n2) {
         int x = Integer.compare(n1.value1, n2.value1);
-        if ( x == 0 )
-            return CMP_EQUAL;
+        if ( x != 0 )
+            return x;
         return Long.compare(n1.value2, n2.value2);
     }
 

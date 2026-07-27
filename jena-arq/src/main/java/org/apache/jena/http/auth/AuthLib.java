@@ -40,7 +40,6 @@ import org.apache.jena.atlas.web.HttpException;
 import org.apache.jena.http.AsyncHttpRDF;
 import org.apache.jena.http.HttpLib;
 import org.apache.jena.riot.web.HttpNames;
-import org.apache.jena.web.HttpSC;
 
 public class AuthLib {
     /**
@@ -84,9 +83,9 @@ public class AuthLib {
 
     /* Handle a 401 (authentication challenge). */
     private static <T> CompletableFuture<HttpResponse<T>> handle401Async(HttpClient httpClient,
-                                                 HttpRequest request,
-                                                 BodyHandler<T> bodyHandler,
-                                                 HttpResponse<T> httpResponse401) {
+                                                                         HttpRequest request,
+                                                                         BodyHandler<T> bodyHandler,
+                                                                         HttpResponse<T> httpResponse401) {
         AuthChallenge aHeader = wwwAuthenticateHeader(httpResponse401);
         if ( aHeader == null )
             // No valid header - simply return the original response.
@@ -101,10 +100,9 @@ public class AuthLib {
             passwordRecord = AuthEnv.get().getUsernamePassword(request.uri());
             if ( passwordRecord == null )
                 // No entry.
-                throw new HttpException(HttpSC.UNAUTHORIZED_401);
+                throw HttpException.create(httpResponse401);
         }
 
-        // Request target - no query string.
         AuthRequestModifier authRequestModifier;
         switch (aHeader.authScheme) {
             case BASIC :
@@ -114,6 +112,8 @@ public class AuthLib {
                 String requestTarget = HttpLib.requestTargetServer(request.uri());
                 authRequestModifier = digestAuthModifier(aHeader, passwordRecord.getUsername(), passwordRecord.getPassword(),
                                                          request.method(), requestTarget);
+                if ( authRequestModifier == null )
+                    throw HttpException.error("Unrecognized digest algorithm");
                 break;
             }
             case BEARER : {
@@ -126,7 +126,7 @@ public class AuthLib {
                 // Not handled. Pass back the 401.
                 return CompletableFuture.completedFuture(httpResponse401);
             default:
-                throw new HttpException("Not an authentication scheme -- "+aHeader.authScheme);
+                throw HttpException.error("Not an authentication scheme -- "+aHeader.authScheme);
         }
 
         // Failed to generate a request modifier for a retry.
@@ -155,7 +155,6 @@ public class AuthLib {
             return null;
         // Choose first digest or bearer, else the first basic. Prefer digest or bearer to basic.
         AuthChallenge aHeader = null;
-        String result = null;
         for ( String headerValue : headers ) {
             AuthChallenge aHeader2 = AuthChallenge.parse(headerValue);
             if ( aHeader2 == null ) {
@@ -164,7 +163,7 @@ public class AuthLib {
             }
             AuthScheme authScheme = aHeader2.authScheme;
             switch(authScheme) {
-                case  DIGEST :
+                case DIGEST :
                     return aHeader2;
                 case BASIC:
                     if ( aHeader == null )

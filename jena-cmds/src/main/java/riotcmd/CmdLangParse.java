@@ -40,6 +40,7 @@ import org.apache.jena.atlas.logging.Log;
 import org.apache.jena.cmd.ArgDecl;
 import org.apache.jena.cmd.CmdException;
 import org.apache.jena.cmd.CmdMain;
+import org.apache.jena.cmd.TerminationException;
 import org.apache.jena.irix.IRIException;
 import org.apache.jena.irix.IRIs;
 import org.apache.jena.irix.IRIxResolver;
@@ -55,6 +56,7 @@ import org.apache.jena.sparql.core.DatasetGraph;
 import org.apache.jena.sparql.core.DatasetGraphFactory;
 import org.apache.jena.sparql.core.Quad;
 import org.apache.jena.sys.JenaSystem;
+import org.slf4j.Logger;
 
 /** Common framework for running RIOT parsers */
 public abstract class CmdLangParse extends CmdMain {
@@ -126,27 +128,13 @@ public abstract class CmdLangParse extends CmdMain {
         void postParse();
     }
 
-    protected static class ParseRecord {
-        // Display name (filename as given on the command line)
-        final String filename;
-        // Resolved filename as a URL string.
-        final String sourceURL;
-        final boolean success;
-        final long timeMillis;
-        final long triples;
-        final long quads;
-        final long tuples = 0;
-        final ErrorHandlerCLI errHandler;
-
-        public ParseRecord(String filename, String sourceURL, boolean successful, long timeMillis, long countTriples, long countQuads,
-                           ErrorHandlerCLI errHandler) {
-            this.filename = filename;
-            this.sourceURL = sourceURL;
-            this.success = successful;
-            this.timeMillis = timeMillis;
-            this.triples = countTriples;
-            this.quads = countQuads;
-            this.errHandler = errHandler;
+    protected record ParseRecord(String filename, String sourceURL, boolean success, long timeMillis,
+                                 long triples, long quads, long tuples, ErrorHandlerCLI errHandler) {
+        // Default tuples to 0
+        ParseRecord(String filename, String sourceURL, boolean success, long timeMillis,
+                    long triples, long quads,
+                    ErrorHandlerCLI errHandler) {
+            this(filename, sourceURL, success, timeMillis,triples, quads, 0L, errHandler);
         }
     }
 
@@ -175,8 +163,7 @@ public abstract class CmdLangParse extends CmdMain {
 
         try {
             exec$();
-        }
-        finally {
+        } finally {
             SysRIOT.setStrictMode(oldStrictValue);
         }
     }
@@ -275,9 +262,12 @@ public abstract class CmdLangParse extends CmdMain {
         }
 
         // exit(1) if there were any errors.
+        // pr.success is true if the indicates the parser completed it's run
+        // (no failure-on-error or unexpected exceptions).
         for ( ParseRecord pr : outcomes ) {
-            if ( !pr.success || pr.errHandler.hadIssues() )
-                throw new CmdException();
+            if ( !pr.success || pr.errHandler.hadErrors() ) {
+                throw new TerminationException(1);
+            }
         }
     }
 
@@ -364,14 +354,6 @@ public abstract class CmdLangParse extends CmdMain {
         if ( passRelativeURIs )
             stopOnWarnings = false;
 
-        ErrorHandlerCLI errHandler = new ErrorHandlerCLI
-                (ErrorHandlerFactory.stdLogger
-                , passRelativeURIs      // Silent warnings if allowing relative URIs.
-                , true                  // Fail on error
-                , stopOnWarnings        // Fail on warnings
-                );
-        builder.errorHandler(errHandler);
-
         // Make into a cmd flag. (input and output subflags?)
         final boolean labelsAsGiven = false;
 // NodeToLabel labels = SyntaxLabels.createNodeToLabel() ;
@@ -381,6 +363,7 @@ public abstract class CmdLangParse extends CmdMain {
             builder.labelToNode(LabelToNode.createUseLabelAsGiven());
 
         // Build parser output additions.
+        StreamRDFCounting parserOut;
         StreamRDF s = parserOutputStream;
         if ( setupRDFS != null ) {
             // Remove literals as subjects
@@ -392,9 +375,19 @@ public abstract class CmdLangParse extends CmdMain {
         // If added here, count is quads and triples seen in the input.
         if ( modLangParse.mergeQuads() )
             s = new QuadsToTriples(s);
-        StreamRDFCounting parserOut = StreamRDFLib.count(s);
+        parserOut = StreamRDFLib.count(s);
+        // Not used beyond this point.
         s = null;
 
+        Logger logger = ErrorHandlerFactory.stdLogger;
+        ErrorHandlerCLI errHandler = ErrorHandlerCLI
+                .errorHandlerTracking(logger,
+                                      passRelativeURIs,         // Silence warnings if allowing relative URIs.
+                                      true,                     // Fail on error
+                                      stopOnWarnings,           // Fail on warnings
+                                      ()->parserOut.finish()    // Flush to align log messages
+                                      );
+        builder.errorHandler(errHandler);
         boolean successful = true;
 
         modTime.startTimer();
@@ -404,7 +397,13 @@ public abstract class CmdLangParse extends CmdMain {
             parser.parse(parserOut);
             successful = true;
         } catch (RiotNotFoundException ex) {
-            errHandler.error(ex.getMessage(), -1, -1);
+            logger.error(ex.getMessage(), -1, -1);
+            successful = false;
+        } catch (RDFParser.SetupException ex) {
+            logger.error(ex.getMessage());
+            successful = false;
+        } catch (RiotParseException ex) {
+            // is this reliable enough?
             successful = false;
         } catch (RiotException ex) {
             successful = false;
@@ -412,8 +411,9 @@ public abstract class CmdLangParse extends CmdMain {
             successful = false;
         }
         parserOut.finish();
-        long x = modTime.endTimer();
-        ParseRecord outcome = new ParseRecord(filenameLabel, sourceURL, successful, x, parserOut.countTriples(), parserOut.countQuads(), errHandler);
+        long elapsedTime_ms = modTime.endTimer();
+        ParseRecord outcome = new ParseRecord(filenameLabel, sourceURL, successful, elapsedTime_ms,
+                                              parserOut.countTriples(), parserOut.countQuads(), errHandler);
         return outcome;
     }
 

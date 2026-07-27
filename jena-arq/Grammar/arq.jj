@@ -21,9 +21,10 @@
 // ARQ/SPARQL 1.1 Grammar - native syntax for the query engine
 options
 {
-    // \ u processed after parsing in strings and IRIs, nowhere else.
-    JAVA_UNICODE_ESCAPE = false ;
-    UNICODE_INPUT = true ;
+// SPARQL 1.2 (not SPARQL 1.1 or 1.0)
+// \-u and \-U processed after parsing in strings and IRIs, nowhere else.
+  JAVA_UNICODE_ESCAPE = false ;
+  UNICODE_INPUT = true ;
   STATIC = false ;
 //  DEBUG_PARSER          = true ;
 //  DEBUG_TOKEN_MANAGER   = true ;
@@ -192,7 +193,7 @@ void ConstructQuery() : { Template t ;
  (
     // Full form.
     t = ConstructTemplate()
-      { getQuery().setConstructTemplate(t) ; }
+    { getQuery().setConstructTemplate(t) ; }
     ( DatasetClause() )*
     WhereClause()
     SolutionModifier()
@@ -200,18 +201,14 @@ void ConstructQuery() : { Template t ;
     // Abbreviated CONSTRUCT WHERE {}
     ( DatasetClause() )*
     <WHERE>
-    // Should have been "ConstructTemplate()"
-    <LBRACE>
-    ConstructQuads(acc) // Quads
-    <RBRACE>
-    SolutionModifier()
+    t = ConstructTemplate()
     {
-      t = new Template(acc) ;
       getQuery().setConstructTemplate(t) ;
-      // Create a query in the same shape as the query created by writing out in full.
-   ElementGroup elg = createQueryPattern(t);
+      // Create a query pattern in the same shape as the template.
+      ElementGroup elg = templateToQueryPattern(t);
       getQuery().setQueryPattern(elg) ;
     }
+    SolutionModifier()
  )
 }
 void DescribeQuery() : { Node n ; }
@@ -2164,6 +2161,8 @@ Node BlankNode() : { Token t = null ; }
 //  <LBRACKET> <RBRACKET> { return createBNode(t.beginLine, t.beginColumn) ; }
   t = <ANON> { return createBNode(t.beginLine, t.beginColumn) ; }
 }
+// IRIREF must be the last rule. The production of the HTML uses this as the
+// signal to switch from rules to terminals.
 String IRIREF() : { Token t ; }
 {
   t = <IRIref>
@@ -2396,10 +2395,16 @@ TOKEN :
 | < DOUBLE_NEGATIVE: <MINUS> <DOUBLE> >
 | < #QUOTE_3D: "\"\"\"">
 | < #QUOTE_3S: "'''">
-| <ECHAR: "\\" ( "t"|"b"|"n"|"r"|"f"|"\\"|"\""|"'") >
-| < #UCHAR: <UCHAR4> | <UCHAR8> >
+| < #ECHAR: "\\" ( "t"|"b"|"n"|"r"|"f"|"\\"|"\""|"'") >
 | < #UCHAR4: "\\" "u" <HEX> <HEX> <HEX> <HEX> >
 | < #UCHAR8: "\\" "U" <HEX> <HEX> <HEX> <HEX> <HEX> <HEX> <HEX> <HEX> >
+| < #UCHAR_DELIM: "\\" "u" <LBRACE>
+                          // W3C EBNF does not have a "{1,6}" syntax.
+                          // <HEX> (<HEX> (<HEX> (<HEX> (<HEX> (<HEX>)? )? )? )? )?
+                          // Or be lax here and check the length in escape processing.
+                          (<HEX>)+
+                          <RBRACE> >
+| < #UCHAR: <UCHAR4> | <UCHAR8> | <UCHAR_DELIM> >
 | < STRING_LITERAL1:
       // Single quoted string
       "'" ( (~["'","\\","\n","\r"]) | <ECHAR> | <UCHAR> )* "'" >
@@ -2475,6 +2480,7 @@ TOKEN:
           ["\u200C"-"\u200D"] | ["\u2070"-"\u218F"] | ["\u2C00"-"\u2FEF"] |
           ["\u3001"-"\uD7FF"] | ["\uF900"-"\uFFFD"]
           // [#x10000-#xEFFFF]
+          // \-U not legal here so as an extension allow surrogate pairs.
           // Put in surrogate pairs because by the time javacc sees codepoints,
           // they are in UTF-16.
           | <SURROGATE_PAIR>

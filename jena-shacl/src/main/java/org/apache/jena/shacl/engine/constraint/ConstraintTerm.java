@@ -52,7 +52,7 @@ public abstract class ConstraintTerm implements Constraint {
 
     private void applyConstraintTerm(ValidationContext vCxt, Shape shape, Node focusNode, Path path, Node term) {
         ReportItem item = validate(vCxt, term);
-        boolean passed = item == null;
+        boolean passed = (item == null);
         if (path == null) {
             vCxt.notifyValidationListener(() -> new ConstraintEvaluatedOnFocusNodeEvent(vCxt, shape, focusNode, this, passed));
         } else {
@@ -65,5 +65,5 @@ public abstract class ConstraintTerm implements Constraint {
         vCxt.reportEntry(item, shape, focusNode, path, this);
     }
 
-    public abstract ReportItem validate(ValidationContext vCxt, Node n) ;
+    protected abstract ReportItem validate(ValidationContext vCxt, Node n) ;
 }

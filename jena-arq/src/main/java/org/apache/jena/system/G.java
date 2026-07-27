@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import org.apache.jena.atlas.iterator.Iter;
 import org.apache.jena.atlas.lib.Copyable;
@@ -40,8 +41,6 @@ import org.apache.jena.sparql.core.DatasetGraph;
 import org.apache.jena.sparql.core.Quad;
 import org.apache.jena.sparql.engine.iterator.IterAbortable;
 import org.apache.jena.sparql.graph.NodeConst;
-import org.apache.jena.sparql.util.graph.GNode;
-import org.apache.jena.sparql.util.graph.GraphList;
 import org.apache.jena.util.iterator.ExtendedIterator;
 import org.apache.jena.util.iterator.WrappedIterator;
 
@@ -270,7 +269,7 @@ public class G {
      */
     public static Node getPO(Graph graph, Node predicate, Node object) {
         Objects.requireNonNull(graph, "graph");
-        return object(first(find(graph, Node.ANY, predicate, object)));
+        return subject(first(find(graph, Node.ANY, predicate, object)));
     }
 
     /**
@@ -287,7 +286,7 @@ public class G {
      */
     public static boolean hasOnePO(Graph graph, Node predicate, Node object) {
         Objects.requireNonNull(graph, "graph");
-        return findUniqueTriple(graph, Node.ANY, predicate, object) != null;
+        return findZeroOneTriple(graph, Node.ANY, predicate, object) != null;
     }
 
     /**
@@ -374,6 +373,12 @@ public class G {
         return iterSP(graph, subject, predicate).toList();
     }
 
+    /** Return a set of all objects for subject-predicate */
+    public static Set<Node> allSP(Graph graph, Node subject, Node predicate) {
+        Objects.requireNonNull(graph, "graph");
+        return find(graph, subject, predicate, null).mapWith(Triple::getObject).toSet();
+    }
+
     /** Count matches of subject-predicate (which can be wildcards). */
     public static long countSP(Graph graph, Node subject, Node predicate) {
         Objects.requireNonNull(graph, "graph");
@@ -397,6 +402,12 @@ public class G {
     public static List<Node> listPO(Graph graph, Node predicate, Node object) {
         Objects.requireNonNull(graph, "graph");
         return iterPO(graph, predicate, object).toList();
+    }
+
+    /** Return a set of all subjects for predicate-object */
+    public static Set<Node> allPO(Graph graph, Node predicate, Node object) {
+        Objects.requireNonNull(graph, "graph");
+        return find(graph, null, predicate, object).mapWith(Triple::getSubject).toSet();
     }
 
     /** Count matches of predicate-object (which can be wildcards). */
@@ -494,39 +505,56 @@ public class G {
     }
 
     // ---- RDF list.
+    // Most ways to call GList.xxx
 
-    /** Return a java list for an RDF list of data. */
+    /** @deprecated use {@link #listMembers(Graph, Node)} */
+    @Deprecated(forRemoval = true)
     public static List<Node> rdfList(Graph graph, Node node) {
-        Objects.requireNonNull(graph, "graph");
-        Objects.requireNonNull(node, "node");
-        GNode gNode = GNode.create(graph, node);
-        if ( ! GraphList.isListNode(gNode) )
-            return null;
-        return GraphList.members(gNode);
+        return listMembers(graph, node);
     }
 
-    /** Return a the length of an RDF list. */
+    /** Return a java list of an RDF list of data. */
+    public static List<Node> listMembers(Graph graph, Node node) {
+        Objects.requireNonNull(graph, "graph");
+        Objects.requireNonNull(node, "node");
+        List<Node> nodes = GList.members(graph, node);
+        return nodes;
+    }
+
+    /** Return a the length of an RDF list. Return -1 if it is not a list. */
     public static int listLength(Graph graph, Node node) {
         Objects.requireNonNull(graph, "graph");
         Objects.requireNonNull(node, "node");
-        GNode gNode = GNode.create(graph, node);
-        if ( ! GraphList.isListNode(gNode) )
+        if ( ! GList.isListNode(graph, node) )
             return -1;
-        return GraphList.length(gNode);
+        return (int)GList.listLength(graph, node);
     }
 
     /**
-     * Return a java list where the {@code node} is an RDF list of nodes or a single
-     * node (returned a singleton list).
+     * Test whether node looks like a list (RDF Collection).
+     * The test is whether node is {@code rdf:nil}
+     * or has exactly one of each of {@code rdf:first}
+     * and {@code rdf:next}.
+     * Multiple occurrences of {@code rdf:first}
+     * or {@code rdf:next} are considered errors.
+     */
+    public static boolean isList(Graph graph, Node node) {
+        Objects.requireNonNull(graph, "graph");
+        Objects.requireNonNull(node, "node");
+        return GList.isListNode(graph, node);
+    }
+
+    /**
+     * Return a java list where the {@code node} is an RDF list of nodes,
+     * of if the node is not a list, return the node as a list of one.
      */
     public static List<Node> getOneOrList(Graph graph, Node node) {
         Objects.requireNonNull(graph, "graph");
         Objects.requireNonNull(node, "node");
-        GNode gNode = GNode.create(graph, node);
         // An element on its own is a list of one
-        if ( ! GraphList.isListNode(gNode) )
+        if ( ! GList.isListNode(graph, node) )
             return List.of(node);
-        return GraphList.members(gNode);
+        return GList.members(graph, node);
     }
 
     // Sub-class / super-class
@@ -645,18 +673,6 @@ public class G {
         types.forEach(t->
             find(graph, null, rdfType, t).mapWith(Triple::getSubject).forEach(acc::add)
             );
-    }
-
-    /** Return a set of all objects for subject-predicate */
-    public static Set<Node> allSP(Graph graph, Node subject, Node predicate) {
-        Objects.requireNonNull(graph, "graph");
-        return find(graph, subject, predicate, null).mapWith(Triple::getObject).toSet();
-    }
-
-    /** Return a set of all subjects for predicate-object */
-    public static Set<Node> allPO(Graph graph, Node predicate, Node object) {
-        Objects.requireNonNull(graph, "graph");
-        return find(graph, null, predicate, object).mapWith(Triple::getSubject).toSet();
     }
 
     // --- Graph walking.
@@ -798,6 +814,10 @@ public class G {
     public static Iter<Triple> quads2triples(Iterator<Quad> iter)
     { return Iter.iter(iter).map(Quad::asTriple); }
 
+    /** Project quads to triples */
+    public static Stream<Triple> quads2triples(Stream<Quad> stream)
+    { return stream.map(Quad::asTriple); }
+
     /** Project quad to graph name */
     public static Iterator<Node> quad2graphName(Iterator<Quad> iter)
     { return Iter.map(iter, Quad::getGraph); }
@@ -841,15 +861,15 @@ public class G {
 
     /**
      * Creates a copy of the given graph.
-     * If the graph implements Copyable<Graph> then the copy method is called.
+     * If the graph implements {@code Copyable<Graph>} then the copy method is called.
      * Otherwise, a new system default memory-based graph is created and the triples are copied
      * into it.
      * @param src the graph to copy
      * @return a copy of the graph
      */
-    @SuppressWarnings("unchecked")
     public static Graph copy(Graph src) {
         if(src instanceof Copyable<?> copyable) {
+            @SuppressWarnings("unchecked")
             Copyable<Graph> copyableGraph = (Copyable<Graph>)copyable;
             return copyableGraph.copy();
         }
@@ -903,6 +923,11 @@ public class G {
         return Iter.iter(iter).map(t -> Quad.create(graphNode, t));
     }
 
+    /** Convert a stream of triples into quads for the specified graph name. */
+    public static Stream<Quad> triples2quads(Node graphNode, Stream<Triple> stream) {
+        return stream.map(t -> Quad.create(graphNode, t));
+    }
+
     /**
      * Convert an iterator of triples into quads for the default graph. This is
      * {@link Quad#defaultGraphIRI}, not {@link Quad#defaultGraphNodeGenerated}, which is
@@ -910,6 +935,15 @@ public class G {
      */
     public static Iter<Quad> triples2quadsDftGraph(Iterator<Triple> iter) {
         return triples2quads(Quad.defaultGraphIRI, iter);
+    }
+
+    /**
+     * Convert a stream of triples into quads for the default graph. This is
+     * {@link Quad#defaultGraphIRI}, not {@link Quad#defaultGraphNodeGenerated}, which is
+     * for quads outside a dataset, usually the output of parsers.
+     */
+    public static Stream<Quad> triples2quadsDftGraph(Stream<Triple> stream) {
+        return triples2quads(Quad.defaultGraphIRI, stream);
     }
 
     /**

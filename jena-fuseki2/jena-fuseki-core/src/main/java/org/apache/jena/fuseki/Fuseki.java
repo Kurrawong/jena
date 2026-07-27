@@ -43,54 +43,76 @@ public class Fuseki {
     // General fixed constants.
 
     /** Path as package name */
-    static public final String PATH               = "org.apache.jena.fuseki";
+    public static final String PATH               = "org.apache.jena.fuseki";
 
     /** a unique IRI for the Fuseki namespace */
-    static public final String FusekiIRI          = "http://jena.apache.org/Fuseki";
+    public static final String FusekiIRI          = "http://jena.apache.org/Fuseki";
 
     /**
      * A Fuseki base IRI for {@link Symbol Symbols}
      */
-    static public final String FusekiSymbolIRI    = "http://jena.apache.org/fuseki#";
+    public static final String FusekiSymbolIRI    = "http://jena.apache.org/fuseki#";
 
     /** Dummy base URI string for parsing SPARQL Query and Update requests */
-    static public final String BaseParserSPARQL   = "http://server/unset-base/";
+    public static final String BaseParserSPARQL   = "http://server/unset-base/";
 
     /** Dummy base URI string for parsing SPARQL Query and Update requests */
-    static public final String BaseUpload         = "http://server/unset-base/";
+    public static final String BaseUpload         = "http://server/unset-base/";
 
     /** The name of the Fuseki server.*/
-    static public final String  NAME              = "Apache Jena Fuseki";
+    public static final String  NAME              = "Apache Jena Fuseki";
 
     /** Version of this Fuseki instance */
-    static public final String  VERSION           = Version.versionForClass(Fuseki.class).orElse("<development>");
+    public static final String  VERSION           = Version.versionForClass(Fuseki.class).orElse("<development>");
 
-    /** Supporting Graph Store Protocol direct naming.
+    /**
+     * Supporting Graph Store Protocol direct naming.
      * <p>
      *  A GSP "direct name" is a request, not using ?default or ?graph=, that names the graph
      *  by the request URL so it is of the form {@code http://server/dataset/graphname...}.
      *  There are two cases: looking like a service {@code http://server/dataset/service} and
      *  a longer URL that can't be a service {@code http://server/dataset/segment/segment/...}.
      *  <p>
-     *  GSP "direct name" is usually off.  It is a rare feature and because of hard wiring to the URL
-     *  quite sensitive to request route.
+     *  GSP "direct name" is not part of the standard default Fuseki configuration.
+     *  It needs to enabled by configuration using {@code fuseki:operation fuseki:gsp-direct-r}
+     *  or {@code  fuseki:operation fuseki:gsp-direct-rw}.
+     *
+     *  It conflicts with having static file and overalpping service endpoint names.
+     *  Service endpoint names takes precidence.
      *  <p>
      *  The following places use this switch:
      *  <ul>
-     *  <li>{@code FusekiFilter} for the "clearly not a service" case
-     *  <li>{@code ServiceRouterServlet}, end of dispatch (after checking for http://server/dataset/service)
-     *  <li>{@code SPARQL_GSP.determineTarget} This is all-purpose code - should not get there because of other checks.
+     *  <li>{@code Dispatcher}.
+     *  <li>{@code GraphTarget.determineTargetGSP} This is all-purpose code - should not get there because of other checks.
+     *  <li>{@code OperationRegistry} where it endbles operation registry.
+     *  <li>{@code FusekiServer.Builder.applyAccessControl}
      *  </ul>
      *  <p>
      * <b>Note</b><br/>
-     * GSP Direct Naming was implemented to provide two implementations for the SPARQL 1.1 implementation report.
+     * GSP Direct Naming was primarily implemented to provide two implementations for the SPARQL 1.1 implementation report.
      */
-    static public final boolean GSP_DIRECT_NAMING = false;
+    public static final boolean GSP_DIRECT_NAMING = true;
+
+    /**
+     * Path prefix reserved for admin and server operations such as /$/ping
+     */
+    public static final String reservedPathPrefix = "/$/";
+    /**
+     * Return a URL in the server function area.
+     */
+    public static String serverFunctionPath(String path) {
+        if ( path.startsWith(reservedPathPrefix) )
+            return path;
+        if ( path.startsWith("/") )
+            return "/$"+path;
+        else
+            return reservedPathPrefix+path;
+    }
 
     /** Are we in development mode?  That means a SNAPSHOT, or no VERSION
      * because maven has not filtered the fuseki-properties.xml file.
      */
-    public static boolean   developmentMode;
+    public static boolean developmentMode;
     static {
         // See ServletBase.setCommonheaders
         // If it look like a SNAPSHOT, or it's not set, we are in development mode.
@@ -98,8 +120,9 @@ public class Fuseki {
     }
 
     // @formatter:off
-    public static boolean   outputJettyServerHeader     = developmentMode;
-    public static boolean   outputFusekiServerHeader    = developmentMode;
+    public static boolean outputJettyServerHeader   = developmentMode;
+    public static boolean outputFusekiServerHeader  = developmentMode;
+    // @formatter:on
 
     /**
      * Initialize is class.
@@ -108,7 +131,7 @@ public class Fuseki {
     public static void initConsts() {}
 
     /** An identifier for the HTTP Fuseki server instance */
-    static public final String  serverHttpName          = NAME + " (" + VERSION + ")";
+    public static final String  serverHttpName          = NAME + " (" + VERSION + ")";
 
     /** Logger name for operations */
     public static final String  actionLogName     = PATH + ".Fuseki";
@@ -165,7 +188,8 @@ public class Fuseki {
     public static final Logger  compactLog        = LoggerFactory.getLogger(compactLogName);
 
     // There isn't an ideal status code for a cancelled query.
-    // HTTP 408 "Request timeout" which is about connection management, not for general timeouts.
+    // HTTP 408 "Request timeout" is not appropriate.
+    // It is about connection management, not for general timeouts.
     public static int SC_QueryCancelled                 = HttpSC.SERVICE_UNAVAILABLE_503;
 
     // Servlet context attribute names used by the core engine.
@@ -208,7 +232,7 @@ public class Fuseki {
     public static final StreamManager webStreamManager;
     static {
         webStreamManager = new StreamManager();
-        // Only know how to handle http URLs
+        // Only know how to handle http and ftp URLs
         webStreamManager.addLocator(new LocatorHTTP());
         webStreamManager.addLocator(new LocatorFTP());
     }

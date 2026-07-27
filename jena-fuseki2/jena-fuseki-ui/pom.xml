@@ -29,20 +29,20 @@
     <parent>
         <groupId>org.apache.jena</groupId>
         <artifactId>jena-fuseki</artifactId>
-        <version>6.1.0-SNAPSHOT</version>
+        <version>6.2.0-SNAPSHOT</version>
     </parent>
 
-    <properties>
-        <node.version>v20.19.3</node.version>
+    <properties> 
+        <node.version>v24.16.0</node.version>
         <yarn.version>v1.22.17</yarn.version>
         <automatic.module.name>org.apache.jena.fuseki.ui</automatic.module.name>
 
         <!-- 
              Allow for skipping the tests.
-             The test frameworks need various software compoents to 
+             The test frameworks need various software components to 
              be available on the host running maven. This isn't always 
-             practical. This property allows the UI to be built on such machines
-             by skipping the tests.
+             practical. This property allows the UI to be built on such
+	           machines by skipping the tests.
              It is set "true" by profile "ui-skip-tests"
         -->
         <skip.ui.tests>false</skip.ui.tests>
@@ -84,7 +84,7 @@
             <plugin>
                 <groupId>com.github.eirslett</groupId>
                 <artifactId>frontend-maven-plugin</artifactId>
-                <version>2.0.0</version>
+                <version>2.0.1</version>
                 <executions>
                     <execution>
                         <id>install node and yarn</id>

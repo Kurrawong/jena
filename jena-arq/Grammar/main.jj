@@ -54,18 +54,10 @@
 
 options
 {
-#ifdef SPARQL_12
-    // Standards with \ u everywhere, \U in strings and IRIs only.
-    // \ u processed in the input stream
-    // SPARQL 1.0 and 1.1
-    JAVA_UNICODE_ESCAPE   = true ;
-    UNICODE_INPUT         = false ;
-#endif
-#ifdef ARQ
-    // \ u processed after parsing in strings and IRIs, nowhere else.
-    JAVA_UNICODE_ESCAPE   = false ;
-    UNICODE_INPUT         = true ;
-#endif
+// SPARQL 1.2 (not SPARQL 1.1 or 1.0)
+// \-u and \-U processed after parsing in strings and IRIs, nowhere else.
+  JAVA_UNICODE_ESCAPE   = false ;
+  UNICODE_INPUT         = true ;
 
   STATIC                = false ;
 //  DEBUG_PARSER          = true ;
@@ -274,8 +266,8 @@ void ConstructQuery() : { Template t ;
    { getQuery().setQueryConstructType() ; }
  (
     // Full form.
-    t = ConstructTemplate() 
-      { getQuery().setConstructTemplate(t) ; }
+    t = ConstructTemplate()
+    { getQuery().setConstructTemplate(t) ; }
     ( DatasetClause() )*
     WhereClause()
     SolutionModifier()
@@ -283,18 +275,14 @@ void ConstructQuery() : { Template t ;
     // Abbreviated CONSTRUCT WHERE {}
     ( DatasetClause() )*
     <WHERE>
-    // Should have been "ConstructTemplate()"
-    <LBRACE>  
-    ConstructQuads(acc) // Quads
-    <RBRACE>
-    SolutionModifier()
+    t = ConstructTemplate()
     { 
-      t = new Template(acc) ;
       getQuery().setConstructTemplate(t) ;
-      // Create a query in the same shape as the query created by writing out in full.
-	  ElementGroup elg = createQueryPattern(t);
+      // Create a query pattern in the same shape as the template.
+      ElementGroup elg = templateToQueryPattern(t);
       getQuery().setQueryPattern(elg) ;
     }
+    SolutionModifier()
  )
 }
 #else
@@ -306,7 +294,7 @@ void ConstructQuery() : { Template t ;
  (
     // Full form.
     t = ConstructTemplate() 
-      { getQuery().setConstructTemplate(t) ; }
+    { getQuery().setConstructTemplate(t) ; }
     ( DatasetClause() )*
     WhereClause()
     SolutionModifier()
@@ -314,20 +302,13 @@ void ConstructQuery() : { Template t ;
     // Abbreviated CONSTRUCT WHERE {}
     ( DatasetClause() )*
     <WHERE>
-    // Should have been "ConstructTemplate()"
-    <LBRACE>  
-    (TriplesTemplate(acc))? // triples
-    <RBRACE>
-    SolutionModifier()
+    t = ConstructTemplate() 
     { 
-      t = new Template(acc.getBGP()) ;
       getQuery().setConstructTemplate(t) ;
-      // Create a query in the same shape as the query created by writing out in full.
-      ElementPathBlock epb = new ElementPathBlock(acc.getBGP()) ;
-      ElementGroup elg = new ElementGroup() ;
-      elg.addElement(epb) ;
+      ElementGroup elg = templateToQueryPattern(t);
       getQuery().setQueryPattern(elg) ;
     }
+    SolutionModifier()
  )
 }
 #endif
@@ -828,7 +809,7 @@ void ConstructQuadsNotTriples(QuadAccSink acc) :
      }
 {
     (
-   	  <GRAPH> /* TriG template :: (<GRAPH>)?*/
+      <GRAPH> /* TriG template :: (<GRAPH>)?*/
       gn = VarOrBlankNodeOrIri()
     )?
 
@@ -2669,6 +2650,8 @@ Node BlankNode() :  { Token t = null ; }
 
 }
 
+// IRIREF must be the last rule. The production of the HTML uses this as the
+// signal to switch from rules to terminals.
 String IRIREF() : { Token t ; }
 {
   t = <IRIref>
@@ -2914,7 +2897,7 @@ TOKEN [IGNORE_CASE] :
 
 TOKEN [IGNORE_CASE] :
 {
-  < DATA:	      "data" >
+  < DATA:          "data" >
 | < INSERT:       "insert">
 | < DELETE:       "delete" >
 
@@ -2970,16 +2953,22 @@ TOKEN :
 
 | < #QUOTE_3D: "\"\"\"">
 | < #QUOTE_3S: "'''">
-| <ECHAR: "\\" ( "t"|"b"|"n"|"r"|"f"|"\\"|"\""|"'") >
+| < #ECHAR:    "\\" ( "t"|"b"|"n"|"r"|"f"|"\\"|"\""|"'") >
+| < #UCHAR4:   "\\" "u" <HEX> <HEX> <HEX> <HEX> >
+| < #UCHAR8:   "\\" "U" <HEX> <HEX> <HEX> <HEX> <HEX> <HEX> <HEX> <HEX> >
 #ifdef SPARQL_12
-// Done instream by JavaCC
-| < #UCHAR:      <UCHAR8> >
+| < #UCHAR:    <UCHAR4> | <UCHAR8> >
 #endif
 #ifdef ARQ
-| < #UCHAR:      <UCHAR4> | <UCHAR8> >
+| < #UCHAR_DELIM: "\\" "u" <LBRACE>
+                          // W3C EBNF does not have a "{1,6}" syntax.
+                          // <HEX> (<HEX> (<HEX> (<HEX> (<HEX> (<HEX>)? )? )? )? )?
+                          // Or be lax here and check the length in escape processing.
+                          (<HEX>)+
+                          <RBRACE> >
+| < #UCHAR:      <UCHAR4> | <UCHAR8> | <UCHAR_DELIM> >
 #endif
-| < #UCHAR4:     "\\" "u" <HEX> <HEX> <HEX> <HEX> >
-| < #UCHAR8:     "\\" "U" <HEX> <HEX> <HEX> <HEX> <HEX> <HEX> <HEX> <HEX> >
+
 
 | < STRING_LITERAL1: 
       // Single quoted string
@@ -3077,6 +3066,7 @@ TOKEN:
           ["\u3001"-"\uD7FF"] | ["\uF900"-"\uFFFD"] 
           // [#x10000-#xEFFFF]
 #ifdef ARQ
+          // \-U not legal here so as an extension allow surrogate pairs.
           // Put in surrogate pairs because by the time javacc sees codepoints,
           // they are in UTF-16.
           | <SURROGATE_PAIR>

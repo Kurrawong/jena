@@ -24,8 +24,8 @@ package org.apache.jena.mem.collection;
 import org.apache.jena.graph.Triple;
 import org.hamcrest.collection.IsEmptyCollection;
 import org.hamcrest.collection.IsIterableContainingInAnyOrder;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -33,9 +33,9 @@ import java.util.ConcurrentModificationException;
 import java.util.NoSuchElementException;
 import java.util.stream.StreamSupport;
 
-import static org.apache.jena.testing_framework.GraphHelper.triple;
+import static org.apache.jena.junit.GraphHelper.triple;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 public abstract class AbstractJenaSetTripleTest {
 
@@ -43,8 +43,8 @@ public abstract class AbstractJenaSetTripleTest {
 
     protected abstract JenaSet<Triple> createTripleSet();
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeEach
+    public void setUp() {
         sut = createTripleSet();
     }
 
@@ -106,7 +106,7 @@ public abstract class AbstractJenaSetTripleTest {
     public void testKeyIteratorEmpty() {
         var iter = sut.keyIterator();
         assertFalse(iter.hasNext());
-        assertThrows(NoSuchElementException.class, () -> iter.next());
+        assertThrows(NoSuchElementException.class, iter::next);
     }
 
     @Test
@@ -114,7 +114,7 @@ public abstract class AbstractJenaSetTripleTest {
         sut.tryAdd(triple("s o p"));
         var iter = sut.keyIterator();
         sut.tryAdd(triple("s o p2"));
-        assertThrows(ConcurrentModificationException.class, () -> iter.next());
+        assertThrows(ConcurrentModificationException.class, iter::next);
     }
 
     @Test
@@ -122,8 +122,9 @@ public abstract class AbstractJenaSetTripleTest {
         sut.tryAdd(triple("s o p"));
         var spliterator = sut.keySpliterator();
         sut.tryAdd(triple("t o p2"));
-        assertThrows(ConcurrentModificationException.class, () -> spliterator.tryAdvance(t -> {
-        }));
+        assertThrows(ConcurrentModificationException.class,
+                     () -> spliterator.tryAdvance(t -> {})
+                     );
     }
 
     @Test
@@ -362,29 +363,4 @@ public abstract class AbstractJenaSetTripleTest {
         }
         assertTrue(sut.isEmpty());
     }
-
-
-    private static class HashCommonTripleSet extends HashCommonSet<Triple> {
-        public HashCommonTripleSet() {
-            super(10);
-        }
-
-        @Override
-        protected Triple[] newKeysArray(int size) {
-            return new Triple[size];
-        }
-
-        @Override
-        public void clear() {
-            super.clear(10);
-        }
-    }
-
-    private static class FastTripleHashSet extends FastHashSet<Triple> {
-        @Override
-        protected Triple[] newKeysArray(int size) {
-            return new Triple[size];
-        }
-    }
-
 }

@@ -607,15 +607,7 @@ public class Iter<T> implements IteratorCloseable<T> {
      *  returned iterator.
      */
     public static <T> Iterator<T> dropWhile(Iterator<T> iter, Predicate<T> predicate) {
-        PeekIterator<T> iter2 = new PeekIterator<>(iter);
-        for(;;) {
-            T elt = iter2.peek();
-            if ( elt == null )
-                return Iter.nullIterator();
-            if ( ! predicate.test(elt) )
-                break;
-        }
-        return iter2;
+        return new IteratorDropWhile<T>(iter, predicate);
     }
 
     /** Create an iterator such that elements from the front until
@@ -1152,12 +1144,12 @@ public class Iter<T> implements IteratorCloseable<T> {
 
     /** Limit the number of elements. */
     public Iter<T> limit(long N) {
-        return Iter.iter(limit(null, N));
+        return Iter.iter(limit(get(), N));
     }
 
     /** Skip over a number of elements. */
     public Iter<T> skip(long N) {
-        return Iter.iter(skip(null, N));
+        return Iter.iter(skip(get(), N));
     }
 
     /** Count the iterator (this is destructive on the iterator) */

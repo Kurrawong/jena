@@ -25,12 +25,14 @@ import java.util.stream.Stream;
 
 import org.junit.jupiter.api.*;
 
+import org.apache.jena.arq.TestConsts;
 import org.apache.jena.arq.junit.Scripts;
 import org.apache.jena.sparql.engine.ref.QueryEngineRef;
 import org.apache.jena.sparql.expr.E_Function;
 import org.apache.jena.sparql.expr.NodeValue;
 
 public class Scripts_RefEngine {
+
     @BeforeAll
     public static void beforeClass() {
         NodeValue.VerboseWarnings = false;
@@ -46,8 +48,27 @@ public class Scripts_RefEngine {
     }
 
     @TestFactory
-    @DisplayName("ARQ-RefEngine")
-    public Stream<DynamicNode> testFactorySPARQL_ARQ() {
-        return Scripts.manifestTestFactorySPARQL("testing/ARQ/manifest-ref-arq.ttl");
+    @DisplayName("RefEngine - ARQ-SPARQL")
+    public Stream<DynamicNode> testFactoryRefARQ() {
+        return Scripts.manifestTestFactorySPARQL(TestConsts.testDirARQ+"manifest-ref-arq.ttl");
+    }
+
+
+    @TestFactory
+    @DisplayName("RefEngine - SPARQL 1.0")
+    public Stream<DynamicNode> testFactoryRefSPARQL10() {
+        return Scripts.manifestTestFactorySPARQL(TestConsts.SPARQL10_TESTS_DIR+"manifest-evaluation.ttl");
+    }
+
+    @TestFactory
+    @DisplayName("RefEngine - SPARQL 1.1")
+    public Stream<DynamicNode> testFactoryRefSPARQL11() {
+        return Scripts.manifestTestFactorySPARQL(TestConsts.SPARQL11_TESTS_DIR+"manifest-sparql11-query.ttl");
+    }
+
+    @TestFactory
+    @DisplayName("RefEngine - SPARQL 1.2")
+    public Stream<DynamicNode> testFactoryRefSPARQL12() {
+        return Scripts.manifestTestFactorySPARQL(TestConsts.SPARQL12_TESTS_DIR+"manifest.ttl");
     }
 }

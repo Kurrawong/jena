@@ -22,11 +22,7 @@
 package org.apache.jena.http;
 
 import static org.apache.jena.http.HttpLib.*;
-import static org.apache.jena.http.Push.PATCH;
-import static org.apache.jena.http.Push.POST;
-import static org.apache.jena.http.Push.PUT;
-import static org.apache.jena.riot.web.HttpNames.METHOD_HEAD;
-import static org.apache.jena.riot.web.HttpNames.METHOD_OPTIONS;
+import static org.apache.jena.http.HttpMethod.*;
 
 import java.io.InputStream;
 import java.net.Authenticator;
@@ -80,7 +76,7 @@ public class HttpOp {
 
     /** Perform an HTTP and return the body as a string, Return null for a "404 Not Found". */
     public static String httpGetString(String url) {
-        return httpGetString(HttpEnv.getDftHttpClient(), url, null);
+        return httpGetString(HttpEnv.getHttpClient(url), url, null);
     }
 
     /**
@@ -89,7 +85,7 @@ public class HttpOp {
      * unlike {@link #httpGetString(String)}.
      */
     public static String httpGetStringEx(String url) throws HttpException {
-        return httpGetString(HttpEnv.getDftHttpClient(), url, null, false);
+        return httpGetString(HttpEnv.getHttpClient(url), url, null, false);
     }
 
     /**
@@ -99,14 +95,14 @@ public class HttpOp {
      */
     public static void httpGetDiscard(String url) throws HttpException {
         HttpRequest httpRequest = newGetRequest(url, setAcceptHeader("*/*"));
-        HttpClient httpClient = HttpEnv.getDftHttpClient();
+        HttpClient httpClient = HttpEnv.getHttpClient(url);
         HttpResponse<InputStream> response = execute(httpClient, httpRequest);
         HttpLib.handleResponseNoBody(response);
     }
 
     /** Perform an HTTP and return the body as a string, Return null for a "404 Not Found". */
     public static String httpGetString(String url, String acceptHeader) {
-        return httpGetString(HttpEnv.getDftHttpClient(), url, acceptHeader);
+        return httpGetString(HttpEnv.getHttpClient(url), url, acceptHeader);
     }
 
     /** Perform an HTTP and return the body as a string. Return null for a "404 Not Found". */
@@ -137,7 +133,7 @@ public class HttpOp {
      * Return null for a "404 Not Found".
      */
     public static String httpPostRtnString(String url) {
-        return httpPostRtnString(HttpEnv.getDftHttpClient(), url);
+        return httpPostRtnString(HttpEnv.getHttpClient(url), url);
     }
 
     /**
@@ -163,12 +159,12 @@ public class HttpOp {
 
     /** POST params as a HTML form. */
     public static void httpPostForm(String url, Params params) {
-        try ( TypedInputStream in = execPostForm(HttpEnv.getDftHttpClient(), url, params, null) ) {}
+        try ( TypedInputStream in = execPostForm(HttpEnv.getHttpClient(url), url, params, null) ) {}
     }
 
     /** POST params as a HTML form. */
     public static TypedInputStream httpPostForm(String url, Params params, String acceptString) {
-        return execPostForm(HttpEnv.getDftHttpClient(), url, params, acceptString);
+        return execPostForm(HttpEnv.getHttpClient(url), url, params, acceptString);
     }
 
     private static TypedInputStream execPostForm(HttpClient httpClient, String url, Params params, String acceptString) {
@@ -204,12 +200,12 @@ public class HttpOp {
 
     /** Perform an HTTP GET to a URL, with "Accept" header "*{@literal /}*". The application MUST close the InputStream. */
     public static TypedInputStream httpGet(String url) {
-        return httpGet(HttpEnv.getDftHttpClient(), url);
+        return httpGet(HttpEnv.getHttpClient(url), url);
     }
 
     /** Perform an HTTP GET to a URL. The application MUST close the InputStream. */
     public static TypedInputStream httpGet(String url, String acceptHeader) {
-        return httpGet(HttpEnv.getDftHttpClient(), url, acceptHeader);
+        return httpGet(HttpEnv.getHttpClient(url), url, acceptHeader);
     }
 
     /** Perform an HTTP GET to a URL. The application MUST close the InputStream. */
@@ -240,7 +236,7 @@ public class HttpOp {
 
     /** POST */
     public static void httpPost(String url) {
-        httpPost(HttpEnv.getDftHttpClient(), url, null, BodyPublishers.noBody());
+        httpPost(HttpEnv.getHttpClient(url), url, null, BodyPublishers.noBody());
     }
 
     /** POST
@@ -249,12 +245,12 @@ public class HttpOp {
      * @see BodyPublishers#ofString
      */
     public static void httpPost(String url, String contentType, BodyPublisher body) {
-        httpPost(HttpEnv.getDftHttpClient(), url, contentType, body);
+        httpPost(HttpEnv.getHttpClient(url), url, contentType, body);
     }
 
     /** POST to a URL with content=type and string. */
     public static void httpPost(String url, String contentType, String body) {
-        httpPost(HttpEnv.getDftHttpClient(), url, contentType, BodyPublishers.ofString(body));
+        httpPost(HttpEnv.getHttpClient(url), url, contentType, BodyPublishers.ofString(body));
     }
 
     /** POST
@@ -270,15 +266,16 @@ public class HttpOp {
     }
 
     // ---- POST stream response.
+    // The URL may have a query string.
 
     /** POST - the application MUST close the InputStream.*/
     public static TypedInputStream httpPostStream(String url) {
-        return httpPostStream(HttpEnv.getDftHttpClient(), url);
+        return httpPostStream(HttpEnv.getHttpClient(url), url);
     }
 
     /** POST - the application MUST close the InputStream.*/
     public static TypedInputStream httpPostStream(String url, String acceptHeader) {
-        return execPostStream(HttpEnv.getDftHttpClient(), url, acceptHeader);
+        return execPostStream(HttpEnv.getHttpClient(url), url, acceptHeader);
     }
 
     /** POST - the application MUST close the InputStream.*/
@@ -291,26 +288,26 @@ public class HttpOp {
         return execPostStream(httpClient, url, acceptHeader);
     }
 
-    /** POST(URL) -> InputStream+Content-Type. The application MUST close the InputStream. */
+    /** POST(URL), no body -> InputStream+Content-Type. The application MUST close the InputStream. */
     private static TypedInputStream execPostStream(HttpClient httpClient, String url, String acceptHeader) {
         return execPostStream(httpClient, url, null, null, acceptHeader);
     }
 
     /** POST - the application MUST close the InputStream.*/
     public static TypedInputStream httpPostStream(String url, String contentType, BodyPublisher bodyContent) {
-        return httpPostStream(HttpEnv.getDftHttpClient(), url, contentType, bodyContent);
+        return httpPostStream(HttpEnv.getHttpClient(url), url, contentType, bodyContent);
     }
 
     /** POST - the application MUST close the InputStream.*/
     public static TypedInputStream httpPostStream(String url, String contentType, String bodyContent) {
-        return httpPostStream(HttpEnv.getDftHttpClient(), url, contentType, BodyPublishers.ofString(bodyContent));
+        return httpPostStream(HttpEnv.getHttpClient(url), url, contentType, BodyPublishers.ofString(bodyContent));
     }
 
     // ---- POST content, stream response
 
     /** POST - the application MUST close the InputStream.*/
     public static TypedInputStream httpPostStream(String url, String contentType, BodyPublisher bodyContent, String acceptHeader) {
-        return httpPostStream(HttpEnv.getDftHttpClient(), url, contentType, bodyContent, acceptHeader);
+        return httpPostStream(HttpEnv.getHttpClient(url), url, contentType, bodyContent, acceptHeader);
     }
 
     /** POST - the application MUST close the InputStream.*/
@@ -323,15 +320,19 @@ public class HttpOp {
         return execPostStream(httpClient, url, contentType, bodyContent, acceptHeader);
     }
 
-    /** POST(URL), with a body -> InputStream+Content-Type. The application MUST close the InputStream. */
     private static TypedInputStream execPostStream(HttpClient httpClient, String url, String contentType, BodyPublisher bodyPublisher, String acceptHeader) {
+        return execStream(httpClient, url, HttpMethod.POST, contentType, bodyPublisher, acceptHeader);
+    }
+
+    /** QUERY/POST/PATCH(URL), with a body -> InputStream+Content-Type. The application MUST close the InputStream. */
+    private static TypedInputStream execStream(HttpClient httpClient, String url, HttpMethod method, String contentType, BodyPublisher bodyPublisher, String acceptHeader) {
         acceptHeader = HttpLib.dft(acceptHeader, "*/");
         if ( bodyPublisher == null )
             bodyPublisher = BodyPublishers.noBody();
         HttpRequest.Builder builder = HttpLib.requestBuilderFor(url).uri(toRequestURI(url));
         HttpLib.contentTypeHeader(builder, contentType);
         HttpLib.acceptHeader(builder, acceptHeader);
-        HttpRequest request = builder.POST(bodyPublisher).build();
+        HttpRequest request = builder.method(method.method(), bodyPublisher).build();
         HttpResponse<InputStream> response = HttpLib.execute(httpClient, request);
         return HttpLib.handleResponseTypedInputStream(response);
     }
@@ -343,7 +344,7 @@ public class HttpOp {
      * @see BodyPublishers#ofString
      */
     public static void httpPut(String url, String contentType, BodyPublisher body) {
-        httpPut(HttpEnv.getDftHttpClient(), url, contentType, body);
+        httpPut(HttpEnv.getHttpClient(url), url, contentType, body);
     }
 
     /** PUT
@@ -354,6 +355,26 @@ public class HttpOp {
         execPushData(httpClient, PUT, url, contentType, body);
     }
 
+    // ---- QUERY
+
+    /** QUERY
+     *
+     */
+    /** Perform an HTTP QUERY to a URL. No body. The application MUST close the InputStream. */
+    public static TypedInputStream httpQueryStream(String url, String acceptHeader) {
+        return httpQueryStream(HttpEnv.getHttpClient(url), url, null, null, acceptHeader);
+    }
+
+    /** QUERY (HTTP method), with a HTTP body - the application MUST close the InputStream.*/
+    public static TypedInputStream httpQueryStream(String url, String contentType, BodyPublisher bodyPublisher, String acceptHeader) {
+        return httpQueryStream(HttpEnv.getHttpClient(url), url, contentType, bodyPublisher, acceptHeader);
+    }
+
+    /** QUERY (HTTP method), with a HTTP body - the application MUST close the InputStream.*/
+    public static TypedInputStream httpQueryStream(HttpClient httpClient, String url, String contentType, BodyPublisher bodyPublisher, String acceptHeader) {
+        return execStream(httpClient, url, HttpMethod.QUERY, contentType, bodyPublisher, acceptHeader);
+    }
+
     // ---- PATCH
 
     /** PATCH
@@ -361,7 +382,7 @@ public class HttpOp {
      * @see BodyPublishers#ofString
      */
     public static void httpPatch(String url, String contentType, BodyPublisher body) {
-        httpPatch(HttpEnv.getDftHttpClient(), url, contentType, body);
+        httpPatch(HttpEnv.getHttpClient(url), url, contentType, body);
     }
 
     /** PATCH
@@ -370,19 +391,19 @@ public class HttpOp {
      * @see BodyPublishers#ofString
      */
     public static void httpPatch(HttpClient httpClient, String url, String contentType, BodyPublisher body) {
-        execPushData(httpClient, PATCH, url, contentType, body);
+        execPushData(httpClient, PATCH,  url, contentType, body);
     }
 
     /** Push data. POST, PUT, PATCH request with no response body data. */
-    private static void execPushData(HttpClient httpClient, Push style, String url, String contentType, BodyPublisher body) {
-        HttpLib.httpPushData(httpClient, style, url, setContentTypeHeader(contentType), body);
+    private static void execPushData(HttpClient httpClient, HttpMethod method, String url, String contentType, BodyPublisher body) {
+        HttpLib.httpPushData(httpClient, method, url, setContentTypeHeader(contentType), body);
     }
 
     // ---- DELETE
 
     /** DELETE */
     public static void httpDelete(String url) {
-        httpDelete(HttpEnv.getDftHttpClient(), url);
+        httpDelete(HttpEnv.getHttpClient(url), url);
     }
 
     /** DELETE */
@@ -401,14 +422,14 @@ public class HttpOp {
 
     /** OPTIONS. Returns the HTTP response "Allow" field string. */
     public static String httpOptions(String url) {
-        return httpOptions(HttpEnv.getDftHttpClient(), url);
+        return httpOptions(HttpEnv.getHttpClient(url), url);
     }
 
     /** OPTIONS. Returns the HTTP response "Allow" field string. */
     public static String httpOptions(HttpClient httpClient, String url) {
         // Need to access the response headers
         HttpRequest.Builder builder =
-                HttpLib.requestBuilderFor(url).uri(toRequestURI(url)).method(METHOD_OPTIONS, BodyPublishers.noBody());
+                HttpLib.requestBuilderFor(url).uri(toRequestURI(url)).method(OPTIONS.method(), BodyPublishers.noBody());
         HttpRequest request = builder.build();
         HttpResponse<InputStream> response = execute(httpClient, request);
         String allowValue = HttpLib.responseHeader(response, HttpNames.hAllow);
@@ -424,7 +445,7 @@ public class HttpOp {
      * Throw {@link HttpException} for any response that is not 2xx.
      */
     public static String httpHead(String url) {
-        return httpHead(HttpEnv.getDftHttpClient(), url);
+        return httpHead(HttpEnv.getHttpClient(url), url);
     }
 
     /**
@@ -442,7 +463,7 @@ public class HttpOp {
      * Throw {@link HttpException} for any response that is not 2xx.
      */
     public static String httpHead(String url, String acceptHeader) {
-        return httpHead(HttpEnv.getDftHttpClient(), url, acceptHeader);
+        return httpHead(HttpEnv.getHttpClient(url), url, acceptHeader);
     }
 
     /**
@@ -452,7 +473,7 @@ public class HttpOp {
      */
     public static String httpHead(HttpClient httpClient, String url, String acceptHeader) {
         HttpRequest.Builder builder =
-                HttpLib.requestBuilderFor(url).uri(toRequestURI(url)).method(METHOD_HEAD, BodyPublishers.noBody());
+                HttpLib.requestBuilderFor(url).uri(toRequestURI(url)).method(HEAD.method(), BodyPublishers.noBody());
         HttpLib.acceptHeader(builder, acceptHeader);
         HttpRequest request = builder.build();
         HttpResponse<InputStream> response = execute(httpClient, request);

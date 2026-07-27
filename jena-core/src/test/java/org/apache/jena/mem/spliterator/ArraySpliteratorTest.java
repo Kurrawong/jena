@@ -20,159 +20,133 @@
  */
 package org.apache.jena.mem.spliterator;
 
-import org.junit.Test;
+
+import static java.util.Spliterator.DISTINCT;
+import static java.util.Spliterator.NONNULL;
+import static java.util.Spliterator.SIZED;
+import static java.util.Spliterator.SUBSIZED;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.ArrayList;
 import java.util.Spliterator;
 
-import static java.util.Spliterator.*;
-import static org.junit.Assert.*;
+import org.junit.jupiter.api.Test;
+
+import org.apache.jena.mem.collection.FastHashSet;
+import org.apache.jena.mem.collection.JenaSet;
 
 public class ArraySpliteratorTest {
 
+    private static final JenaSet<Object> dummySetForConcurrencyCheck = new FastHashSet<>() {
+        @Override
+        protected Object[] newKeysArray(int size) {
+            return new Object[size];
+        }
+    };
+
     @Test
     public void tryAdvanceEmpty() {
-        {
-            Integer[] array = new Integer[0];
-            Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-            });
-            assertFalse(spliterator.tryAdvance((i) -> {
-                fail("Should not have advanced");
-            }));
-        }
+        Integer[] array = new Integer[0];
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
+        assertFalse(spliterator.tryAdvance((i) -> fail("Should not have advanced")));
     }
 
     @Test
     public void tryAdvanceOne() {
-        {
-            Integer[] array = new Integer[]{1};
-            Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-            });
-            var itemsFound = new ArrayList<>();
-            while (spliterator.tryAdvance((i) -> {
-                itemsFound.add(1);
-            }));
-            assertEquals(1, itemsFound.size());
-            itemsFound.contains(1);
-        }
+        Integer[] array = new Integer[]{1};
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
+        var itemsFound = new ArrayList<>();
+        //noinspection StatementWithEmptyBody
+        while (spliterator.tryAdvance((i) -> itemsFound.add(1))) { /* noop */ }
+        assertEquals(1, itemsFound.size());
+        assertTrue(itemsFound.contains(1));
     }
 
     @Test
     public void tryAdvanceTwo() {
-        {
-            Integer[] array = new Integer[]{1, 2};
-            Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-            });
-            var itemsFound = new ArrayList<>();
-            while (spliterator.tryAdvance((i) -> {
-                itemsFound.add(i);
-            }));
-            assertEquals(2, itemsFound.size());
-            itemsFound.contains(1);
-            itemsFound.contains(2);
-        }
+        Integer[] array = new Integer[]{1, 2};
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
+        var itemsFound = new ArrayList<>();
+        //noinspection StatementWithEmptyBody
+        while (spliterator.tryAdvance(itemsFound::add)) { /* noop */ }
+        assertEquals(2, itemsFound.size());
+        assertTrue(itemsFound.contains(1));
+        assertTrue(itemsFound.contains(2));
     }
 
     @Test
     public void tryAdvanceThree() {
-        {
-            Integer[] array = new Integer[]{1, 2, 3};
-            Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-            });
-            var itemsFound = new ArrayList<>();
-            while (spliterator.tryAdvance((i) -> {
-                itemsFound.add(i);
-            }));
-            assertEquals(3, itemsFound.size());
-            itemsFound.contains(1);
-            itemsFound.contains(2);
-            itemsFound.contains(3);
-        }
+        Integer[] array = new Integer[]{1, 2, 3};
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
+        var itemsFound = new ArrayList<>();
+        //noinspection StatementWithEmptyBody
+        while (spliterator.tryAdvance(itemsFound::add)) { /* noop */ }
+        assertEquals(3, itemsFound.size());
+        assertTrue(itemsFound.contains(1));
+        assertTrue(itemsFound.contains(2));
+        assertTrue(itemsFound.contains(3));
     }
 
     @Test
     public void forEachRemainingEmpty() {
-        {
-            Integer[] array = new Integer[]{};
-            Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-            });
-            var itemsFound = new ArrayList<>();
-            spliterator.forEachRemaining((i) -> {
-                itemsFound.add(i);
-            });
-            assertEquals(0, itemsFound.size());
-        }
+        Integer[] array = new Integer[]{};
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
+        var itemsFound = new ArrayList<>();
+        spliterator.forEachRemaining(itemsFound::add);
+        assertEquals(0, itemsFound.size());
     }
 
     @Test
     public void forEachRemainingOne() {
-        {
-            Integer[] array = new Integer[]{1};
-            Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-            });
-            var itemsFound = new ArrayList<>();
-            spliterator.forEachRemaining((i) -> {
-                itemsFound.add(i);
-            });
-            assertEquals(1, itemsFound.size());
-            itemsFound.contains(1);
-        }
+        Integer[] array = new Integer[]{1};
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
+        var itemsFound = new ArrayList<>();
+        spliterator.forEachRemaining(itemsFound::add);
+        assertEquals(1, itemsFound.size());
+        assertTrue(itemsFound.contains(1));
     }
 
     @Test
     public void forEachRemainingTwo() {
-        {
-            Integer[] array = new Integer[]{1, 2};
-            Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-            });
-            var itemsFound = new ArrayList<>();
-            spliterator.forEachRemaining((i) -> {
-                itemsFound.add(i);
-            });
-            assertEquals(2, itemsFound.size());
-            itemsFound.contains(1);
-            itemsFound.contains(2);
-        }
+        Integer[] array = new Integer[]{1, 2};
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
+        var itemsFound = new ArrayList<>();
+        spliterator.forEachRemaining(itemsFound::add);
+        assertEquals(2, itemsFound.size());
+        assertTrue(itemsFound.contains(1));
+        assertTrue(itemsFound.contains(2));
     }
 
     @Test
     public void forEachRemainingThree() {
-        {
-            Integer[] array = new Integer[]{1, 2, 3};
-            Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-            });
-            var itemsFound = new ArrayList<>();
-            spliterator.forEachRemaining((i) -> {
-                itemsFound.add(i);
-            });
-            assertEquals(3, itemsFound.size());
-            itemsFound.contains(1);
-            itemsFound.contains(2);
-            itemsFound.contains(3);
-        }
+        Integer[] array = new Integer[]{1, 2, 3};
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
+        var itemsFound = new ArrayList<>();
+        spliterator.forEachRemaining(itemsFound::add);
+        assertEquals(3, itemsFound.size());
+        assertTrue(itemsFound.contains(1));
+        assertTrue(itemsFound.contains(2));
+        assertTrue(itemsFound.contains(3));
     }
 
     @Test
     public void trySplitEmpty() {
         Integer[] array = new Integer[]{};
-        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-        });
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
         assertNull(spliterator.trySplit());
     }
 
     @Test
     public void trySplitOne() {
         Integer[] array = new Integer[]{1};
-        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-        });
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
         assertNull(spliterator.trySplit());
     }
 
     @Test
     public void trySplitTwo() {
         Integer[] array = new Integer[]{1, 2};
-        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-        });
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
         // Estimated size is not exact
         assertBetween(2, 3, spliterator.estimateSize());
         Spliterator<Integer> split = spliterator.trySplit();
@@ -183,8 +157,7 @@ public class ArraySpliteratorTest {
     @Test
     public void trySplitThree() {
         Integer[] array = new Integer[]{1, 2, 3};
-        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-        });
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
         // Estimated size is not exact
         assertBetween(3, 4, spliterator.estimateSize());
         Spliterator<Integer> split = spliterator.trySplit();
@@ -195,8 +168,7 @@ public class ArraySpliteratorTest {
     @Test
     public void trySplitFour() {
         Integer[] array = new Integer[]{1, 2, 3, 4};
-        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-        });
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
         // Estimated size is not exact
         assertBetween(4, 5, spliterator.estimateSize());
         Spliterator<Integer> split = spliterator.trySplit();
@@ -207,8 +179,7 @@ public class ArraySpliteratorTest {
     @Test
     public void trySplitFive() {
         Integer[] array = new Integer[]{1, 2, 3, 4, 5};
-        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-        });
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
         // Estimated size is not exact
         assertBetween(5, 6, spliterator.estimateSize());
         Spliterator<Integer> split = spliterator.trySplit();
@@ -224,8 +195,7 @@ public class ArraySpliteratorTest {
                 array[i] = i;
             }
         }
-        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-        });
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
         // Estimated size is not exact
         assertEquals(array.length, spliterator.estimateSize());
         Spliterator<Integer> split = spliterator.trySplit();
@@ -234,63 +204,56 @@ public class ArraySpliteratorTest {
     }
 
     private void assertBetween(long min, long max, long estimateSize) {
-        assertTrue("estimateSize=" + estimateSize + " min=" + min + " max=" + max, estimateSize >= min);
-        assertTrue("estimateSize=" + estimateSize + " min=" + min + " max=" + max, estimateSize <= max);
+        assertTrue(estimateSize >= min, "estimateSize=" + estimateSize + " min=" + min + " max=" + max);
+        assertTrue(estimateSize <= max, "estimateSize=" + estimateSize + " min=" + min + " max=" + max);
     }
 
     @Test
     public void estimateSizeZero() {
         Integer[] array = new Integer[]{};
-        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-        });
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
         assertBetween(0, 1, spliterator.estimateSize());
     }
 
     @Test
     public void estimateSizeOne() {
         Integer[] array = new Integer[]{1};
-        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-        });
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
         assertBetween(1, 2, spliterator.estimateSize());
     }
 
     @Test
     public void estimateSizeTwo() {
         Integer[] array = new Integer[]{1, 2};
-        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-        });
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
         assertBetween(2, 3, spliterator.estimateSize());
     }
 
     @Test
     public void estimateSizeFive() {
         Integer[] array = new Integer[]{1, 2, 3, 4, 5};
-        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-        });
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
         assertBetween(5, 6, spliterator.estimateSize());
     }
 
     @Test
     public void characteristics() {
         Integer[] array = new Integer[]{1, 2, 3, 4, 5};
-        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-        });
-        assertEquals(DISTINCT | SIZED | SUBSIZED | NONNULL | IMMUTABLE, spliterator.characteristics());
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
+        assertEquals(DISTINCT | SIZED | SUBSIZED | NONNULL, spliterator.characteristics());
     }
 
     @Test
     public void splitWithOneElementNull() {
         Integer[] array = new Integer[]{1};
-        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-        });
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
         assertNull(spliterator.trySplit());
     }
 
     @Test
     public void splitWithOneRemainingElementNull() {
         Integer[] array = new Integer[]{1, 2};
-        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, () -> {
-        });
+        Spliterator<Integer> spliterator = new ArraySpliterator<>(array, dummySetForConcurrencyCheck);
         spliterator.tryAdvance((i) -> {
         });
         assertNull(spliterator.trySplit());
