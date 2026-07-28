@@ -61,6 +61,8 @@ demo/geochem-external/Taxonomy/
 demo/geochem-external/DB-full/
 demo/geochem-external/Lucene-full/
 demo/geochem-external/Taxonomy-full/
+# A/B twin built by `task index-graphonly` / `task measure-split`
+demo/geochem-external/Lucene-graphonly/
 demo/geochem-external/data/collars-full.ttl
 demo/geochem-external/data/full-measurements.csv
 
