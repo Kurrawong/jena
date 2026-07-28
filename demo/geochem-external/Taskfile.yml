@@ -74,7 +74,7 @@ tasks:
     cmds:
       # A symlink, not a copy: 700 MB, and it keeps machine-specific paths out of
       # the committed config.
-      - test -r "{{.SRC}}" || { echo "Not readable: {{.SRC}}"; exit 1; }
+      - 'test -r "{{.SRC}}" || { echo "Not readable: {{.SRC}}"; exit 1; }'
       - ln -sfn "{{.SRC}}" data/full-measurements.csv
       - echo "data/full-measurements.csv -> {{.SRC}}"
 
