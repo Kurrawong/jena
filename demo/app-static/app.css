@@ -2176,3 +2176,36 @@ details[open] > summary .jt-count::before { content: '▼ '; }
   font-size: 0.66rem;
   color: var(--text-muted);
 }
+
+/* ── Qualified relations on a card ──
+   One line per nested node, so the parts that belong together (a kind and its value, a
+   role and its agent) read as one thing rather than as two unrelated property rows. */
+.prop-nested {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.prop-nested-node {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.7rem;
+}
+
+.prop-nested-part {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.prop-nested-key {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.prop-nested .prop-value:not(:last-child)::after {
+  content: none;
+}

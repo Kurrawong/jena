@@ -281,6 +281,25 @@ function millisToTemporal(fieldInfo, value) {
 }
 
 /**
+ * Convert one RDF object term into the shape the card renderer uses.
+ */
+function termToProperty(object) {
+    const raw = object.value;
+    const isUri = object.termType === 'NamedNode';
+    const lang = object.language || null;
+    // RDF 1.1 gives every plain literal an explicit xsd:string, and every
+    // language-tagged one rdf:langString. Neither is worth showing as a
+    // datatype — the SPARQL JSON results this replaced simply omitted them.
+    const rawDatatype = (!isUri && object.datatype) ? object.datatype.value : null;
+    const datatype = (rawDatatype === XSD_STRING || rawDatatype === RDF_LANGSTRING)
+        ? null : rawDatatype;
+    // IRI objects start as their short name and are upgraded in place once
+    // labels.js resolves them; literals never need a lookup.
+    const display = isUri ? shortName(raw) : decorateLiteralDisplay(raw, lang, datatype);
+    return { display, raw, isUri, lang, datatype };
+}
+
+/**
  * One rendered property value on a card. Values are plain labels, not controls: the
  * tooltip carries the IRI behind a label, or the literal's language and datatype when
  * there is one.
@@ -293,6 +312,7 @@ function propValue(pv) {
     return {
         value: pv.raw,
         displayValue: pv.display,
+        isUri: pv.isUri,
         tooltip,
     };
 }
@@ -2188,6 +2208,7 @@ DESCRIBE <${uri}>`;
                     identifier: null,
                     description: null,
                     properties: {},
+                    nested: {},       // predicate → [[{property, displayValue, ...}, ...], ...]
                     rows: [],
                     turtleOpen: false,
                     turtleLoading: false,
@@ -2196,29 +2217,35 @@ DESCRIBE <${uri}>`;
                     turtleError: null,
                 };
 
+                const card = entities[uri];
                 for (const quad of store.getQuads(nn(uri), null, null, null)) {
                     const object = quad.object;
-                    if (object.termType === 'BlankNode') continue;
                     if (object.value === RDFS_RESOURCE) continue;
-
                     const pred = shortName(quad.predicate.value);
-                    const raw = object.value;
-                    const isUri = object.termType === 'NamedNode';
-                    const lang = object.language || null;
-                    // RDF 1.1 gives every plain literal an explicit xsd:string, and every
-                    // language-tagged one rdf:langString. Neither is worth showing as a
-                    // datatype — the SPARQL JSON results this replaced simply omitted them.
-                    const rawDatatype = (!isUri && object.datatype) ? object.datatype.value : null;
-                    const datatype = (rawDatatype === XSD_STRING || rawDatatype === RDF_LANGSTRING)
-                        ? null : rawDatatype;
-                    // IRI objects start as their short name and are upgraded in place once
-                    // labels.js resolves them; literals never need a lookup.
-                    const display = isUri ? shortName(raw) : decorateLiteralDisplay(raw, lang, datatype);
 
-                    const card = entities[uri];
+                    // A blank node is a qualified relation — a nested identifier or
+                    // attribution. DESCRIBE returns its triples too, so render them
+                    // inline rather than dropping the whole node.
+                    if (object.termType === 'BlankNode') {
+                        const parts = [];
+                        for (const child of store.getQuads(object, null, null, null)) {
+                            if (child.object.termType === 'BlankNode') continue;
+                            parts.push({
+                                property: shortName(child.predicate.value),
+                                ...propValue(termToProperty(child.object)),
+                            });
+                        }
+                        if (parts.length > 0) {
+                            if (!card.nested[pred]) card.nested[pred] = [];
+                            card.nested[pred].push(parts);
+                        }
+                        continue;
+                    }
+
+                    const pv = termToProperty(object);
                     if (!card.properties[pred]) card.properties[pred] = [];
-                    if (!card.properties[pred].some(e => e.raw === raw)) {
-                        card.properties[pred].push({ display, raw, isUri, lang, datatype });
+                    if (!card.properties[pred].some(e => e.raw === pv.raw)) {
+                        card.properties[pred].push(pv);
                     }
                 }
             }
@@ -2270,6 +2297,12 @@ DESCRIBE <${uri}>`;
                         values: values.map(pv => propValue(pv)),
                     });
                 }
+
+                // Qualified relations last: each nested node becomes one line of
+                // "property value" pairs, so the parts that belong together stay together.
+                for (const [pred, children] of Object.entries(card.nested)) {
+                    card.rows.push({ property: pred, values: [], children });
+                }
             }
 
             // res:rank carries the order — see parseGraphResults. Sorting by score would
@@ -2283,14 +2316,19 @@ DESCRIBE <${uri}>`;
          * on a repeat view. Mutates the cards in place so Alpine re-renders as they land.
          */
         async resolveCardLabels(cards) {
+            // Walk the rendered rows rather than the raw properties, so values nested
+            // inside a qualified relation are resolved on the same pass.
+            const eachValue = (card, fn) => {
+                for (const row of card.rows) {
+                    row.values.forEach(fn);
+                    for (const parts of (row.children || [])) parts.forEach(fn);
+                }
+            };
+
             const iris = new Set();
             for (const card of cards) {
                 iris.add(card.uri);
-                for (const values of Object.values(card.properties)) {
-                    for (const pv of values) {
-                        if (pv.isUri) iris.add(pv.raw);
-                    }
-                }
+                eachValue(card, v => { if (v.isUri) iris.add(v.value); });
             }
             if (iris.size === 0) return;
 
@@ -2298,12 +2336,10 @@ DESCRIBE <${uri}>`;
             for (const card of cards) {
                 const own = labels.get(card.uri);
                 if (own) card.label = own;
-                for (const row of card.rows) {
-                    for (const value of row.values) {
-                        const label = labels.get(value.value);
-                        if (label) value.displayValue = label;
-                    }
-                }
+                eachValue(card, v => {
+                    const label = labels.get(v.value);
+                    if (label) v.displayValue = label;
+                });
             }
         },
 
