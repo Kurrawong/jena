@@ -1485,12 +1485,13 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
                 const levels = this.hierarchyDimensions.get(dim);
                 if (!levels || levels.length < 2) return;
 
-                // Request facets on the child level's IRI from config.ttl,
-                // with a CQL filter constrained by the selected parent value.
+                // Drill down by naming the hierarchy's dimension: the engine turns the
+                // CQL "=" on the parent level into the taxonomy drill-down path. Asking
+                // for the child level's field IRI instead would return that field's own
+                // flat counts across every parent, which is a different question.
                 const parentLevel = levels[0];
                 const childLevel = levels[1];
                 const parentLevelIRI = parentLevel.iri;
-                const childLevelIRI = childLevel.iri;
 
                 const term = this.identifier.trim() || this.q.trim() || '*';
                 const searchField = this.identifier.trim() ? this.identifierFieldSelector() : 'default';
@@ -1523,7 +1524,7 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
 
                 const query = `${SPARQL_PREFIXES}
 SELECT ?field ?value ?low ?high ?count WHERE {
-    (?field ?value ?low ?high ?count) luc:facet ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${sparqlQuote(JSON.stringify([childLevelIRI]))} ${sparqlQuote(combinedFilter)} ${this.maxFacetValues} 0)
+    (?field ?value ?low ?high ?count) luc:facet ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${sparqlQuote(JSON.stringify([dim]))} ${sparqlQuote(combinedFilter)} ${this.maxFacetValues} 0)
 }`;
                 const data = await this.runSparql(query);
                 const children = [];
