@@ -93,7 +93,6 @@ public class IndexVocab {
     public static final Property pSubjectColumn     = Vocab.property(NS, "subjectColumn");
     public static final Property pSubjectColumnIndex = Vocab.property(NS, "subjectColumnIndex");
     public static final Property pSubjectPrefix     = Vocab.property(NS, "subjectPrefix");
-    public static final Property pSorted            = Vocab.property(NS, "sorted");
     public static final Property pDelimiter         = Vocab.property(NS, "delimiter");
     public static final Property pHeaderless        = Vocab.property(NS, "headerless");
     public static final Property pOnError           = Vocab.property(NS, "onError");

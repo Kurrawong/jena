@@ -47,16 +47,12 @@ import org.slf4j.LoggerFactory;
  * Joins external source rows onto graph-derived entities during a bulk build,
  * emitting one nested child record per row.
  * <p>
- * Callers must present entities in ascending {@code entityUri} order — the same
- * order the sources assert with {@code idx:sorted} — so the join is a single
- * sort-merge pass: O(N + M), constant memory, sequential I/O. This is not merely an
- * optimisation. Lucene has no partial document update and a block join must be
- * written atomically, so <em>all</em> of an entity's children have to be in hand
- * before anything is written; grouping by subject is therefore mandatory.
- * <p>
- * A source that does not assert {@code idx:sorted} is buffered into memory instead.
- * That is fine for a small sidecar and untenable at scale — sort the source, or push
- * an {@code ORDER BY} into whatever produced it.
+ * Callers must present entities in ascending {@code entityUri} order, and every source
+ * is put in that same order by {@link SortingRowSource} before it gets here, so the
+ * join is a single sort-merge pass: O(N + M), constant memory, sequential I/O. This is
+ * not merely an optimisation. Lucene has no partial document update and a block join
+ * must be written atomically, so <em>all</em> of an entity's children have to be in
+ * hand before anything is written; grouping by subject is therefore mandatory.
  * <p>
  * External rows <b>augment</b> entities; they never create them. A row whose subject
  * matches no entity is counted and dropped, because extracts are routinely broader
@@ -160,8 +156,6 @@ public class ExternalChildMerger implements Closeable {
         private final ExternalSourceDef def;
         private final ExternalRowSource source;
 
-        /** Buffered rows by subject; null while streaming a sorted source. */
-        private Map<String, List<String[]>> buffer;
         private String pendingSubject;
         private String[] pendingValues;
         private boolean exhausted;
@@ -182,28 +176,7 @@ public class ExternalChildMerger implements Closeable {
 
         void open() {
             source.open();
-            if (source.isSorted()) {
-                advance();
-            } else {
-                bufferAll();
-            }
-        }
-
-        /**
-         * Unsorted source: read it whole and group by subject. The streaming merge is
-         * impossible without an ordering, and a block join cannot be assembled from
-         * rows arriving out of order.
-         */
-        private void bufferAll() {
-            buffer = new LinkedHashMap<>();
-            while (source.next()) {
-                buffer.computeIfAbsent(source.subject(), k -> new ArrayList<>()).add(snapshot());
-            }
-            log.warn("External source {} is not declared idx:sorted — buffered {} subjects in memory. "
-                    + "Sort the source by {} and set idx:sorted true before using it at scale.",
-                describe(), formatCount(buffer.size()),
-                def.isHeaderless() ? "column " + def.getSubjectColumnIndex() : def.getSubjectColumn());
-            source.close();
+            advance();
         }
 
         private String[] snapshot() {
@@ -244,12 +217,8 @@ public class ExternalChildMerger implements Closeable {
             }
         }
 
-        /** A streaming merge is only correct if the caller's entities ascend too.
-         *  A buffered source is indexed by subject and does not care. */
+        /** A streaming merge is only correct if the caller's entities ascend too. */
         private void checkAscending(String entityUri) {
-            if (buffer != null) {
-                return;
-            }
             if (lastAttachedSubject != null && entityUri.compareTo(lastAttachedSubject) < 0) {
                 throw new TextIndexException(
                     "External merge requires entities in ascending IRI order, but '" + entityUri
@@ -259,10 +228,6 @@ public class ExternalChildMerger implements Closeable {
         }
 
         private List<String[]> rowsFor(String entityUri) {
-            if (buffer != null) {
-                List<String[]> rows = buffer.remove(entityUri);
-                return rows != null ? rows : Collections.emptyList();
-            }
             // Rows before this entity belong to a subject the graph does not have.
             while (!exhausted && pendingSubject.compareTo(entityUri) < 0) {
                 rowsUnmatched++;
@@ -337,13 +302,6 @@ public class ExternalChildMerger implements Closeable {
 
         /** Read the tail so rows past the last entity are counted, not silently ignored. */
         void drain() {
-            if (buffer != null) {
-                for (List<String[]> rows : buffer.values()) {
-                    rowsUnmatched += rows.size();
-                }
-                buffer.clear();
-                return;
-            }
             while (!exhausted) {
                 rowsUnmatched++;
                 advance();

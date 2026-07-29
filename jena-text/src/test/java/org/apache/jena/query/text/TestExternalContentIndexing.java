@@ -151,7 +151,7 @@ public class TestExternalContentIndexing {
                                         boolean sorted, ErrorPolicy onError, double minMatchRate,
                                         FieldDef property, FieldDef value, FieldDef band) {
         return new ExternalSourceDef(ExternalFormat.CSV, location, subjectColumn, -1, subjectPrefix,
-            sorted, null, false, onError, minMatchRate,
+            null, false, onError, minMatchRate,
             Arrays.asList(new ColumnBinding("property", -1, property),
                 new ColumnBinding("value", -1, value),
                 new ColumnBinding("band", -1, band)));
@@ -578,7 +578,7 @@ public class TestExternalContentIndexing {
         FieldDef band = bandField();
         ExternalSourceDef source = new ExternalSourceDef(ExternalFormat.CSV,
             dir.resolve("measurements.csv").toString(), "sample_iri", -1, null,
-            true, null, false, ErrorPolicy.SKIP, 0.0,
+            null, false, ErrorPolicy.SKIP, 0.0,
             Arrays.asList(new ColumnBinding("property", -1, property),
                 new ColumnBinding("value", -1, value),
                 new ColumnBinding("band", -1, band)),
@@ -640,7 +640,7 @@ public class TestExternalContentIndexing {
             false, true, true, true, false, false);
 
         ExternalSourceDef source = new ExternalSourceDef(ExternalFormat.CSV, csv.toString(),
-            "hole_iri", -1, null, true, null, false, ErrorPolicy.SKIP, 0.0,
+            "hole_iri", -1, null, null, false, ErrorPolicy.SKIP, 0.0,
             Arrays.asList(new ColumnBinding("depth_from", -1, depthFrom),
                 new ColumnBinding("depth_to", -1, depthTo),
                 new ColumnBinding("analyte", -1, analyte),

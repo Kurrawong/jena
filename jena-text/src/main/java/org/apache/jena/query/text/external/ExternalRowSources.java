@@ -31,11 +31,24 @@ public class ExternalRowSources {
     public static ExternalRowSource create(ExternalSourceDef def) {
         if (def.hasDeltas()) {
             // Wrap the base in a reader that applies the deltas per subject. Without
-            // deltas configured there is no wrapper and no cost.
+            // deltas configured there is no wrapper and no cost. DeltaRowSource sorts
+            // each of its own inputs, so it is already ordered and is not wrapped again.
             return new DeltaRowSource(def);
         }
+        return sorted(reader(def));
+    }
+
+    private static ExternalRowSource reader(ExternalSourceDef def) {
         return switch (def.getFormat()) {
             case CSV, TSV -> new CsvRowSource(def);
         };
+    }
+
+    /**
+     * Impose the subject ordering the indexer's merge join needs. Applied to every leaf
+     * reader so that no format has to promise ordering and no config has to assert it.
+     */
+    static ExternalRowSource sorted(ExternalRowSource source) {
+        return new SortingRowSource(source);
     }
 }

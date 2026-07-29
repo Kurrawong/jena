@@ -160,7 +160,7 @@ public class TestGswaMeasurementCsv {
     }
 
     /** Build the index over a measurements CSV joined to synthetic collars. */
-    private void buildIndex(String csvContent, boolean sorted, String... collarIds) throws IOException {
+    private void buildIndex(String csvContent, String... collarIds) throws IOException {
         Path csv = writeCsv("measurements.csv", csvContent);
 
         FieldDef name = nameField();
@@ -169,7 +169,7 @@ public class TestGswaMeasurementCsv {
         FieldDef belowDetection = belowDetectionField();
 
         ExternalSourceDef source = new ExternalSourceDef(ExternalFormat.CSV, csv.toString(),
-            "collar_id", -1, COLLAR_NS, sorted, null, false, ErrorPolicy.SKIP, 0.0,
+            "collar_id", -1, COLLAR_NS, null, false, ErrorPolicy.SKIP, 0.0,
             Arrays.asList(new ColumnBinding("property", -1, analyte),
                 new ColumnBinding("value", -1, value),
                 new ColumnBinding("below_detection", -1, belowDetection)));
@@ -264,7 +264,7 @@ public class TestGswaMeasurementCsv {
      *  expression, and no long IRI repeated across 29.7 million rows. */
     @Test
     public void bareIntegerKeyJoinsViaSubjectPrefix() throws IOException {
-        buildIndex(MEASUREMENTS_CSV, true, "1000000", "1000001", "1000002");
+        buildIndex(MEASUREMENTS_CSV, "1000000", "1000001", "1000002");
 
         ExternalChildMerger.SourceStats stats = indexer.getExternalSourceStats().get(0);
         assertEquals(7, stats.rowsRead());
@@ -282,7 +282,7 @@ public class TestGswaMeasurementCsv {
      */
     @Test
     public void scientificNotationParsesAsADouble() throws IOException {
-        buildIndex(MEASUREMENTS_CSV, true, "1000000", "1000001", "1000002");
+        buildIndex(MEASUREMENTS_CSV, "1000000", "1000001", "1000002");
 
         assertEquals("8.9e-05 is below 0.001, despite the lexical form starting with '8'",
             List.of("1000000"),
@@ -305,7 +305,7 @@ public class TestGswaMeasurementCsv {
      */
     @Test
     public void belowDetectionFlagCorrelatesWithItsOwnMeasurement() throws IOException {
-        buildIndex(MEASUREMENTS_CSV, true, "1000000", "1000001", "1000002");
+        buildIndex(MEASUREMENTS_CSV, "1000000", "1000001", "1000002");
 
         assertEquals("collar 1000001's only reported Au is below detection",
             List.of("1000001"),
@@ -328,7 +328,7 @@ public class TestGswaMeasurementCsv {
      */
     @Test
     public void textSortedExtractWithMixedIdWidthsStreamsCleanly() throws IOException {
-        buildIndex(LEXICALLY_SORTED_CSV, true, "1175968", "117597", "1175971", "117598");
+        buildIndex(LEXICALLY_SORTED_CSV, "1175968", "117597", "1175971", "117598");
 
         ExternalChildMerger.SourceStats stats = indexer.getExternalSourceStats().get(0);
         assertEquals("all four rows matched despite the width change", 4, stats.rowsMatched());
@@ -340,45 +340,42 @@ public class TestGswaMeasurementCsv {
     }
 
     /**
-     * The trap. Re-exporting with {@code ORDER BY collar_id} on an integer column
-     * produces numeric order, which is <em>not</em> the order the merge consumes. The
-     * build fails loudly rather than silently matching almost nothing.
+     * What used to be the trap. Re-exporting with {@code ORDER BY collar_id} on an
+     * integer column produces numeric order, which is <em>not</em> the lexical order
+     * the merge consumes — {@code 1175968} sorts before {@code 117597} because at
+     * index 5 it has '6' against '7'. That disagreement once had to be discovered by
+     * the operator and fixed with {@code LC_ALL=C sort}.
+     * <p>
+     * The source is now ordered internally, so a numerically-sorted extract is simply
+     * indexed correctly and the trap no longer exists.
      */
     @Test
-    public void numericallySortedExtractIsRejected() throws IOException {
-        TextIndexException e = assertThrows(TextIndexException.class,
-            () -> buildIndex(NUMERICALLY_SORTED_CSV, true,
-                "1175968", "117597", "1175971", "117598"));
-
-        assertTrue("the message must say how to fix it: " + e.getMessage(),
-            e.getMessage().contains("LC_ALL=C"));
-        assertTrue("and name the offending pair: " + e.getMessage(),
-            e.getMessage().contains("1175968") && e.getMessage().contains("117598"));
-    }
-
-    /**
-     * Same numerically-ordered file, declared unsorted: buffered, and every row still
-     * lands. This is the escape hatch when re-sorting the export is not an option —
-     * correct, but it holds the whole source in memory.
-     */
-    @Test
-    public void numericallySortedExtractStillWorksWhenDeclaredUnsorted() throws IOException {
-        buildIndex(NUMERICALLY_SORTED_CSV, false, "1175968", "117597", "1175971", "117598");
+    public void numericallySortedExtractIsIndexedCorrectly() throws IOException {
+        buildIndex(NUMERICALLY_SORTED_CSV, "1175968", "117597", "1175971", "117598");
 
         ExternalChildMerger.SourceStats stats = indexer.getExternalSourceStats().get(0);
-        assertEquals(4, stats.rowsMatched());
+        assertEquals("every row lands despite the numeric export order", 4, stats.rowsMatched());
         assertEquals(0, stats.rowsUnmatched());
-        // Sorted lexically for comparison, which is why 1175968 leads: at index 5 it
-        // has '6' against 117597's '7'. The same disagreement the merge has to respect.
         assertEquals(Arrays.asList("1175968", "117597", "1175971", "117598"),
             filter(eq("analyte", "Au")));
+    }
+
+    /** The same extract in lexical order gives an identical index — the input order
+     *  is no longer observable in the result. */
+    @Test
+    public void exportOrderDoesNotAffectTheResult() throws IOException {
+        buildIndex(NUMERICALLY_SORTED_CSV, "1175968", "117597", "1175971", "117598");
+        List<String> fromNumeric = filter(eq("analyte", "Au"));
+
+        buildIndex(LEXICALLY_SORTED_CSV, "1175968", "117597", "1175971", "117598");
+        assertEquals(fromNumeric, filter(eq("analyte", "Au")));
     }
 
     /** A measurement whose collar is not in the graph is counted and dropped — the
      *  normal case when the assay extract is broader than the loaded collar set. */
     @Test
     public void measurementsForUnloadedCollarsAreCounted() throws IOException {
-        buildIndex(MEASUREMENTS_CSV, true, "1000000");
+        buildIndex(MEASUREMENTS_CSV, "1000000");
 
         ExternalChildMerger.SourceStats stats = indexer.getExternalSourceStats().get(0);
         assertEquals(4, stats.rowsMatched());

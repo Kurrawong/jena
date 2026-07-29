@@ -44,8 +44,8 @@ import org.slf4j.LoggerFactory;
  * here edits an existing document — the result is still a full rebuild, just one that
  * does not require the base and its deltas to be physically merged first.
  * <p>
- * All inputs must be sorted by subject ({@code idx:sorted true}), which
- * {@link CsvRowSource} verifies as it reads. Only one subject's rows are held at a
+ * Every input is put in subject order by {@link SortingRowSource} before it reaches the
+ * merge below, so no input has to arrive sorted. Only one subject's rows are held at a
  * time, so memory stays bounded by the largest entity rather than by the file.
  *
  * <h2>Operation semantics</h2>
@@ -94,9 +94,12 @@ public class DeltaRowSource implements ExternalRowSource {
         this.base = new Cursor(ExternalRowSources.create(def.withoutDeltas()), bindingCount);
         this.deltas = new ArrayList<>(def.getDeltaLocations().size());
         for (String location : def.getDeltaLocations()) {
-            // One extra binding for the op column; asDeltaLayer puts it last.
+            // One extra binding for the op column; asDeltaLayer puts it last. Sorted
+            // like the base: the per-subject merge below needs one ordering on every
+            // input, and a delta file is no likelier to arrive sorted than a base.
             this.deltas.add(new Cursor(
-                new CsvRowSource(def.asDeltaLayer(location, OP_FIELD)), bindingCount + 1));
+                ExternalRowSources.sorted(new CsvRowSource(def.asDeltaLayer(location, OP_FIELD))),
+                bindingCount + 1));
         }
     }
 
@@ -230,11 +233,6 @@ public class DeltaRowSource implements ExternalRowSource {
     @Override
     public int bindingCount() {
         return bindingCount;
-    }
-
-    @Override
-    public boolean isSorted() {
-        return true;   // guaranteed: ExternalSourceDef rejects deltas on an unsorted source
     }
 
     @Override

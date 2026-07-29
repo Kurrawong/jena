@@ -107,7 +107,7 @@ public class TestExternalDeltaSource {
 
     private ExternalSourceDef def(Path base, List<String> deltas) {
         return new ExternalSourceDef(ExternalFormat.CSV, base.toString(), "iri", -1, null,
-            true, null, false, ErrorPolicy.SKIP, 0.0,
+            null, false, ErrorPolicy.SKIP, 0.0,
             Arrays.asList(new ColumnBinding("property", -1, ANALYTE),
                 new ColumnBinding("value", -1, VALUE)),
             deltas, "op");
@@ -275,35 +275,69 @@ public class TestExternalDeltaSource {
         assertTrue(e.getMessage(), e.getMessage().contains("UPSERT"));
     }
 
-    /** The per-subject merge needs both sides on one ordering; there is no meaningful
-     *  way to apply a delta to an unordered base while streaming. */
+    /**
+     * The per-subject merge still needs both sides on one ordering, but that ordering
+     * is now established internally rather than demanded of the config. A delta on a
+     * source that asserts nothing about its order is legal.
+     */
     @Test
-    public void deltasRequireSortedInput() throws IOException {
+    public void deltasNoLongerRequireAnOrderingAssertion() throws IOException {
         Path base = write("base.csv", BASE);
-        TextIndexException e = assertThrows(TextIndexException.class,
-            () -> new ExternalSourceDef(ExternalFormat.CSV, base.toString(), "iri", -1, null,
-                false, null, false, ErrorPolicy.SKIP, 0.0,
-                Arrays.asList(new ColumnBinding("property", -1, ANALYTE),
-                    new ColumnBinding("value", -1, VALUE)),
-                List.of("delta.csv"), "op"));
-        assertTrue(e.getMessage(), e.getMessage().contains("idx:sorted"));
+        ExternalSourceDef def = new ExternalSourceDef(ExternalFormat.CSV, base.toString(),
+            "iri", -1, null, null, false, ErrorPolicy.SKIP, 0.0,
+            Arrays.asList(new ColumnBinding("property", -1, ANALYTE),
+                new ColumnBinding("value", -1, VALUE)),
+            List.of("delta.csv"), "op");
+
+        assertTrue(def.hasDeltas());
+        assertEquals(List.of("delta.csv"), def.getDeltaLocations());
     }
 
-    /** Sortedness is verified on the delta too, not just the base. */
+    /** A delta whose rows are in no particular order is sorted before the merge, so it
+     *  applies exactly as a pre-sorted one would. */
     @Test
-    public void unsortedDeltaIsRejected() throws IOException {
-        assertThrows(TextIndexException.class, () -> applyDelta(
+    public void unsortedDeltaIsAppliedCorrectly() throws IOException {
+        assertEquals(Arrays.asList(
+            "http://ex.org/s1|Au|1.0",
+            "http://ex.org/s1|Au|2.0",
+            "http://ex.org/s1|Cu|50.0",
+            "http://ex.org/s1|Pb|8.0",
+            "http://ex.org/s2|Au|3.0",
+            "http://ex.org/s2|Pb|9.0"),
+            applyDelta(
+                "op,iri,property,value\n"
+                + "ADD,http://ex.org/s2,Pb,9.0\n"
+                + "ADD,http://ex.org/s1,Pb,8.0\n"));
+    }
+
+    /** An unordered base is likewise sorted before the delta is applied. */
+    @Test
+    public void unsortedBaseIsAppliedCorrectly() throws IOException {
+        Path base = write("unsorted-base.csv",
+            "iri,property,value\n"
+            + "http://ex.org/s2,Au,3.0\n"
+            + "http://ex.org/s1,Cu,50.0\n"
+            + "http://ex.org/s1,Au,1.0\n");
+        Path delta = write("delta.csv",
             "op,iri,property,value\n"
-            + "ADD,http://ex.org/s2,Pb,9.0\n"
-            + "ADD,http://ex.org/s1,Pb,8.0\n"));
+            + "ADD,http://ex.org/s1,Pb,8.0\n");
+
+        assertEquals(Arrays.asList(
+            "http://ex.org/s1|Cu|50.0",
+            "http://ex.org/s1|Au|1.0",
+            "http://ex.org/s1|Pb|8.0",
+            "http://ex.org/s2|Au|3.0"),
+            drain(ExternalRowSources.create(def(base, List.of(delta.toString())))));
     }
 
-    /** Without deltas configured the plain CSV source is used — no wrapper, no cost. */
+    /** Without deltas configured there is no delta wrapper — just the reader, with the
+     *  ordering wrapper every source now gets. */
     @Test
-    public void noDeltaMeansNoWrapper() throws IOException {
+    public void noDeltaMeansNoDeltaWrapper() throws IOException {
         Path base = write("base.csv", BASE);
         ExternalRowSource source = ExternalRowSources.create(def(base, Collections.emptyList()));
-        assertTrue(source instanceof CsvRowSource);
+        assertFalse("no delta configured", source instanceof DeltaRowSource);
+        assertTrue("but still ordered", source instanceof SortingRowSource);
         source.close();
     }
 }

@@ -383,11 +383,29 @@ All four fields then correlate in one block join — the same-scope fold groups 
 
 **Every bound column must be populated on every row.** A row missing any one bound cell is dropped whole (see the rules below), which is a stricter constraint on a four-column extract than on a two-column one.
 
-### Sortedness
+### Sort order
 
-`idx:sorted true` lets the build stream a sort-merge join: O(N + M), constant memory, sequential I/O. Sort the source in byte order — `LC_ALL=C sort` — and the assertion is **verified** while reading: a subject that sorts before its predecessor fails the build rather than merging to mostly-unmatched.
+There is nothing to configure. The build needs external rows grouped and ascending by
+subject — Lucene has no partial document update, so all of an entity's children must be
+in hand before its block join is written — and it establishes that order itself.
 
-Without it, the source is buffered into memory. That is fine for a small sidecar and untenable at scale.
+Rows are read, sorted by subject and, if there are more than fit in memory, spilled to
+temp files and merged. An input small enough to buffer never touches disk. Memory is
+bounded by the buffer rather than the input, so a source of any size is safe, and the
+export order of the source does not affect the result.
+
+This used to be the `idx:sorted` assertion, which required pre-sorting the file with
+`LC_ALL=C sort`. The pitfall was that byte order and the obvious `ORDER BY` rarely
+agree: exporting with `ORDER BY collar_id` on an integer column yields `1175968` before
+`117597`, which is numerically right and lexically wrong. That is no longer something
+anyone has to know.
+
+The sort is stable, so rows sharing a subject keep their input order — which matters
+because duplicate `(subject, property)` rows are legal.
+
+`jena.text.external.sortBufferRows` (default 200,000) sets how many rows are held before
+spilling. It is a tuning knob for memory-constrained hosts, not something a normal
+deployment sets.
 
 ### Deltas
 

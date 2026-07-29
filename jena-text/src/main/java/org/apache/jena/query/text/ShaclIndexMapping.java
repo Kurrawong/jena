@@ -369,7 +369,6 @@ public class ShaclIndexMapping {
         private final String subjectColumn;
         private final int subjectColumnIndex;
         private final String subjectPrefix;
-        private final boolean sorted;
         private final Character delimiter;
         private final boolean headerless;
         private final ErrorPolicy onError;
@@ -384,10 +383,10 @@ public class ShaclIndexMapping {
 
         public ExternalSourceDef(ExternalFormat format, String location,
                                  String subjectColumn, int subjectColumnIndex, String subjectPrefix,
-                                 boolean sorted, Character delimiter, boolean headerless,
+                                 Character delimiter, boolean headerless,
                                  ErrorPolicy onError, double minMatchRate,
                                  List<ColumnBinding> columns) {
-            this(format, location, subjectColumn, subjectColumnIndex, subjectPrefix, sorted,
+            this(format, location, subjectColumn, subjectColumnIndex, subjectPrefix,
                 delimiter, headerless, onError, minMatchRate, columns,
                 Collections.emptyList(), DEFAULT_OP_COLUMN);
         }
@@ -395,7 +394,7 @@ public class ShaclIndexMapping {
         /** Widest form: {@code deltaLocations} are applied over the base in order. */
         public ExternalSourceDef(ExternalFormat format, String location,
                                  String subjectColumn, int subjectColumnIndex, String subjectPrefix,
-                                 boolean sorted, Character delimiter, boolean headerless,
+                                 Character delimiter, boolean headerless,
                                  ErrorPolicy onError, double minMatchRate,
                                  List<ColumnBinding> columns,
                                  List<String> deltaLocations, String opColumn) {
@@ -404,7 +403,6 @@ public class ShaclIndexMapping {
             this.subjectColumn = subjectColumn;
             this.subjectColumnIndex = subjectColumnIndex;
             this.subjectPrefix = subjectPrefix;
-            this.sorted = sorted;
             this.delimiter = delimiter;
             this.headerless = headerless;
             this.onError = onError != null ? onError : ErrorPolicy.SKIP;
@@ -425,7 +423,6 @@ public class ShaclIndexMapping {
         public String getSubjectColumn()         { return subjectColumn; }
         public int getSubjectColumnIndex()       { return subjectColumnIndex; }
         public String getSubjectPrefix()         { return subjectPrefix; }
-        public boolean isSorted()                { return sorted; }
         public Character getDelimiter()          { return delimiter; }
         public boolean isHeaderless()            { return headerless; }
         public ErrorPolicy getOnError()          { return onError; }
@@ -440,7 +437,7 @@ public class ShaclIndexMapping {
         /** Same source with the deltas stripped — the base layer a delta reader wraps. */
         public ExternalSourceDef withoutDeltas() {
             return new ExternalSourceDef(format, location, subjectColumn, subjectColumnIndex,
-                subjectPrefix, sorted, delimiter, headerless, onError, minMatchRate, columns);
+                subjectPrefix, delimiter, headerless, onError, minMatchRate, columns);
         }
 
         /**
@@ -452,7 +449,7 @@ public class ShaclIndexMapping {
             List<ColumnBinding> withOp = new ArrayList<>(columns);
             withOp.add(new ColumnBinding(opColumn, -1, opField));
             return new ExternalSourceDef(format, deltaLocation, subjectColumn, subjectColumnIndex,
-                subjectPrefix, sorted, delimiter, headerless, onError, minMatchRate, withOp);
+                subjectPrefix, delimiter, headerless, onError, minMatchRate, withOp);
         }
 
         private void validate() {
@@ -496,13 +493,6 @@ public class ShaclIndexMapping {
                     "idx:minMatchRate on " + location + " must be between 0.0 and 1.0, got " + minMatchRate);
             }
             if (!deltaLocations.isEmpty()) {
-                // Applying a delta means merging base and delta rows per subject, which
-                // needs both on one ordering. There is no streaming way to do it otherwise.
-                if (!sorted) {
-                    throw new TextIndexException(
-                        "idx:delta on " + location + " requires idx:sorted true — a delta is "
-                        + "merged with the base per subject, which needs both in subject order.");
-                }
                 if (headerless) {
                     throw new TextIndexException(
                         "idx:delta on " + location + " requires a header row: the operation "

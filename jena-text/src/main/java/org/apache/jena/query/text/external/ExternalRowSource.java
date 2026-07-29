@@ -33,6 +33,10 @@ import java.io.Closeable;
  * Implementations never transform a value: {@link #value(int)} returns the raw cell
  * text and the caller parses it as the bound field's declared type.
  * <p>
+ * Implementations need not order their rows. {@link SortingRowSource} establishes the
+ * subject ordering the indexer's merge join requires, so a source is free to emit rows
+ * however the underlying input happens to hold them.
+ * <p>
  * Not thread-safe. One source instance is driven by one indexing thread.
  */
 public interface ExternalRowSource extends Closeable {
@@ -62,16 +66,6 @@ public interface ExternalRowSource extends Closeable {
 
     /** Number of column bindings — the valid range for {@link #value(int)}. */
     int bindingCount();
-
-    /**
-     * Whether rows arrive grouped and ascending by {@link #subject()}. When true the
-     * indexer can stream a merge join; when false it must buffer the source.
-     * <p>
-     * This reflects the {@code idx:sorted} assertion in config. Implementations are
-     * expected to verify it while reading and fail on violation rather than silently
-     * producing a mostly-unmatched build.
-     */
-    boolean isSorted();
 
     /** Rows read so far, including rows skipped for having no usable join key. */
     long rowsRead();

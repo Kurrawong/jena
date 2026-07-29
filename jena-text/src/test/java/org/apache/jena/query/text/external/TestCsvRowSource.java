@@ -78,10 +78,9 @@ public class TestCsvRowSource {
     }
 
     private static ExternalSourceDef sourceDef(ExternalFormat format, String location,
-                                               String subjectColumn, String subjectPrefix,
-                                               boolean sorted) {
+                                               String subjectColumn, String subjectPrefix) {
         return new ExternalSourceDef(format, location, subjectColumn, -1, subjectPrefix,
-            sorted, null, false, ErrorPolicy.SKIP, 0.0,
+            null, false, ErrorPolicy.SKIP, 0.0,
             Arrays.asList(new ColumnBinding("property", -1, PROPERTY_FIELD),
                 new ColumnBinding("value", -1, VALUE_FIELD)));
     }
@@ -109,7 +108,7 @@ public class TestCsvRowSource {
             + "https://ex.org/s/A2,Au,0.3\n");
 
         List<String> rows = drain(new CsvRowSource(
-            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null, true)));
+            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null)));
 
         assertEquals(Arrays.asList(
             "https://ex.org/s/A1|Au|12.4",
@@ -125,7 +124,7 @@ public class TestCsvRowSource {
             + "12.4,https://ex.org/s/A1,Au\n");
 
         List<String> rows = drain(new CsvRowSource(
-            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null, true)));
+            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null)));
 
         assertEquals(List.of("https://ex.org/s/A1|Au|12.4"), rows);
     }
@@ -137,7 +136,7 @@ public class TestCsvRowSource {
             + "A1,Au,12.4\n");
 
         List<String> rows = drain(new CsvRowSource(
-            sourceDef(ExternalFormat.CSV, file.toString(), "sample_id", "https://ex.org/id/sample/", true)));
+            sourceDef(ExternalFormat.CSV, file.toString(), "sample_id", "https://ex.org/id/sample/")));
 
         assertEquals(List.of("https://ex.org/id/sample/A1|Au|12.4"), rows);
     }
@@ -149,7 +148,7 @@ public class TestCsvRowSource {
             + "https://ex.org/s/A1\tAu\t12.4\n");
 
         List<String> rows = drain(new CsvRowSource(
-            sourceDef(ExternalFormat.TSV, file.toString(), "sample_iri", null, true)));
+            sourceDef(ExternalFormat.TSV, file.toString(), "sample_iri", null)));
 
         assertEquals(List.of("https://ex.org/s/A1|Au|12.4"), rows);
     }
@@ -161,7 +160,7 @@ public class TestCsvRowSource {
             + "https://ex.org/s/A2,Cu,0.7\n");
 
         ExternalSourceDef def = new ExternalSourceDef(ExternalFormat.CSV, file.toString(),
-            null, 0, null, true, null, true, ErrorPolicy.SKIP, 0.0,
+            null, 0, null, null, true, ErrorPolicy.SKIP, 0.0,
             Arrays.asList(new ColumnBinding(null, 1, PROPERTY_FIELD),
                 new ColumnBinding(null, 2, VALUE_FIELD)));
 
@@ -178,7 +177,7 @@ public class TestCsvRowSource {
         write("meas-1.csv", "sample_iri,property,value\nhttps://ex.org/s/A1,Au,1.0\n");
 
         List<String> rows = drain(new CsvRowSource(sourceDef(
-            ExternalFormat.CSV, dir.resolve("meas-*.csv").toString(), "sample_iri", null, true)));
+            ExternalFormat.CSV, dir.resolve("meas-*.csv").toString(), "sample_iri", null)));
 
         assertEquals(Arrays.asList(
             "https://ex.org/s/A1|Au|1.0",
@@ -194,7 +193,7 @@ public class TestCsvRowSource {
             + "https://ex.org/s/A1,Au,\n");
 
         CsvRowSource source = new CsvRowSource(
-            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null, true));
+            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null));
         source.open();
         try {
             assertTrue(source.next());
@@ -215,37 +214,36 @@ public class TestCsvRowSource {
             + "https://ex.org/s/A1,Cu,0.7\n");
 
         CsvRowSource source = new CsvRowSource(
-            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null, true));
+            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null));
         List<String> rows = drain(source);
 
         assertEquals(List.of("https://ex.org/s/A1|Cu|0.7"), rows);
         assertEquals("blank-subject row is read then discarded", 2, source.rowsRead());
     }
 
-    /** idx:sorted true is verified, not trusted: an out-of-order file fails loudly
-     *  instead of merging to mostly-unmatched. */
+    /**
+     * The reader imposes no ordering and checks none: rows come back exactly as the
+     * file holds them, descending subjects and all. Establishing subject order is
+     * {@link SortingRowSource}'s job — see {@code TestSortingRowSource}.
+     */
     @Test
-    public void verifiesAssertedSortOrder() throws IOException {
+    public void emitsRowsInFileOrderWithoutCheckingIt() throws IOException {
         Path file = write("m.csv",
             "sample_iri,property,value\n"
             + "https://ex.org/s/A2,Au,12.4\n"
             + "https://ex.org/s/A1,Cu,0.7\n");
 
         CsvRowSource source = new CsvRowSource(
-            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null, true));
-        try {
-            TextIndexException e = assertThrows(TextIndexException.class, () -> drain(source));
-            assertTrue("message should name both subjects: " + e.getMessage(),
-                e.getMessage().contains("A2") && e.getMessage().contains("A1"));
-        } finally {
-            source.close();
-        }
+            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null));
+
+        assertEquals(Arrays.asList(
+            "https://ex.org/s/A2|Au|12.4",
+            "https://ex.org/s/A1|Cu|0.7"), drain(source));
     }
 
-    /** Interleaved (ungrouped) subjects break the merge just as badly as descending
-     *  order, so the same check catches them. */
+    /** Ungrouped repeats are likewise passed straight through, not rejected. */
     @Test
-    public void verifiesGroupingOfRepeatedSubjects() throws IOException {
+    public void emitsUngroupedRepeatedSubjectsUnchanged() throws IOException {
         Path file = write("m.csv",
             "sample_iri,property,value\n"
             + "https://ex.org/s/A1,Au,1.0\n"
@@ -253,26 +251,12 @@ public class TestCsvRowSource {
             + "https://ex.org/s/A1,Cu,3.0\n");
 
         CsvRowSource source = new CsvRowSource(
-            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null, true));
-        assertThrows(TextIndexException.class, () -> drain(source));
-        source.close();
-    }
+            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null));
 
-    /** Without the idx:sorted assertion no order check runs — the indexer buffers instead. */
-    @Test
-    public void unsortedSourceDoesNotCheckOrder() throws IOException {
-        Path file = write("m.csv",
-            "sample_iri,property,value\n"
-            + "https://ex.org/s/A2,Au,12.4\n"
-            + "https://ex.org/s/A1,Cu,0.7\n");
-
-        CsvRowSource source = new CsvRowSource(
-            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null, false));
-
-        assertFalse(source.isSorted());
         assertEquals(Arrays.asList(
-            "https://ex.org/s/A2|Au|12.4",
-            "https://ex.org/s/A1|Cu|0.7"), drain(source));
+            "https://ex.org/s/A1|Au|1.0",
+            "https://ex.org/s/A2|Au|2.0",
+            "https://ex.org/s/A1|Cu|3.0"), drain(source));
     }
 
     @Test
@@ -280,7 +264,7 @@ public class TestCsvRowSource {
         Path file = write("m.csv", "wrong_name,property,value\nA1,Au,12.4\n");
 
         CsvRowSource source = new CsvRowSource(
-            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null, true));
+            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null));
         TextIndexException e = assertThrows(TextIndexException.class, source::open);
         assertTrue(e.getMessage().contains("sample_iri"));
         source.close();
@@ -291,7 +275,7 @@ public class TestCsvRowSource {
         Path file = write("m.csv", "sample_iri,property\nA1,Au\n");
 
         CsvRowSource source = new CsvRowSource(
-            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null, true));
+            sourceDef(ExternalFormat.CSV, file.toString(), "sample_iri", null));
         TextIndexException e = assertThrows(TextIndexException.class, source::open);
         assertTrue(e.getMessage().contains("value"));
         source.close();
@@ -300,7 +284,7 @@ public class TestCsvRowSource {
     @Test
     public void missingFileIsAConfigError() {
         CsvRowSource source = new CsvRowSource(sourceDef(
-            ExternalFormat.CSV, dir.resolve("absent.csv").toString(), "sample_iri", null, true));
+            ExternalFormat.CSV, dir.resolve("absent.csv").toString(), "sample_iri", null));
         assertThrows(TextIndexException.class, source::open);
         source.close();
     }
@@ -308,7 +292,7 @@ public class TestCsvRowSource {
     @Test
     public void globMatchingNothingIsAConfigError() {
         CsvRowSource source = new CsvRowSource(sourceDef(
-            ExternalFormat.CSV, dir.resolve("none-*.csv").toString(), "sample_iri", null, true));
+            ExternalFormat.CSV, dir.resolve("none-*.csv").toString(), "sample_iri", null));
         assertThrows(TextIndexException.class, source::open);
         source.close();
     }

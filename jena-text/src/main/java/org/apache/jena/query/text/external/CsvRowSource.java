@@ -50,19 +50,15 @@ import org.slf4j.LoggerFactory;
  * Reads CSV or TSV, with a header row (columns bound by {@code idx:columnName}) or
  * without ({@code idx:headerless}, columns bound by {@code idx:columnIndex}). The
  * location may be a single path or a glob such as {@code /data/meas-*.csv}; globbed
- * files are read in filename order, so a set of individually sorted, range-disjoint
- * shards stays globally sorted.
+ * files are read in filename order and concatenated.
  * <p>
  * <b>Values are returned verbatim.</b> A cell is either {@code null} — absent, empty
  * or whitespace-only — or exactly the text in the file. No trimming, no coercion; the
  * caller parses it as the bound field's declared type.
  * <p>
- * <b>Sort order.</b> When the config asserts {@code idx:sorted true} the assertion is
- * verified as rows stream past: a subject that sorts before its predecessor fails the
- * build. This catches both descending and merely ungrouped input, either of which would
- * otherwise merge to a technically successful but mostly-unmatched index. Ordering is
- * by Java string comparison, which agrees with byte order for the ASCII IRIs this
- * applies to in practice — sort the source with {@code LC_ALL=C sort}.
+ * <b>Rows are emitted in file order.</b> Establishing the subject ordering the indexer
+ * needs is {@link SortingRowSource}'s job, so the input does not have to be sorted and
+ * nothing here checks that it is.
  */
 public class CsvRowSource implements ExternalRowSource {
     private static final Logger log = LoggerFactory.getLogger(CsvRowSource.class);
@@ -82,7 +78,6 @@ public class CsvRowSource implements ExternalRowSource {
     private Iterator<CSVRecord> records;
 
     private String subject;
-    private String previousSubject;
     private long rowsRead;
     private boolean opened;
 
@@ -222,10 +217,7 @@ public class CsvRowSource implements ExternalRowSource {
                 // No join key: this row cannot be attached to any entity. Counted, dropped.
                 continue;
             }
-            String resolved = def.getSubjectPrefix() != null ? def.getSubjectPrefix() + key : key;
-            checkOrder(resolved, record);
-            subject = resolved;
-            previousSubject = resolved;
+            subject = def.getSubjectPrefix() != null ? def.getSubjectPrefix() + key : key;
 
             List<ColumnBinding> bindings = def.getColumns();
             for (int i = 0; i < bindings.size(); i++) {
@@ -243,18 +235,6 @@ public class CsvRowSource implements ExternalRowSource {
         }
     }
 
-    private void checkOrder(String resolved, CSVRecord record) {
-        if (!def.isSorted() || previousSubject == null) {
-            return;
-        }
-        if (resolved.compareTo(previousSubject) < 0) {
-            throw new TextIndexException(
-                "idx:sorted true is asserted but " + currentFile + " line " + record.getRecordNumber()
-                + " has subject '" + resolved + "' after '" + previousSubject
-                + "'. Rows must be grouped and ascending by idx:subjectColumn"
-                + " (sort with LC_ALL=C), or set idx:sorted false.");
-        }
-    }
 
     private String subjectCell(CSVRecord record) {
         if (def.isHeaderless()) {
@@ -297,10 +277,6 @@ public class CsvRowSource implements ExternalRowSource {
         return values.length;
     }
 
-    @Override
-    public boolean isSorted() {
-        return def.isSorted();
-    }
 
     @Override
     public long rowsRead() {

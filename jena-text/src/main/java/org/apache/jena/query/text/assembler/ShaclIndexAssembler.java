@@ -254,7 +254,6 @@ public class ShaclIndexAssembler {
         String subjectColumn = getOptionalString(sourceRes, IndexVocab.pSubjectColumn);
         int subjectColumnIndex = getOptionalInt(sourceRes, IndexVocab.pSubjectColumnIndex, -1);
         String subjectPrefix = getOptionalString(sourceRes, IndexVocab.pSubjectPrefix);
-        boolean sorted = getOptionalBoolean(sourceRes, IndexVocab.pSorted, false);
         Character delimiter = parseDelimiter(sourceRes);
         ErrorPolicy onError = parseErrorPolicy(sourceRes);
         double minMatchRate = getOptionalDouble(sourceRes, IndexVocab.pMinMatchRate, 0.0);
@@ -277,7 +276,7 @@ public class ShaclIndexAssembler {
         String opColumn = getOptionalString(sourceRes, IndexVocab.pOpColumn);
 
         return new ExternalSourceDef(format, location, subjectColumn, subjectColumnIndex,
-            subjectPrefix, sorted, delimiter, headerless, onError, minMatchRate, columns,
+            subjectPrefix, delimiter, headerless, onError, minMatchRate, columns,
             deltaLocations, opColumn);
     }
 
