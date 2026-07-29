@@ -10,12 +10,12 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="app.css?v=10">
+  <link rel="stylesheet" href="app.css?v=11">
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/n3@1.22.3/browser/n3.min.js"></script>
   <script src="app-config.js?v=4"></script>
   <script src="labels.js?v=1"></script>
-  <script src="app.js?v=15"></script>
+  <script src="app.js?v=16"></script>
   <script>
     document.addEventListener('alpine:init', () => {
       Alpine.store('app', { showLog: true, showMap: true, highlightUri: null });
@@ -41,12 +41,6 @@
       <a class="nav-tab" href="stats.html">Stats</a>
     </div>
     <div class="navbar-end" x-data>
-      <div class="navbar-dropdown-wrapper" id="tests-wrapper" style="display:none">
-        <button class="tests-btn" type="button" id="tests-toggle">
-          Tests <span class="dropdown-caret" id="tests-caret">&#9662;</span>
-        </button>
-        <div class="tests-dropdown" id="tests-menu"></div>
-      </div>
       <label class="navbar-toggle">
         <input type="checkbox" :checked="$store.app.showMap" @change="$store.app.showMap = !$store.app.showMap">
         <span>Map</span>
@@ -84,6 +78,40 @@
         <!-- Sidebar: search + facets -->
         <div class="column left-panel">
           <div class="facet-sidebar">
+            <template x-if="exampleGroups.length > 0">
+              <div class="sidebar-panel examples-panel">
+                <button class="examples-toggle" type="button" @click="examplesOpen = !examplesOpen">
+                  <span class="examples-caret" x-text="examplesOpen ? '▾' : '▸'"></span>
+                  <span class="sidebar-header examples-title">Examples</span>
+                  <span class="example-group-count" x-text="exampleCount()"></span>
+                </button>
+
+                <div class="examples-body" x-show="examplesOpen" x-cloak>
+                  <p class="examples-help">Load a saved search into the filters below.</p>
+                  <template x-for="group in exampleGroups" :key="group.name">
+                    <section class="example-group">
+                      <button class="example-group-header" type="button" @click="toggleExampleGroup(group.name)">
+                        <span class="example-group-caret"
+                              x-text="expandedExampleGroups[group.name] ? '▾' : '▸'"></span>
+                        <span x-text="group.name"></span>
+                        <span class="example-group-count" x-text="group.examples.length"></span>
+                      </button>
+                      <div class="example-group-items" x-show="expandedExampleGroups[group.name]">
+                        <template x-for="ex in group.examples" :key="ex.id">
+                          <button class="example-item" type="button"
+                                  :class="{ 'is-active': activeExampleId === ex.id }"
+                                  @click="applyExample(ex)">
+                            <span class="example-item-label" x-text="ex.label"></span>
+                            <span class="example-item-meta" x-text="exampleMeta(ex)"></span>
+                          </button>
+                        </template>
+                      </div>
+                    </section>
+                  </template>
+                </div>
+              </div>
+            </template>
+
             <div class="sidebar-panel">
               <div class="sidebar-header">Search &amp; Filter</div>
 
@@ -660,35 +688,6 @@
       burger.addEventListener('click', () => {
         burger.classList.toggle('is-active');
         menu.classList.toggle('is-active');
-      });
-
-      // Tests dropdown — loaded from tests.json, vanilla JS toggle
-      const testsWrapper = document.getElementById('tests-wrapper');
-      const testsMenu = document.getElementById('tests-menu');
-      const testsToggle = document.getElementById('tests-toggle');
-      const testsCaret = document.getElementById('tests-caret');
-      loadTestCases().then(cases => {
-        if (!cases || cases.length === 0) return;
-        testsMenu.innerHTML = cases.map(tc => {
-          if (tc.group) return '<div class="dropdown-group">' + tc.group + '</div>';
-          let href = 'index.html';
-          if (tc.params) {
-            const qs = new URLSearchParams(tc.params.replace(/^\?/, ''));
-            href += '?' + qs.toString();
-          }
-          return '<a class="dropdown-item" href="' + href + '">' + tc.label + '</a>';
-        }).join('');
-        testsWrapper.style.display = '';
-      });
-      testsToggle.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const open = testsMenu.style.display !== 'block';
-        testsMenu.style.display = open ? 'block' : 'none';
-        testsCaret.classList.toggle('is-open', open);
-      });
-      document.addEventListener('click', () => {
-        testsMenu.style.display = 'none';
-        testsCaret.classList.remove('is-open');
       });
 
       requestAnimationFrame(() => {

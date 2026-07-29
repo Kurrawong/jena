@@ -119,10 +119,8 @@ code {
   overflow: visible !important;
 }
 
-/* Override Bulma navbar overflow clipping so dropdowns can escape */
 .site-navbar .navbar-brand,
-.site-navbar .navbar-end,
-.site-navbar .navbar-dropdown-wrapper {
+.site-navbar .navbar-end {
   overflow: visible !important;
 }
 
@@ -257,90 +255,6 @@ code {
   font-size: 0.65rem;
   font-weight: 700;
   color: var(--bg-base);
-}
-
-/* Tests dropdown */
-.navbar-dropdown-wrapper {
-  position: relative;
-  overflow: visible !important;
-}
-
-.tests-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.25em;
-  padding: 0 1rem;
-  min-height: 3.25rem;
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-family: var(--font-body);
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  transition: color 0.2s ease;
-}
-
-.tests-btn:hover {
-  color: var(--text-primary);
-}
-
-.dropdown-caret {
-  font-size: 1.5rem;
-  display: inline-block;
-  transition: transform 0.15s ease;
-  margin-left: 0.25em;
-}
-
-.dropdown-caret.is-open {
-  transform: rotate(180deg);
-}
-
-.tests-dropdown {
-  display: none;
-  position: absolute;
-  top: 100%;
-  right: 0;
-  width: 280px;
-  max-height: 70vh;
-  overflow-y: auto;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  padding: 0.35rem 0;
-  z-index: 100;
-}
-
-.dropdown-group {
-  font-family: var(--font-mono);
-  font-size: 0.6rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  padding: 0.6rem 0.85rem 0.25rem;
-  user-select: none;
-}
-
-.dropdown-group:not(:first-child) {
-  border-top: 1px solid var(--border-subtle);
-  margin-top: 0.25rem;
-  padding-top: 0.6rem;
-}
-
-.dropdown-item {
-  display: block;
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  padding: 0.35rem 0.85rem;
-  text-decoration: none;
-  transition: background 0.1s ease, color 0.1s ease;
-}
-
-.dropdown-item:hover {
-  background: var(--bg-elevated);
-  color: var(--amber);
 }
 
 /* Burger menu for mobile */
@@ -2113,4 +2027,121 @@ details[open] > summary .jt-count::before { content: '▼ '; }
   .search-layout > .column {
     overflow-y: visible;
   }
+}
+
+/* ── Examples panel (LHS) ──
+   Saved searches from tests.json. Structure borrowed from the gswa-prez-config demo's
+   test drawer, but stacked above the filters instead of sliding in from the side: this
+   left column is a fixed narrow width with a resize handle, which a horizontal drawer
+   would fight. */
+.examples-panel {
+  margin-bottom: 0.75rem;
+  padding: 0.85rem 1rem;
+}
+
+.examples-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.examples-title {
+  margin-bottom: 0;
+  color: var(--text-primary);
+}
+
+.examples-caret {
+  color: var(--amber);
+  font-size: 0.75rem;
+}
+
+.examples-help {
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  margin: 0.6rem 0 0.7rem;
+}
+
+.example-group + .example-group {
+  margin-top: 0.5rem;
+}
+
+.example-group-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.example-group-header:hover {
+  border-color: var(--amber);
+}
+
+.example-group-caret {
+  color: var(--amber);
+  font-size: 0.7rem;
+}
+
+.example-group-count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.example-group-items {
+  margin: 0.4rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.example-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: var(--radius-md);
+  padding: 0.45rem 0.6rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.example-item:hover,
+.example-item.is-active {
+  border-color: var(--amber);
+  background: var(--amber-dim);
+}
+
+.example-item-label {
+  font-size: 0.78rem;
+  color: var(--text-primary);
+}
+
+.example-item-meta {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

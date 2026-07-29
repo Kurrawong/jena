@@ -906,6 +906,10 @@ function searchApp() {
         endpoint: '',
         queryLog: [],
         correlatedFilters: emptyCorrelatedFilterState(),
+        examplesOpen: false,
+        exampleGroups: [],           // [{name, examples: [{id, label, params}]}]
+        expandedExampleGroups: {},
+        activeExampleId: null,
         identifierKindList: [],      // fixed vocabulary: anumber, company, mnumber
         identifierKindSuggestionsByKind: {},   // kind → [{value, label, count}]
         _identifierSuggestTimers: {},
@@ -968,6 +972,7 @@ function searchApp() {
             this._labels = new LabelResolver(this.endpoint, APP_CONFIG.labelCacheVersion || '1');
 
             this.loadFromUrl();
+            await this.loadExamples();
             await this.loadIdentifierKinds();
             await this.executeSearch();
             await this.loadAttributionOptions();
@@ -1039,6 +1044,70 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
         },
 
         // --- Query log ---
+
+        /**
+         * Load the saved searches from tests.json.
+         *
+         * That file is a flat list where a `{"group": "..."}` entry marks the start of a
+         * section rather than being an entry itself — the shape the old navbar dropdown
+         * rendered directly. Fold it into real groups so the panel can collapse them.
+         */
+        async loadExamples() {
+            const cases = await loadTestCases();
+            const groups = [];
+            let current = null;
+            cases.forEach((tc, i) => {
+                if (tc.group) {
+                    current = { name: tc.group, examples: [] };
+                    groups.push(current);
+                    return;
+                }
+                if (!tc.label) return;
+                if (!current) {
+                    current = { name: 'Examples', examples: [] };
+                    groups.push(current);
+                }
+                current.examples.push({ id: `ex-${i}`, label: tc.label, params: tc.params || '' });
+            });
+            this.exampleGroups = groups.filter(g => g.examples.length > 0);
+            // Open the first group so the panel is not a wall of collapsed headers.
+            if (this.exampleGroups.length > 0) {
+                this.expandedExampleGroups[this.exampleGroups[0].name] = true;
+            }
+        },
+
+        exampleCount() {
+            return this.exampleGroups.reduce((n, g) => n + g.examples.length, 0);
+        },
+
+        toggleExampleGroup(name) {
+            this.expandedExampleGroups[name] = !this.expandedExampleGroups[name];
+        },
+
+        /** One-line hint at what an example actually sets, so the labels are scannable. */
+        exampleMeta(ex) {
+            const params = new URLSearchParams((ex.params || '').replace(/^\?/, ''));
+            const bits = [];
+            const q = params.get('q');
+            if (q) bits.push(`q=${q}`);
+            if (params.get('filter')) bits.push('filter');
+            if (params.get('sort')) bits.push('sort');
+            if (params.get('page')) bits.push(`page ${params.get('page')}`);
+            return bits.join(' · ') || 'wildcard';
+        },
+
+        /**
+         * Apply an example by pushing its parameters into the URL and re-reading state
+         * from there — the same path a shared link or the back button takes, so an
+         * example lands the app in a state the user could have reached themselves.
+         */
+        async applyExample(ex) {
+            this.activeExampleId = ex.id;
+            const qs = (ex.params || '').replace(/^\?/, '');
+            window.history.pushState({}, '', qs ? `?${qs}` : window.location.pathname);
+            this.loadFromUrl();
+            await this.executeSearch();
+        },
 
         logQuery(label, query, durationMs, isSparql) {
             const dur = durationMs != null ? ` (${(durationMs / 1000).toFixed(2)}s)` : '';
