@@ -471,7 +471,7 @@ code {
 
 .limit-label {
   font-size: 0.75rem;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
 }
 
 .limit-select {
@@ -999,14 +999,17 @@ code {
 }
 
 .pagination-btn:hover:not(:disabled):not(.is-current) {
-  background: var(--bg-hover);
-  border-color: var(--border-focus);
+  background: var(--bg-elevated);
+  border-color: var(--amber);
 }
 
+/* --accent, --bg-hover and --border-focus were never defined, so these declarations
+   were invalid at computed-value time: the current page fell back to a transparent
+   background while keeping color: var(--bg-base), i.e. dark text on the dark page. */
 .pagination-btn.is-current {
-  background: var(--accent);
+  background: var(--amber);
   color: var(--bg-base);
-  border-color: var(--accent);
+  border-color: var(--amber);
   font-weight: 600;
 }
 
@@ -1138,13 +1141,13 @@ code {
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  background: var(--surface-alt);
+  background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
   cursor: move;
   user-select: none;
   font-weight: 600;
   font-size: 0.85rem;
-  color: var(--text);
+  color: var(--text-primary);
 }
 
 .sparql-editor-close {
@@ -1152,12 +1155,12 @@ code {
   border: none;
   font-size: 1.2rem;
   cursor: pointer;
-  color: var(--muted);
+  color: var(--text-muted);
   padding: 0 4px;
   line-height: 1;
 }
 .sparql-editor-close:hover {
-  color: var(--text);
+  color: var(--text-primary);
 }
 
 .sparql-editor-resize {
@@ -1191,7 +1194,7 @@ code {
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--bg-input);
-  color: var(--text);
+  color: var(--text-primary);
   tab-size: 2;
   white-space: pre;
   overflow: auto;
@@ -1233,7 +1236,7 @@ code {
   font-size: 0.75rem;
   padding: 5px 8px;
   background: var(--bg-input);
-  color: var(--text);
+  color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: 4px;
   min-width: 0;
@@ -1264,7 +1267,7 @@ code {
 }
 .sparql-editor-view-toggle button:hover:not(.active) {
   background: var(--bg-base);
-  color: var(--text);
+  color: var(--text-primary);
 }
 
 .sparql-editor-table-wrap {
@@ -1292,7 +1295,7 @@ code {
 .sparql-editor-table td {
   padding: 4px 10px;
   border-bottom: 1px solid var(--border);
-  color: var(--text);
+  color: var(--text-primary);
   max-width: 300px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1316,7 +1319,7 @@ code {
   flex: 1;
   overflow: auto;
   padding: 10px;
-  background: var(--surface-alt);
+  background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 4px;
   font-size: 0.75rem;
@@ -1352,7 +1355,7 @@ code {
   user-select: none;
   font-weight: 600;
   font-size: 0.85rem;
-  color: var(--text);
+  color: var(--text-primary);
   border-radius: 4px 4px 0 0;
 }
 .cql-viewer-actions {
@@ -1371,7 +1374,7 @@ code {
   font-weight: 500;
 }
 .cql-viewer-btn:hover {
-  color: var(--text);
+  color: var(--text-primary);
   border-color: var(--text-secondary);
 }
 .cql-viewer-close {
@@ -1379,12 +1382,12 @@ code {
   border: none;
   font-size: 1.2rem;
   cursor: pointer;
-  color: var(--muted);
+  color: var(--text-muted);
   padding: 0 4px;
   line-height: 1;
 }
 .cql-viewer-close:hover {
-  color: var(--text);
+  color: var(--text-primary);
 }
 .cql-viewer-body {
   flex: 1;
@@ -1402,16 +1405,16 @@ code {
 .jt-str { color: #a8d89f; }
 .jt-num { color: #d4a55a; }
 .jt-bool { color: #c792ea; }
-.jt-null { color: var(--muted); font-style: italic; }
+.jt-null { color: var(--text-muted); font-style: italic; }
 .jt-brace { color: var(--text-secondary); cursor: pointer; }
 .jt-count {
   font-size: 0.7rem;
-  color: var(--muted);
+  color: var(--text-muted);
   margin-left: 4px;
 }
 details > summary { list-style: none; display: inline; }
 details > summary::-webkit-details-marker { display: none; }
-details > summary .jt-count::before { content: '▶ '; font-size: 0.6rem; color: var(--muted); }
+details > summary .jt-count::before { content: '▶ '; font-size: 0.6rem; color: var(--text-muted); }
 details[open] > summary .jt-count::before { content: '▼ '; }
 
 .cql-viewer-raw {
@@ -1424,7 +1427,7 @@ details[open] > summary .jt-count::before { content: '▼ '; }
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-all;
-  color: var(--text);
+  color: var(--text-primary);
 }
 
 .query-log-entry.is-cql {
@@ -1455,7 +1458,7 @@ details[open] > summary .jt-count::before { content: '▼ '; }
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-size: 0.8rem;
   line-height: 1.6;
-  color: var(--text);
+  color: var(--text-primary);
   overflow: auto;
   white-space: pre;
   margin: 0;
