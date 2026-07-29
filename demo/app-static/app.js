@@ -1076,6 +1076,15 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
             this.editorOpen = false;
         },
 
+        /**
+         * Escape closes one popup at a time, innermost first — the CQL viewer can be
+         * opened from the editor, so closing both at once would be surprising.
+         */
+        closeTopPopup() {
+            if (this.cqlOpen) this.closeCql();
+            else if (this.editorOpen) this.closeEditor();
+        },
+
         async runEditorQuery() {
             this.editorRunning = true;
             this.editorError = null;

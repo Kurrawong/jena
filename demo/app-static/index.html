@@ -10,12 +10,12 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="app.css?v=9">
+  <link rel="stylesheet" href="app.css?v=10">
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/n3@1.22.3/browser/n3.min.js"></script>
   <script src="app-config.js?v=4"></script>
   <script src="labels.js?v=1"></script>
-  <script src="app.js?v=14"></script>
+  <script src="app.js?v=15"></script>
   <script>
     document.addEventListener('alpine:init', () => {
       Alpine.store('app', { showLog: true, showMap: true, highlightUri: null });
@@ -59,7 +59,8 @@
   </nav>
 
   <section class="section">
-    <div class="container is-fluid main-content" x-data="searchApp()" x-cloak>
+    <div class="container is-fluid main-content" x-data="searchApp()" x-cloak
+         @keydown.escape.window="closeTopPopup()">
 
       <div class="loading-bar" :class="{ 'is-loading': showLoading }"></div>
 
@@ -531,15 +532,15 @@
             </template>
 
             <template x-for="(entry, i) in queryLog" :key="i">
-              <div class="query-log-entry" :class="{ 'is-new': i === 0, 'is-sparql': entry.isSparql, 'is-cql': entry.isCql }"
+              <button type="button"
+                   class="query-log-entry"
+                   :class="{ 'is-new': i === 0, 'is-sparql': entry.isSparql, 'is-cql': entry.isCql }"
+                   :disabled="!entry.isSparql && !entry.isCql"
                    @click="entry.isSparql ? openEditor(entry.query) : (entry.isCql && openCql(entry.query))"
-                   :title="entry.isSparql ? 'Click to open in editor' : (entry.isCql ? 'Click to view CQL' : '')">
-                <div class="query-log-meta">
-                  <span class="query-log-timestamp" x-text="entry.time"></span>
-                  <span class="query-log-label" x-text="entry.label"></span>
-                </div>
-                <pre class="query-log-code"><code x-text="entry.query"></code></pre>
-              </div>
+                   :title="entry.isSparql ? 'Open in the SPARQL editor' : (entry.isCql ? 'View the CQL filter' : entry.label)">
+                <span class="query-log-timestamp" x-text="entry.time"></span>
+                <span class="query-log-label" x-text="entry.label"></span>
+              </button>
             </template>
           </div>
 
