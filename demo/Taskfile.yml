@@ -32,12 +32,6 @@ tasks:
     cmds:
       - pkill -f "jena-fuseki-server" && echo "Server stopped" || echo "No server running"
 
-  overview:
-    desc: Serve the project overview presentation
-    cmds:
-      - echo "Serving at http://localhost:8001"
-      - cmd: python3 -m http.server 8001 --directory project-overview
-
   test:
     desc: Run Playwright screenshot tests and generate report
     dir: testing

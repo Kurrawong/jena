@@ -494,9 +494,12 @@ terms regardless of row count.
 
 ### Measured, 2026-07-27
 
-The full GSWA downhole summary extract, built by `demo/geochem-external`
-(`task reindex-full`, then `task measure-split`), which builds the same collars a
-second time without the `idx:nested` block and differences the two indexes:
+The full GSWA downhole summary extract, measured with the `demo/geochem-external`
+harness (`task reindex-full`, then `task measure-split`), which built the same
+collars a second time without the `idx:nested` block and differenced the two
+indexes. That harness has since been removed — the demos were consolidated onto
+the mining demo alone — so the figures below are a record, not reproducible from
+this tree:
 
 | | |
 |---|---|
