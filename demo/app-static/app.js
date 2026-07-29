@@ -961,6 +961,7 @@ function searchApp() {
         description: '',
         _lastTotalHits: 0,
         _facetKey: null,
+        _logBatch: 0,          // groups a search's queries so they log in execution order
         _labels: null,
         endpoint: '',
         queryLog: [],
@@ -1172,6 +1173,13 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
             await this.executeSearch();
         },
 
+        /**
+         * Log one query. The newest search sits at the top of the panel, but the queries
+         * within a search read in the order they ran — the filter that was built, the
+         * search it fed, then the DESCRIBE of the hits that search returned. Plain
+         * unshifting reversed each search, so the DESCRIBE appeared above the search it
+         * depended on, which read as though it came from nowhere.
+         */
         logQuery(label, query, durationMs, isSparql) {
             const dur = durationMs != null ? ` (${(durationMs / 1000).toFixed(2)}s)` : '';
             const trimmed = query.trim();
@@ -1180,13 +1188,17 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
             if (!sparql) {
                 try { const p = JSON.parse(trimmed); isCql = p && typeof p.op === 'string'; } catch {}
             }
-            this.queryLog.unshift({
+            const entry = {
+                batch: this._logBatch,
                 time: timeStamp(),
                 label: label + dur,
                 query: trimmed,
                 isSparql: sparql,
                 isCql,
-            });
+            };
+            let at = 0;
+            while (at < this.queryLog.length && this.queryLog[at].batch === this._logBatch) at++;
+            this.queryLog.splice(at, 0, entry);
         },
 
         // --- SPARQL editor ---
@@ -2511,6 +2523,7 @@ DESCRIBE <${uri}>`;
             this.hierarchyChildren = {};
             this.hierarchyOpen = {};
 
+            this._logBatch += 1;
             this.loading = true;
             this.showLoading = true;
             clearTimeout(this._loadingTimer);
@@ -2566,7 +2579,7 @@ DESCRIBE <${uri}>`;
                     const detailTurtle = await this.runSparqlText(detailQuery, 'text/turtle', signal);
                     const detailStore = await parseTurtle(detailTurtle);
                     const detailMs = performance.now() - t0;
-                    this.logQuery(`Details: ${uris.length} entities`, detailQuery, detailMs);
+                    this.logQuery(`Details: DESCRIBE the ${uris.length} hits above`, detailQuery, detailMs);
 
                     this.cards = this.parseEntityDetails(detailStore, hitsByUri);
                     // Labels resolve in the background — the cards render immediately with
