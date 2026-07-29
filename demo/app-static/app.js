@@ -11,6 +11,8 @@ const RESULT_LIMITS = [10, 100, 1000, 5000, 9999];
 const DEFAULT_LIMIT = 10;
 const FACET_LIMITS = [10, 25, 50, 100, 500];
 const DEFAULT_FACET_LIMIT = 10;
+const IDENTIFIER_SUGGESTION_LIMIT = 10;
+const IDENTIFIER_SUGGESTION_DEBOUNCE_MS = 150;
 const DEFAULT_SORT_DIRECTION = 'asc';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -903,6 +905,8 @@ function searchApp() {
         endpoint: '',
         queryLog: [],
         correlatedFilters: emptyCorrelatedFilterState(),
+        identifierKindSuggestionsByKind: {},   // kind → [{value, label, count}]
+        _identifierSuggestTimers: {},
         attributionRoleOptions: [],
         attributionAgentOptions: [],
         attributionAgentsByRole: {},
@@ -1627,6 +1631,22 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             return 'identifierType_identifierValueExact';
         },
 
+        /**
+         * Facets to render in the sidebar.
+         *
+         * The identifier hierarchy is still requested — its top level supplies the
+         * identifier kinds — but it is not rendered as a facet. Drilling into it is
+         * useless: the child level is a high-cardinality set of exact identifier values,
+         * so a kind either expands to hundreds of one-count entries or, once filtered,
+         * to nothing at all. RDF models the kind and value as one nested node; the UI
+         * does not have to mirror that. The kinds are presented instead as three
+         * independent typeahead fields.
+         */
+        sidebarFacetFields() {
+            const identifierDim = this.identifierHierarchyDim();
+            return this.facetFields.filter(f => f !== identifierDim);
+        },
+
         identifierKinds() {
             return this.visibleFacets(this.identifierHierarchyDim());
         },
@@ -1644,8 +1664,57 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             }
         },
 
-        async ensureIdentifierKindSuggestions(kind) {
-            await this.ensureHierarchyChildren(this.identifierHierarchyDim(), kind);
+        /**
+         * Typeahead for one identifier kind.
+         *
+         * Two CQL clauses under an `and`, so both must hold on the *same* nested child:
+         * the kind, and an edge-ngram match on what has been typed. `identifierValueText`
+         * is indexed with EdgeNGramAnalyzer and queried with LowerCaseKeywordAnalyzer, so
+         * a prefix matches without the caller doing anything special.
+         *
+         * Faceting the hierarchy dimension (rather than the value field) is what makes the
+         * counts reflect the kind: the `=` on the kind becomes the taxonomy drill-down.
+         */
+        async fetchIdentifierKindSuggestions(kind, term) {
+            const typed = String(term || '').trim();
+            const args = [
+                { op: '=', args: [{ property: fieldIri(this.fieldIRIs, 'identifierType') }, kind] },
+            ];
+            if (typed) {
+                args.push({
+                    op: 'text_query',
+                    args: [{ property: fieldIri(this.fieldIRIs, 'identifierValueText') }, typed],
+                });
+            }
+            const filter = JSON.stringify(args.length === 1 ? args[0] : { op: 'and', args });
+            const dim = JSON.stringify([this.identifierHierarchyDim()]);
+
+            const query = `${SPARQL_PREFIXES}
+SELECT ?value ?count WHERE {
+    (?field ?value ?low ?high ?count) luc:facet ('default' 'default' '*' ${sparqlQuote(dim)} ${sparqlQuote(filter)} ${IDENTIFIER_SUGGESTION_LIMIT} 0)
+}`;
+            try {
+                const data = await this.runSparql(query);
+                const suggestions = (data.results?.bindings || [])
+                    .filter(row => row.value)
+                    .map(row => ({
+                        value: row.value.value,
+                        label: row.value.value,
+                        count: row.count ? parseInt(row.count.value, 10) : 0,
+                    }));
+                this.identifierKindSuggestionsByKind[kind] = suggestions;
+            } catch (e) {
+                console.error('Identifier typeahead failed:', e);
+                this.identifierKindSuggestionsByKind[kind] = [];
+            }
+        },
+
+        /** Debounced so a fast typist issues one query, not one per keystroke. */
+        ensureIdentifierKindSuggestions(kind, term = '') {
+            clearTimeout(this._identifierSuggestTimers[kind]);
+            this._identifierSuggestTimers[kind] = setTimeout(() => {
+                this.fetchIdentifierKindSuggestions(kind, term);
+            }, IDENTIFIER_SUGGESTION_DEBOUNCE_MS);
         },
 
         identifierSuggestionId(kind) {
@@ -1653,7 +1722,7 @@ SELECT ?field ?value ?low ?high ?count WHERE {
         },
 
         identifierKindSuggestions(kind) {
-            return this.getHierarchyChildren(this.identifierHierarchyDim(), kind);
+            return this.identifierKindSuggestionsByKind[kind] || [];
         },
 
         filteredAttributionAgents() {

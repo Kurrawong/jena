@@ -15,7 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/n3@1.22.3/browser/n3.min.js"></script>
   <script src="app-config.js?v=4"></script>
   <script src="labels.js?v=1"></script>
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=10"></script>
   <script>
     document.addEventListener('alpine:init', () => {
       Alpine.store('app', { showLog: true, showMap: true, highlightUri: null });
@@ -249,13 +249,13 @@
                                :list="identifierSuggestionId(kind.value)"
                                :value="identifierKindValue(kind.value)"
                                :placeholder="'Type ahead within ' + (kind.label || kind.value)"
-                               @focus="ensureIdentifierKindSuggestions(kind.value)"
-                               @input="setIdentifierKindValue(kind.value, $event.target.value)"
+                               @focus="ensureIdentifierKindSuggestions(kind.value, identifierKindValue(kind.value))"
+                               @input="setIdentifierKindValue(kind.value, $event.target.value); ensureIdentifierKindSuggestions(kind.value, $event.target.value)"
                                @change="search()"
                                @keydown.enter.prevent="search()">
                         <datalist :id="identifierSuggestionId(kind.value)">
                           <template x-for="child in identifierKindSuggestions(kind.value)" :key="child.value">
-                            <option :value="child.label || child.value"></option>
+                            <option :value="child.label || child.value" x-text="child.count ? child.count + ' matching' : ''"></option>
                           </template>
                         </datalist>
                       </label>
@@ -304,7 +304,7 @@
                 </template>
               </details>
 
-              <template x-for="fieldName in facetFields" :key="fieldName">
+              <template x-for="fieldName in sidebarFacetFields()" :key="fieldName">
                 <div>
                   <template x-if="(facets[fieldName] || []).length > 0">
                     <details class="facet-group" open>
