@@ -42,9 +42,6 @@
   --radius-md: 6px;
   --radius-lg: 10px;
 
-  /* Layout */
-  --layout-height: calc(100vh - 5.1rem);
-
   /* Shadows */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
@@ -65,9 +62,27 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Lock viewport when search layout is active */
+/* The search page fills the viewport exactly: navbar, description row, then the columns
+   taking whatever is left. This used to be height: calc(100vh - 5.1rem) on the columns,
+   but the description row's height changes with its text, so the columns started
+   anywhere from 89px to 110px down and overran the bottom of the window by that much. */
 body:has(.search-layout) {
   overflow: hidden;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+body:has(.search-layout) .section,
+body:has(.search-layout) .main-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+body:has(.search-layout) .columns.mb-0 {
+  flex: none;
 }
 
 code {
@@ -354,9 +369,26 @@ code {
 }
 
 /* ── Independent Column Scrolling ── */
+.search-layout {
+  flex: 1;
+  min-height: 0;
+}
+
 .search-layout > .column {
-  height: var(--layout-height);
+  height: 100%;
   overflow-y: auto;
+}
+
+/* The results column stacks so the pagination bar can sit at the foot of the panel even
+   when there are few results, rather than tucked under the last card. */
+.search-layout > .column:not(.left-panel):not(.right-panel) {
+  display: flex;
+  flex-direction: column;
+}
+
+.search-layout > .column > .result-card,
+.search-layout > .column > .notice-empty {
+  flex: none;
 }
 
 /* Left panel: ~31% */
@@ -371,6 +403,13 @@ code {
 .columns > .right-panel {
   flex: none;
   width: 41%;
+}
+
+/* Map takes half the column, the log the rest and scrolls on its own. */
+.search-layout > .right-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* ── Resize Handle ── */
@@ -982,12 +1021,20 @@ code {
   color: var(--amber);
 }
 
+/* Pinned to the foot of the results column, which is the scroll container, so the
+   controls stay reachable without scrolling to the end of the page. */
 .pagination-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 0.25rem;
-  padding: 1rem 0;
+  padding: 0.75rem 0;
+  margin-top: auto;
+  background: var(--bg-base);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .pagination-btn {
@@ -1750,6 +1797,9 @@ details[open] > summary .jt-count::before { content: '▼ '; }
 
 /* ── SPARQL Log Panel ── */
 .query-log-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -1818,6 +1868,10 @@ details[open] > summary .jt-count::before { content: '▼ '; }
 
 /* ── Map Panel ── */
 .map-panel {
+  flex: 0 0 50%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -1895,8 +1949,8 @@ details[open] > summary .jt-count::before { content: '▼ '; }
    about half the available height and the query log gets the rest. It was square, which
    at this column width made it far taller than half and pushed the log off-screen. */
 #search-map {
-  height: calc(var(--layout-height) * 0.5 - 4rem);
-  min-height: 200px;
+  flex: 1;
+  min-height: 0;
   width: 100%;
   border-radius: var(--radius-md);
   z-index: 0;
