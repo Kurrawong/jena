@@ -1526,9 +1526,11 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
                     continue;
                 }
                 for (const kind of this.identifierKinds()) {
+                    // The option pins the discriminator to this kind, so it is simply a
+                    // sort on that kind — "anumber", not "identifierValueExact".
                     options.push({
                         value: `${f.name}${NESTED_SORT_SEP}${kind.value}`,
-                        label: `${kind.label || kind.value} (nested)`,
+                        label: kind.label || kind.value,
                     });
                 }
             }
@@ -1795,10 +1797,25 @@ SELECT ?value ?count WHERE {
 }`;
             try {
                 const data = await this.runSparql(query);
+                // A kind is a literal here ("anumber"), but nothing stops a dataset from
+                // using an IRI, so label it like any other IRI if it is one.
                 this.identifierKindList = (data.results?.bindings || [])
                     .filter(row => row.value)
-                    .map(row => ({ value: row.value.value, label: row.value.value }))
+                    .map(row => {
+                        const value = row.value.value;
+                        const isUri = row.value.type === 'uri';
+                        return { value, isUri, label: isUri ? shortName(value) : value };
+                    })
                     .sort((a, b) => a.label.localeCompare(b.label));
+
+                const iris = this.identifierKindList.filter(k => k.isUri).map(k => k.value);
+                if (iris.length > 0 && this._labels) {
+                    const labels = await this._labels.resolveMany(iris);
+                    for (const kind of this.identifierKindList) {
+                        const label = labels.get(kind.value);
+                        if (label) kind.label = label;
+                    }
+                }
             } catch (e) {
                 console.error('Loading identifier kinds failed:', e);
                 this.identifierKindList = [];
