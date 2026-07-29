@@ -325,6 +325,60 @@ public class TestHierarchicalFacets {
         assertEquals(Set.of(NS + "bh4", NS + "bh5"), uris);
     }
 
+    /**
+     * A flat facet request naming a field IRI must be answered with that field's own
+     * counts, even when the field also happens to be a level of a hierarchy. Belonging
+     * to a hierarchy must not silently redirect the request to the hierarchy's dimension
+     * — that returns counts for the hierarchy's top level, i.e. a different field.
+     */
+    @Test
+    public void testFlatFacetOnHierarchyLevelFieldReturnsThatField() {
+        Map<String, List<FacetValue>> counts = textIndex.getFacetCounts(
+            null, null, Collections.singletonList(FIELD_NS + "subtype"), 10, 0);
+
+        assertTrue("Should be keyed by the requested field, not the dimension",
+            counts.containsKey("subtype"));
+        assertFalse("Should not answer with the hierarchy dimension",
+            counts.containsKey("type_subtype"));
+
+        // subtype across all parents: Shallow(bh1,bh3,bh7), Deep(bh2), Gold(bh4,bh5), Iron(bh6)
+        Map<String, Long> facetMap = toMap(counts.get("subtype"));
+        assertEquals("Shallow count", Long.valueOf(3), facetMap.get("Shallow"));
+        assertEquals("Deep count", Long.valueOf(1), facetMap.get("Deep"));
+        assertEquals("Gold count", Long.valueOf(2), facetMap.get("Gold"));
+        assertEquals("Iron count", Long.valueOf(1), facetMap.get("Iron"));
+        assertFalse("Must not be the top level of the hierarchy",
+            facetMap.containsKey("Water"));
+    }
+
+    /** The top level of a hierarchy is likewise a field in its own right. */
+    @Test
+    public void testFlatFacetOnHierarchyTopLevelFieldReturnsThatField() {
+        Map<String, List<FacetValue>> counts = textIndex.getFacetCounts(
+            null, null, Collections.singletonList(FIELD_NS + "type"), 10, 0);
+
+        assertTrue("Should be keyed by the requested field", counts.containsKey("type"));
+        assertFalse("Should not answer with the hierarchy dimension",
+            counts.containsKey("type_subtype"));
+
+        Map<String, Long> facetMap = toMap(counts.get("type"));
+        assertEquals("Water count", Long.valueOf(3), facetMap.get("Water"));
+        assertEquals("Mineral count", Long.valueOf(3), facetMap.get("Mineral"));
+        assertEquals("Gas count", Long.valueOf(1), facetMap.get("Gas"));
+    }
+
+    /**
+     * A field that is not facetable has no facet dimension to answer from, so the
+     * request is an error rather than a silently empty result.
+     */
+    @Test
+    public void testFacetOnNonFacetableFieldFailsFast() {
+        TextIndexException e = assertThrows(TextIndexException.class, () ->
+            textIndex.getFacetCounts(null, null, Collections.singletonList(FIELD_NS + "name"), 10, 0));
+        assertTrue("Message should name the field: " + e.getMessage(),
+            e.getMessage().contains("name"));
+    }
+
     private static FieldOccurrence occurrence(FieldDef field, Path path, Set<Node> predicates) {
         return new FieldOccurrence(
             field,
