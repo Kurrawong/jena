@@ -15,7 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/n3@1.22.3/browser/n3.min.js"></script>
   <script src="app-config.js?v=4"></script>
   <script src="labels.js?v=1"></script>
-  <script src="app.js?v=13"></script>
+  <script src="app.js?v=14"></script>
   <script>
     document.addEventListener('alpine:init', () => {
       Alpine.store('app', { showLog: true, showMap: true, highlightUri: null });
@@ -94,21 +94,6 @@
                 </div>
                 <div class="control">
                   <button class="btn-search" type="button" @click="search()">Search</button>
-                </div>
-              </div>
-
-              <div class="field">
-                <div class="control">
-                  <input class="input" type="text" x-model="identifier"
-                         list="identifier-suggestions"
-                         placeholder="Identifier search, e.g. report-mia-2023"
-                         @input="updateIdentifierSuggestions()"
-                         @keydown.enter="search()">
-                  <datalist id="identifier-suggestions">
-                    <template x-for="suggestion in identifierSuggestions" :key="suggestion">
-                      <option :value="suggestion"></option>
-                    </template>
-                  </datalist>
                 </div>
               </div>
 

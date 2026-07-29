@@ -50,9 +50,6 @@
   { "label": "QA passed = true", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"qaPassed\"},\"true\"]}", "minResults": 5 },
   { "label": "French review note", "params": "?q=r%C3%A9serves&filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}", "minResults": 1 },
 
-  { "group": "Identifier Search" },
-  { "label": "Identifier: 94130 (multi-valued demo record)", "params": "?id=94130", "minResults": 1 },
-
   { "group": "Nested Identifier Hierarchy" },
   { "label": "Boreholes only (identifier drill-down visible)", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}", "minResults": 5, "scrollToText": "identifiers" },
   { "label": "Drill-down: company identifiers", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&drillDown=identifierType_identifierValueExact:company", "minResults": 5, "scrollToText": "identifiers" },

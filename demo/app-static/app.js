@@ -873,8 +873,6 @@ function parseWktForLeaflet(wktString) {
 function searchApp() {
     return {
         q: '',
-        identifier: '',
-        identifierSuggestions: [],
         limit: DEFAULT_LIMIT,
         currentPage: 1,
         resultLimits: RESULT_LIMITS,
@@ -931,7 +929,6 @@ function searchApp() {
         _mapMarkersByUri: {},
         _highlightTimer: null,
         _abortController: null,
-        _identifierSuggestTimer: null,
         editorOpen: false,
         editorQuery: '',
         editorResults: '',
@@ -1155,7 +1152,6 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
         pushUrl() {
             const params = new URLSearchParams();
             if (this.q.trim()) params.set('q', this.q.trim());
-            if (this.identifier.trim()) params.set('id', this.identifier.trim());
             if (this.sortField) {
                 const sortIri = this.fieldIRIs[this.sortField] || this.sortField;
                 params.set('sort', `${sortIri}:${this.sortDirection}`);
@@ -1177,7 +1173,6 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
         loadFromUrl() {
             const params = new URLSearchParams(window.location.search);
             this.q = params.get('q') || '';
-            this.identifier = params.get('id') || '';
             const sort = parseSortParam(params.get('sort'), this.fieldIRIs);
             this.sortField = sort.field;
             this.sortDirection = sort.direction;
@@ -1225,36 +1220,6 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
             if (cur < tp - 2) pages.push('...');
             pages.push(tp);
             return pages;
-        },
-
-        updateIdentifierSuggestions() {
-            clearTimeout(this._identifierSuggestTimer);
-            const term = this.identifier.trim();
-            if (!term) {
-                this.identifierSuggestions = [];
-                return;
-            }
-            this._identifierSuggestTimer = setTimeout(() => {
-                this.fetchIdentifierSuggestions(term);
-            }, 150);
-        },
-
-        async fetchIdentifierSuggestions(term) {
-            const trimmed = term.trim();
-            if (!trimmed) {
-                this.identifierSuggestions = [];
-                return;
-            }
-            try {
-                const data = await this.runSparql(this.buildIdentifierSuggestionQuery(trimmed));
-                if (this.identifier.trim() !== trimmed) return;
-                const seen = new Set();
-                this.identifierSuggestions = (data.results?.bindings || [])
-                    .map(row => row.identifier?.value)
-                    .filter(value => value && !seen.has(value) && seen.add(value));
-            } catch {
-                if (this.identifier.trim() === trimmed) this.identifierSuggestions = [];
-            }
         },
 
         async toggleFacet(field, value) {
@@ -1502,8 +1467,8 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
                 const childLevel = levels[1];
                 const parentLevelIRI = parentLevel.iri;
 
-                const term = this.identifier.trim() || this.q.trim() || '*';
-                const searchField = this.identifier.trim() ? this.identifierFieldSelector() : 'default';
+                const term = this.q.trim() || '*';
+                const searchField = 'default';
 
                 const hierFilter = JSON.stringify({
                     op: '=',
@@ -1612,18 +1577,6 @@ SELECT ?field ?value ?low ?high ?count WHERE {
                 if (levels.some(l => l.name === fieldName)) return dim;
             }
             return null;
-        },
-
-        identifierFieldSpecs() {
-            const fields = [
-                this.fieldIRIs.identifier || 'urn:jena:lucene:field#identifier',
-                this.fieldIRIs.identifierValueText || 'urn:jena:lucene:field#identifierValueText',
-            ];
-            return [...new Set(fields)];
-        },
-
-        identifierFieldSelector() {
-            return JSON.stringify(this.identifierFieldSpecs());
         },
 
         identifierHierarchyDim() {
@@ -1876,7 +1829,6 @@ SELECT ?value ?count WHERE {
         facetStateKey() {
             return JSON.stringify([
                 this.q.trim(),
-                this.identifier.trim(),
                 this.selected,
                 this.spatialBbox,
                 this.spatialPolygon,
@@ -1887,9 +1839,8 @@ SELECT ?value ?count WHERE {
         },
 
         buildSearchQuery(includeFacets = true) {
-            const identifier = this.identifier.trim();
-            const term = identifier || this.q.trim() || '*';
-            const searchField = identifier ? this.identifierFieldSelector() : 'default';
+            const term = this.q.trim() || '*';
+            const searchField = 'default';
             const escaped = escapeSparql(term);
             const cqlFilter = buildCqlFilter(
                 this.selected,
@@ -1935,18 +1886,6 @@ CONSTRUCT {
 WHERE {
 ${queryBranch}${facetBranch}
 }`;
-        },
-
-        buildIdentifierSuggestionQuery(identifier) {
-            const fieldSpec = this.identifierFieldSelector();
-            return `${SPARQL_PREFIXES}
-SELECT DISTINCT ?identifier
-WHERE {
-    (?hit ?entity ?score) luc:query ('default' ${sparqlQuote(fieldSpec)} ${sparqlQuote(identifier)} '' '' 8 0) .
-    ?entity ex:identifier ?identifier .
-}
-ORDER BY LCASE(STR(?identifier))
-LIMIT 8`;
         },
 
         /**
@@ -2291,10 +2230,7 @@ DESCRIBE <${uri}>`;
         buildDescription(hitCount, totalHits, totalSec) {
             const parts = [];
             const q = this.q.trim();
-            const identifier = this.identifier.trim();
-            if (identifier) {
-                parts.push(`Identifier search for <strong>\u201c${escapeHtml(identifier)}\u201d</strong>`);
-            } else if (q) {
+            if (q) {
                 parts.push(`Search for <strong>\u201c${escapeHtml(q)}\u201d</strong>`);
             } else {
                 parts.push('Showing <strong>all entities</strong>');
@@ -2370,7 +2306,7 @@ DESCRIBE <${uri}>`;
                 const activeFilters = activeFacetFilters
                     + Object.keys(this.correlatedFilters.identifierTerms || {}).length
                     + (this.correlatedFilters.attributionRole.trim() || this.correlatedFilters.attributionAgent.trim() ? 1 : 0);
-                const searchTerm = this.identifier.trim() || this.q.trim() || '*';
+                const searchTerm = this.q.trim() || '*';
                 const searchLabel = searchTerm
                     + (activeFilters > 0 ? ` + ${activeFilters} filter${activeFilters > 1 ? 's' : ''}` : '');
 
