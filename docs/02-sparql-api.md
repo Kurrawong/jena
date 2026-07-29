@@ -69,10 +69,22 @@ Unknown field IRIs fail fast.
 |---|---|---|
 | `?hit` | blank node | Query-scoped join key for `luc:match` |
 | `?entity` | IRI | Matched entity |
-| `?score` | float | Lucene relevance score |
+| `?score` | float | Lucene relevance score; for a sorted search, `1/(1+rank)` (see below) |
 | `?totalHits` | `xsd:integer` | Total matching hits across the whole result set, independent of `limit` and `offset` |
 
 `?match` is not part of `luc:query`.
+
+#### `?score` under a sort spec
+
+Lucene does not score documents when a sort is applied, so a sorted search has no
+relevance to report. Rather than binding `NaN`, `?score` then carries `1/(1+rank)`:
+the first hit scores `1.0`, the second `0.5`, and so on. Descending `?score` therefore
+means "requested order" whether or not a sort spec was given.
+
+The value depends only on the hit's rank, not on `limit`, so a hit keeps the same score
+when a later page re-runs the search with a larger window. This is what lets a consumer
+holding an unordered result set — a `CONSTRUCT` graph, say — recover the order by sorting
+on `?score`. Do not read a sorted search's `?score` as a relevance magnitude.
 
 ### Examples
 
