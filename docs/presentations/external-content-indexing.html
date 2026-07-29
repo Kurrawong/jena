@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one or more
+  contributor license agreements.  See the NOTICE file distributed with
+  this work for additional information regarding copyright ownership.
+  The ASF licenses this file to you under the Apache License, Version 2.0
+  (the "License"); you may not use this file except in compliance with
+  the License.  You may obtain a copy of the License at
+
+      https://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+
+  SPDX-License-Identifier: Apache-2.0
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>External Content Indexing — search the assay database without loading it</title>
+<style>
+  :root {
+    --bg:        #0e1420;
+    --bg-2:      #151d2c;
+    --panel:     #1b2537;
+    --panel-2:   #212d42;
+    --line:      #31405c;
+    --ink:       #eef2f9;
+    --ink-dim:   #a7b4cb;
+    --ink-faint: #71809b;
+
+    --graph:  #6aa9ff;   /* RDF / graph side          */
+    --sql:    #f2b544;   /* SQL warehouse / external  */
+    --index:  #4ecdc4;   /* Lucene index              */
+    --fe:     #c58cf5;   /* front end                 */
+    --good:   #5fd38d;
+    --warn:   #ff8a7a;
+
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- deck chrome ---------- */
+
+  #deck { height: 100vh; width: 100vw; position: relative; overflow: hidden; }
+
+  .slide {
+    position: absolute; inset: 0;
+    display: none;
+    flex-direction: column;
+    padding: 3.2vh 4.2vw 8vh;
+    overflow-y: auto;
+    animation: fade .28s ease;
+  }
+  .slide.active { display: flex; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .eyebrow {
+    font-size: .72rem; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 600; margin-bottom: .5rem;
+  }
+  h1 { font-size: clamp(2rem, 4.4vw, 3.4rem); line-height: 1.08; margin: 0 0 1rem; font-weight: 700; letter-spacing: -.02em; }
+  h2 { font-size: clamp(1.4rem, 2.5vw, 2.1rem); line-height: 1.15; margin: 0 0 .35rem; font-weight: 650; letter-spacing: -.015em; }
+  .sub { color: var(--ink-dim); font-size: clamp(.95rem, 1.25vw, 1.12rem); margin: 0 0 1.6rem; max-width: 74ch; line-height: 1.5; }
+  p { line-height: 1.55; }
+
+  .body { flex: 1; display: flex; flex-direction: column; gap: 1.1rem; min-height: 0; }
+
+  /* ---------- footer / nav ---------- */
+
+  footer {
+    position: fixed; left: 0; right: 0; bottom: 0; height: 4.6vh; min-height: 40px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 1.6rem;
+    background: linear-gradient(to top, var(--bg) 55%, transparent);
+    font-size: .78rem; color: var(--ink-faint);
+    z-index: 20;
+  }
+  footer .title { letter-spacing: .04em; }
+  footer nav { display: flex; align-items: center; gap: .55rem; }
+  footer button {
+    background: var(--panel); color: var(--ink-dim); border: 1px solid var(--line);
+    border-radius: 7px; padding: .3rem .68rem; font-size: .8rem; cursor: pointer; font-family: var(--sans);
+  }
+  footer button:hover { background: var(--panel-2); color: var(--ink); }
+  #counter { font-variant-numeric: tabular-nums; min-width: 4.5rem; text-align: center; }
+
+  #progress { position: fixed; top: 0; left: 0; height: 2px; background: var(--index); z-index: 30; transition: width .28s ease; }
+
+  /* ---------- building blocks ---------- */
+
+  .grid { display: grid; gap: 1rem; }
+  .g2 { grid-template-columns: 1fr 1fr; }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  .g25 { grid-template-columns: 1.15fr .85fr; }
+  .g52 { grid-template-columns: 1fr 1.35fr; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1rem 1.15rem;
+  }
+  .card h3 { margin: 0 0 .5rem; font-size: 1rem; font-weight: 650; letter-spacing: -.01em; }
+  .card p, .card li { color: var(--ink-dim); font-size: .9rem; line-height: 1.5; margin: .35rem 0; }
+  .card.accent-graph { border-left: 3px solid var(--graph); }
+  .card.accent-sql   { border-left: 3px solid var(--sql); }
+  .card.accent-index { border-left: 3px solid var(--index); }
+  .card.accent-fe    { border-left: 3px solid var(--fe); }
+  .card.accent-good  { border-left: 3px solid var(--good); }
+  .card.accent-warn  { border-left: 3px solid var(--warn); }
+
+  .tag {
+    display: inline-block; font-size: .68rem; letter-spacing: .1em; text-transform: uppercase;
+    font-weight: 700; padding: .18rem .5rem; border-radius: 5px; margin-bottom: .5rem;
+  }
+  .t-graph { background: rgba(106,169,255,.16); color: var(--graph); }
+  .t-sql   { background: rgba(242,181,68,.16);  color: var(--sql); }
+  .t-index { background: rgba(78,205,196,.16);  color: var(--index); }
+  .t-fe    { background: rgba(197,140,245,.16); color: var(--fe); }
+  .t-good  { background: rgba(95,211,141,.16);  color: var(--good); }
+  .t-warn  { background: rgba(255,138,122,.16); color: var(--warn); }
+
+  pre {
+    background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px;
+    padding: .85rem 1rem; margin: 0; overflow-x: auto;
+    font-family: var(--mono); font-size: .78rem; line-height: 1.55; color: #d6e0f0;
+  }
+  pre.tight { font-size: .72rem; }
+  code { font-family: var(--mono); font-size: .86em; color: #d6e0f0; }
+  .k  { color: #7fb4ff; }   /* keyword   */
+  .s  { color: #9ede9b; }   /* string    */
+  .c  { color: #6b7a95; font-style: italic; }  /* comment */
+  .n  { color: #f2b544; }   /* number/literal */
+  .p  { color: #c58cf5; }   /* property  */
+
+  table { border-collapse: collapse; width: 100%; font-size: .86rem; }
+  th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); }
+  th { color: var(--ink-faint); font-weight: 600; font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; }
+  td { color: var(--ink-dim); }
+  td strong { color: var(--ink); font-weight: 600; }
+
+  ul.clean { list-style: none; padding: 0; margin: .3rem 0; }
+  ul.clean li { padding-left: 1.15rem; position: relative; margin: .45rem 0; color: var(--ink-dim); font-size: .9rem; line-height: 1.5; }
+  ul.clean li::before { content: "▸"; position: absolute; left: 0; color: var(--index); }
+  ul.clean li.no::before { content: "✕"; color: var(--warn); }
+  ul.clean li.yes::before { content: "✓"; color: var(--good); }
+
+  .kicker { font-size: 1.02rem; color: var(--ink); line-height: 1.5; }
+  .kicker b { color: var(--index); font-weight: 650; }
+
+  .note {
+    border-left: 3px solid var(--sql); background: rgba(242,181,68,.07);
+    padding: .7rem 1rem; border-radius: 0 8px 8px 0; font-size: .88rem; color: var(--ink-dim); line-height: 1.5;
+  }
+  .note b { color: var(--ink); }
+
+  svg { display: block; width: 100%; height: auto; }
+  svg text { font-family: var(--sans); fill: var(--ink); }
+  .svg-label { font-size: 13px; font-weight: 600; }
+  .svg-small { font-size: 11px; fill: var(--ink-dim); }
+  .svg-tiny  { font-size: 9.5px; fill: var(--ink-faint); }
+  .svg-mono  { font-family: var(--mono); font-size: 10.5px; fill: var(--ink-dim); }
+
+  .center { align-items: center; justify-content: center; text-align: center; }
+  .center .sub { margin-left: auto; margin-right: auto; }
+
+  .pill-row { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .pill { font-size: .78rem; padding: .3rem .7rem; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-dim); background: var(--panel); }
+</style>
+</head>
+<body>
+
+<div id="progress"></div>
+<div id="deck">
+
+<!-- ══════════════ 1. TITLE ══════════════ -->
+<section class="slide center">
+  <div class="body center" style="max-width:1000px;margin:auto;">
+    <div class="eyebrow">Faceted search platform &nbsp;·&nbsp; feature briefing</div>
+    <h1>External Content&nbsp;Indexing</h1>
+    <p class="sub" style="font-size:1.15rem;">
+      Search and filter the assay database <em>without loading it into the graph</em> —
+      then go straight to SQL for the full table.
+    </p>
+
+    <svg viewBox="0 0 900 190" role="img" aria-label="Three boxes: graph and SQL feed the search index, the front end reads both">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#71809b"/>
+        </marker>
+      </defs>
+      <rect x="20"  y="20" width="180" height="58" rx="10" fill="rgba(106,169,255,.12)" stroke="#6aa9ff"/>
+      <text x="110" y="45" class="svg-label" text-anchor="middle" fill="#6aa9ff">Knowledge graph</text>
+      <text x="110" y="63" class="svg-small" text-anchor="middle">collars, geometry, metadata</text>
+
+      <rect x="20"  y="110" width="180" height="58" rx="10" fill="rgba(242,181,68,.12)" stroke="#f2b544"/>
+      <text x="110" y="135" class="svg-label" text-anchor="middle" fill="#f2b544">SQL warehouse</text>
+      <text x="110" y="153" class="svg-small" text-anchor="middle">every assay, every interval</text>
+
+      <path d="M205,49 C 290,49 290,80 355,88" fill="none" stroke="#71809b" stroke-width="1.6" marker-end="url(#ar)"/>
+      <path d="M205,139 C 290,139 290,108 355,100" fill="none" stroke="#71809b" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ar)"/>
+      <text x="278" y="118" class="svg-tiny" text-anchor="middle">summary extract</text>
+
+      <rect x="365" y="55" width="180" height="78" rx="10" fill="rgba(78,205,196,.12)" stroke="#4ecdc4"/>
+      <text x="455" y="86" class="svg-label" text-anchor="middle" fill="#4ecdc4">Search index</text>
+      <text x="455" y="105" class="svg-small" text-anchor="middle">one document per hole</text>
+      <text x="455" y="121" class="svg-small" text-anchor="middle">filter · facet · sort</text>
+
+      <path d="M550,94 L 690,94" fill="none" stroke="#71809b" stroke-width="1.6" marker-end="url(#ar)"/>
+      <text x="620" y="85" class="svg-tiny" text-anchor="middle">matching hole IRIs</text>
+
+      <rect x="700" y="55" width="180" height="78" rx="10" fill="rgba(197,140,245,.12)" stroke="#c58cf5"/>
+      <text x="790" y="90" class="svg-label" text-anchor="middle" fill="#c58cf5">Your front end</text>
+      <text x="790" y="110" class="svg-small" text-anchor="middle">then calls SQL directly</text>
+
+      <path d="M790,140 C 790,180 110,190 110,175" fill="none" stroke="#f2b544" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ar)"/>
+    </svg>
+
+    <p class="sub" style="margin-top:1.4rem;color:var(--ink-faint);font-size:.85rem;">
+      Use ← → or space to navigate &nbsp;·&nbsp; press <b>O</b> for an overview
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════ 2. WHAT CHANGED ══════════════ -->
+<section class="slide">
+  <div class="eyebrow">Where we landed</div>
+  <h2>The split of responsibilities, settled</h2>
+  <p class="sub">Earlier we assumed our API would broker the SQL call. Your front end talks to SQL directly — which makes the design simpler and the boundary cleaner.</p>
+
+  <div class="body">
+    <div class="grid g2">
+      <div class="card accent-warn">
+        <span class="tag t-warn">Earlier assumption</span>
+        <h3>We call SQL for you</h3>
+        <p>Search hits come back, and our service turns around and queries the warehouse to hydrate them.</p>
+        <ul class="clean">
+          <li class="no">A live warehouse connection on every query path</li>
+          <li class="no">Per-query load on your database, from us</li>
+          <li class="no">We own a data contract we don't control</li>
+          <li class="no">Two hops before the user sees a row</li>
+        </ul>
+      </div>
+      <div class="card accent-good">
+        <span class="tag t-good">What we're building</span>
+        <h3>You call SQL directly</h3>
+        <p>We index only what search needs. The index answers <em>which</em> holes; your warehouse answers <em>what's in them</em>.</p>
+        <ul class="clean">
+          <li class="yes">Index carries the summary values — max per hole per analyte</li>
+          <li class="yes">Search, filter, facet and sort happen in Lucene</li>
+          <li class="yes">Result is a list of hole IRIs, plus counts</li>
+          <li class="yes">Your FE fetches the full assay table from SQL by those IRIs</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>The one-line version.</b> The index is a <em>search surface</em> over your data, not a copy of it.
+      Nothing you can read from Lucene is meant to be displayed as a value — it exists to narrow
+      millions of holes down to the page in front of the user.
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 3. WHY NOT LOAD IT ══════════════ -->
+<section class="slide">
+  <div class="eyebrow">The problem</div>
+  <h2>Why the assays don't belong in the graph</h2>
+  <p class="sub">Loading the measurement data as RDF is the obvious move, and it is the wrong trade for this dataset.</p>
+
+  <div class="body">
+    <div class="grid g3">
+      <div class="card accent-sql">
+        <h3>Volume</h3>
+        <p>The measurement table is an order of magnitude larger than the graph describing the same holes. Tens of millions of rows, hundreds of measured properties.</p>
+      </div>
+      <div class="card accent-sql">
+        <h3>Authority</h3>
+        <p>The warehouse is the source of truth. Copying it into RDF duplicates a volatile dataset for no modelling gain — and couples the graph's update cycle to a foreign release cadence.</p>
+      </div>
+      <div class="card accent-sql">
+        <h3>Access pattern</h3>
+        <p>Nobody traverses these values by SPARQL path. They're used as <em>search machinery</em>: range filters, range facets, sort. Then the real values come from SQL.</p>
+      </div>
+    </div>
+
+    <div class="grid g2" style="margin-top:.2rem;">
+      <div class="card">
+        <h3>The alternative we rejected: a SQL property function</h3>
+        <p>Query SQL live, at query time, from inside the search request. Perfectly fresh — and it can't participate in scoring, faceting, or sort pushdown, needs a live connection on the query path, and puts per-query load on the warehouse.</p>
+        <p style="color:var(--ink);"><b>The choice is a data-cadence question.</b> Batch-released data → index it. Continuously mutating data → push down to SQL.</p>
+      </div>
+      <div class="card">
+        <h3>What indexing buys</h3>
+        <ul class="clean">
+          <li>One query constrains across <em>both</em> sides: spatial + type + text from the graph, numeric ranges from the warehouse</li>
+          <li>Facet counts over millions of holes in milliseconds</li>
+          <li>Sort by a measured value, applied before paging</li>
+          <li>No connection to your database on the query path at all</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 4. ARCHITECTURE ══════════════ -->
+<section class="slide">
+  <div class="eyebrow">How it fits together</div>
+  <h2>Two feeds in, one search surface out</h2>
+  <p class="sub">Build time joins the two sides on the hole IRI. Query time never touches the warehouse.</p>
+
+  <div class="body">
+    <svg viewBox="0 0 1080 400" role="img" aria-label="Architecture: graph and CSV extract merge at build time into a Lucene index; the front end queries the index then queries SQL">
+      <defs>
+        <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#8493ad"/>
+        </marker>
+        <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#f2b544"/>
+        </marker>
+      </defs>
+
+      <!-- build time band -->
+      <rect x="10" y="16" width="640" height="368" rx="14" fill="rgba(255,255,255,.018)" stroke="#31405c" stroke-dasharray="6 5"/>
+      <text x="30" y="42" class="svg-small" fill="#71809b" style="letter-spacing:.12em;">BUILD TIME — nightly / on release</text>
+
+      <rect x="660" y="16" width="410" height="368" rx="14" fill="rgba(255,255,255,.018)" stroke="#31405c" stroke-dasharray="6 5"/>
+      <text x="680" y="42" class="svg-small" fill="#71809b" style="letter-spacing:.12em;">QUERY TIME — per user interaction</text>
+
+      <!-- graph -->
+      <rect x="36" y="66" width="190" height="82" rx="10" fill="rgba(106,169,255,.11)" stroke="#6aa9ff"/>
+      <text x="131" y="93" class="svg-label" text-anchor="middle" fill="#6aa9ff">RDF graph (TDB2)</text>
+      <text x="131" y="112" class="svg-small" text-anchor="middle">hole id, prospect, operator</text>
+      <text x="131" y="128" class="svg-small" text-anchor="middle">region, type, depth, geometry</text>
+
+      <!-- sql -->
+      <rect x="36" y="248" width="190" height="82" rx="10" fill="rgba(242,181,68,.11)" stroke="#f2b544"/>
+      <text x="131" y="275" class="svg-label" text-anchor="middle" fill="#f2b544">SQL warehouse</text>
+      <text x="131" y="294" class="svg-small" text-anchor="middle">every sample, every interval</text>
+      <text x="131" y="310" class="svg-small" text-anchor="middle">the source of truth</text>
+
+      <!-- extract -->
+      <rect x="266" y="248" width="150" height="82" rx="10" fill="rgba(242,181,68,.06)" stroke="#f2b544" stroke-dasharray="4 3"/>
+      <text x="341" y="272" class="svg-label" text-anchor="middle" fill="#f2b544">Summary extract</text>
+      <text x="341" y="291" class="svg-mono" text-anchor="middle">hole, analyte, max</text>
+      <text x="341" y="309" class="svg-small" text-anchor="middle">CSV · sorted by hole</text>
+
+      <path d="M231,289 L 260,289" stroke="#f2b544" stroke-width="1.6" marker-end="url(#a3)"/>
+      <text x="246" y="278" class="svg-tiny" text-anchor="middle">GROUP BY</text>
+
+      <!-- indexer -->
+      <rect x="456" y="140" width="164" height="118" rx="10" fill="rgba(78,205,196,.11)" stroke="#4ecdc4"/>
+      <text x="538" y="168" class="svg-label" text-anchor="middle" fill="#4ecdc4">Bulk indexer</text>
+      <text x="538" y="188" class="svg-small" text-anchor="middle">streaming merge-join</text>
+      <text x="538" y="205" class="svg-small" text-anchor="middle">on the hole IRI</text>
+      <text x="538" y="228" class="svg-tiny" text-anchor="middle">O(N+M) · constant memory</text>
+      <text x="538" y="243" class="svg-tiny" text-anchor="middle">sequential I/O only</text>
+
+      <path d="M231,107 C 340,107 360,150 450,175" fill="none" stroke="#8493ad" stroke-width="1.6" marker-end="url(#a2)"/>
+      <path d="M421,289 C 440,289 440,250 450,228" fill="none" stroke="#8493ad" stroke-width="1.6" marker-end="url(#a2)"/>
+
+      <!-- index -->
+      <rect x="700" y="70" width="200" height="112" rx="10" fill="rgba(78,205,196,.11)" stroke="#4ecdc4"/>
+      <text x="800" y="98" class="svg-label" text-anchor="middle" fill="#4ecdc4">Lucene index</text>
+      <text x="800" y="119" class="svg-small" text-anchor="middle">1 doc per hole</text>
+      <text x="800" y="136" class="svg-small" text-anchor="middle">+ 1 child per measurement</text>
+      <text x="800" y="160" class="svg-tiny" text-anchor="middle">served by Fuseki over SPARQL</text>
+
+      <path d="M626,180 C 660,180 665,130 694,126" fill="none" stroke="#8493ad" stroke-width="1.6" marker-end="url(#a2)"/>
+
+      <!-- FE -->
+      <rect x="700" y="250" width="200" height="88" rx="10" fill="rgba(197,140,245,.11)" stroke="#c58cf5"/>
+      <text x="800" y="278" class="svg-label" text-anchor="middle" fill="#c58cf5">Your front end</text>
+      <text x="800" y="298" class="svg-small" text-anchor="middle">map · facet panel · results</text>
+      <text x="800" y="318" class="svg-small" text-anchor="middle">detail table</text>
+
+      <path d="M770,246 L 770,190" stroke="#8493ad" stroke-width="1.6" marker-end="url(#a2)"/>
+      <text x="700" y="222" class="svg-tiny" text-anchor="end">search / facet ↑</text>
+      <path d="M832,190 L 832,246" stroke="#8493ad" stroke-width="1.6" marker-end="url(#a2)"/>
+      <text x="900" y="222" class="svg-tiny" text-anchor="start">↓ IRIs + counts</text>
+
+      <!-- FE back to SQL -->
+      <path d="M800,344 C 800,378 300,392 131,338" fill="none" stroke="#f2b544" stroke-width="1.8" marker-end="url(#a3)"/>
+      <text x="480" y="381" class="svg-small" text-anchor="middle" fill="#f2b544">full assay table for the selected holes — direct, no hop through us</text>
+    </svg>
+  </div>
+</section>
+
+<!-- ══════════════ 5. WHAT WE INDEX ══════════════ -->
+<section class="slide">
+  <div class="eyebrow">The extract</div>
+  <h2>What actually goes into the index</h2>
+  <p class="sub">One narrow file: for each hole, one row per analyte, carrying the summary value. Your SQL computes it; the indexer only reads it.</p>
+
+  <div class="body">
+    <div class="grid g2">
+      <div>
+        <div class="card accent-sql" style="margin-bottom:.9rem;">
+          <span class="tag t-sql">Your side — one query</span>
+<pre class="tight"><span class="k">SELECT</span>  collar_id,
+        analyte      <span class="k">AS</span> property,
+        <span class="k">MAX</span>(value)   <span class="k">AS</span> value,
+        below_detection
+<span class="k">FROM</span>    assay_results
+<span class="k">GROUP BY</span> collar_id, analyte, below_detection
+<span class="k">ORDER BY</span> collar_id;   <span class="c">-- byte order</span></pre>
+        </div>
+        <div class="card">
+          <h3>Why <em>you</em> compute the max</h3>
+          <p>The indexer parses; it never computes. No units, no rescaling, no detection-limit arithmetic, no derived columns, no expression language.</p>
+          <p style="color:var(--ink);">That work already has a better home — your <code>SELECT</code>, versioned and tested where your analysts can see it. Admitting one expression into the config means admitting all of them, and the config becomes a program with no debugger.</p>
+        </div>
+      </div>
+
+      <div>
+        <div class="card accent-index" style="margin-bottom:.9rem;">
+          <span class="tag t-index">What we ingest</span>
+<pre class="tight">collar_id,property,value,below_detection
+<span class="n">1000000</span>,<span class="s">As</span>,<span class="n">98.4000015258789</span>,f
+<span class="n">1000000</span>,<span class="s">Au</span>,<span class="n">8.900000102585182e-05</span>,f
+<span class="n">1000000</span>,<span class="s">Cu</span>,<span class="n">83.5</span>,f
+<span class="n">1000000</span>,<span class="s">Ni</span>,<span class="n">443</span>,f
+<span class="n">1000001</span>,<span class="s">Au</span>,<span class="n">0.0025</span>,t
+<span class="n">1000001</span>,<span class="s">Cu</span>,<span class="n">12.25</span>,f
+<span class="n">1000002</span>,<span class="s">Au</span>,<span class="n">1.5</span>,f</pre>
+        </div>
+        <ul class="clean">
+          <li>The join key is a <b style="color:var(--ink)">bare integer</b> — config prepends the IRI prefix, so the file stays small</li>
+          <li><b style="color:var(--ink)">Scientific notation</b> is handled: trace assays span many orders of magnitude and survive as doubles</li>
+          <li><b style="color:var(--ink)">Co-located flags</b> like <code>below_detection</code> ride along on the same row and stay correlated</li>
+          <li>A new analyte appearing in the extract needs <b style="color:var(--ink)">no config change at all</b></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 6. DOCUMENT MODEL ══════════════ -->
+<section class="slide">
+  <div class="eyebrow">The document model</div>
+  <h2>One document per hole, with the measurements attached</h2>
+  <p class="sub">Graph fields and external measurements sit side by side on the same document, so a single query can constrain across both.</p>
+
+  <div class="body">
+    <div class="grid g52">
+      <div>
+        <svg viewBox="0 0 400 330" role="img" aria-label="A parent document for a hole with four child documents, one per analyte">
+          <rect x="8" y="10" width="384" height="312" rx="12" fill="rgba(78,205,196,.05)" stroke="#4ecdc4" stroke-width="1.4"/>
+          <text x="24" y="34" class="svg-small" fill="#4ecdc4" style="letter-spacing:.1em;">DOCUMENT BLOCK — WRITTEN ATOMICALLY</text>
+
+          <!-- parent -->
+          <rect x="24" y="46" width="352" height="96" rx="9" fill="rgba(106,169,255,.11)" stroke="#6aa9ff"/>
+          <text x="40" y="68" class="svg-label" fill="#6aa9ff">Parent — the hole</text>
+          <text x="40" y="88"  class="svg-mono">collarLabel  "Mount Rocks Diamond-0000"</text>
+          <text x="40" y="105" class="svg-mono">region "Great Southern" · type "Diamond"</text>
+          <text x="40" y="122" class="svg-mono">totalDepth 315.8 · location POINT(...)</text>
+          <text x="40" y="137" class="svg-tiny">↑ all from the graph</text>
+
+          <!-- children -->
+          <rect x="46" y="158" width="330" height="34" rx="7" fill="rgba(242,181,68,.11)" stroke="#f2b544"/>
+          <text x="60" y="180" class="svg-mono" fill="#e5c98a">analyte "As" · value 98.4 · belowDetection "f"</text>
+
+          <rect x="46" y="198" width="330" height="34" rx="7" fill="rgba(242,181,68,.11)" stroke="#f2b544"/>
+          <text x="60" y="220" class="svg-mono" fill="#e5c98a">analyte "Au" · value 8.9e-05 · belowDetection "f"</text>
+
+          <rect x="46" y="238" width="330" height="34" rx="7" fill="rgba(242,181,68,.11)" stroke="#f2b544"/>
+          <text x="60" y="260" class="svg-mono" fill="#e5c98a">analyte "Cu" · value 83.5 · belowDetection "f"</text>
+
+          <rect x="46" y="278" width="330" height="34" rx="7" fill="rgba(242,181,68,.11)" stroke="#f2b544"/>
+          <text x="60" y="300" class="svg-mono" fill="#e5c98a">analyte "Ni" · value 443 · belowDetection "f"</text>
+
+          <path d="M34,150 L34,295 L42,295" fill="none" stroke="#f2b544" stroke-width="1.2" opacity=".7"/>
+          <text x="20" y="230" class="svg-tiny" fill="#f2b544" transform="rotate(-90 20 230)" text-anchor="middle">children — one per CSV row</text>
+        </svg>
+      </div>
+
+      <div>
+        <div class="card accent-index">
+          <h3>Two field names, any number of analytes</h3>
+          <p>The alternative was one field per analyte — <code>Au_PPM</code>, <code>Cu_PPM</code>, hundreds of them, sparse across every document.</p>
+          <table style="margin-top:.6rem;">
+            <tr><th></th><th>Field per analyte</th><th>What we built</th></tr>
+            <tr><td><strong>Field names in the API</strong></td><td>hundreds</td><td><strong>two</strong></td></tr>
+            <tr><td><strong>New analyte appears</strong></td><td>config change</td><td><strong>nothing to do</strong></td></tr>
+            <tr><td><strong>Analyte as a facet</strong></td><td>N separate probes</td><td><strong>native</strong></td></tr>
+            <tr><td><strong>Index size</strong></td><td>smaller</td><td>~3–5× larger</td></tr>
+          </table>
+          <p style="margin-top:.7rem;color:var(--ink);">
+            The deciding argument is the <b>public API surface</b>, not size. Disk is cheap and recoverable;
+            a query API with hundreds of field names in it is neither.
+          </p>
+        </div>
+        <div class="note" style="margin-top:.9rem;">
+          <b>No RDF is invented.</b> These external values never enter the graph. A "field" here is an
+          internal index name, not a predicate — your ontology is untouched.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 7. CONFIGURATION ══════════════ -->
+<section class="slide">
+  <div class="eyebrow">Configuration</div>
+  <h2>The whole thing is declared, not coded</h2>
+  <p class="sub">One block in the dataset config binds columns to index fields. No pipeline, no glue script, no transformation step.</p>
+
+  <div class="body">
+    <div class="grid g2">
+      <div>
+<pre class="tight"><span class="c"># the two external fields — no sh:path,</span>
+<span class="c"># their values come from CSV columns</span>
+<span class="p">field:analyte</span>
+    idx:fieldType idx:<span class="k">KeywordField</span> ;
+    idx:facetable <span class="k">true</span> ;
+    idx:stored    <span class="k">true</span> .   <span class="c"># short label, safe</span>
+
+<span class="p">field:analyteValue</span>
+    idx:fieldType idx:<span class="k">DoubleField</span> ;
+    idx:indexed   <span class="k">true</span> ;   <span class="c"># range filters</span>
+    idx:facetable <span class="k">true</span> ;   <span class="c"># range facets</span>
+    idx:sortable  <span class="k">true</span> ;   <span class="c"># sort by value</span>
+    idx:stored    <span class="k">false</span> .  <span class="c"># SQL owns the value</span></pre>
+        <div class="note" style="margin-top:.9rem;">
+          <b>No <code>external</code> flag exists.</b> A field is external because a column binds it —
+          one source of truth, nothing that can contradict itself.
+        </div>
+      </div>
+
+      <div>
+<pre class="tight"><span class="p">:CollarShape</span>
+    sh:targetClass <span class="p">ex:Collar</span> ;
+
+    <span class="c"># graph-derived fields, exactly as before</span>
+    sh:property [ idx:field <span class="p">field:region</span>   ; sh:path <span class="p">ex:region</span> ] ;
+    sh:property [ idx:field <span class="p">field:location</span> ; sh:path <span class="p">geo:asWKT</span> ] ;
+
+    <span class="c"># one child document per CSV row</span>
+    idx:nested [
+        idx:nestedName <span class="s">"measurement"</span> ;
+        idx:externalSource [
+            idx:format        idx:<span class="k">CsvFile</span> ;
+            idx:location      <span class="s">"data/measurements.csv"</span> ;
+            idx:subjectColumn <span class="s">"collar_id"</span> ;
+            idx:subjectPrefix <span class="s">".../gswa/collar/"</span> ;
+            idx:minMatchRate  <span class="n">"0.5"</span>^^xsd:double ;
+
+            idx:column [ idx:columnName <span class="s">"property"</span>
+                       ; idx:field <span class="p">field:analyte</span> ] ;
+            idx:column [ idx:columnName <span class="s">"value"</span>
+                       ; idx:field <span class="p">field:analyteValue</span> ] ;
+            idx:column [ idx:columnName <span class="s">"below_detection"</span>
+                       ; idx:field <span class="p">field:belowDetection</span> ] ;
+        ] ;
+    ] .</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 8. WHAT YOU CAN ASK ══════════════ -->
+<section class="slide">
+  <div class="eyebrow">Query capability</div>
+  <h2>What the front end can ask for</h2>
+  <p class="sub">Every filter below runs in one Lucene query, across graph fields and measurements together, and returns hole IRIs.</p>
+
+  <div class="body">
+    <div class="grid g2">
+      <div class="card accent-index">
+        <span class="tag t-index">Correlated within one measurement</span>
+        <h3>"Gold above 1 ppm, and not a detection-limit placeholder"</h3>
+<pre class="tight">{<span class="p">"op"</span>:<span class="s">"and"</span>,<span class="p">"args"</span>:[
+  {<span class="p">"op"</span>:<span class="s">"="</span>,  <span class="p">"args"</span>:[{<span class="p">"property"</span>:<span class="s">"…#analyte"</span>},<span class="s">"Au"</span>]},
+  {<span class="p">"op"</span>:<span class="s">"&gt;="</span>, <span class="p">"args"</span>:[{<span class="p">"property"</span>:<span class="s">"…#analyteValue"</span>},<span class="n">1.0</span>]},
+  {<span class="p">"op"</span>:<span class="s">"="</span>,  <span class="p">"args"</span>:[{<span class="p">"property"</span>:<span class="s">"…#belowDetection"</span>},<span class="s">"f"</span>]}
+]}</pre>
+        <p>All three conditions must hold on the <em>same</em> measurement record. Exact, no false positives.</p>
+      </div>
+
+      <div class="card accent-graph">
+        <span class="tag t-graph">Across both sides at once</span>
+        <h3>"RC holes in the Pilbara, drilled since 2010, with Cu over 500 ppm"</h3>
+        <p>Three graph fields and one measurement condition in a single query. The map extent, the facet selections and the geochemical thresholds are all one Lucene call.</p>
+        <ul class="clean">
+          <li>Text search on hole name and prospect</li>
+          <li>Keyword filters on operator, region, drill type, status</li>
+          <li>Numeric ranges on year and depth</li>
+          <li>Spatial filter on the collar location</li>
+        </ul>
+      </div>
+
+      <div class="card accent-index">
+        <span class="tag t-index">Entity-level conjunction</span>
+        <h3>"Holes with some Au over 0.5 <em>and</em> some Cu over 100"</h3>
+        <p>Two conditions on two different analytes are two separate measurements, so this means
+        <b style="color:var(--ink)">"this hole has both"</b> — not "in the same sample".</p>
+        <p style="color:var(--ink-faint);">Worth stating plainly to your users. If "the same interval" ever matters, the fix is a wider extract — extra columns, no code change. We can walk through that when it comes up.</p>
+      </div>
+
+      <div class="card accent-fe">
+        <span class="tag t-fe">Also available</span>
+        <h3>OR, IN, BETWEEN, LIKE</h3>
+        <ul class="clean">
+          <li><code>OR</code> across analytes — "Au over 1 <b>or</b> Cu over 500"</li>
+          <li><code>IN</code> lists, <code>BETWEEN</code> ranges, wildcard text</li>
+          <li>Arbitrary nesting of AND/OR groups</li>
+          <li>Total hit count returned alongside the page, for pagination</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 9. FACETS AND SORT ══════════════ -->
+<section class="slide">
+  <div class="eyebrow">Navigation</div>
+  <h2>Facet counts and sort, computed inside the index</h2>
+  <p class="sub">The two things a results page needs that a plain filter can't give you.</p>
+
+  <div class="body">
+    <div class="grid g2">
+      <div class="card accent-index">
+        <h3>Facets — "how many holes are left if I click this?"</h3>
+        <p>Ask for counts over any facetable field, under the current filter. One call, all dimensions.</p>
+<pre class="tight"><span class="c">// request</span>
+[<span class="s">"…#region"</span>, <span class="s">"…#drillType"</span>, <span class="s">"…#analyte"</span>,
+ {<span class="p">"field"</span>:<span class="s">"…#analyteValue"</span>,
+  <span class="p">"ranges"</span>:[<span class="k">null</span>,<span class="n">0.1</span>,<span class="n">1</span>,<span class="n">5</span>,<span class="k">null</span>]}]
+
+<span class="c">// response rows</span>
+region     "Pilbara"      <span class="n">4 812</span>
+region     "Great Southern" <span class="n">1 067</span>
+drillType  "RC"           <span class="n">3 991</span>
+analyte    "Au"           <span class="n">5 604</span>
+analyte    "Cu"           <span class="n">5 511</span>
+analyteValue  [1 – 5)     <span class="n">  842</span></pre>
+        <p style="margin-top:.6rem;">Both flat counts and numeric range bands, in the same request. Bucket boundaries are yours to choose per request.</p>
+      </div>
+
+      <div class="card accent-index">
+        <h3>Sort by one analyte's value</h3>
+        <p>"Order these holes by their gold value, highest first" — where each hole has dozens of measurements and only one of them is gold.</p>
+<pre class="tight">{
+  <span class="p">"field"</span>:  <span class="s">"…#analyteValue"</span>,
+  <span class="p">"filter"</span>: {<span class="p">"field"</span>:<span class="s">"…#analyte"</span>, <span class="p">"eq"</span>:<span class="s">"Au"</span>},
+  <span class="p">"order"</span>:  <span class="s">"desc"</span>,
+  <span class="p">"missing"</span>:<span class="s">"last"</span>
+}</pre>
+        <ul class="clean">
+          <li>The <code>filter</code> <b style="color:var(--ink)">picks which measurement supplies the sort key</b> — it doesn't remove holes</li>
+          <li>Holes with no gold result keep their place, positioned by <code>missing</code></li>
+          <li>Sorting happens before paging, so page 7 is still correct</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>Both of these are why the values are indexed at all.</b> You can't compute a facet count or a
+      global sort order from a page of results — they need every matching document, which is exactly what
+      the index has and a per-page SQL call does not.
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 10. ROUND TRIP ══════════════ -->
+<section class="slide">
+  <div class="eyebrow">The round trip</div>
+  <h2>One user interaction, end to end</h2>
+  <p class="sub">A user drags the map, ticks "RC", and sets gold above 1 ppm.</p>
+
+  <div class="body">
+    <svg viewBox="0 0 1060 330" role="img" aria-label="Sequence: front end queries the index, gets IRIs and facet counts, then queries SQL for the detail table">
+      <defs>
+        <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#8493ad"/>
+        </marker>
+      </defs>
+
+      <!-- lanes -->
+      <rect x="20"  y="14" width="200" height="40" rx="8" fill="rgba(197,140,245,.12)" stroke="#c58cf5"/>
+      <text x="120" y="39" class="svg-label" text-anchor="middle" fill="#c58cf5">Front end</text>
+      <line x1="120" y1="58" x2="120" y2="310" stroke="#31405c" stroke-dasharray="4 4"/>
+
+      <rect x="430" y="14" width="200" height="40" rx="8" fill="rgba(78,205,196,.12)" stroke="#4ecdc4"/>
+      <text x="530" y="39" class="svg-label" text-anchor="middle" fill="#4ecdc4">Search index</text>
+      <line x1="530" y1="58" x2="530" y2="310" stroke="#31405c" stroke-dasharray="4 4"/>
+
+      <rect x="840" y="14" width="200" height="40" rx="8" fill="rgba(242,181,68,.12)" stroke="#f2b544"/>
+      <text x="940" y="39" class="svg-label" text-anchor="middle" fill="#f2b544">SQL warehouse</text>
+      <line x1="940" y1="58" x2="940" y2="310" stroke="#31405c" stroke-dasharray="4 4"/>
+
+      <!-- 1 -->
+      <path d="M124,92 L 524,92" stroke="#8493ad" stroke-width="1.6" marker-end="url(#a4)"/>
+      <text x="324" y="84" class="svg-small" text-anchor="middle">bbox + drillType=RC + (analyte=Au AND value≥1)</text>
+      <circle cx="120" cy="92" r="10" fill="#c58cf5" opacity=".2"/><text x="120" y="96" class="svg-tiny" text-anchor="middle" fill="#c58cf5">1</text>
+
+      <!-- 2 -->
+      <path d="M526,140 L 126,140" stroke="#8493ad" stroke-width="1.6" marker-end="url(#a4)"/>
+      <text x="326" y="132" class="svg-small" text-anchor="middle">842 hole IRIs (page 1 of 20) + total + facet counts</text>
+      <text x="326" y="156" class="svg-tiny" text-anchor="middle">single call · no warehouse involved</text>
+      <circle cx="530" cy="140" r="10" fill="#4ecdc4" opacity=".2"/><text x="530" y="144" class="svg-tiny" text-anchor="middle" fill="#4ecdc4">2</text>
+
+      <!-- 3 -->
+      <path d="M124,206 L 934,206" stroke="#f2b544" stroke-width="1.8" marker-end="url(#a4)"/>
+      <text x="530" y="198" class="svg-small" text-anchor="middle" fill="#f2b544">SELECT * FROM assay_results WHERE collar_id IN (…20 ids…)</text>
+      <circle cx="120" cy="206" r="10" fill="#c58cf5" opacity=".2"/><text x="120" y="210" class="svg-tiny" text-anchor="middle" fill="#c58cf5">3</text>
+
+      <!-- 4 -->
+      <path d="M936,254 L 126,254" stroke="#f2b544" stroke-width="1.8" marker-end="url(#a4)"/>
+      <text x="530" y="246" class="svg-small" text-anchor="middle" fill="#f2b544">full detail: every sample, every interval, live values</text>
+      <circle cx="940" cy="254" r="10" fill="#f2b544" opacity=".2"/><text x="940" y="258" class="svg-tiny" text-anchor="middle" fill="#f2b544">4</text>
+
+      <rect x="120" y="284" width="820" height="34" rx="8" fill="rgba(95,211,141,.08)" stroke="#5fd38d" stroke-dasharray="4 3"/>
+      <text x="530" y="306" class="svg-small" text-anchor="middle" fill="#5fd38d">Warehouse load is bounded by page size — 20 holes, not 842, and never the whole filtered set</text>
+    </svg>
+
+    <div class="grid g3" style="margin-top:.6rem;">
+      <div class="card"><h3>Steps 1–2</h3><p>Narrow millions of holes to a page. Sub-second, no database connection, facet counts for free.</p></div>
+      <div class="card"><h3>Steps 3–4</h3><p>Hydrate exactly the rows on screen, from the source of truth, with values that are live to the second.</p></div>
+      <div class="card"><h3>Nothing displayed comes from us</h3><p>Measurement values in the index aren't stored — there is literally nothing to return. Detail always comes from your warehouse.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 11. FRESHNESS ══════════════ -->
+<section class="slide">
+  <div class="eyebrow">The honest caveat</div>
+  <h2>The index is a snapshot — and that is a scheduling decision</h2>
+  <p class="sub">Worth being precise here, because it's the one thing that can surprise a user.</p>
+
+  <div class="body">
+    <div class="grid g2">
+      <div class="card accent-good">
+        <span class="tag t-good">Always current</span>
+        <h3>Every value the user reads</h3>
+        <p>Detail tables come from SQL on every request. Measured values are deliberately <em>not stored</em> in the index, so there is no stale number anywhere in the UI.</p>
+        <table style="margin-top:.6rem;">
+          <tr><th>Capability</th><th>With <code>stored false</code></th></tr>
+          <tr><td>Range and equality filters</td><td><strong style="color:var(--good)">works</strong></td></tr>
+          <tr><td>Sort by measured value</td><td><strong style="color:var(--good)">works</strong></td></tr>
+          <tr><td>Numeric range facets</td><td><strong style="color:var(--good)">works</strong></td></tr>
+          <tr><td>Reading the value back</td><td><strong style="color:var(--warn)">not available — by design</strong></td></tr>
+        </table>
+      </div>
+
+      <div class="card accent-warn">
+        <span class="tag t-warn">Snapshot</span>
+        <h3>The filter itself</h3>
+        <p>If a value moves 90 → 110 in the warehouse and the index hasn't been rebuilt, the hole is still <em>filtered</em> as 90. It would be missing from a "greater than 100" search until the next build.</p>
+        <p style="color:var(--ink);"><b>So: rebuild cadence must match your release cadence.</b> A batch-released extract fits this model exactly. A continuously mutating table does not, and should be pushed down to SQL at query time instead.</p>
+        <div class="pill-row" style="margin-top:.8rem;">
+          <span class="pill">Nightly build — typical</span>
+          <span class="pill">On data release — ideal</span>
+          <span class="pill">Live streaming — not this mechanism</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>What we need from you to size this:</b> how often the measurement extract is regenerated, and whether
+      an index that trails it by one release cycle is acceptable to your users. That answer sets the build schedule
+      and nothing else in the design changes.
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 12. GUARD RAILS ══════════════ -->
+<section class="slide">
+  <div class="eyebrow">Operational safety</div>
+  <h2>The failure we designed hardest against</h2>
+  <p class="sub">A build that "succeeds" and produces an index where nothing matches. It's the worst outcome available here, because it looks fine until a user complains.</p>
+
+  <div class="body">
+    <div class="grid g2">
+      <div class="card accent-warn">
+        <h3>How it happens</h3>
+        <p>One wrong character in the IRI prefix, or an extract re-sorted numerically instead of by text, and every row silently fails to join. Rows read: 40 million. Holes matched: zero. Exit code: success.</p>
+      </div>
+      <div class="card accent-good">
+        <h3>How we stop it</h3>
+        <ul class="clean">
+          <li class="yes"><b style="color:var(--ink)">Minimum match rate</b> — declare that at least half the holes must match, and a build that doesn't <em>fails</em> rather than publishing</li>
+          <li class="yes"><b style="color:var(--ink)">Sort order is verified, not trusted</b> — a row out of order fails the build, one string comparison per row</li>
+          <li class="yes"><b style="color:var(--ink)">Counters on every build</b> — rows read, matched, unmatched, skipped, always logged</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="grid g3">
+      <div class="card">
+        <h3>Rows augment; they never create</h3>
+        <p>A measurement whose hole isn't in the graph is counted and dropped. External content decorates entities the graph already knows about — a bad extract can't invent or destroy documents.</p>
+      </div>
+      <div class="card">
+        <h3>A hole with no measurements is still indexed</h3>
+        <p>It gets its graph fields and no children. Sparse coverage is normal and doesn't make holes disappear from search.</p>
+      </div>
+      <div class="card">
+        <h3>Bad rows drop whole</h3>
+        <p>An empty or unparseable cell drops the entire row — never coerced to zero, never emitted half-populated. A half-child would match a filter on the analyte while contributing nothing to the range test.</p>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>One operational rule.</b> Measurement children are populated by the bulk build only. An in-place graph edit
+      to a hole of this shape is <em>refused with a warning</em> rather than silently rewriting the document without
+      its measurements — Lucene has no partial document update, so the safe answer is to re-run the build.
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 13. STATUS ══════════════ -->
+<section class="slide">
+  <div class="eyebrow">Where it stands</div>
+  <h2>Built, tested, and demonstrable now</h2>
+  <p class="sub">Phase 1 is complete on the feature branch, with the real extract shape covered end to end.</p>
+
+  <div class="body">
+    <div class="grid g3">
+      <div class="card accent-good">
+        <span class="tag t-good">Phase 1 — done</span>
+        <h3>CSV / TSV ingest</h3>
+        <ul class="clean">
+          <li class="yes">Streaming merge-join on the hole IRI</li>
+          <li class="yes">IRI prefixing from a bare key</li>
+          <li class="yes">Sorted and unsorted input</li>
+          <li class="yes">Filters, facets, range facets, sort</li>
+          <li class="yes">Match-rate and sort-order guards</li>
+          <li class="yes">Glob input — <code>meas-*.csv</code></li>
+        </ul>
+        <p style="margin-top:.7rem;color:var(--ink);"><b>54 new automated tests</b>, including seven written against the exact shape of your extract — bare integer key, scientific notation, detection flag, mixed-width ids.</p>
+      </div>
+
+      <div class="card accent-index">
+        <span class="tag t-index">Phase 2 — designed</span>
+        <h3>Straight from SQL</h3>
+        <p>A JDBC source removes the export-a-file step entirely: the build connects to the warehouse, pushes the <code>ORDER BY</code> and column projection down into your database, and streams the result.</p>
+        <p>Also queued: pivoted/wide extracts, Parquet, and external sort for very large unsorted inputs.</p>
+        <p style="color:var(--ink);"><b>Small piece of work</b> — the source interface was built for exactly this.</p>
+      </div>
+
+      <div class="card">
+        <span class="tag t-fe">Phase 3 — designed</span>
+        <h3>Incremental updates</h3>
+        <p>Rather than rebuilding everything, a delta file carrying only added and removed measurements, with the indexer rebuilding just the affected holes.</p>
+        <p>Deferred deliberately: for a batch-released extract, a full rebuild is correct, simpler, and fast enough.</p>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>Open question for you, and it's the one that isn't cheap to reverse later:</b> what a document represents.
+      One document per <em>hole</em> is comfortable at your scale. One document per <em>sample</em> would multiply
+      the child count and hit a hard platform ceiling. We should confirm this against the real catalogue before
+      loading at full volume — the mechanism is identical either way, only the arithmetic changes.
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 14. SUMMARY ══════════════ -->
+<section class="slide center">
+  <div class="body center" style="max-width:940px;margin:auto;">
+    <div class="eyebrow">In one slide</div>
+    <h1 style="font-size:clamp(1.7rem,3.4vw,2.6rem);">The index says <span style="color:var(--index)">which</span>.<br>Your warehouse says <span style="color:var(--sql)">what</span>.</h1>
+
+    <div class="grid g3" style="width:100%;margin-top:1.6rem;text-align:left;">
+      <div class="card accent-index">
+        <h3>We index</h3>
+        <p>One summary value per hole per analyte, alongside the graph fields — enough to filter, facet and sort across millions of holes in one query.</p>
+      </div>
+      <div class="card accent-sql">
+        <h3>You keep</h3>
+        <p>The source of truth, untouched and uncopied. Every value a user actually reads comes from your database, live, on your terms.</p>
+      </div>
+      <div class="card accent-fe">
+        <h3>Your front end</h3>
+        <p>Calls the index to narrow, then calls SQL directly to hydrate. Two clean calls, no broker in the middle, no warehouse load per search.</p>
+      </div>
+    </div>
+
+    <p class="sub" style="margin-top:1.8rem;">
+      What we need next: the extract's regeneration cadence, and confirmation of the document grain.
+      Everything else is built.
+    </p>
+  </div>
+</section>
+
+</div>
+
+<footer>
+  <span class="title">External Content Indexing</span>
+  <nav>
+    <button id="prev" aria-label="Previous slide">←</button>
+    <span id="counter">1 / 14</span>
+    <button id="next" aria-label="Next slide">→</button>
+  </nav>
+</footer>
+
+<script>
+(function () {
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const counter = document.getElementById('counter');
+  const progress = document.getElementById('progress');
+  let i = 0;
+
+  function show(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle('active', k === i));
+    counter.textContent = (i + 1) + ' / ' + slides.length;
+    progress.style.width = ((i + 1) / slides.length * 100) + '%';
+    slides[i].scrollTop = 0;
+    if (location.hash !== '#' + (i + 1)) history.replaceState(null, '', '#' + (i + 1));
+  }
+
+  document.getElementById('next').onclick = () => show(i + 1);
+  document.getElementById('prev').onclick = () => show(i - 1);
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); show(i + 1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); show(i - 1); }
+    else if (e.key === 'Home') show(0);
+    else if (e.key === 'End') show(slides.length - 1);
+    else if (e.key === 'o' || e.key === 'O') toggleOverview();
+  });
+
+  // touch swipe
+  let x0 = null;
+  document.addEventListener('touchstart', e => { x0 = e.changedTouches[0].clientX; }, {passive: true});
+  document.addEventListener('touchend', e => {
+    if (x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0;
+    if (Math.abs(dx) > 60) show(i + (dx < 0 ? 1 : -1));
+    x0 = null;
+  }, {passive: true});
+
+  // overview
+  let overview = null;
+  function toggleOverview() {
+    if (overview) { overview.remove(); overview = null; return; }
+    overview = document.createElement('div');
+    Object.assign(overview.style, {
+      position: 'fixed', inset: '0', background: 'rgba(14,20,32,.97)', zIndex: '40',
+      display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(230px,1fr))',
+      gap: '.7rem', padding: '2.4rem', overflowY: 'auto', alignContent: 'start'
+    });
+    slides.forEach((s, k) => {
+      const h = s.querySelector('h1, h2');
+      const b = document.createElement('button');
+      b.textContent = (k + 1) + '. ' + (h ? h.textContent.replace(/\s+/g, ' ').trim() : 'Slide');
+      Object.assign(b.style, {
+        textAlign: 'left', padding: '.85rem 1rem', borderRadius: '10px', cursor: 'pointer',
+        background: k === i ? '#212d42' : '#1b2537', border: '1px solid ' + (k === i ? '#4ecdc4' : '#31405c'),
+        color: '#eef2f9', font: '500 .85rem/1.4 var(--sans)'
+      });
+      b.onclick = () => { toggleOverview(); show(k); };
+      overview.appendChild(b);
+    });
+    document.body.appendChild(overview);
+  }
+
+  const start = parseInt((location.hash || '').slice(1), 10);
+  show(Number.isFinite(start) && start > 0 ? start - 1 : 0);
+})();
+</script>
+</body>
+</html>

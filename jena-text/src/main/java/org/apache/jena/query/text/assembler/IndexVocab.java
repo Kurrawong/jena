@@ -55,6 +55,10 @@ public class IndexVocab {
     @Deprecated public static final Resource DateTimeField  = Vocab.resource(NS, "DateTimeField");
     public static final Resource LatLonField    = Vocab.resource(NS, "LatLonField");
 
+    // External source formats (idx:format)
+    public static final Resource CsvFile        = Vocab.resource(NS, "CsvFile");
+    public static final Resource TsvFile        = Vocab.resource(NS, "TsvFile");
+
     // Shape-level properties
     public static final Property pField             = Vocab.property(NS, "field");
     public static final Property pDocIdField        = Vocab.property(NS, "docIdField");
@@ -80,4 +84,24 @@ public class IndexVocab {
 
     // Hierarchical facet properties
     public static final Property pFacetHierarchy = Vocab.property(NS, "facetHierarchy");
+
+    // External source properties (inside an idx:nested block)
+    public static final Property pNestedName        = Vocab.property(NS, "nestedName");
+    public static final Property pExternalSource    = Vocab.property(NS, "externalSource");
+    public static final Property pFormat            = Vocab.property(NS, "format");
+    public static final Property pLocation          = Vocab.property(NS, "location");
+    public static final Property pSubjectColumn     = Vocab.property(NS, "subjectColumn");
+    public static final Property pSubjectColumnIndex = Vocab.property(NS, "subjectColumnIndex");
+    public static final Property pSubjectPrefix     = Vocab.property(NS, "subjectPrefix");
+    public static final Property pDelimiter         = Vocab.property(NS, "delimiter");
+    public static final Property pHeaderless        = Vocab.property(NS, "headerless");
+    public static final Property pOnError           = Vocab.property(NS, "onError");
+    public static final Property pMinMatchRate      = Vocab.property(NS, "minMatchRate");
+    public static final Property pColumn            = Vocab.property(NS, "column");
+    public static final Property pColumnName        = Vocab.property(NS, "columnName");
+    public static final Property pColumnIndex       = Vocab.property(NS, "columnIndex");
+    /** Delta file applied over the base at build time. Repeatable; applied in order. */
+    public static final Property pDelta             = Vocab.property(NS, "delta");
+    /** Column holding ADD/DELETE in a delta file. Defaults to "op". */
+    public static final Property pOpColumn          = Vocab.property(NS, "opColumn");
 }

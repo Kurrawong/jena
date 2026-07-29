@@ -46,6 +46,9 @@ import org.apache.lucene.store.*;
  * <pre>
  * :index rdf:type text:TextIndexShacl ;
  *     text:directory &lt;file:Lucene&gt; ;
+ *     text:taxonomyDirectory &lt;file:Taxonomy&gt; ;   # optional; required to persist
+ *                                                 # hierarchical facets across a
+ *                                                 # separate bulk-index step
  *     text:shapes ( :Shape1 :Shape2 ) ;
  *     text:storeValues true ;
  *     text:maxFacetHits 50000 .
@@ -63,21 +66,16 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
             if (!GraphUtils.exactlyOneProperty(root, pDirectory))
                 throw new TextIndexException("No 'text:directory' property on " + root);
 
-            Directory directory;
-            RDFNode n = root.getProperty(pDirectory).getObject();
-            if (n.isLiteral()) {
-                String literalValue = n.asLiteral().getLexicalForm();
-                if (literalValue.equals("mem")) {
-                    directory = new ByteBuffersDirectory();
-                } else {
-                    File dir = new File(literalValue);
-                    directory = FSDirectory.open(dir.toPath());
-                }
-            } else {
-                Resource x = n.asResource();
-                String path = IRILib.IRIToFilename(x.getURI());
-                File dir = new File(path);
-                directory = FSDirectory.open(dir.toPath());
+            Directory directory = asDirectory(root.getProperty(pDirectory).getObject());
+
+            // Optional taxonomy directory — hierarchical facet ordinals. Left unset, the
+            // taxonomy is in-memory: fine when indexing and querying share a JVM, and a
+            // silent total loss of hierarchical facet counts when they do not (a bulk
+            // build writes the ordinals, the process exits, the server starts empty).
+            Directory taxonomyDirectory = null;
+            Statement taxonomyStatement = root.getProperty(pTaxonomyDirectory);
+            if (taxonomyStatement != null) {
+                taxonomyDirectory = asDirectory(taxonomyStatement.getObject());
             }
 
             // Shapes (required)
@@ -134,10 +132,24 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
                 config.setMaxFacetHits(mfhNode.asLiteral().getInt());
             }
 
-            return new ShaclTextIndexLucene(directory, config);
+            return new ShaclTextIndexLucene(directory, taxonomyDirectory, config);
         } catch (IOException e) {
             IO.exception(e);
             return null;
         }
+    }
+
+    /** Resolve a directory-valued config node: the literal {@code "mem"} for an
+     *  in-memory directory, any other literal as a path, a resource as a file IRI. */
+    private static Directory asDirectory(RDFNode node) throws IOException {
+        if (node.isLiteral()) {
+            String literalValue = node.asLiteral().getLexicalForm();
+            if (literalValue.equals("mem")) {
+                return new ByteBuffersDirectory();
+            }
+            return FSDirectory.open(new File(literalValue).toPath());
+        }
+        String path = IRILib.IRIToFilename(node.asResource().getURI());
+        return FSDirectory.open(new File(path).toPath());
     }
 }

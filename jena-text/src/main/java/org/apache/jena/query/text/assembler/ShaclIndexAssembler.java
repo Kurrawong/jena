@@ -158,8 +158,17 @@ public class ShaclIndexAssembler {
 
             Resource nestedRes = nestedNode.asResource();
             Path joinPath = extractJoinPath(nestedRes);
+
+            Statement externalStmt = nestedRes.getProperty(IndexVocab.pExternalSource);
+            if (externalStmt != null) {
+                nestedDefs.add(parseExternalNestedDef(a, shape, nestedRes, externalStmt, joinPath,
+                    canonicalFields, reachableFields));
+                continue;
+            }
+
             if (joinPath == null) {
-                throw new TextIndexException("idx:nested on " + shape + " is missing idx:joinPath");
+                throw new TextIndexException(
+                    "idx:nested on " + shape + " is missing idx:joinPath (or idx:externalSource)");
             }
             String nestedName = deriveNestedName(joinPath);
             List<JoinStep> joinSteps;
@@ -193,6 +202,183 @@ public class ShaclIndexAssembler {
         }
 
         return Collections.unmodifiableList(nestedDefs);
+    }
+
+    /**
+     * Parse an {@code idx:nested} block whose children come from an external table
+     * rather than from the graph.
+     * <p>
+     * Externality is not a flag — a field is external because it appears in an
+     * {@code idx:column} binding, exactly as a field is nested because it appears in an
+     * {@code idx:nested} block. An explicit {@code idx:external true} would be a second
+     * source of truth that could contradict the bindings.
+     */
+    private static NestedDef parseExternalNestedDef(Assembler a, Resource shape, Resource nestedRes,
+                                                    Statement externalStmt, Path joinPath,
+                                                    Map<String, CanonicalFieldSpec> canonicalFields,
+                                                    Map<String, FieldDef> reachableFields) {
+        if (joinPath != null) {
+            throw new TextIndexException(
+                "idx:nested on " + shape + " has both idx:joinPath and idx:externalSource. "
+                + "Children come from the graph or from rows, never both.");
+        }
+        if (nestedRes.hasProperty(IndexVocab.pProperty)) {
+            throw new TextIndexException(
+                "idx:nested on " + shape + " has both idx:externalSource and idx:property occurrences. "
+                + "An external block's fields come from its idx:column bindings.");
+        }
+        String nestedName = getOptionalString(nestedRes, IndexVocab.pNestedName);
+        if (nestedName == null || nestedName.isBlank()) {
+            throw new TextIndexException(
+                "idx:nested on " + shape + " with an idx:externalSource requires idx:nestedName "
+                + "— there is no join path to derive a scope name from.");
+        }
+        if (!externalStmt.getObject().isResource()) {
+            throw new TextIndexException("idx:externalSource on " + shape + " must be a resource");
+        }
+
+        ExternalSourceDef source = parseExternalSource(a, shape, externalStmt.getObject().asResource(),
+            canonicalFields, reachableFields);
+        List<HierarchyDef> hierarchies = parseHierarchies(nestedRes, source.getFields());
+        log.debug("Parsed external nested definition: {} source={}", nestedName, source);
+        return new NestedDef(nestedName, source, hierarchies);
+    }
+
+    private static ExternalSourceDef parseExternalSource(Assembler a, Resource shape, Resource sourceRes,
+                                                         Map<String, CanonicalFieldSpec> canonicalFields,
+                                                         Map<String, FieldDef> reachableFields) {
+        ExternalFormat format = parseExternalFormat(sourceRes);
+        String location = getRequiredString(sourceRes, IndexVocab.pLocation,
+            "idx:externalSource on " + shape + " is missing idx:location");
+        boolean headerless = getOptionalBoolean(sourceRes, IndexVocab.pHeaderless, false);
+        String subjectColumn = getOptionalString(sourceRes, IndexVocab.pSubjectColumn);
+        int subjectColumnIndex = getOptionalInt(sourceRes, IndexVocab.pSubjectColumnIndex, -1);
+        String subjectPrefix = getOptionalString(sourceRes, IndexVocab.pSubjectPrefix);
+        Character delimiter = parseDelimiter(sourceRes);
+        ErrorPolicy onError = parseErrorPolicy(sourceRes);
+        double minMatchRate = getOptionalDouble(sourceRes, IndexVocab.pMinMatchRate, 0.0);
+
+        List<ColumnBinding> columns = new ArrayList<>();
+        StmtIterator columnIter = sourceRes.listProperties(IndexVocab.pColumn);
+        while (columnIter.hasNext()) {
+            RDFNode columnNode = columnIter.next().getObject();
+            if (!columnNode.isResource()) {
+                throw new TextIndexException("idx:column on " + shape + " must be a resource");
+            }
+            columns.add(parseColumnBinding(a, columnNode.asResource(), canonicalFields, reachableFields));
+        }
+        // RDF puts no order on repeated properties; sort so config order is irrelevant
+        // and logs/diagnostics are reproducible.
+        columns.sort(Comparator.comparingInt(ColumnBinding::getColumnIndex)
+            .thenComparing(c -> c.getColumnName() != null ? c.getColumnName() : ""));
+
+        List<String> deltaLocations = parseDeltaLocations(shape, sourceRes);
+        String opColumn = getOptionalString(sourceRes, IndexVocab.pOpColumn);
+
+        return new ExternalSourceDef(format, location, subjectColumn, subjectColumnIndex,
+            subjectPrefix, delimiter, headerless, onError, minMatchRate, columns,
+            deltaLocations, opColumn);
+    }
+
+    /**
+     * Delta files, applied over the base in declaration order.
+     * <p>
+     * Deltas are order-sensitive — a later one may delete what an earlier one added —
+     * and RDF puts no order on repeated properties. So more than one must be given as
+     * an RDF list, where the order is explicit, rather than as repeated statements.
+     */
+    private static List<String> parseDeltaLocations(Resource shape, Resource sourceRes) {
+        List<Statement> statements = sourceRes.listProperties(IndexVocab.pDelta).toList();
+        if (statements.isEmpty()) {
+            return Collections.emptyList();
+        }
+        if (statements.size() > 1) {
+            throw new TextIndexException(
+                "idx:externalSource on " + shape + " has " + statements.size()
+                + " separate idx:delta statements. Deltas apply in order and RDF does not "
+                + "order repeated properties — give them as one list: "
+                + "idx:delta ( \"first.csv\" \"second.csv\" ).");
+        }
+
+        RDFNode node = statements.get(0).getObject();
+        if (node.isLiteral()) {
+            return List.of(node.asLiteral().getString());
+        }
+        if (node.canAs(RDFList.class)) {
+            List<String> locations = new ArrayList<>();
+            for (RDFNode item : node.as(RDFList.class).asJavaList()) {
+                if (!item.isLiteral()) {
+                    throw new TextIndexException(
+                        "idx:delta list on " + shape + " must hold string paths, got " + item);
+                }
+                locations.add(item.asLiteral().getString());
+            }
+            return locations;
+        }
+        throw new TextIndexException(
+            "idx:delta on " + shape + " must be a string path, or a list of them");
+    }
+
+    private static ColumnBinding parseColumnBinding(Assembler a, Resource columnRes,
+                                                    Map<String, CanonicalFieldSpec> canonicalFields,
+                                                    Map<String, FieldDef> reachableFields) {
+        if (columnRes.hasProperty(shPath) || columnRes.hasProperty(IndexVocab.pPath)) {
+            throw new TextIndexException(
+                "idx:column " + columnRes + " must not carry sh:path — its value comes from the "
+                + "bound column, and a path would be a second, contradicting source for the field.");
+        }
+        Statement fieldStmt = columnRes.getProperty(IndexVocab.pField);
+        if (fieldStmt == null || !fieldStmt.getObject().isResource()) {
+            throw new TextIndexException("idx:column " + columnRes + " is missing idx:field");
+        }
+        FieldDef field = resolveCanonicalField(a, fieldStmt.getObject().asResource(), canonicalFields);
+        reachableFields.putIfAbsent(field.getFieldIRI().getURI(), field);
+
+        String columnName = getOptionalString(columnRes, IndexVocab.pColumnName);
+        int columnIndex = getOptionalInt(columnRes, IndexVocab.pColumnIndex, -1);
+        if ((columnName == null) == (columnIndex < 0)) {
+            throw new TextIndexException(
+                "idx:column " + columnRes + " (field " + field.getFieldName() + ") must set exactly one "
+                + "of idx:columnName or idx:columnIndex");
+        }
+        return new ColumnBinding(columnName, columnIndex, field);
+    }
+
+    private static ExternalFormat parseExternalFormat(Resource sourceRes) {
+        Node format = getOptionalResourceNode(sourceRes, IndexVocab.pFormat);
+        if (format == null) {
+            throw new TextIndexException("idx:externalSource " + sourceRes + " is missing idx:format");
+        }
+        String uri = format.getURI();
+        if (IndexVocab.CsvFile.getURI().equals(uri)) return ExternalFormat.CSV;
+        if (IndexVocab.TsvFile.getURI().equals(uri)) return ExternalFormat.TSV;
+        throw new TextIndexException("Unknown idx:format: " + uri
+            + ". Supported: idx:CsvFile, idx:TsvFile.");
+    }
+
+    private static ErrorPolicy parseErrorPolicy(Resource sourceRes) {
+        String onError = getOptionalString(sourceRes, IndexVocab.pOnError);
+        if (onError == null) {
+            return ErrorPolicy.SKIP;
+        }
+        return switch (onError.toLowerCase(Locale.ROOT)) {
+            case "skip" -> ErrorPolicy.SKIP;
+            case "fail" -> ErrorPolicy.FAIL;
+            default -> throw new TextIndexException(
+                "idx:onError must be \"skip\" or \"fail\", got \"" + onError + "\"");
+        };
+    }
+
+    private static Character parseDelimiter(Resource sourceRes) {
+        String delimiter = getOptionalString(sourceRes, IndexVocab.pDelimiter);
+        if (delimiter == null) {
+            return null;
+        }
+        if (delimiter.length() != 1) {
+            throw new TextIndexException(
+                "idx:delimiter must be a single character, got \"" + delimiter + "\"");
+        }
+        return delimiter.charAt(0);
     }
 
     private static List<HierarchyDef> parseHierarchies(Resource owner, List<FieldDef> fields) {
@@ -722,6 +908,22 @@ public class ShaclIndexAssembler {
             return defaultValue;
         }
         return stmt.getObject().asLiteral().getBoolean();
+    }
+
+    private static int getOptionalInt(Resource resource, Property property, int defaultValue) {
+        Statement stmt = resource.getProperty(property);
+        if (stmt == null) {
+            return defaultValue;
+        }
+        return stmt.getObject().asLiteral().getInt();
+    }
+
+    private static double getOptionalDouble(Resource resource, Property property, double defaultValue) {
+        Statement stmt = resource.getProperty(property);
+        if (stmt == null) {
+            return defaultValue;
+        }
+        return stmt.getObject().asLiteral().getDouble();
     }
 
     private static Node getOptionalResourceNode(Resource resource, Property property) {

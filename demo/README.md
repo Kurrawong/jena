@@ -21,18 +21,73 @@ For Docker workflows:
 # 1. Build the Fuseki server JAR (from repo root)
 task build
 
-# 2. Start the server
+# 2. Load the data and build the index, with the server DOWN
+task load-offline
+task index
+
+# 3. Start the server
 task serve
 
-# 3. Load the demo data (in a separate terminal)
-task load
-
-# 4. Run all queries
+# 4. Run all queries (in a separate terminal)
 task query
 
 # 5. Stop the server
 task stop
 ```
+
+Or in one step: `task refresh` does all of the above and launches the app.
+
+**Why load and index with the server stopped?** `BoreholeShape` draws its assay
+children from `data/assays.csv` via `idx:externalSource`, which makes it
+**rebuild-only**: a live graph change cannot re-derive those children, so the change
+listener refuses to touch those documents rather than silently dropping them. Only
+`task index` (the bulk indexer) can build them, and it needs exclusive TDB2 access.
+
+`task load` (push into a running server over GSP) still works for the shapes that have
+no external source — reports and sites — but boreholes will be missing their assays
+until the next `task index`.
+
+## External assay data
+
+`test/data/assays.csv` is a small CSV of borehole assay results, keyed by **borehole
+IRI**, that is never loaded into the graph:
+
+```
+borehole,analyte,grade,units,below_detection
+http://example.org/mining/bh-bh-001,Ag,12.4,ppm,f
+http://example.org/mining/bh-bh-001,Au,0.82,ppm,f
+```
+
+Each row becomes a nested child document inside that borehole's Lucene block, so a
+single query can constrain across graph fields and assay values at once — "Queensland
+boreholes with silver above 10 ppm". All four columns land on **one** child, so they
+correlate: "Cu above 1 pct and above detection" must be satisfied by the same assay,
+not by two different ones on the same hole.
+
+`grade` is `idx:stored false` — searchable, sortable, facetable, never returned. The
+assay database stays the source of truth.
+
+`test/data/assays-delta.csv` demonstrates `idx:delta`, applied over the base at build
+time:
+
+```
+op,borehole,analyte,grade,units,below_detection
+DELETE,http://example.org/mining/bh-mia-001,Ag,44.9,ppm,f
+ADD,http://example.org/mining/bh-mia-001,Ag,51.3,ppm,f
+DELETE,http://example.org/mining/bh-pil-001,Mn,,,
+```
+
+`DELETE` matches on the columns it fills in, so the last row — with empty cells — is a
+wildcard removing *every* Mn measurement of that hole. `ADD` appends. Deletes run before
+adds, so row order in the file cannot change the outcome. `task index` reports what
+happened:
+
+```
+Delta source CSV data/assays.csv + 1 delta(s) [data/assays-delta.csv]:
+  3 rows added, 3 rows deleted, 0 deletes matched nothing
+```
+
+See [docs/03-configuration.md](../docs/03-configuration.md#external-content-csvtsv).
 
 ## Quick start (Docker)
 

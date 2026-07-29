@@ -38,6 +38,11 @@ PREFIX schema:  <https://schema.org/>
 :index rdf:type text:TextIndexShacl ;
     text:indexId "default" ;
     text:directory <file:Lucene> ;
+    ## Required because BoreholeShape is rebuild-only (idx:externalSource):
+    ## the index is built by a separate shacltextindexer process, and an
+    ## in-memory taxonomy would die with it, silently emptying every
+    ## hierarchical facet.
+    text:taxonomyDirectory <file:Taxonomy> ;
     text:shapes ( :MiningReportShape :BoreholeShape :SiteShape ) ;
     text:storeValues false ;
     text:maxFacetHits 50000 ;
@@ -204,6 +209,40 @@ field:location
     idx:fieldType idx:LatLonField ;
     idx:stored false .
 
+## --- External assay fields ---
+## No sh:path: these come from bound CSV columns, not from the graph. A field is
+## external because a column binds it — there is no idx:external flag.
+## See docs/03-configuration.md#external-content-csvtsv
+
+field:analyte
+    idx:fieldName "analyte" ;
+    idx:fieldType idx:KeywordField ;
+    idx:indexed   true ;
+    idx:facetable true ;
+    idx:stored    true .          # short, non-volatile label
+
+field:grade
+    idx:fieldName "grade" ;
+    idx:fieldType idx:DoubleField ;
+    idx:indexed   true ;          # range filters
+    idx:facetable true ;          # range facets
+    idx:sortable  true ;          # nested sort selector
+    idx:stored    false .         # the assay database is the source of truth
+
+field:gradeUnits
+    idx:fieldName "gradeUnits" ;
+    idx:fieldType idx:KeywordField ;
+    idx:indexed   true ;
+    idx:facetable true ;
+    idx:stored    true .
+
+field:belowDetection
+    idx:fieldName "belowDetection" ;
+    idx:fieldType idx:KeywordField ;
+    idx:indexed   true ;
+    idx:facetable true ;
+    idx:stored    true .
+
 ## --- Shapes ---
 
 :MiningReportShape
@@ -249,6 +288,36 @@ field:location
         idx:property [ idx:field field:identifierValueText ; sh:path schema:value ] ;
         idx:facetHierarchy ( field:identifierType field:identifierValueExact ) ;
     ] ;
+
+    ## Assay results from a CSV that is never loaded into the graph. One child
+    ## document per row, joined on the borehole IRI at index time — so a single
+    ## query can constrain across graph fields and assay values together.
+    ##
+    ## Four columns land on ONE child, so they correlate: "Cu above 1 pct and above
+    ## detection" must be satisfied by the same assay, not by three different ones.
+    ##
+    ## Rebuild-only: run `task index` after loading. A live graph edit cannot
+    ## re-derive these children, so the doc producer refuses rather than dropping them.
+    idx:nested [
+        idx:nestedName "assay" ;
+        idx:externalSource [
+            idx:format        idx:CsvFile ;
+            idx:location      "data/assays.csv" ;
+            idx:subjectColumn "borehole" ;
+
+            ## Applied over the base at build time: DELETE removes matching children,
+            ## ADD appends. Deletes run before adds, so file order cannot change the
+            ## result. An empty cell in a DELETE is a wildcard for that column.
+            idx:delta         "data/assays-delta.csv" ;
+
+            idx:column [ idx:columnName "analyte"         ; idx:field field:analyte ] ;
+            idx:column [ idx:columnName "grade"           ; idx:field field:grade ] ;
+            idx:column [ idx:columnName "units"           ; idx:field field:gradeUnits ] ;
+            idx:column [ idx:columnName "below_detection" ; idx:field field:belowDetection ] ;
+        ] ;
+        idx:facetHierarchy ( field:analyte field:gradeUnits ) ;
+    ] ;
+
     idx:facetHierarchy ( field:state field:commodity ) .
 
 :SiteShape

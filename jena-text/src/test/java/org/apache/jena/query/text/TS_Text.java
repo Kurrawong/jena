@@ -93,6 +93,15 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestFacetCachingInvalidation.class
     , TestBlockJoinIndexModel.class
 
+    // External content indexing: nested children built from a CSV/tabular source
+    , TestExternalContentIndexing.class
+    , TestGswaMeasurementCsv.class
+    , org.apache.jena.query.text.external.TestCsvRowSource.class
+    , org.apache.jena.query.text.external.TestExternalDeltaSource.class
+    , org.apache.jena.query.text.external.TestSortingRowSource.class
+    , org.apache.jena.query.text.assembler.TestExternalSourceAssembler.class
+    , org.apache.jena.query.text.assembler.TestTaxonomyDirectoryAssembler.class
+
     // CQL and multi-index tests
     , TestCqlParser.class
     , TestCqlToLuceneCompiler.class

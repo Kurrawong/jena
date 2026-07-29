@@ -1,0 +1,54 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ *
+ *   SPDX-License-Identifier: Apache-2.0
+ */
+
+package org.apache.jena.query.text.external;
+
+import org.apache.jena.query.text.ShaclIndexMapping.ExternalSourceDef;
+
+/** Creates the {@link ExternalRowSource} for a configured {@code idx:format}. */
+public class ExternalRowSources {
+
+    private ExternalRowSources() {}
+
+    public static ExternalRowSource create(ExternalSourceDef def) {
+        if (def.hasDeltas()) {
+            // Wrap the base in a reader that applies the deltas per subject. Without
+            // deltas configured there is no wrapper and no cost. DeltaRowSource sorts
+            // each of its own inputs, so it is already ordered and is not wrapped again.
+            return new DeltaRowSource(def);
+        }
+        return sorted(reader(def));
+    }
+
+    private static ExternalRowSource reader(ExternalSourceDef def) {
+        return switch (def.getFormat()) {
+            case CSV, TSV -> new CsvRowSource(def);
+        };
+    }
+
+    /**
+     * Impose the subject ordering the indexer's merge join needs. Applied to every leaf
+     * reader so that no format has to promise ordering and no config has to assert it.
+     */
+    static ExternalRowSource sorted(ExternalRowSource source) {
+        return new SortingRowSource(source);
+    }
+}

@@ -202,9 +202,13 @@ flat field.
 - *Value cardinality* — a `sortable` keyword must be single-valued per child
   (one record → one value), else the child doc fails on duplicate docvalues.
 
-**Out of scope.** Numeric observation pivots (sort samples by an `Au` grade
-where the observable property is a *value*, not a distinct type/predicate) are
-deliberately not covered here; that discrimination is by sibling value and is
-being handled by SQL pushdown separately. This design targets the qualified
-patterns whose discriminator is an explicit co-located property: identifiers and
-prov-qualified attributions.
+**Out of scope.** This design targets the qualified patterns whose discriminator
+is an explicit co-located property: identifiers and prov-qualified attributions.
+
+> **Amended 2026-07-27.** This section previously excluded numeric observation
+> pivots — sorting samples by an `Au` grade — on the grounds that they were being
+> handled by SQL pushdown separately. **That exclusion is withdrawn.** The
+> discrimination there is by a co-located property value, mechanically identical to
+> the qualified-identifier pattern this design does cover, and the selector built
+> here is what makes it work. See
+> [2026-07-27_external_content_indexing_design.md](2026-07-27_external_content_indexing_design.md).

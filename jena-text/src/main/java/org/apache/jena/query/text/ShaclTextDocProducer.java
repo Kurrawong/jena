@@ -246,6 +246,17 @@ public class ShaclTextDocProducer implements TextDocProducer {
         }
 
         for (IndexProfile profile : matchedProfiles) {
+            if (profile.hasExternalSource()) {
+                // Rebuilding from the graph alone would write a document with no external
+                // children — the same entity, silently stripped of everything the source
+                // supplied. Lucene has no partial update, so there is no correct live
+                // action here: such a profile is rebuild-only via ShaclBulkIndexer.
+                log.warn("Ignoring live change to '{}' for shape {}: the shape declares an "
+                    + "idx:externalSource and is rebuild-only. Its document is now stale — "
+                    + "re-run ShaclBulkIndexer. (Rebuilding here would drop the external children.)",
+                    entityUri, profile.getShapeNode());
+                continue;
+            }
             Entity entity = buildEntity(subject, entityUri, profile);
             indexer.updateEntityForProfile(entity, profile);
         }
