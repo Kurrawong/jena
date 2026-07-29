@@ -24,6 +24,9 @@ const SH = 'http://www.w3.org/ns/shacl#';
 const TEXT = 'http://jena.apache.org/text#';
 const IDX = 'urn:jena:lucene:index#';
 const FUSEKI = 'http://jena.apache.org/fuseki#';
+// Vocabulary for the search CONSTRUCT's payload. Private to the demo — the app both
+// writes the template and reads the graph back, so nothing else depends on these terms.
+const RES = 'urn:jena:lucene:result#';
 const DEMO_FIELD_IRIS = {
     identifierType: 'urn:jena:lucene:field#identifierType',
     identifierValueText: 'urn:jena:lucene:field#identifierValueText',
@@ -38,6 +41,7 @@ PREFIX dct:  <http://purl.org/dc/terms/>
 PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX ex:   <http://example.org/mining/>
 PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX res:  <urn:jena:lucene:result#>
 `;
 
 const TURTLE_PREFIXES = {
@@ -894,6 +898,8 @@ function searchApp() {
         _loadingTimer: null,
         description: '',
         _lastTotalHits: 0,
+        _facetKey: null,
+        _labels: null,
         endpoint: '',
         queryLog: [],
         correlatedFilters: emptyCorrelatedFilterState(),
@@ -954,6 +960,7 @@ function searchApp() {
             this.temporalFields = Object.keys(this.fieldInfo).filter(name => this.fieldInfo[name]?.isTemporal);
             this.predicateToFacet = config.predicateToFacet;
             this.hierarchyDimensions = config.hierarchyDimensions || new Map();
+            this._labels = new LabelResolver(this.endpoint, APP_CONFIG.labelCacheVersion || '1');
 
             this.loadFromUrl();
             await this.executeSearch();
@@ -1754,7 +1761,25 @@ SELECT ?field ?value ?low ?high ?count WHERE {
 
         // --- Query builders ---
 
-        buildSearchQuery() {
+        /**
+         * Everything the facet buckets depend on, and nothing else. Notably not the page:
+         * paging through an unchanged result set cannot change a bucket count, so page 2+
+         * skips the facet branch entirely and keeps the buckets already on screen.
+         */
+        facetStateKey() {
+            return JSON.stringify([
+                this.q.trim(),
+                this.identifier.trim(),
+                this.selected,
+                this.spatialBbox,
+                this.spatialPolygon,
+                this.extraFilterClauses(),
+                this.maxFacetValues,
+                this.facetFields,
+            ]);
+        },
+
+        buildSearchQuery(includeFacets = true) {
             const identifier = this.identifier.trim();
             const term = identifier || this.q.trim() || '*';
             const searchField = identifier ? this.identifierFieldSelector() : 'default';
@@ -1770,21 +1795,38 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             const sortSpec = buildSortSpec(this.sortField, this.sortDirection, this.fieldIRIs);
             const sortArg = sortSpec ? sparqlQuote(sortSpec) : "''";
             const facetRequests = this.facetFields.map(f => {
-                // For hierarchy dimensions, use the first level's field IRI
+                // A hierarchy is addressed by its dimension name; a plain field by its IRI.
+                // (Faceting on a level's field IRI now returns that level's own flat counts,
+                // so it is no longer a way to reach the hierarchy.)
                 const hier = this.hierarchyDimensions.get(f);
-                const iri = hier ? hier[0].iri : (this.fieldIRIs[f] || f);
+                const target = hier ? f : (this.fieldIRIs[f] || f);
                 const ranges = facetRangeSpec(f, this.fieldInfo[f]);
-                if (ranges) return { field: iri, ranges };
-                return iri;
+                if (ranges) return { field: target, ranges };
+                return target;
             });
             const facetFieldsJson = JSON.stringify(facetRequests);
+            const offset = (this.currentPage - 1) * this.limit;
 
+            const queryBranch =
+                `    { (?hit ?entity ?score ?rank ?totalHits) luc:query ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${filterArg} ${sortArg} ${this.limit} ${offset}) }`;
+
+            // Page 2+ of an unchanged filter set reuses the buckets already on screen —
+            // they cannot have changed, and recomputing them is the expensive half.
+            const facetBranch = includeFacets
+                ? `\n    UNION\n    { (?field ?value ?low ?high ?count) luc:facet ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${sparqlQuote(facetFieldsJson)} ${filterArg} ${this.maxFacetValues} 0)\n      BIND(BNODE() AS ?bucket) }`
+                : '';
+
+            // CONSTRUCT rather than SELECT: one RDF payload carrying hits and buckets
+            // together. ?hit is luc:query's own query-scoped blank node, so it serves as
+            // the hit's subject; buckets get a fresh BNODE() per solution. Each branch
+            // leaves the other's variables unbound, so only its own triples are emitted.
             return `${SPARQL_PREFIXES}
-SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
+CONSTRUCT {
+    ?hit res:entity ?entity ; res:score ?score ; res:rank ?rank ; res:totalHits ?totalHits .
+    ?bucket res:field ?field ; res:value ?value ; res:low ?low ; res:high ?high ; res:count ?count .
+}
 WHERE {
-    { (?hit ?entity ?score ?totalHits) luc:query ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${filterArg} ${sortArg} ${this.limit} ${(this.currentPage - 1) * this.limit}) }
-    UNION
-    { (?field ?value ?low ?high ?count) luc:facet ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${sparqlQuote(facetFieldsJson)} ${filterArg} ${this.maxFacetValues} 0) }
+${queryBranch}${facetBranch}
 }`;
         },
 
@@ -1800,17 +1842,19 @@ ORDER BY LCASE(STR(?identifier))
 LIMIT 8`;
         },
 
+        // Labels are no longer joined in here — every IRI in the response is resolved
+        // separately by labels.js so each lookup is its own browser-cache entry. That also
+        // makes the entity's own label optional rather than a join condition, so an
+        // unlabelled entity still gets a card.
         buildDetailQuery(uris) {
             const values = uris.map(u => `<${u}>`).join(' ');
             return `${SPARQL_PREFIXES}
-SELECT ?entity ?label ?p ?o ?oLabel
+SELECT ?entity ?p ?o
 WHERE {
     VALUES ?entity { ${values} }
-    ?entity rdfs:label ?label .
     OPTIONAL {
       ?entity ?p ?o .
-      FILTER(?p != rdfs:label && !isBlank(?o) && ?o != rdfs:Resource)
-      OPTIONAL { ?o rdfs:label ?oLabel }
+      FILTER(!isBlank(?o) && ?o != rdfs:Resource)
     }
 }`;
         },
@@ -1822,56 +1866,71 @@ DESCRIBE <${uri}>`;
 
         // --- Result parsing ---
 
-        parseUnionResults(data) {
+        /**
+         * Read the search CONSTRUCT's graph.
+         *
+         * A graph is unordered, so result order comes back from res:rank — the hit's
+         * position in the whole result set. Score cannot do this job: a match-all query
+         * (the default '*' view) scores every document 1.0, and real relevance scores tie.
+         */
+        parseGraphResults(store) {
             const hits = [];
             const facets = {};
             let totalHits = null;
-            for (const row of (data.results?.bindings || [])) {
-                if (row.entity) {
-                    hits.push({
-                        uri: row.entity.value,
-                        score: parseFloat(row.score.value),
-                    });
-                    if (totalHits === null && row.totalHits) {
-                        totalHits = parseInt(row.totalHits.value, 10);
-                    }
-                } else if (row.field) {
-                    // ?field is a URI — resolve to field name via IRI map or shortName fallback
-                    const fieldUri = row.field.value;
-                    let f = this._resolveFieldName(fieldUri);
-                    // Check if this field is a hierarchy level — map to dimension name
-                    f = this._resolveHierarchyDim(f) || f;
-                    if (!facets[f]) facets[f] = [];
-                    // ?value may be a URI (KEYWORD) or literal (TEXT) —
-                    // store the raw value for CQL filter matching
-                    let rawVal = null;
-                    let isUri = false;
-                    let label = null;
 
-                    if (row.value) {
-                        rawVal = row.value.value;
-                        isUri = row.value.type === 'uri' || /^https?:\/\//.test(rawVal);
-                        label = isUri ? shortName(rawVal) : rawVal;
-                    } else if (row.low || row.high) {
-                        const l = row.low ? row.low.value : '*';
-                        const h = row.high ? row.high.value : '*';
-                        rawVal = `__RANGE__${row.low ? row.low.value : ''}|${row.high ? row.high.value : ''}`;
-                        label = `${l} to ${h}`;
-                    } else {
-                        // fallback for empty/null buckets if any
-                        rawVal = '__NULL__';
-                        label = '(empty)';
-                    }
-
-                    facets[f].push({
-                        value: rawVal,
-                        label: label,
-                        count: parseInt(row.count.value, 10),
-                        low: row.low ? row.low.value : null,
-                        high: row.high ? row.high.value : null,
-                    });
+            for (const node of store.getSubjects(nn(RES + 'entity'), null, null)) {
+                const entity = getObject(store, node, RES + 'entity');
+                if (!entity) continue;
+                hits.push({
+                    uri: entity.value,
+                    score: parseFloat(getLiteral(store, node, RES + 'score')),
+                    rank: parseInt(getLiteral(store, node, RES + 'rank'), 10),
+                });
+                if (totalHits === null) {
+                    const total = getLiteral(store, node, RES + 'totalHits');
+                    if (total !== null) totalHits = parseInt(total, 10);
                 }
             }
+
+            for (const quad of store.getQuads(null, nn(RES + 'field'), null, null)) {
+                const bucket = quad.subject;
+                // ?field is the field IRI that was requested, or a hierarchy's dimension
+                // name when the request named a dimension (which has no IRI).
+                const fieldTerm = quad.object;
+                let f = fieldTerm.termType === 'Literal'
+                    ? fieldTerm.value
+                    : this._resolveFieldName(fieldTerm.value);
+                f = this._resolveHierarchyDim(f) || f;
+                if (!facets[f]) facets[f] = [];
+
+                const valueTerm = getObject(store, bucket, RES + 'value');
+                const low = getLiteral(store, bucket, RES + 'low') ?? null;
+                const high = getLiteral(store, bucket, RES + 'high') ?? null;
+
+                let rawVal;
+                let label;
+                if (valueTerm) {
+                    rawVal = valueTerm.value;
+                    const isUri = valueTerm.termType === 'NamedNode' || /^https?:\/\//.test(rawVal);
+                    label = isUri ? shortName(rawVal) : rawVal;
+                } else if (low !== null || high !== null) {
+                    rawVal = `__RANGE__${low ?? ''}|${high ?? ''}`;
+                    label = `${low ?? '*'} to ${high ?? '*'}`;
+                } else {
+                    rawVal = '__NULL__';
+                    label = '(empty)';
+                }
+
+                facets[f].push({
+                    value: rawVal,
+                    label,
+                    count: parseInt(getLiteral(store, bucket, RES + 'count'), 10),
+                    low,
+                    high,
+                });
+            }
+
+            hits.sort((a, b) => a.rank - b.rank);
             return { hits, facets, totalHits };
         },
 
@@ -1900,15 +1959,17 @@ DESCRIBE <${uri}>`;
             return merged;
         },
 
-        parseEntityDetails(data, scores, orderedUris) {
+        parseEntityDetails(data, hitsByUri) {
             const entities = {};
             for (const row of (data.results?.bindings || [])) {
                 const uri = row.entity.value;
                 if (!entities[uri]) {
                     entities[uri] = {
                         uri,
-                        label: row.label.value,
-                        score: scores[uri] || 0,
+                        // Filled in from labels.js once the per-IRI lookups land.
+                        label: shortName(uri),
+                        score: hitsByUri[uri]?.score ?? 0,
+                        rank: hitsByUri[uri]?.rank ?? Number.MAX_SAFE_INTEGER,
                         identifier: null,
                         description: null,
                         properties: {},
@@ -1927,8 +1988,9 @@ DESCRIBE <${uri}>`;
                     const isUri = row.o.type === 'uri';
                     const lang = row.o['xml:lang'] || null;
                     const datatype = row.o.datatype || null;
-                    const label = row.oLabel?.value;
-                    const display = label || (isUri ? shortName(raw) : decorateLiteralDisplay(raw, lang, datatype));
+                    // IRI objects start as their short name and are upgraded in place once
+                    // labels.js resolves them; literals never need a lookup.
+                    const display = isUri ? shortName(raw) : decorateLiteralDisplay(raw, lang, datatype);
                     if (!card.properties[pred]) card.properties[pred] = [];
                     if (!card.properties[pred].some(e => e.raw === raw)) {
                         card.properties[pred].push({ display, raw, isUri, lang, datatype });
@@ -2038,11 +2100,39 @@ DESCRIBE <${uri}>`;
                 }
             }
 
-            if (orderedUris && orderedUris.length > 0) {
-                const rank = new Map(orderedUris.map((uri, idx) => [uri, idx]));
-                return cards.sort((a, b) => (rank.get(a.uri) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.uri) ?? Number.MAX_SAFE_INTEGER));
+            // res:rank carries the order — see parseGraphResults. Sorting by score would
+            // scramble the default '*' view, where every hit scores 1.0.
+            return cards.sort((a, b) => a.rank - b.rank);
+        },
+
+        /**
+         * Fill in labels for every IRI on the current cards — the entity IRIs themselves
+         * and any IRI-valued property. One GET per IRI, resolved from the browser cache
+         * on a repeat view. Mutates the cards in place so Alpine re-renders as they land.
+         */
+        async resolveCardLabels(cards) {
+            const iris = new Set();
+            for (const card of cards) {
+                iris.add(card.uri);
+                for (const values of Object.values(card.properties)) {
+                    for (const pv of values) {
+                        if (pv.isUri) iris.add(pv.raw);
+                    }
+                }
             }
-            return cards.sort((a, b) => b.score - a.score);
+            if (iris.size === 0) return;
+
+            const labels = await this._labels.resolveMany([...iris]);
+            for (const card of cards) {
+                const own = labels.get(card.uri);
+                if (own) card.label = own;
+                for (const row of card.rows) {
+                    for (const value of row.values) {
+                        const label = labels.get(value.value);
+                        if (label) value.displayValue = label;
+                    }
+                }
+            }
         },
 
         cardTurtleButtonLabel(card) {
@@ -2147,7 +2237,12 @@ DESCRIBE <${uri}>`;
             this.error = null;
 
             try {
-                const searchQuery = this.buildSearchQuery();
+                // The buckets depend on the query and the filters, not on the page. Fetch
+                // them only when that combination has actually changed.
+                const facetKey = this.facetStateKey();
+                const includeFacets = facetKey !== this._facetKey
+                    || Object.keys(this.facets || {}).length === 0;
+                const searchQuery = this.buildSearchQuery(includeFacets);
                 const activeFacetFilters = Object.entries(this.selected)
                     .filter(([, v]) => v && v.length > 0).length;
                 const activeFilters = activeFacetFilters
@@ -2169,17 +2264,21 @@ DESCRIBE <${uri}>`;
                 }
 
                 let t0 = performance.now();
-                const data = await this.runSparql(searchQuery, signal);
+                const turtle = await this.runSparqlText(searchQuery, 'text/turtle', signal);
+                const store = await parseTurtle(turtle);
                 const searchMs = performance.now() - t0;
                 this.logQuery(`Search: ${searchLabel}`, searchQuery, searchMs);
 
-                const { hits, facets, totalHits } = this.parseUnionResults(data);
-                this._lastTotalHits = totalHits || hits.length;
-                this.facets = this.mergeFacets(facets);
+                const { hits, facets, totalHits } = this.parseGraphResults(store);
+                this._lastTotalHits = totalHits ?? hits.length;
+                if (includeFacets) {
+                    this.facets = this.mergeFacets(facets);
+                    this._facetKey = facetKey;
+                }
 
                 if (hits.length > 0) {
                     const uris = hits.map(h => h.uri);
-                    const scores = Object.fromEntries(hits.map(h => [h.uri, h.score]));
+                    const hitsByUri = Object.fromEntries(hits.map(h => [h.uri, h]));
                     const detailQuery = this.buildDetailQuery(uris);
 
                     t0 = performance.now();
@@ -2187,7 +2286,10 @@ DESCRIBE <${uri}>`;
                     const detailMs = performance.now() - t0;
                     this.logQuery(`Details: ${uris.length} entities`, detailQuery, detailMs);
 
-                    this.cards = this.parseEntityDetails(detailData, scores, uris);
+                    this.cards = this.parseEntityDetails(detailData, hitsByUri);
+                    // Labels resolve in the background — the cards render immediately with
+                    // short names and upgrade in place as the lookups return.
+                    this.resolveCardLabels(this.cards);
                 } else {
                     this.cards = [];
                 }
@@ -2625,7 +2727,7 @@ function statsApp() {
                 const statsQuery = `${SPARQL_PREFIXES}
 SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
 WHERE {
-    { (?hit ?entity ?score ?totalHits) luc:query ('default' 'default' '*' '' '' 0 0) }
+    { (?hit ?entity ?score ?rank ?totalHits) luc:query ('default' 'default' '*' '' '' 0 0) }
     UNION
     { (?field ?value ?low ?high ?count) luc:facet ('default' 'default' '*' ${sparqlQuote(facetFieldsJson)} '' 0 0) }
 }`;

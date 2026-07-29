@@ -15,6 +15,17 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 
+# Labels change rarely; the app busts this with the ?v= salt from app-config.js when it
+# needs to. A day is long enough that a returning view costs no network transfer at all.
+LABEL_MAX_AGE = 86400
+
+
+def _is_label_request(path: str) -> bool:
+    """A label lookup is a GET query carrying the app's cache salt (see labels.js)."""
+    query = urlsplit(path).query
+    return "v=" in query and "query=" in query
+
+
 class DemoAppHandler(SimpleHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -56,6 +67,7 @@ class DemoAppHandler(SimpleHTTPRequestHandler):
 
     def _proxy_request(self):
         target = self.backend + self.path[len(self.proxy_prefix):]
+        cacheable = self.command == "GET" and _is_label_request(self.path)
         body = None
         content_length = self.headers.get("Content-Length")
         if content_length:
@@ -73,7 +85,7 @@ class DemoAppHandler(SimpleHTTPRequestHandler):
             with urlopen(request) as response:
                 payload = response.read()
                 self.send_response(response.status)
-                self._copy_response_headers(response.headers, len(payload))
+                self._copy_response_headers(response.headers, len(payload), cacheable)
                 self.end_headers()
                 if payload:
                     self.wfile.write(payload)
@@ -92,11 +104,20 @@ class DemoAppHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(message)
 
-    def _copy_response_headers(self, headers: http.client.HTTPMessage, content_length: int):
+    def _copy_response_headers(self, headers: http.client.HTTPMessage,
+                               content_length: int, cacheable: bool = False):
         excluded = {"connection", "content-length", "transfer-encoding", "server", "date"}
+        if cacheable:
+            # Fuseki answers every query with "must-revalidate,no-cache,no-store", which
+            # makes the browser cache useless for label lookups. Labels are the one thing
+            # the app fetches per-IRI over GET, so they are individually cacheable — drop
+            # Fuseki's header and set our own. Bump the ?v= salt to invalidate.
+            excluded |= {"cache-control", "pragma", "expires"}
         for key, value in headers.items():
             if key.lower() not in excluded:
                 self.send_header(key, value)
+        if cacheable:
+            self.send_header("Cache-Control", f"public, max-age={LABEL_MAX_AGE}")
         self.send_header("Content-Length", str(content_length))
 
 
