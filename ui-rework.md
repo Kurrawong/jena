@@ -87,11 +87,24 @@ different URL per batch composition, so the hit rate collapses. Per-IRI GETs are
 individually cacheable — which is why `label-cache-client` issues N requests bounded at
 100 in flight rather than one large one.
 
-### Loose end: `jlsr:facetName` carries the wrong thing
+### Loose end: `jlsr:facetName` carried the wrong thing — fixed
 
-Faceting on `urn:jena:lucene:field#commodity` returned `jlsr:facetName "state_commodity"`
-— the *hierarchy* name, not the requested field IRI. Decide what that predicate should
-carry before any client depends on it.
+Faceting on `urn:jena:lucene:field#commodity` returned `jlsr:facetName "state_commodity"`.
+Investigating turned up three stacked defects, not a naming nit:
+
+1. `resolveFacetFieldNames` redirected any field IRI belonging to a `facetHierarchy` to
+   that hierarchy's dimension, so the request for `#commodity` stopped existing.
+2. A taxonomy dimension with no drill-down path returns its **top** level, so the counts
+   that came back were for `state`, not `commodity` — right shape, wrong field.
+3. `TextFacetPF` could not resolve `"state_commodity"` to a field, so `?field` degraded
+   from an IRI to a plain string literal — a type that varies per bucket.
+
+Every facetable field is already indexed as its own flat dimension regardless of hierarchy
+membership, so the correct counts were in the index all along. The redirect is gone;
+dimensions remain addressable by name and CQL drill-down is untouched. Non-facetable
+fields now fail fast instead of returning silently empty.
+
+`?field` is now always an IRI for a field-IRI request — the client can key facet UI off it.
 
 ## Proposed
 
@@ -105,14 +118,16 @@ carry before any client depends on it.
 4. **`serve_app.py` sets a sane `Cache-Control`** on label GETs so the browser cache is
    actually usable.
 
-## Open decisions
+## Decisions
 
-- **Scope:** rework `app.js` in place, or build the CONSTRUCT + label path as a parallel
-  mode that can be compared against the current one?
-- **Cache lifetime:** labels are mutable in principle. `max-age` plus an app-level version
-  or query-string salt to bust it on demand?
-- **Language handling:** `label-cache-client` does client-side language fallback because
-  the server has none. Do we want the same, or push `LANG()` filtering into the query?
+- **Scope:** rework `app.js` in place. No parallel mode, no flag.
+- **Cache lifetime:** `max-age` set by `serve_app.py`, plus a version salt on the label URL
+  from `app-config.js` so the whole label cache can be busted on demand.
+- **Language handling: out of scope.** One `GET` per IRI, no `lang` parameter, no fallback
+  chain, no `LANG()` filter; the label query takes `LIMIT 1`. The demo's own data is
+  entirely untagged — 54 `rdfs:label`s, none with a language tag — and this is a demo of
+  Lucene faceting, not of RDF language negotiation. `label-cache-client` keys its cache on
+  `(IRI, lang)` and retries down a fallback chain; we deliberately do not.
 
 ## Sequencing
 
