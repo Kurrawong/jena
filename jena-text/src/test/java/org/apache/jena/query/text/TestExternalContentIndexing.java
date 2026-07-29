@@ -81,8 +81,8 @@ public class TestExternalContentIndexing {
     private static final Node NAME_PRED = NodeFactory.createURI(NS + "name");
 
     /**
-     * Sorted by subject, as {@code idx:sorted true} asserts. {@code zz-orphan} is not in
-     * the graph and must be counted as unmatched rather than creating an entity.
+     * Already in subject order, so the sort is a no-op here. {@code zz-orphan} is not
+     * in the graph and must be counted as unmatched rather than creating an entity.
      */
     private static final String SORTED_CSV =
         "sample_iri,property,value,band\n"

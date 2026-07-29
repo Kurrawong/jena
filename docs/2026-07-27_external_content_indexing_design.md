@@ -12,6 +12,19 @@ counters). Phases 2 and 3 remain proposed. Where the config sketch below differs
 what shipped, the shipped form is noted inline; the reference is
 [03-configuration.md → External Content](03-configuration.md#external-content-csvtsv).
 
+> **Superseded in part: `idx:sorted` no longer exists.** Everything below that treats
+> sortedness as an operator-supplied assertion — the config table, the merge sketch,
+> the open question at the end — has been overtaken. The second fallback this document
+> lists, *"large file → external merge sort into a temp file at build start"*, was
+> promoted from fallback to the only path: `SortingRowSource` sorts every source
+> internally, spilling to temp runs only when the input exceeds the buffer. The
+> assertion, its verification, and the buffer-everything branch are all gone.
+>
+> The reason was the trap described under [Sortedness](#sortedness): byte order and the
+> obvious `ORDER BY` disagree on integer-like keys, and asking an operator to know that
+> was a worse deal than paying for a sort. See
+> [03-configuration.md → Sort order](03-configuration.md#sort-order).
+
 This note records the design for populating
 **nested child records of an entity document from an external tabular source**
 (CSV, TSV, Parquet, JDBC) rather than from the RDF graph, joined to

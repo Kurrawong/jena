@@ -44,8 +44,8 @@ import org.junit.Test;
 /**
  * Unit coverage for {@link CsvRowSource} — the delimited-text implementation of the
  * {@link ExternalRowSource} SPI. Exercises header and headerless binding, the
- * subject prefix, glob expansion across files, TSV, and the {@code idx:sorted}
- * order check that turns a silently-mostly-unmatched build into a loud failure.
+ * subject prefix, glob expansion across files, and TSV. Ordering is deliberately not
+ * this class's concern — see {@code TestSortingRowSource}.
  */
 public class TestCsvRowSource {
 

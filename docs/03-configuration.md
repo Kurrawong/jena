@@ -302,7 +302,6 @@ field:measuredValue
             idx:format        idx:CsvFile ;
             idx:location      "/data/measurements.csv" ;
             idx:subjectColumn "sample_iri" ;
-            idx:sorted        true ;
             idx:minMatchRate  "0.5"^^xsd:double ;
             idx:column [ idx:columnName "property" ; idx:field field:measuredProperty ] ;
             idx:column [ idx:columnName "value" ;    idx:field field:measuredValue ] ;
@@ -322,7 +321,6 @@ Bound fields carry **no `sh:path`** — their values come from the column. There
 | `idx:subjectColumn` | yes¹ | Column holding the entity IRI, or the key to be prefixed |
 | `idx:subjectColumnIndex` | yes¹ | Zero-based subject column, when `idx:headerless` is true |
 | `idx:subjectPrefix` | no | String prepended to the subject column value. Concatenation only |
-| `idx:sorted` | no | Asserts rows are grouped and ascending by the subject column. Default `false` |
 | `idx:delimiter` | no | Single-character delimiter override |
 | `idx:headerless` | no | No header row; bind columns with `idx:columnIndex`. Default `false` |
 | `idx:onError` | no | `"skip"` (default, counted) or `"fail"` |
@@ -435,8 +433,9 @@ DELETE,http://ex.org/bh-2,Mn,,,
 | Ordering | deletes apply before adds within a subject, so row order in the file cannot change the outcome |
 | Unmatched delete | counted and logged, not an error — deltas get replayed and overlap |
 
-Deltas require `idx:sorted true` and a header row: the merge is per subject, and the
-operation column is bound by name. Several deltas must be given as an RDF **list** —
+Deltas require a header row, because the operation column is bound by name. They do
+not require the base or the delta to be in any particular order — see
+[Sort order](#sort-order). Several deltas must be given as an RDF **list** —
 they apply in order and RDF puts no order on repeated properties.
 
 This is still a **full rebuild**; the delta removes the need to physically merge base
