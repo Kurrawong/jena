@@ -309,6 +309,9 @@ function propValue(pv) {
     // A language tag and a datatype are mutually exclusive on one literal: a tagged
     // literal is always rdf:langString, which termToProperty already drops.
     const badge = pv.lang || (pv.datatype ? shortName(pv.datatype) : null);
+    // The datatype is an IRI like any other, so it gets a label on the same pass. A
+    // language tag is not — it is a bare token with nothing to resolve.
+    const badgeIri = pv.lang ? null : (pv.datatype || null);
     let tooltip = '';
     if (pv.isUri) tooltip = pv.raw;
     else if (pv.lang) tooltip = `language: ${pv.lang}`;
@@ -318,6 +321,7 @@ function propValue(pv) {
         displayValue: pv.display,
         isUri: pv.isUri,
         badge,
+        badgeIri,
         tooltip,
     };
 }
@@ -2327,7 +2331,10 @@ DESCRIBE <${uri}>`;
             const iris = new Set();
             for (const card of cards) {
                 iris.add(card.uri);
-                eachValue(card, v => { if (v.isUri) iris.add(v.value); });
+                eachValue(card, v => {
+                    if (v.isUri) iris.add(v.value);
+                    if (v.badgeIri) iris.add(v.badgeIri);
+                });
             }
             if (iris.size === 0) return;
 
@@ -2336,8 +2343,14 @@ DESCRIBE <${uri}>`;
                 const own = labels.get(card.uri);
                 if (own) card.label = own;
                 eachValue(card, v => {
-                    const label = labels.get(v.value);
-                    if (label) v.displayValue = label;
+                    if (v.isUri) {
+                        const label = labels.get(v.value);
+                        if (label) v.displayValue = label;
+                    }
+                    if (v.badgeIri) {
+                        const badgeLabel = labels.get(v.badgeIri);
+                        if (badgeLabel) v.badge = badgeLabel;
+                    }
                 });
             }
         },
