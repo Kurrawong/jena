@@ -352,7 +352,7 @@ public class TestTextQueryPFFilters {
         // The fourth luc:query slot now binds ?totalHits rather than a raw match literal
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s ?score ?totalHits WHERE {\n" +
-            "  (?hit ?s ?score ?totalHits) luc:query (\"default\" '[\"" + FIELD_IRI_PREFIX + "title\"]' \"machine\" \"\" \"\" 10 0)\n" +
+            "  (?hit ?s ?score ?rank ?totalHits) luc:query (\"default\" '[\"" + FIELD_IRI_PREFIX + "title\"]' \"machine\" \"\" \"\" 10 0)\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);

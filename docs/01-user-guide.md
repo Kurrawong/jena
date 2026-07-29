@@ -81,14 +81,14 @@ These are separate on purpose.
 ### `luc:query`
 
 ```sparql
-(?hit ?entity ?score ?totalHits)
+(?hit ?entity ?score ?rank ?totalHits)
   luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)
 ```
 
 Example with filter:
 
 ```sparql
-(?hit ?entity ?score ?totalHits)
+(?hit ?entity ?score ?rank ?totalHits)
   luc:query (
     "default"
     "default"
@@ -118,7 +118,7 @@ Example with sort:
 Paging — second page of 10:
 
 ```sparql
-(?hit ?entity ?score ?totalHits)
+(?hit ?entity ?score ?rank ?totalHits)
   luc:query ("default" "default" "learning" "" "" 10 10) .
 ```
 

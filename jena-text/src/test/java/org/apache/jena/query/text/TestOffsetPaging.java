@@ -194,7 +194,7 @@ public class TestOffsetPaging {
         String q =
             "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?totalHits WHERE {\n" +
-            "  (?hit ?s ?score ?totalHits) luc:query (\"default\" \"default\" \"item\" \"\" \"\" 3 5)\n" +
+            "  (?hit ?s ?score ?rank ?totalHits) luc:query (\"default\" \"default\" \"item\" \"\" \"\" 3 5)\n" +
             "} LIMIT 1";
         dataset.begin(ReadWrite.READ);
         try {
