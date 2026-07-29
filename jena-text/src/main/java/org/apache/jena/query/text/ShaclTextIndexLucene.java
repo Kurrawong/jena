@@ -395,7 +395,16 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      */
     /**
      * Resolve facet field IRIs to Lucene field names.
-     * Unknown identifiers are passed through unchanged.
+     * <p>
+     * A field IRI resolves to that field's own facet dimension, including when the field is
+     * also a level of a {@code facetHierarchy} — every facetable field is indexed as a flat
+     * dimension in its own right, so hierarchy membership must not redirect the request to
+     * the hierarchy's dimension. Faceting a dimension with no drill-down path returns its
+     * top level, so that redirect answered with counts for a different field.
+     * <p>
+     * To facet a hierarchy, name its dimension: those are passed through unchanged, as are
+     * identifiers that match no field at all. Naming a field that is not facetable is an
+     * error — there is no dimension to answer from.
      */
     public List<String> resolveFacetFieldNames(List<String> fieldIRIs) {
         if (fieldIRIs == null) return null;
@@ -412,16 +421,26 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             return all;
         }
         List<String> resolved = new ArrayList<>(fieldIRIs.size());
-        for (String iri : fieldIRIs) {
-            // Check if this field IRI belongs to a hierarchy — if so, resolve to the dimension name
-            ShaclIndexMapping.HierarchyDef hier = shaclMapping.findHierarchyForField(iri);
-            if (hier != null) {
-                if (!resolved.contains(hier.getDimensionName())) {
-                    resolved.add(hier.getDimensionName());
+        for (String spec : fieldIRIs) {
+            if (hierarchyDimensions.contains(spec)) {
+                if (!resolved.contains(spec)) {
+                    resolved.add(spec);
                 }
-            } else {
-                ShaclIndexMapping.FieldDef fd = shaclMapping.findField(iri);
-                resolved.add(fd != null ? fd.getFieldName() : iri);
+                continue;
+            }
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findField(spec);
+            if (fd == null) {
+                fd = shaclMapping.findFieldByName(spec);
+            }
+            if (fd == null) {
+                resolved.add(spec);
+                continue;
+            }
+            if (!fd.isFacetable()) {
+                throw new TextIndexException("Facet field is not facetable: " + spec);
+            }
+            if (!resolved.contains(fd.getFieldName())) {
+                resolved.add(fd.getFieldName());
             }
         }
         return resolved;
