@@ -53,12 +53,33 @@ Sorting by a field (`{"field":"…#depth","order":"asc"}`) used to return:
 was no score to emit. A CONSTRUCT graph is unordered by definition, so with `?score`
 unusable the client had *no* signal to reconstruct the requested order.
 
-Fixed without adding an output position: a sorted search now binds `1/(1+rank)` as the
-score (`ShaclTextIndexLucene.rankScore`). Rank and score are equivalent for the client's
-purpose — both mean "sort descending to get the requested order" — so `b.score - a.score`
-alone recovers the order and `orderedUris` is no longer needed. The value depends only on
-rank, so a hit keeps its score when a later page re-runs the search with a larger window.
-`luc:query` still binds `(?hit ?entity ?score ?totalHits ?graph)`.
+Fixed in two steps, because the first turned out not to be enough.
+
+**First**, `NaN` was replaced: a sorted search now binds `1/(1+rank)` as the score
+(`ShaclTextIndexLucene.rankScore`), which depends only on rank, so a hit keeps its score
+when a later page re-runs the search with a larger window.
+
+**Then testing against the running demo showed score cannot carry order at all.** Sorting
+was only the visible half of the problem:
+
+| Search | `?score` | Order recoverable? |
+|---|---|---|
+| sorted by depth | `1.0, 0.5, 0.33, 0.25` | yes |
+| `*` — the demo's default view | `1.0, 1.0, 1.0, 1.0` | **no** |
+| `gold exploration` | `3.6702733, 3.6702733, 3.6379592, …` | **no** |
+
+`MatchAllDocsQuery` scores every document identically and real relevance scores tie. A
+CONSTRUCT of the default view came back in reverse rank order with every score at `1.0` —
+nothing to sort on.
+
+So `luc:query` now binds **`?rank`**, the hit's position in the whole result set, counting
+from 0 and continuing across pages: `(?hit ?entity ?score ?rank ?totalHits ?graph)`.
+`?score` keeps its true relevance value. `orderedUris` is gone; the client sorts on rank.
+
+Inserting `?rank` before `?totalHits` breaks the 4- and 5-argument subject forms —
+permitted for the `luc:` surface by `CLAUDE.md`, and cheaper than shipping a position we
+would only have to move again before release. The 68 three-argument call sites are
+unaffected; 7 needed updating.
 
 ### Labels: the cache tier is the browser HTTP cache
 
@@ -106,17 +127,31 @@ fields now fail fast instead of returning silently empty.
 
 `?field` is now always an IRI for a field-IRI request — the client can key facet UI off it.
 
-## Proposed
+## Built
 
-1. ~~Add a rank output to `luc:query`.~~ **Done differently** — scores now carry the rank
-   for sorted searches (see above). No signature change, nothing breaking.
-2. **One CONSTRUCT for search + facets**, as sketched; page 2+ omits the facet UNION when
-   filters are unchanged.
-3. **A thin `labels.js`** modelled on `label-cache-client`: `resolve` / `resolveMany`,
-   parallel and bounded, in-flight de-dupe, never sets `cache: "no-store"`, one `GET` per
-   IRI.
-4. **`serve_app.py` sets a sane `Cache-Control`** on label GETs so the browser cache is
-   actually usable.
+All four are done and verified against the running mining demo.
+
+1. **`?rank` on `luc:query`** — see above. Needed after all, though for a broader reason
+   than the original note gave.
+2. **One CONSTRUCT for search + facets**; page 2+ omits the facet UNION when the query and
+   filters are unchanged (`facetStateKey`).
+3. **`labels.js`** modelled on `label-cache-client`: `resolve` / `resolveMany`, bounded at
+   100 in flight, in-flight de-dupe, never sets `cache: "no-store"`, one `GET` per IRI.
+4. **`serve_app.py` sets `Cache-Control`** on label GETs only — verified that a label
+   request gets `public, max-age=86400` while an ordinary query keeps Fuseki's `no-store`.
+
+### Known-failing demo tests — not caused by this work
+
+The Playwright suite is 56 passed / 2 failed. Both failures reproduce on `main` with a
+pre-change engine, verified by building `main` in a worktree and running the identical
+queries:
+
+- **French review note** — `?q=réserves` searches default fields, but `field:reviewNote`
+  has no `idx:defaultSearch true`, so it can never match. Searching the field explicitly
+  finds `report-cad-2023`. Either the config or the test expectation is wrong.
+- **Qualified attribution: PI + Sarah Jones** — returns 0 although `report-mia-2023` has
+  role "Principal Investigator" and agent "Dr Sarah Jones" on the *same* attribution node.
+  The correlated nested filter looks genuinely broken; worth its own issue.
 
 ## Decisions
 
@@ -131,6 +166,6 @@ fields now fail fast instead of returning silently empty.
 
 ## Sequencing
 
-Separate branch from #130 — that PR is green and self-contained, and folding a UI rework
-into it would make it much harder to review. The engine change (rank-as-score) has landed;
-the CONSTRUCT rewrite and `labels.js` come next.
+#130 merged to `main` as `0f966ebdca`, so this work moved to `feat/demo-ui-construct-labels`
+off `main` rather than continuing on `feat/external-content-indexing`. Everything above has
+landed on that branch: engine changes first, then the client.
