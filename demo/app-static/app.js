@@ -12,6 +12,11 @@ const DEFAULT_LIMIT = 10;
 const FACET_LIMITS = [10, 25, 50, 100, 500];
 const DEFAULT_FACET_LIMIT = 10;
 const IDENTIFIER_SUGGESTION_LIMIT = 10;
+// Fields that live on a nested child. Sorting on one needs a selector naming which child
+// supplies the value, or Lucene orders by the min/max across every child of the entity.
+// The key is the sortable field; the value is the sibling field that discriminates.
+const NESTED_SORT_DISCRIMINATOR = { identifierValueExact: 'identifierType' };
+const NESTED_SORT_SEP = '@';
 const IDENTIFIER_SUGGESTION_DEBOUNCE_MS = 150;
 const DEFAULT_SORT_DIRECTION = 'asc';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -146,11 +151,19 @@ function resolveFieldName(fieldUri, fieldIRIs) {
 
 function buildSortSpec(sortField, sortDirection, fieldIRIs) {
     if (!sortField) return '';
-    const fieldIri = (fieldIRIs && fieldIRIs[sortField]) || sortField;
-    return JSON.stringify({
-        field: fieldIri,
+    const [name, childValue] = String(sortField).split(NESTED_SORT_SEP);
+    const spec = {
+        field: fieldIri(fieldIRIs, name, name),
         order: sortDirection || DEFAULT_SORT_DIRECTION,
-    });
+    };
+    const discriminator = NESTED_SORT_DISCRIMINATOR[name];
+    if (childValue && discriminator) {
+        // Order parents by the value on the child whose discriminator matches, e.g. the
+        // anumber rather than whichever identifier happens to sort first.
+        spec.filter = { field: fieldIri(fieldIRIs, discriminator, discriminator), eq: childValue };
+        spec.missing = 'last';
+    }
+    return JSON.stringify(spec);
 }
 
 function parseSortParam(sortParam, fieldIRIs) {
@@ -160,8 +173,14 @@ function parseSortParam(sortParam, fieldIRIs) {
     const idx = sortParam.lastIndexOf(':');
     const rawField = idx >= 0 ? sortParam.substring(0, idx) : sortParam;
     const rawDirection = idx >= 0 ? sortParam.substring(idx + 1) : DEFAULT_SORT_DIRECTION;
+    // A nested sort carries its child selector in the field, e.g.
+    // identifierValueExact@anumber — resolve the field part and keep the selector.
+    const sep = rawField.indexOf(NESTED_SORT_SEP);
+    const field = sep >= 0
+        ? resolveFieldName(rawField.substring(0, sep), fieldIRIs) + rawField.substring(sep)
+        : resolveFieldName(rawField, fieldIRIs);
     return {
-        field: resolveFieldName(rawField, fieldIRIs),
+        field,
         direction: rawDirection === 'desc' ? 'desc' : DEFAULT_SORT_DIRECTION,
     };
 }
@@ -1013,9 +1032,11 @@ function searchApp() {
             this.hierarchyDimensions = config.hierarchyDimensions || new Map();
             this._labels = new LabelResolver(this.endpoint, APP_CONFIG.labelCacheVersion || '1');
 
+            // Identifier kinds first: they expand into sort options, and a URL naming a
+            // nested sort has no matching <option> to bind to until they exist.
+            await this.loadIdentifierKinds();
             this.loadFromUrl();
             await this.loadExamples();
-            await this.loadIdentifierKinds();
             await this.executeSearch();
             await this.loadAttributionOptions();
 
@@ -1273,8 +1294,11 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
             const params = new URLSearchParams();
             if (this.q.trim()) params.set('q', this.q.trim());
             if (this.sortField) {
-                const sortIri = this.fieldIRIs[this.sortField] || this.sortField;
-                params.set('sort', `${sortIri}:${this.sortDirection}`);
+                // A nested sort carries its child selector after the field IRI.
+                const [name, child] = this.sortField.split(NESTED_SORT_SEP);
+                const sortIri = this.fieldIRIs[name] || name;
+                const suffix = child ? NESTED_SORT_SEP + child : '';
+                params.set('sort', `${sortIri}${suffix}:${this.sortDirection}`);
             }
             const cql = buildCqlFilter(
                 this.selected,
@@ -1484,7 +1508,31 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
 
         sortLabel() {
             if (!this.sortField) return 'relevance';
-            return `${this.sortField} ${this.sortDirection === 'desc' ? 'desc' : 'asc'}`;
+            const option = this.sortOptions().find(o => o.value === this.sortField);
+            const label = option ? option.label : this.sortField;
+            return `${label} ${this.sortDirection === 'desc' ? 'desc' : 'asc'}`;
+        },
+
+        /**
+         * Sort choices. A field that lives on a nested child expands to one choice per
+         * child kind, since sorting on it is only meaningful once you say which child to
+         * read — "anumber" rather than "identifierValueExact".
+         */
+        sortOptions() {
+            const options = [];
+            for (const f of this.sortableFields) {
+                if (!NESTED_SORT_DISCRIMINATOR[f.name]) {
+                    options.push({ value: f.name, label: f.name });
+                    continue;
+                }
+                for (const kind of this.identifierKinds()) {
+                    options.push({
+                        value: `${f.name}${NESTED_SORT_SEP}${kind.value}`,
+                        label: `${kind.label || kind.value} (nested)`,
+                    });
+                }
+            }
+            return options;
         },
 
         facetLabel(fieldName) {

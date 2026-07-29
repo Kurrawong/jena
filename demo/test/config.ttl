@@ -189,11 +189,16 @@ field:identifierType
     idx:facetable true ;
     idx:multiValued true .
 
+## Sortable as well as facetable, to demonstrate ordering by a value that lives on a
+## nested child. A sort spec supplies a selector naming which child to read - see the
+## "Nested Sort" cases in tests.json - so the parent is ordered by, say, its anumber
+## without that value being flattened onto the parent document.
 field:identifierValueExact
     idx:fieldName "identifierValueExact" ;
     idx:fieldType idx:KeywordField ;
     idx:stored false ;
     idx:facetable true ;
+    idx:sortable true ;
     idx:multiValued true .
 
 field:identifierValueText

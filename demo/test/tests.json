@@ -32,6 +32,11 @@
   { "label": "\"copper\" sorted by year asc", "params": "?q=copper&sort=year:asc", "minResults": 3 },
   { "label": "Reports sorted by publishedOn desc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}&sort=publishedOn:desc", "minResults": 5 },
 
+  { "group": "Nested Sort" },
+  { "label": "Boreholes by nested anumber asc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&sort=urn:jena:lucene:field#identifierValueExact@anumber:asc", "minResults": 5 },
+  { "label": "Boreholes by nested anumber desc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&sort=urn:jena:lucene:field#identifierValueExact@anumber:desc", "minResults": 5 },
+  { "label": "Boreholes by nested company asc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&sort=urn:jena:lucene:field#identifierValueExact@company:asc", "minResults": 5 },
+
   { "group": "Entity Types" },
   { "label": "Sites only", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Site\"]}", "minResults": 5 },
   { "label": "Boreholes only", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}", "minResults": 5 },
