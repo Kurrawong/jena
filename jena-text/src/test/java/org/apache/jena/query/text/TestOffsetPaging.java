@@ -209,6 +209,73 @@ public class TestOffsetPaging {
         }
     }
 
+    /**
+     * A relevance score cannot carry result order: a match-all query scores every document
+     * identically, and real queries tie often enough that ordering by score is unreliable.
+     * {@code ?rank} is the position itself, so a consumer holding an unordered result set
+     * (a CONSTRUCT graph) can always reconstruct the order the engine returned.
+     */
+    @Test
+    public void testRankIsBoundInResultOrder() {
+        String q =
+            "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT ?s ?rank WHERE {\n" +
+            "  (?hit ?s ?score ?rank) luc:query (\"default\" \"default\" \"item\" \"\" \"\" 4 0)\n" +
+            "}";
+        dataset.begin(ReadWrite.READ);
+        try (QueryExecution qe = QueryExecutionFactory.create(QueryFactory.create(q), dataset)) {
+            List<Integer> ranks = new ArrayList<>();
+            ResultSet rs = qe.execSelect();
+            while (rs.hasNext()) {
+                ranks.add(rs.next().getLiteral("rank").getInt());
+            }
+            assertEquals("rank should count the page from 0", List.of(0, 1, 2, 3), ranks);
+        } finally {
+            dataset.end();
+        }
+    }
+
+    /** Rank is the position in the whole result set, so it continues across pages. */
+    @Test
+    public void testRankIsGlobalNotPageRelative() {
+        String q =
+            "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT ?s ?rank WHERE {\n" +
+            "  (?hit ?s ?score ?rank) luc:query (\"default\" \"default\" \"item\" \"\" \"\" 3 5)\n" +
+            "}";
+        dataset.begin(ReadWrite.READ);
+        try (QueryExecution qe = QueryExecutionFactory.create(QueryFactory.create(q), dataset)) {
+            List<Integer> ranks = new ArrayList<>();
+            ResultSet rs = qe.execSelect();
+            while (rs.hasNext()) {
+                ranks.add(rs.next().getLiteral("rank").getInt());
+            }
+            assertEquals("offset 5 should start at rank 5", List.of(5, 6, 7), ranks);
+        } finally {
+            dataset.end();
+        }
+    }
+
+    /** ?rank sits between ?score and ?totalHits, so the later positions still resolve. */
+    @Test
+    public void testTotalHitsFollowsRank() {
+        String q =
+            "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT ?rank ?totalHits WHERE {\n" +
+            "  (?hit ?s ?score ?rank ?totalHits) luc:query (\"default\" \"default\" \"item\" \"\" \"\" 3 5)\n" +
+            "} LIMIT 1";
+        dataset.begin(ReadWrite.READ);
+        try (QueryExecution qe = QueryExecutionFactory.create(QueryFactory.create(q), dataset)) {
+            ResultSet rs = qe.execSelect();
+            assertTrue(rs.hasNext());
+            QuerySolution qs = rs.next();
+            assertEquals(5, qs.getLiteral("rank").getInt());
+            assertEquals(10, qs.getLiteral("totalHits").getLong());
+        } finally {
+            dataset.end();
+        }
+    }
+
     @Test(expected = QueryExecException.class)
     public void testNegativeOffsetRejected() {
         runQuery(10, -1);
