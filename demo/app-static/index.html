@@ -15,7 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/n3@1.22.3/browser/n3.min.js"></script>
   <script src="app-config.js?v=4"></script>
   <script src="labels.js?v=1"></script>
-  <script src="app.js?v=22"></script>
+  <script src="app.js?v=25"></script>
   <script>
     document.addEventListener('alpine:init', () => {
       Alpine.store('app', { showLog: true, showMap: true, highlightUri: null });
@@ -473,12 +473,12 @@
               <template x-if="card.rows.length > 0">
                 <table class="result-props">
                   <tbody>
-                    <template x-for="row in card.rows" :key="row.property">
+                    <template x-for="(row, ri) in card.rows" :key="ri">
                       <tr>
                         <th x-text="row.property"></th>
                         <td>
                           <div class="prop-values" x-show="row.values.length > 0">
-                            <template x-for="value in row.values" :key="row.property + ':' + value.value">
+                            <template x-for="(value, vi) in row.values" :key="vi">
                               <span class="prop-value" :title="value.tooltip || ''">
                                 <span x-text="value.displayValue || value.value"></span>
                                 <template x-if="value.badge">
@@ -491,7 +491,7 @@
                             <div class="prop-nested">
                               <template x-for="(parts, ci) in row.children" :key="ci">
                                 <div class="prop-nested-node">
-                                  <template x-for="part in parts" :key="part.property + ':' + part.value">
+                                  <template x-for="(part, pi) in parts" :key="pi">
                                     <span class="prop-nested-part">
                                       <span class="prop-nested-key" x-text="part.property"></span>
                                       <span class="prop-value" :title="part.tooltip || ''">
@@ -620,7 +620,10 @@
       <nav class="pagination-bar" aria-label="pagination">
         <button class="pagination-btn" :disabled="currentPage <= 1"
                 @click="goToPage(currentPage - 1)">&lsaquo; Prev</button>
-        <template x-for="p in paginationRange()" :key="p">
+        <!-- Keyed by position, not by value: a middle page has an ellipsis on both sides,
+             so keying on the value gives two identical keys and Alpine reorders and drops
+             nodes. The list is short and positional, so the index is the honest key. -->
+        <template x-for="(p, i) in paginationRange()" :key="i">
           <button class="pagination-btn" :class="{ 'is-current': p === currentPage }"
                   x-text="p === '...' ? '\u2026' : p"
                   :disabled="p === '...'"

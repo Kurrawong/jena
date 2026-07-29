@@ -2268,20 +2268,20 @@ DESCRIBE <${uri}>`;
                         continue;
                     }
                     if (pred === 'asWKT') {
-                        for (const pv of values) {
-                            const geo = parseWktForLeaflet(pv.raw);
-                            if (geo) {
-                                card.rows.push({
-                                    property: 'location',
-                                    values: [{
-                                        value: geo.type === 'point' ? 'Point' : 'Polygon',
-                                        displayValue: geo.type === 'point' ? 'Point' : 'Polygon',
-                                        tooltip: geo.type === 'point'
-                                            ? `${geo.lat.toFixed(4)}, ${geo.lon.toFixed(4)}`
-                                            : geo.coords.map(c => `${c[0].toFixed(2)},${c[1].toFixed(2)}`).join(' '),
-                                    }],
-                                });
-                            }
+                        // One row holding every geometry, not a row each: rows are keyed by
+                        // property name, and two rows both called 'location' would collide.
+                        const geometries = values
+                            .map(pv => parseWktForLeaflet(pv.raw))
+                            .filter(Boolean)
+                            .map(geo => ({
+                                value: geo.type === 'point' ? 'Point' : 'Polygon',
+                                displayValue: geo.type === 'point' ? 'Point' : 'Polygon',
+                                tooltip: geo.type === 'point'
+                                    ? `${geo.lat.toFixed(4)}, ${geo.lon.toFixed(4)}`
+                                    : geo.coords.map(c => `${c[0].toFixed(2)},${c[1].toFixed(2)}`).join(' '),
+                            }));
+                        if (geometries.length > 0) {
+                            card.rows.push({ property: 'location', values: geometries });
                         }
                         continue;
                     }
