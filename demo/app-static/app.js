@@ -21,6 +21,9 @@ const HOUR_MS = 60 * 60 * 1000;
 // RDF namespace constants
 // ---------------------------------------------------------------------------
 
+const XSD_STRING = 'http://www.w3.org/2001/XMLSchema#string';
+const RDF_LANGSTRING = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#langString';
+const RDFS_RESOURCE = 'http://www.w3.org/2000/01/rdf-schema#Resource';
 const RDF = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 const SH = 'http://www.w3.org/ns/shacl#';
 const TEXT = 'http://jena.apache.org/text#';
@@ -905,6 +908,7 @@ function searchApp() {
         endpoint: '',
         queryLog: [],
         correlatedFilters: emptyCorrelatedFilterState(),
+        identifierKindList: [],      // fixed vocabulary: anumber, company, mnumber
         identifierKindSuggestionsByKind: {},   // kind → [{value, label, count}]
         _identifierSuggestTimers: {},
         attributionRoleOptions: [],
@@ -967,6 +971,7 @@ function searchApp() {
             this._labels = new LabelResolver(this.endpoint, APP_CONFIG.labelCacheVersion || '1');
 
             this.loadFromUrl();
+            await this.loadIdentifierKinds();
             await this.executeSearch();
             await this.loadAttributionOptions();
 
@@ -1647,8 +1652,40 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             return this.facetFields.filter(f => f !== identifierDim);
         },
 
+        /**
+         * The identifier kinds, loaded once and held fixed.
+         *
+         * They cannot be read off the current search's facets: as soon as an identifier
+         * filter is active the engine turns the `=` on the kind into a taxonomy
+         * drill-down, so the dimension comes back holding *child* values — and the UI
+         * would render "A9412" as though it were a kind, with an input labelled "type
+         * ahead within A9412".
+         *
+         * A flat facet on identifierType is not an option either: it is a nested field,
+         * so its values sit on child documents and never count against parents. An
+         * unfiltered facet on the dimension returns its top level, which is the vocabulary
+         * we want, and it does not change as the user searches.
+         */
+        async loadIdentifierKinds() {
+            const dim = JSON.stringify([this.identifierHierarchyDim()]);
+            const query = `${SPARQL_PREFIXES}
+SELECT ?value ?count WHERE {
+    (?field ?value ?low ?high ?count) luc:facet ('default' 'default' '*' ${sparqlQuote(dim)} '' 50 0)
+}`;
+            try {
+                const data = await this.runSparql(query);
+                this.identifierKindList = (data.results?.bindings || [])
+                    .filter(row => row.value)
+                    .map(row => ({ value: row.value.value, label: row.value.value }))
+                    .sort((a, b) => a.label.localeCompare(b.label));
+            } catch (e) {
+                console.error('Loading identifier kinds failed:', e);
+                this.identifierKindList = [];
+            }
+        },
+
         identifierKinds() {
-            return this.visibleFacets(this.identifierHierarchyDim());
+            return this.identifierKindList;
         },
 
         identifierKindValue(kind) {
@@ -1912,21 +1949,21 @@ ORDER BY LCASE(STR(?identifier))
 LIMIT 8`;
         },
 
-        // Labels are no longer joined in here — every IRI in the response is resolved
-        // separately by labels.js so each lookup is its own browser-cache entry. That also
-        // makes the entity's own label optional rather than a join condition, so an
-        // unlabelled entity still gets a card.
+        /**
+         * Card details for the whole page in one DESCRIBE.
+         *
+         * DESCRIBE takes any number of resources, so this is a single request, not one
+         * per card. It returns each entity's own triples, which is exactly what a card
+         * shows — and it says what it means, unlike an `?entity ?p ?o` SELECT.
+         *
+         * It does not carry the labels of referenced IRIs: an object comes back as
+         * commodity:Gold, not "Gold". Those are resolved separately by labels.js, one
+         * cacheable GET per IRI.
+         */
         buildDetailQuery(uris) {
             const values = uris.map(u => `<${u}>`).join(' ');
             return `${SPARQL_PREFIXES}
-SELECT ?entity ?p ?o
-WHERE {
-    VALUES ?entity { ${values} }
-    OPTIONAL {
-      ?entity ?p ?o .
-      FILTER(!isBlank(?o) && ?o != rdfs:Resource)
-    }
-}`;
+DESCRIBE ${values}`;
         },
 
         buildDescribeQuery(uri) {
@@ -2029,38 +2066,54 @@ DESCRIBE <${uri}>`;
             return merged;
         },
 
-        parseEntityDetails(data, hitsByUri) {
+        /**
+         * Build cards from the DESCRIBE graph, one per hit, in rank order.
+         *
+         * Only the hit entities become cards. A DESCRIBE also pulls in the blank nodes
+         * hanging off them (the nested identifier and attribution nodes), which is why
+         * blank-node objects are skipped — the same exclusion the previous SELECT did
+         * with `FILTER(!isBlank(?o))`.
+         */
+        parseEntityDetails(store, hitsByUri) {
             const entities = {};
-            for (const row of (data.results?.bindings || [])) {
-                const uri = row.entity.value;
-                if (!entities[uri]) {
-                    entities[uri] = {
-                        uri,
-                        // Filled in from labels.js once the per-IRI lookups land.
-                        label: shortName(uri),
-                        score: hitsByUri[uri]?.score ?? 0,
-                        rank: hitsByUri[uri]?.rank ?? Number.MAX_SAFE_INTEGER,
-                        identifier: null,
-                        description: null,
-                        properties: {},
-                        rows: [],
-                        turtleOpen: false,
-                        turtleLoading: false,
-                        turtleLoaded: false,
-                        turtleText: '',
-                        turtleError: null,
-                    };
-                }
-                const card = entities[uri];
-                if (row.p && row.o) {
-                    const pred = shortName(row.p.value);
-                    const raw = row.o.value;
-                    const isUri = row.o.type === 'uri';
-                    const lang = row.o['xml:lang'] || null;
-                    const datatype = row.o.datatype || null;
+            for (const [uri, hit] of Object.entries(hitsByUri)) {
+                entities[uri] = {
+                    uri,
+                    // Filled in from labels.js once the per-IRI lookups land.
+                    label: shortName(uri),
+                    score: hit.score ?? 0,
+                    rank: hit.rank ?? Number.MAX_SAFE_INTEGER,
+                    identifier: null,
+                    description: null,
+                    properties: {},
+                    rows: [],
+                    turtleOpen: false,
+                    turtleLoading: false,
+                    turtleLoaded: false,
+                    turtleText: '',
+                    turtleError: null,
+                };
+
+                for (const quad of store.getQuads(nn(uri), null, null, null)) {
+                    const object = quad.object;
+                    if (object.termType === 'BlankNode') continue;
+                    if (object.value === RDFS_RESOURCE) continue;
+
+                    const pred = shortName(quad.predicate.value);
+                    const raw = object.value;
+                    const isUri = object.termType === 'NamedNode';
+                    const lang = object.language || null;
+                    // RDF 1.1 gives every plain literal an explicit xsd:string, and every
+                    // language-tagged one rdf:langString. Neither is worth showing as a
+                    // datatype — the SPARQL JSON results this replaced simply omitted them.
+                    const rawDatatype = (!isUri && object.datatype) ? object.datatype.value : null;
+                    const datatype = (rawDatatype === XSD_STRING || rawDatatype === RDF_LANGSTRING)
+                        ? null : rawDatatype;
                     // IRI objects start as their short name and are upgraded in place once
                     // labels.js resolves them; literals never need a lookup.
                     const display = isUri ? shortName(raw) : decorateLiteralDisplay(raw, lang, datatype);
+
+                    const card = entities[uri];
                     if (!card.properties[pred]) card.properties[pred] = [];
                     if (!card.properties[pred].some(e => e.raw === raw)) {
                         card.properties[pred].push({ display, raw, isUri, lang, datatype });
@@ -2352,11 +2405,12 @@ DESCRIBE <${uri}>`;
                     const detailQuery = this.buildDetailQuery(uris);
 
                     t0 = performance.now();
-                    const detailData = await this.runSparql(detailQuery, signal);
+                    const detailTurtle = await this.runSparqlText(detailQuery, 'text/turtle', signal);
+                    const detailStore = await parseTurtle(detailTurtle);
                     const detailMs = performance.now() - t0;
                     this.logQuery(`Details: ${uris.length} entities`, detailQuery, detailMs);
 
-                    this.cards = this.parseEntityDetails(detailData, hitsByUri);
+                    this.cards = this.parseEntityDetails(detailStore, hitsByUri);
                     // Labels resolve in the background — the cards render immediately with
                     // short names and upgrade in place as the lookups return.
                     this.resolveCardLabels(this.cards);
