@@ -1825,7 +1825,7 @@ SELECT ?value ?count WHERE {
             const parts = [];
             for (const [kind, value] of Object.entries(this.correlatedFilters.identifierTerms || {})) {
                 if (!value) continue;
-                parts.push(`${shortName(kind)} contains “${escapeHtml(value)}” on the same identifier node`);
+                parts.push(`${shortName(kind)} contains “${escapeHtml(value)}”`);
             }
             const attrRole = this.correlatedFilters.attributionRole.trim();
             const attrAgent = this.correlatedFilters.attributionAgent.trim();
@@ -1833,7 +1833,7 @@ SELECT ?value ?count WHERE {
                 const bits = [];
                 if (attrRole) bits.push(`role = “${escapeHtml(attrRole)}”`);
                 if (attrAgent) bits.push(`agent contains “${escapeHtml(attrAgent)}”`);
-                parts.push(bits.join(' AND ') + ' on the same attribution node');
+                parts.push(bits.join(' AND '));
             }
             return parts;
         },
@@ -2313,12 +2313,11 @@ DESCRIBE <${uri}>`;
             if (this.spatialPolygon) {
                 filters.push('polygon [' + this.spatialPolygon.length + ' vertices]');
             }
+            // Identifier and attribution terms are correlated under the hood — each pair
+            // must hold on one nested node — but they read as ordinary filters.
+            filters.push(...this.correlatedFilterSummary());
             if (filters.length > 0) {
                 parts.push('filtered by ' + filters.join(' AND '));
-            }
-            const correlated = this.correlatedFilterSummary();
-            if (correlated.length > 0) {
-                parts.push('with correlated nested filters ' + correlated.join(' AND '));
             }
             if (this.sortField) {
                 parts.push('sorted by ' + escapeHtml(this.sortLabel()));

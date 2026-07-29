@@ -718,32 +718,10 @@ code {
   color: var(--amber);
 }
 
-.correlated-group {
-  border: 1px solid rgba(77, 184, 164, 0.2);
-  border-radius: var(--radius-md);
-  background: linear-gradient(180deg, rgba(77, 184, 164, 0.08), rgba(77, 184, 164, 0.03));
-  padding: 0.2rem 0.8rem 0.85rem;
-}
-
-.correlated-help {
-  font-size: 0.75rem;
-  line-height: 1.45;
-  color: var(--text-secondary);
-  margin: 0.1rem 0 0.8rem;
-}
-
-.correlated-section {
+.filter-input-section {
   display: grid;
   gap: 0.65rem;
-  margin-top: 0.8rem;
-}
-
-.correlated-section-title {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--teal);
+  margin-top: 0.5rem;
 }
 
 .correlated-input-group {
@@ -765,11 +743,6 @@ code {
 .correlated-input:focus {
   border-color: var(--teal);
   box-shadow: 0 0 0 1px rgba(77, 184, 164, 0.2);
-}
-
-.correlated-clear-btn {
-  margin-top: 0.9rem;
-  margin-bottom: 0;
 }
 
 .temporal-panel {
