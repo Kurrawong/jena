@@ -294,8 +294,9 @@ function termToProperty(object) {
     const datatype = (rawDatatype === XSD_STRING || rawDatatype === RDF_LANGSTRING)
         ? null : rawDatatype;
     // IRI objects start as their short name and are upgraded in place once
-    // labels.js resolves them; literals never need a lookup.
-    const display = isUri ? shortName(raw) : decorateLiteralDisplay(raw, lang, datatype);
+    // labels.js resolves them; literals never need a lookup. A literal's language or
+    // datatype is not appended to the text — it renders as a badge beside it.
+    const display = isUri ? shortName(raw) : raw;
     return { display, raw, isUri, lang, datatype };
 }
 
@@ -305,22 +306,20 @@ function termToProperty(object) {
  * there is one.
  */
 function propValue(pv) {
-    const tooltip = pv.isUri
-        ? pv.raw
-        : [pv.lang ? `lang: ${pv.lang}` : null,
-           pv.datatype ? `datatype: ${shortName(pv.datatype)}` : null].filter(Boolean).join(' | ');
+    // A language tag and a datatype are mutually exclusive on one literal: a tagged
+    // literal is always rdf:langString, which termToProperty already drops.
+    const badge = pv.lang || (pv.datatype ? shortName(pv.datatype) : null);
+    let tooltip = '';
+    if (pv.isUri) tooltip = pv.raw;
+    else if (pv.lang) tooltip = `language: ${pv.lang}`;
+    else if (pv.datatype) tooltip = pv.datatype;
     return {
         value: pv.raw,
         displayValue: pv.display,
         isUri: pv.isUri,
+        badge,
         tooltip,
     };
-}
-
-function decorateLiteralDisplay(raw, lang, datatype) {
-    if (lang) return `${raw} @${lang}`;
-    if (datatype) return `${raw} ^^${shortName(datatype)}`;
-    return raw;
 }
 
 function renderJsonTree(obj, indent) {

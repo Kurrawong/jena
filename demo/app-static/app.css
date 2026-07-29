@@ -1071,6 +1071,7 @@ code {
   color: var(--text-muted);
 }
 
+
 .result-turtle-panel {
   margin-top: 0.9rem;
   padding-top: 0.9rem;
@@ -2208,4 +2209,21 @@ details[open] > summary .jt-count::before { content: '▼ '; }
 
 .prop-nested .prop-value:not(:last-child)::after {
   content: none;
+}
+
+/* A literal's datatype or language tag, beside the value rather than appended to its
+   text — "714" reads as a number, "714 ^^integer" reads as a string that needs parsing. */
+.type-badge {
+  display: inline-block;
+  margin-left: 0.3rem;
+  padding: 0.02rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  vertical-align: 1px;
 }
