@@ -42,6 +42,9 @@
   --radius-md: 6px;
   --radius-lg: 10px;
 
+  /* Layout */
+  --layout-height: calc(100vh - 5.1rem);
+
   /* Shadows */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
@@ -352,7 +355,7 @@ code {
 
 /* ── Independent Column Scrolling ── */
 .search-layout > .column {
-  height: calc(100vh - 5.1rem);
+  height: var(--layout-height);
   overflow-y: auto;
 }
 
@@ -1888,8 +1891,12 @@ details[open] > summary .jt-count::before { content: '▼ '; }
   border-radius: var(--radius-sm);
 }
 
+/* Half the column, less the panel's own header and padding, so the map panel occupies
+   about half the available height and the query log gets the rest. It was square, which
+   at this column width made it far taller than half and pushed the log off-screen. */
 #search-map {
-  aspect-ratio: 1 / 1;
+  height: calc(var(--layout-height) * 0.5 - 4rem);
+  min-height: 200px;
   width: 100%;
   border-radius: var(--radius-md);
   z-index: 0;
