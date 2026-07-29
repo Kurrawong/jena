@@ -632,7 +632,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 String uri = doc.get(entityField);
                 if (uri != null) {
                     Node entityNode = TextQueryFuncs.stringToNode(uri);
-                    results.add(new SearchHit(idx++, entityNode, sd.score, null, sd.doc));
+                    float score = luceneSort == null ? sd.score : rankScore(idx);
+                    results.add(new SearchHit(idx++, entityNode, score, null, sd.doc));
                 }
             }
 
@@ -649,6 +650,19 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         } finally {
             releaseSearcher(searcher);
         }
+    }
+
+    /**
+     * The score for a hit from a sorted search.
+     * <p>
+     * Lucene does not score documents when a {@link Sort} is supplied — {@code ScoreDoc.score}
+     * is {@code NaN} — so rank stands in for relevance: a value in {@code (0,1]} that strictly
+     * decreases with position, keeping "higher score first" true for sorted and unsorted
+     * searches alike. It depends only on the rank, so a hit keeps the same score when a later
+     * page re-runs the search with a larger window.
+     */
+    private static float rankScore(int rank) {
+        return 1.0f / (1 + rank);
     }
 
     /**
@@ -2251,13 +2265,15 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             List<TextHit> results = new ArrayList<>();
             String entityField = getDocDef().getEntityField();
             StoredFields storedFields = searcher.storedFields();
+            int idx = 0;
             for (ScoreDoc sd : topDocs.scoreDocs) {
                 Document doc = storedFields.document(sd.doc);
                 String uri = doc.get(entityField);
                 if (uri != null) {
                     Node entityNode = TextQueryFuncs.stringToNode(uri);
                     Node valueNode = extractValueNode(doc, resolved, valueQuery);
-                    results.add(new TextHit(entityNode, sd.score, valueNode, null, fieldNode));
+                    float score = luceneSort == null ? sd.score : rankScore(idx++);
+                    results.add(new TextHit(entityNode, score, valueNode, null, fieldNode));
                 }
             }
             return results;
