@@ -10,12 +10,12 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="app.css?v=12">
+  <link rel="stylesheet" href="app.css?v=14">
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/n3@1.22.3/browser/n3.min.js"></script>
   <script src="app-config.js?v=4"></script>
   <script src="labels.js?v=1"></script>
-  <script src="app.js?v=17"></script>
+  <script src="app.js?v=19"></script>
   <script>
     document.addEventListener('alpine:init', () => {
       Alpine.store('app', { showLog: true, showMap: true, highlightUri: null });
@@ -253,20 +253,32 @@
                     <template x-for="kind in identifierKinds()" :key="kind.value">
                       <label class="correlated-input-group">
                         <span class="correlated-label" x-text="kind.label || kind.value"></span>
-                        <input class="input correlated-input"
-                               type="text"
-                               :list="identifierSuggestionId(kind.value)"
-                               :value="identifierKindValue(kind.value)"
-                               :placeholder="'Type ahead within ' + (kind.label || kind.value)"
-                               @focus="ensureIdentifierKindSuggestions(kind.value, identifierKindValue(kind.value))"
-                               @input="setIdentifierKindValue(kind.value, $event.target.value); ensureIdentifierKindSuggestions(kind.value, $event.target.value)"
-                               @change="search()"
-                               @keydown.enter.prevent="search()">
-                        <datalist :id="identifierSuggestionId(kind.value)">
-                          <template x-for="child in identifierKindSuggestions(kind.value)" :key="child.value">
-                            <option :value="child.label || child.value"></option>
-                          </template>
-                        </datalist>
+                        <div class="suggest" @click.outside="closeSuggest('id:' + kind.value)">
+                          <input class="input correlated-input"
+                                 type="text"
+                                 autocomplete="off"
+                                 :value="identifierKindValue(kind.value)"
+                                 :placeholder="'Type ahead within ' + (kind.label || kind.value)"
+                                 @focus="openSuggest('id:' + kind.value); ensureIdentifierKindSuggestions(kind.value, identifierKindValue(kind.value))"
+                                 @input="setIdentifierKindValue(kind.value, $event.target.value); openSuggest('id:' + kind.value); ensureIdentifierKindSuggestions(kind.value, $event.target.value)"
+                                 @keydown.arrow-down.prevent="moveSuggest(1, identifierKindSuggestions(kind.value).length)"
+                                 @keydown.arrow-up.prevent="moveSuggest(-1, identifierKindSuggestions(kind.value).length)"
+                                 @keydown.escape.stop="closeSuggest()"
+                                 @keydown.enter.prevent="identifierEnter(kind.value)">
+                          <div class="suggest-menu"
+                               x-show="isSuggestOpen('id:' + kind.value) && identifierKindSuggestions(kind.value).length > 0"
+                               x-cloak>
+                            <template x-for="(child, i) in identifierKindSuggestions(kind.value)" :key="child.value">
+                              <button type="button" class="suggest-item"
+                                      :class="{ 'is-highlighted': suggestIndex === i }"
+                                      @mouseenter="suggestIndex = i"
+                                      @mousedown.prevent="chooseIdentifier(kind.value, child.value)">
+                                <span class="suggest-item-label" x-text="child.label || child.value"></span>
+                                <span class="suggest-item-count" x-text="child.count"></span>
+                              </button>
+                            </template>
+                          </div>
+                        </div>
                       </label>
                     </template>
                   </div>
@@ -278,33 +290,59 @@
                 <div class="filter-input-section">
                   <label class="correlated-input-group">
                     <span class="correlated-label">Role</span>
-                    <input class="input correlated-input"
-                           type="text"
-                           list="attribution-role-suggestions"
-                           x-model="correlatedFilters.attributionRole"
-                           placeholder="e.g. Principal Investigator"
-                           @change="search()"
-                           @keydown.enter.prevent="search()">
-                    <datalist id="attribution-role-suggestions">
-                      <template x-for="role in attributionRoleOptions" :key="role">
-                        <option :value="role"></option>
-                      </template>
-                    </datalist>
+                    <div class="suggest" @click.outside="closeSuggest('attr:role')">
+                      <input class="input correlated-input"
+                             type="text"
+                             autocomplete="off"
+                             x-model="correlatedFilters.attributionRole"
+                             placeholder="e.g. Principal Investigator"
+                             @focus="openSuggest('attr:role')"
+                             @input="openSuggest('attr:role')"
+                             @keydown.arrow-down.prevent="moveSuggest(1, attributionRoleOptions.length)"
+                             @keydown.arrow-up.prevent="moveSuggest(-1, attributionRoleOptions.length)"
+                             @keydown.escape.stop="closeSuggest()"
+                             @keydown.enter.prevent="correlatedEnter('attributionRole', attributionRoleOptions)">
+                      <div class="suggest-menu"
+                           x-show="isSuggestOpen('attr:role') && attributionRoleOptions.length > 0"
+                           x-cloak>
+                        <template x-for="(option, i) in attributionRoleOptions" :key="option">
+                          <button type="button" class="suggest-item"
+                                  :class="{ 'is-highlighted': suggestIndex === i }"
+                                  @mouseenter="suggestIndex = i"
+                                  @mousedown.prevent="chooseCorrelated('attributionRole', option)">
+                            <span class="suggest-item-label" x-text="option"></span>
+                          </button>
+                        </template>
+                      </div>
+                    </div>
                   </label>
                   <label class="correlated-input-group">
                     <span class="correlated-label">Agent</span>
-                    <input class="input correlated-input"
-                           type="text"
-                           list="attribution-agent-suggestions"
-                           x-model="correlatedFilters.attributionAgent"
-                           placeholder="e.g. Sarah Jones"
-                           @change="search()"
-                           @keydown.enter.prevent="search()">
-                    <datalist id="attribution-agent-suggestions">
-                      <template x-for="agent in filteredAttributionAgents()" :key="agent">
-                        <option :value="agent"></option>
-                      </template>
-                    </datalist>
+                    <div class="suggest" @click.outside="closeSuggest('attr:agent')">
+                      <input class="input correlated-input"
+                             type="text"
+                             autocomplete="off"
+                             x-model="correlatedFilters.attributionAgent"
+                             placeholder="e.g. Sarah Jones"
+                             @focus="openSuggest('attr:agent')"
+                             @input="openSuggest('attr:agent')"
+                             @keydown.arrow-down.prevent="moveSuggest(1, filteredAttributionAgents().length)"
+                             @keydown.arrow-up.prevent="moveSuggest(-1, filteredAttributionAgents().length)"
+                             @keydown.escape.stop="closeSuggest()"
+                             @keydown.enter.prevent="correlatedEnter('attributionAgent', filteredAttributionAgents())">
+                      <div class="suggest-menu"
+                           x-show="isSuggestOpen('attr:agent') && filteredAttributionAgents().length > 0"
+                           x-cloak>
+                        <template x-for="(option, i) in filteredAttributionAgents()" :key="option">
+                          <button type="button" class="suggest-item"
+                                  :class="{ 'is-highlighted': suggestIndex === i }"
+                                  @mouseenter="suggestIndex = i"
+                                  @mousedown.prevent="chooseCorrelated('attributionAgent', option)">
+                            <span class="suggest-item-label" x-text="option"></span>
+                          </button>
+                        </template>
+                      </div>
+                    </div>
                   </label>
                 </div>
 

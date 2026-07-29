@@ -923,6 +923,8 @@ function searchApp() {
         endpoint: '',
         queryLog: [],
         correlatedFilters: emptyCorrelatedFilterState(),
+        suggestKey: null,            // which input's suggestion list is open
+        suggestIndex: -1,            // keyboard-highlighted row, -1 for none
         examplesOpen: false,
         exampleGroups: [],           // [{name, examples: [{id, label, params}]}]
         expandedExampleGroups: {},
@@ -1804,6 +1806,72 @@ SELECT ?value ?count WHERE {
 
         identifierSuggestionId(kind) {
             return `identifier-suggestions-${sanitizeDomId(kind)}`;
+        },
+
+        // ---- Suggestion dropdown ----
+        //
+        // Replaces <datalist>, which the browser renders as unstyleable native chrome —
+        // a light popup in a dark app, with no control over rows or keyboard behaviour.
+        // One list is open at a time, identified by key.
+
+        isSuggestOpen(key) {
+            return this.suggestKey === key;
+        },
+
+        openSuggest(key) {
+            if (this.suggestKey !== key) this.suggestIndex = -1;
+            this.suggestKey = key;
+        },
+
+        /**
+         * Close the open list. Pass a key to close only that one: every input's
+         * click-outside handler fires when another input is clicked, so an unqualified
+         * close would wipe the list the click just opened.
+         */
+        closeSuggest(key = null) {
+            if (key !== null && this.suggestKey !== key) return;
+            this.suggestKey = null;
+            this.suggestIndex = -1;
+        },
+
+        /** Arrow keys wrap around, so the list is reachable from either end. */
+        moveSuggest(delta, count) {
+            if (count === 0) return;
+            this.suggestIndex = (this.suggestIndex + delta + count) % count;
+        },
+
+        chooseIdentifier(kind, value) {
+            this.setIdentifierKindValue(kind, value);
+            this.closeSuggest();
+            this.search();
+        },
+
+        /** Enter takes the highlighted row if there is one, otherwise just searches. */
+        identifierEnter(kind) {
+            const items = this.identifierKindSuggestions(kind);
+            const picked = this.suggestIndex >= 0 ? items[this.suggestIndex] : null;
+            if (picked) {
+                this.chooseIdentifier(kind, picked.value);
+                return;
+            }
+            this.closeSuggest();
+            this.search();
+        },
+
+        chooseCorrelated(field, value) {
+            this.correlatedFilters[field] = value;
+            this.closeSuggest();
+            this.search();
+        },
+
+        correlatedEnter(field, items) {
+            const picked = this.suggestIndex >= 0 ? items[this.suggestIndex] : null;
+            if (picked) {
+                this.chooseCorrelated(field, picked);
+                return;
+            }
+            this.closeSuggest();
+            this.search();
         },
 
         identifierKindSuggestions(kind) {
