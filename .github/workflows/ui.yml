@@ -27,10 +27,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v6.4.0
         with:
           working-directory: jena-fuseki2/jena-fuseki-ui
           node-version: 'lts/*'
@@ -69,16 +69,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v6.4.0
         with:
           working-directory: jena-fuseki2/jena-fuseki-ui
           node-version: 'lts/*'
 
       - name: Test (E2E)
-        uses: cypress-io/github-action@v7
+        uses: cypress-io/github-action@v7.4.1
         env:
           BASE_URL: http://localhost:8080/
           FUSEKI_URL: http://localhost:3030/

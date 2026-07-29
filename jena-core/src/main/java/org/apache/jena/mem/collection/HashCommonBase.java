@@ -25,7 +25,6 @@ import org.apache.jena.mem.spliterator.SparseArraySpliterator;
 import org.apache.jena.shared.JenaException;
 import org.apache.jena.util.iterator.ExtendedIterator;
 
-import java.util.ConcurrentModificationException;
 import java.util.Spliterator;
 import java.util.function.Predicate;
 
@@ -36,7 +35,7 @@ import java.util.function.Predicate;
  *
  * @param <E> the element type
  */
-public abstract class HashCommonBase<E> {
+public abstract class HashCommonBase<E> implements JenaMapSetCommon<E> {
     /**
      * Jeremy suggests, from his experiments, that load factors more than
      * 0.6 leave the table too dense, and little advantage is gained below 0.4.
@@ -78,7 +77,7 @@ public abstract class HashCommonBase<E> {
      * Copy constructor.
      * The new table will contain all the same keys of the table to copy.
      *
-     * @param baseToCopy
+     * @param baseToCopy the table to copy
      */
     protected HashCommonBase(final HashCommonBase<E> baseToCopy) {
         this.keys = newKeysArray(baseToCopy.keys.length);
@@ -102,14 +101,15 @@ public abstract class HashCommonBase<E> {
         threshold = (int) (keys.length * LOAD_FACTOR);
     }
 
+    @Override
     public int size() {
         return size;
     }
 
+    @Override
     public boolean isEmpty() {
         return size == 0;
     }
-
 
     /**
      * Subclasses must implement to answer a new Key[size] array.
@@ -156,6 +156,7 @@ public abstract class HashCommonBase<E> {
      * Remove the object <code>key</code> from this hash's keys if it
      * is present (if it's absent, do nothing).
      */
+    @Override
     public boolean tryRemove(final E key) {
         int slot = findSlot(key);
         if (slot < 0) {
@@ -169,6 +170,7 @@ public abstract class HashCommonBase<E> {
      * Remove the object <code>key</code> from this hash's keys if it
      * is present (if it's absent, do nothing).
      */
+    @Override
     public void removeUnchecked(final E key) {
         int slot = findSlot(key);
         if (slot < 0) {
@@ -193,10 +195,12 @@ public abstract class HashCommonBase<E> {
         }
     }
 
+    @Override
     public boolean containsKey(final E key) {
         return findSlot(key) < 0;
     }
 
+    @Override
     public boolean anyMatch(final Predicate<E> predicate) {
         var pos = keys.length - 1;
         while (-1 < pos) {
@@ -208,19 +212,13 @@ public abstract class HashCommonBase<E> {
         return false;
     }
 
+    @Override
     public ExtendedIterator<E> keyIterator() {
-        final var initialSize = size;
-        final Runnable checkForConcurrentModification = () -> {
-            if (size != initialSize) throw new ConcurrentModificationException();
-        };
-        return new SparseArrayIterator<>(keys, checkForConcurrentModification);
+        return new SparseArrayIterator<>(keys, this);
     }
 
+    @Override
     public Spliterator<E> keySpliterator() {
-        final var initialSize = size;
-        final Runnable checkForConcurrentModification = () -> {
-            if (size != initialSize) throw new ConcurrentModificationException();
-        };
-        return new SparseArraySpliterator<>(keys, checkForConcurrentModification);
+        return new SparseArraySpliterator<>(keys, this);
     }
 }

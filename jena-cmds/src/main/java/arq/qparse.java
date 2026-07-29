@@ -34,6 +34,7 @@ import org.apache.jena.atlas.lib.Lib;
 import org.apache.jena.atlas.logging.LogCtl;
 import org.apache.jena.cmd.ArgDecl;
 import org.apache.jena.cmd.CmdException;
+import org.apache.jena.cmd.TerminationException;
 import org.apache.jena.query.*;
 import org.apache.jena.shared.JenaException;
 import org.apache.jena.sparql.ARQInternalErrorException;
@@ -66,7 +67,7 @@ public class qparse extends CmdARQ {
         new qparse(argv).mainRun();
     }
 
-    public qparse(String[] argv) {
+    public qparse(String... argv) {
         super(argv);
         super.addModule(modQuery);
         super.addModule(modOutput);
@@ -121,7 +122,7 @@ public class qparse extends CmdARQ {
     }
 
     static final String divider = "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -";
-    // static final String divider = "" ;
+    // static final String divider = "";
     boolean needDivider = false;
     private void divider() {
         if ( needDivider )
@@ -190,10 +191,10 @@ public class qparse extends CmdARQ {
             intEx.printStackTrace(System.err);
         } catch (ResultSetException ex) {
             System.err.println(ex.getMessage());
-            ex.printStackTrace(System.err);
+            //ex.printStackTrace(System.err);
         } catch (QueryException qEx) {
-            // System.err.println(qEx.getMessage()) ;
-            throw new CmdException("Query Exeception", qEx);
+            System.err.println(qEx.getMessage());
+            throw new TerminationException(1);
         } catch (JenaException ex) {
             ex.printStackTrace();
             throw ex;
@@ -212,7 +213,7 @@ public class qparse extends CmdARQ {
     static void writeSyntaxes(String msg, PrintStream out) {
         if ( msg != null )
             out.println(msg);
-        for ( Iterator<String> iter = Syntax.querySyntaxNames.keys() ; iter.hasNext() ; ) {
+        for ( Iterator<String> iter = Syntax.querySyntaxNames.keys(); iter.hasNext(); ) {
             String k = iter.next();
             Syntax v = Syntax.lookup(k);
             k = padOut(k, 10);
@@ -222,7 +223,7 @@ public class qparse extends CmdARQ {
 
     static String padOut(String x, int len) {
         StringBuilder r = new StringBuilder(x);
-        for ( int i = x.length() ; i <= len ; i++ )
+        for ( int i = x.length(); i <= len; i++ )
             r.append(" ");
         return r.toString();
     }

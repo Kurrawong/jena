@@ -107,6 +107,8 @@ public class Substitute {
     public static Triple substitute(Triple triple, Binding binding) {
         if ( isNotNeeded(binding) )
             return triple;
+        if ( triple.isConcrete() )
+            return triple;
 
         Node s = triple.getSubject();
         Node p = triple.getPredicate();
@@ -116,10 +118,9 @@ public class Substitute {
         Node p1 = substitute(p, binding);
         Node o1 = substitute(o, binding);
 
-        Triple t = triple;
-        if ( s1 != s || p1 != p || o1 != o )
-            t = Triple.create(s1, p1, o1);
-        return t;
+        if ( s1 == s && p1 == p && o1 == o )
+            return triple;
+        return Triple.create(s1, p1, o1);
     }
 
     public static TriplePath substitute(TriplePath triplePath, Binding binding) {
@@ -134,14 +135,15 @@ public class Substitute {
         Node s1 = substitute(s, binding);
         Node o1 = substitute(o, binding);
 
-        TriplePath tp = triplePath;
-        if ( s1 != s || o1 != o )
-            tp = new TriplePath(s1, triplePath.getPath(), o1);
-        return tp;
+        if ( s1 == s && o1 == o )
+            return triplePath;
+        return new TriplePath(s1, triplePath.getPath(), o1);
     }
 
     public static Quad substitute(Quad quad, Binding binding) {
         if ( isNotNeeded(binding) )
+            return quad;
+        if ( quad.isConcrete() )
             return quad;
 
         Node g = quad.getGraph();
@@ -154,10 +156,9 @@ public class Substitute {
         Node p1 = substitute(p, binding);
         Node o1 = substitute(o, binding);
 
-        Quad q = quad;
-        if ( s1 != s || p1 != p || o1 != o || g1 != g )
-            q = Quad.create(g1, s1, p1, o1);
-        return q;
+        if ( s1 == s && p1 == p && o1 == o && g1 == g )
+            return quad;
+        return Quad.create(g1, s1, p1, o1);
     }
 
     public static Node substitute(Node n, Binding binding) {
@@ -183,9 +184,10 @@ public class Substitute {
         // No change - return original
         if ( s1 == s && o1 == o && p1 == p )
             return n;
+        // Change happened. Create new.
+        Node n2 =  NodeFactory.createTripleTerm(s1, p1, o1);
+        return n2;
 
-        // Change. Create new.
-        return NodeFactory.createTripleTerm(s1, p1, o1);
     }
 
     /** Substitute for a node that makes up a triple in a Node_Triple. Recursively. */
@@ -194,7 +196,6 @@ public class Substitute {
             if ( ! n.isConcrete() )
                 n = substitute(n, binding);
         } else if ( Var.isVar(n) ) {
-            Var var = Var.alloc(n);
             n = Var.lookup(binding::get, n);
         }
         return n;

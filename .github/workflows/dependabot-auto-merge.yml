@@ -1,0 +1,60 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+name: Dependabot Auto-Merge
+
+on:
+  pull_request:
+    branches:
+      - 'main'
+
+## Dependabot-triggered workflows get a read-only GITHUB_TOKEN by default;
+## these grant the write scopes `gh pr merge` needs.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      ## Auto-merge policy: patch and minor, github-actions ONLY. Everything
+      ## else is labelled for a human.
+      ##
+      ## Docker is deliberately excluded even for "patch". Dependabot derives
+      ## the update type from the leading semver in the tag and ignores the
+      ## rest, so
+      ##     maven:3.9.9-eclipse-temurin-21 -> maven:3.9.15-eclipse-temurin-26
+      ## is reported as version-update:semver-patch while actually moving the
+      ## build JDK from 21 to 26. A green build does not make that safe, and
+      ## our two Dockerfiles pin the JDK and Maven versions this way.
+      - name: Enable auto-merge
+        if: >-
+          steps.metadata.outputs.package-ecosystem == 'github_actions' &&
+          (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+           steps.metadata.outputs.update-type == 'version-update:semver-minor')
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      ## The exact inverse of the condition above, so every Dependabot PR ends
+      ## up either auto-merged or labelled -- never silently neither.
+      - name: Label PRs left for manual review
+        if: >-
+          !(steps.metadata.outputs.package-ecosystem == 'github_actions' &&
+            (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+             steps.metadata.outputs.update-type == 'version-update:semver-minor'))
+        run: gh pr edit "$PR_URL" --add-label "needs-manual-review"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

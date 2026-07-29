@@ -20,26 +20,51 @@
  */
 package org.apache.jena.mem.collection;
 
+import org.jspecify.annotations.NonNull;
+
+import java.util.Iterator;
+import java.util.Spliterator;
+import java.util.function.Consumer;
+
 /**
- * Set interface specialized for the use cases in triple store implementations.
+ * Set interface specialized for the use cases in triple-store implementations.
+ * Not thread-safe; does not allow {@code null} elements.
  *
- * @param <E>
+ * @param <E> the element type of the set
  */
-public interface JenaSet<E> extends JenaMapSetCommon<E> {
+public interface JenaSet<E> extends JenaMapSetCommon<E>, Iterable<E>  {
 
     /**
      * Add the key to the set if it is not already present.
      *
-     * @param key the key to add
-     * @return true if the key was added, false if it was already present
+     * @param key the key to add. ({@code null} is not allowed)
+     * @return {@code true} if the key was added, {@code false} if it was already present
      */
     boolean tryAdd(E key);
 
     /**
-     * Add the key to the set without checking if it is already present.
-     * Attention: This method must only be used if it is guaranteed that the key is not already present.
+     * Add the key to the set without checking whether it is already present.
+     * <p>
+     * Attention: this method must only be used if the caller has ensured that
+     * the key is not already in the set; otherwise the set's invariants will
+     * break (duplicates may be inserted).
      *
-     * @param key the key to add
+     * @param key the key to add. ({@code null} is not allowed)
      */
     void addUnchecked(E key);
+
+    @Override
+    default void forEach(Consumer<? super E> action) {
+        this.keySpliterator().forEachRemaining(action);
+    }
+
+    @Override
+    default Spliterator<E> spliterator() {
+        return this.keySpliterator();
+    }
+
+    @Override
+    default @NonNull Iterator<E> iterator() {
+        return this.keyIterator();
+    }
 }

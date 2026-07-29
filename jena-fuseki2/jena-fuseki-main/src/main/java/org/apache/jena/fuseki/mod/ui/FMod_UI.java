@@ -21,6 +21,8 @@
 
 package org.apache.jena.fuseki.mod.ui;
 
+import static org.apache.jena.fuseki.Fuseki.serverFunctionPath;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
@@ -64,7 +66,8 @@ public class FMod_UI implements FusekiModule {
     private static ArgDecl argUIFiles = new ArgDecl(true, "ui");
 
     /** Java resource name used to find the UI files. */
-    private static String resourceNameUI = "webapp";
+    private static String resourceNameUI = "/webapp/index.html";
+    private static String resourceBaseNameUI = "/webapp";
     /** Directory name of the root of UI files */
     private static String directoryNameUI = "webapp";
 
@@ -114,11 +117,11 @@ public class FMod_UI implements FusekiModule {
         }
 
         builder.staticFileBase(uiAppLocation)       // Set the UI files area.
-               .addServlet("/$/validate/query",     new QueryValidator())
-               .addServlet("/$/validate/update",    new UpdateValidator())
-               .addServlet("/$/validate/iri",       new IRIValidator())
-               .addServlet("/$/validate/langtag",   new LangTagValidator())
-               .addServlet("/$/validate/data",      new DataValidator())
+               .addServlet(serverFunctionPath("/validate/query"),     new QueryValidator())
+               .addServlet(serverFunctionPath("/validate/update"),    new UpdateValidator())
+               .addServlet(serverFunctionPath("/validate/iri"),       new IRIValidator())
+               .addServlet(serverFunctionPath("/validate/langtag"),   new LangTagValidator())
+               .addServlet(serverFunctionPath("/validate/data"),      new DataValidator())
                .enableStats(true);
         // LOG.info("Fuseki UI loaded");
     }
@@ -153,7 +156,7 @@ public class FMod_UI implements FusekiModule {
 
         // 3:: From a jar.
         // Format  jar:file:///.../jena-fuseki-ui-VERSION.jar!/webapp/"
-        String r = fromClasspath(resourceNameUI);
+        String r = fromClasspath(resourceNameUI, resourceBaseNameUI);
         if ( r != null ) {
             // Simplify name.
             String displayName = loggingName(r);
@@ -165,20 +168,26 @@ public class FMod_UI implements FusekiModule {
     }
 
     // Look for "$resourceName" on the classpath.
-    private static String fromClasspath(String resourceName) {
+    private static String fromClasspath(String lookupName, String rootName) {
         // Jetty 12.0.15  => warning "Leaked mount"
         // Logger : "org.eclipse.jetty.util.resource.ResourceFactory"
         //ResourceFactory resourceFactory = ResourceFactory.root();
 
-        ResourceFactory resourceFactory = ResourceFactory.closeable();
-        Resource resource = resourceFactory.newClassLoaderResource(resourceName);
-        // Jetty 12.1.10 changed newClassLoaderResource: a resource that is not on the
-        // classpath now comes back as a non-null Resource with a null URI, where it
-        // previously came back as null. Both mean "not found" — fall through to the
-        // caller's next lookup rather than NPE.
-        if ( resource != null && resource.getURI() != null )
-            return resource.getURI().toString();
-        return null;
+        // Jetty 12.1.9: Need to lookup the name of a resource (lookup name), not the directory (rootName)
+        try ( ResourceFactory.Closeable resourceFactory = ResourceFactory.closeable() ) {
+            Resource resource = resourceFactory.newClassLoaderResource(lookupName);
+            // Jetty 12.1.10 changed newClassLoaderResource: a resource that is not on the
+            // classpath now comes back as a non-null Resource with a null URI, where it
+            // previously came back as null. Both mean "not found" — fall through to the
+            // caller's next lookup rather than NPE.
+            if ( resource == null || resource.getURI() == null )
+                return null;
+            String x = resource.getURI().toString();
+            int i = x.indexOf(rootName);
+            // Up to the rootName
+            x = x.substring(0, i + rootName.length());
+            return x;
+        }
     }
 
     // Look for "$path/$resourceName"

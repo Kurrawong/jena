@@ -35,6 +35,7 @@ import org.apache.jena.atlas.web.HttpException;
 import org.apache.jena.fuseki.Fuseki;
 import org.apache.jena.fuseki.server.*;
 import org.apache.jena.fuseki.system.ActionCategory;
+import org.apache.jena.http.HttpMethod;
 import org.apache.jena.query.QueryCancelledException;
 import org.apache.jena.query.QueryDeniedException;
 import org.apache.jena.riot.web.HttpNames;
@@ -69,7 +70,31 @@ public class ActionExecLib {
     }
 
     /**
-     * Standard execution lifecycle for a SPARQL Request.
+     * Direct call to the standard execution lifecycle for a SPARQL Request.
+     * <ul>
+     * <li>{@link #startRequest(HttpAction)}</li>
+     * <li>initial statistics,</li>
+     * <li>{@link ActionLifecycle#validate(HttpAction)} request,</li>
+     * <li>{@link ActionLifecycle#execute(HttpAction)} request,</li>
+     * <li>completion/error statistics,</li>
+     * <li>{@link #finishRequest(HttpAction)}
+     * </ul>
+     * Common process for handling HTTP requests with logging and Java error
+     * handling. This is the case where the ActionProcessor is defined by or is the
+     * servlet directly outside the Fuseki dispatch process ({@link ServletAction}
+     * for special case like {@link SPARQL_QueryGeneral} which directly holds the {@link ActionProcessor}
+     * and {@link ServletProcessor} for administration actions.
+     * <p>For execution choosing the processor from the data access point
+     * See {@link #execAction(HttpAction, Supplier)}.
+     */
+    public static void execAction(HttpAction action, ActionProcessor processor) {
+        boolean b = execAction(action, ()->processor);
+        if ( !b )
+            ServletOps.errorNotFound("Not found: "+action.getActionURI());
+    }
+
+    /**
+     * Standard execution lifecycle for a SPARQL Request with dynamic choice of processor.
      * <ul>
      * <li>{@link #startRequest(HttpAction)}</li>
      * <li>initial statistics,</li>
@@ -84,21 +109,12 @@ public class ActionExecLib {
      * for special case like {@link SPARQL_QueryGeneral} which directly holds the {@link ActionProcessor}
      * and {@link ServletProcessor} for administration actions.
      * <p>
-     * Return false if the ActionProcessor is null.
+     * Return false if the ActionProcessor is not found.
      */
-    public static void execAction(HttpAction action, ActionProcessor processor) {
-        boolean b = execAction(action, ()->processor);
-        if ( !b )
-            ServletOps.errorNotFound("Not found: "+action.getActionURI());
-    }
-
-    /**
-     * execAction, allowing for a choice of {@link ActionProcessor} within the logging and error handling.
-     * Return false if there was no ActionProcessor to handle the action.
-     */
-    public static boolean execAction(HttpAction action, Supplier<ActionProcessor> processor) {
+    public static boolean execAction(HttpAction action, Supplier<ActionProcessor> processorSelector) {
         try {
-            return execActionSub(action, processor);
+            // Protect call to the worker.
+            return execActionSub(action, processorSelector);
         } catch (Throwable th) {
             // This really should not catch anything.
             FmtLog.error(action.log, th, "Internal error");
@@ -106,7 +122,8 @@ public class ActionExecLib {
         }
     }
 
-    private static boolean execActionSub(HttpAction action, Supplier<ActionProcessor> processor) {
+    // processorSelector - find endpoint and handler code within the data access point after the action starts.
+    private static boolean execActionSub(HttpAction action, Supplier<ActionProcessor> processorSelector) {
         logRequest(action);
         action.setStartTime();
         initResponse(action);
@@ -115,13 +132,13 @@ public class ActionExecLib {
         startRequest(action);
         try {
             // Get the processor inside the startRequest - error handling - finishRequest sequence.
-            ActionProcessor proc = processor.get();
+            ActionProcessor proc = processorSelector.get();
             if ( proc == null ) {
+                // Can't find the service within the data access point.
                 // Only for the logging.
                 finishRequest(action);
-                logNoResponse(action);
+                logNoDispatch(action);
                 archiveHttpAction(action);
-                // Can't find the URL (the /dataset/service case) - not handled here.
                 return false;
             }
             proc.process(action);
@@ -180,7 +197,6 @@ public class ActionExecLib {
             ServletOps.responseSendError(response, HttpSC.INTERNAL_SERVER_ERROR_500, ex.getMessage());
         } catch (Throwable ex) {
             // This should not happen.
-            //ex.printStackTrace(System.err);
             FmtLog.warn(action.log, ex, "[%d] RC = %d : %s", action.id, HttpSC.INTERNAL_SERVER_ERROR_500, ex.getMessage());
             ServletOps.responseSendError(response, HttpSC.INTERNAL_SERVER_ERROR_500, ex.getMessage());
         } finally {
@@ -307,7 +323,7 @@ public class ActionExecLib {
     /**
      * Log when we don't handle this request.
      */
-    public static void logNoResponse(HttpAction action) {
+    private static void logNoDispatch(HttpAction action) {
         FmtLog.info(action.log,"[%d] No Fuseki dispatch %s", action.id, action.getActionURI());
     }
 
@@ -316,7 +332,7 @@ public class ActionExecLib {
         ActionLib.setCommonHeaders(action);
         String method = action.getRequestMethod();
         // All GET and HEAD operations are sensitive to conneg so ...
-        if ( HttpNames.METHOD_GET.equalsIgnoreCase(method) || HttpNames.METHOD_HEAD.equalsIgnoreCase(method) )
+        if ( HttpMethod.METHOD_GET.equalsIgnoreCase(method) || HttpMethod.METHOD_HEAD.equalsIgnoreCase(method) )
             ServletBase.setVaryHeader(action.getResponse());
     }
 

@@ -24,7 +24,6 @@ import org.apache.jena.mem.iterator.SparseArrayIterator;
 import org.apache.jena.mem.spliterator.SparseArraySpliterator;
 import org.apache.jena.util.iterator.ExtendedIterator;
 
-import java.util.ConcurrentModificationException;
 import java.util.Spliterator;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
@@ -50,7 +49,7 @@ public abstract class HashCommonMap<K, V> extends HashCommonBase<K> implements J
      * Copy constructor.
      * The new map will contain all the same keys and values of the map to copy.
      *
-     * @param mapToCopy
+     * @param mapToCopy the map to copy
      */
     protected HashCommonMap(final HashCommonMap<K, V> mapToCopy) {
         super(mapToCopy);
@@ -61,8 +60,9 @@ public abstract class HashCommonMap<K, V> extends HashCommonBase<K> implements J
     /**
      * Copy constructor with value processor.
      *
-     * @param mapToCopy
-     * @param valueProcessor
+     * @param mapToCopy the map to copy
+     * @param valueProcessor operator to copy the values of the map to copy. It will be applied to each value of the map
+     *                       to copy, and the result will be used as the value in the new map.
      */
     protected HashCommonMap(final HashCommonMap<K, V> mapToCopy, final UnaryOperator<V> valueProcessor) {
         super(mapToCopy);
@@ -85,6 +85,8 @@ public abstract class HashCommonMap<K, V> extends HashCommonBase<K> implements J
 
     @Override
     public boolean tryPut(K key, V value) {
+        assert(key != null);
+        assert(value != null);
         final var slot = findSlot(key);
         if (slot < 0) {
             values[~slot] = value;
@@ -98,6 +100,8 @@ public abstract class HashCommonMap<K, V> extends HashCommonBase<K> implements J
 
     @Override
     public void put(K key, V value) {
+        assert(key != null);
+        assert(value != null);
         final var slot = findSlot(key);
         if (slot < 0) {
             values[~slot] = value;
@@ -127,6 +131,7 @@ public abstract class HashCommonMap<K, V> extends HashCommonBase<K> implements J
         final var slot = findSlot(key);
         if (slot < 0) return values[~slot];
         final var value = absentValueSupplier.get();
+        assert(value != null);
         keys[slot] = key;
         values[slot] = value;
         if (++size > threshold) grow();
@@ -207,19 +212,11 @@ public abstract class HashCommonMap<K, V> extends HashCommonBase<K> implements J
 
     @Override
     public ExtendedIterator<V> valueIterator() {
-        final var initialSize = size;
-        final Runnable checkForConcurrentModification = () -> {
-            if (size != initialSize) throw new ConcurrentModificationException();
-        };
-        return new SparseArrayIterator<>(values, checkForConcurrentModification);
+        return new SparseArrayIterator<>(values, this);
     }
 
     @Override
     public Spliterator<V> valueSpliterator() {
-        final var initialSize = size;
-        final Runnable checkForConcurrentModification = () -> {
-            if (size != initialSize) throw new ConcurrentModificationException();
-        };
-        return new SparseArraySpliterator<>(values, checkForConcurrentModification);
+        return new SparseArraySpliterator<>(values, this);
     }
 }

@@ -26,16 +26,27 @@ import org.junit.platform.suite.api.Suite;
 
 @Suite
 @SelectClasses({
-    TestCounter.class
+    TestPrefixes.class
+    , TestPrefixLib.class
+
+    , TestG_Basic.class
+    , TestG_SP .class
+    , TestG_PO .class
+    , TestG_Triple.class
+    , TestG_Quad.class
+    , TestG_Classes.class
+
+    , TestGCopy.class
+
+    , TestTxn.class
     , TestThreadAction.class
     , TestTxnLifecycle.class
     , TestTxnOp.class
-    , TestTxn.class
     , TestTxnThread.class
+    , TestTxnCounter.class
     , TestReadXML.class
-    , TestPrefixes.class
-    , TestPrefixLib.class
     , TestRDFStarTranslation.class
+    , TestFindNamespaces.class
 })
 
 public class TS_System {}

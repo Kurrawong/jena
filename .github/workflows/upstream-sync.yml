@@ -1,0 +1,159 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+name: Upstream Sync
+
+##
+## Merges apache/jena main into a dated branch and opens a PR when it is clean.
+## This is how the fork gets its Maven/npm dependency updates -- upstream bumps
+## them itself, so `.github/dependabot.yml` deliberately does not.
+##
+## Merge, never rebase: the fork carries ~180 commits and many live feature
+## branches, so rebasing would rewrite published history and replay the same
+## pom conflicts once per commit.
+##
+
+on:
+  schedule:
+    ## 07:00 UTC on the first Monday-ish of each month.
+    - cron: '0 7 1-7 * 1'
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: 'Upstream ref to merge'
+        required: false
+        default: 'main'
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout fork
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote and fetch
+        env:
+          UPSTREAM_REF: ${{ inputs.upstream_ref || 'main' }}
+        run: |
+          git remote add upstream https://github.com/apache/jena.git
+          git fetch upstream "$UPSTREAM_REF"
+
+      - name: Check whether there is anything to sync
+        id: check
+        env:
+          UPSTREAM_REF: ${{ inputs.upstream_ref || 'main' }}
+        run: |
+          behind=$(git rev-list --count HEAD..upstream/"$UPSTREAM_REF")
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          echo "Behind upstream by $behind commits."
+          if [ "$behind" -eq 0 ]; then
+            echo "Already up to date; nothing to do."
+          fi
+
+      - name: Create sync branch
+        if: steps.check.outputs.behind != '0'
+        id: branch
+        run: |
+          branch="sync-upstream/$(date -u +%Y-%m-%d)"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          git checkout -B "$branch"
+
+      - name: Merge upstream
+        if: steps.check.outputs.behind != '0'
+        id: merge
+        env:
+          UPSTREAM_REF: ${{ inputs.upstream_ref || 'main' }}
+        run: |
+          if git merge upstream/"$UPSTREAM_REF" --no-edit; then
+            echo "clean=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "clean=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "conflicts<<EOF"
+              git diff --name-only --diff-filter=U
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            git merge --abort
+          fi
+
+      ## A conflicted sync is the normal case, not an error -- the fork edits
+      ## the root pom and jena-text. Raise an issue so a human resolves it
+      ## locally rather than leaving a broken branch behind.
+      - name: Open issue when the merge conflicts
+        if: steps.check.outputs.behind != '0' && steps.merge.outputs.clean == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BEHIND: ${{ steps.check.outputs.behind }}
+          CONFLICTS: ${{ steps.merge.outputs.conflicts }}
+        run: |
+          title="Upstream sync needs manual conflict resolution ($(date -u +%Y-%m-%d))"
+          existing=$(gh issue list --state open --search "in:title Upstream sync needs manual" --json number --jq '.[0].number // empty')
+          body=$(printf '%s\n' \
+            "Merging \`apache/jena@main\` conflicts and needs a human." \
+            "" \
+            "Behind upstream by **$BEHIND** commits." \
+            "" \
+            "Conflicting files:" \
+            '```' \
+            "$CONFLICTS" \
+            '```' \
+            "" \
+            "To resolve locally:" \
+            '```bash' \
+            "git remote add upstream https://github.com/apache/jena.git  # once" \
+            "git fetch upstream main" \
+            "git checkout -B sync-upstream-main origin/main" \
+            "git merge upstream/main" \
+            "# resolve, then: mvn -Pdev -DskipTests clean install && mvn test -pl jena-text" \
+            '```')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body" --label "upstream-sync"
+          fi
+
+      - name: Push sync branch
+        if: steps.check.outputs.behind != '0' && steps.merge.outputs.clean == 'true'
+        run: git push --force-with-lease origin "${{ steps.branch.outputs.branch }}"
+
+      ## Opened as a draft deliberately: pr.yml runs the full build against it,
+      ## and a dependency sync should be looked at by a human before merging
+      ## even when the build is green.
+      - name: Open sync PR
+        if: steps.check.outputs.behind != '0' && steps.merge.outputs.clean == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          BEHIND: ${{ steps.check.outputs.behind }}
+        run: |
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --draft \
+            --title "chore: sync apache/jena main ($(date -u +%Y-%m-%d))" \
+            --label "upstream-sync" \
+            --body "$(printf '%s\n' \
+              "Automated merge of \`apache/jena@main\`, **$BEHIND** commits behind." \
+              "" \
+              "Merged cleanly with no conflicts. This is where the fork's Maven and npm" \
+              "dependency updates come from -- see \`.github/dependabot.yml\`." \
+              "" \
+              "Before merging, check:" \
+              "- [ ] Full build green (pr-gate)" \
+              "- [ ] \`mvn test -pl jena-text\` still runs the fork's SHACL suite" \
+              "- [ ] Root pom version unchanged, or intentionally bumped" \
+              "- [ ] \`junit-vintage-engine\` still present in \`jena-text/pom.xml\`")"

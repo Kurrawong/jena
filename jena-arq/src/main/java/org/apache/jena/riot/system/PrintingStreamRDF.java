@@ -28,42 +28,61 @@ import org.apache.jena.atlas.io.IO;
 import org.apache.jena.graph.Triple;
 import org.apache.jena.riot.out.NodeFormatter;
 import org.apache.jena.riot.out.NodeFormatterTTL;
+import org.apache.jena.riot.out.NodeToLabel;
 import org.apache.jena.riot.writer.WriterStreamRDFFlat;
 import org.apache.jena.riot.writer.WriterStreamRDFPlain;
 import org.apache.jena.sparql.core.Quad;
 
 /**
- * A StreamRDF which displays the items sent to the stream.
+ * A {@link StreamRDF} which displays the items sent to the stream.
  * It is primarily for development purposes.
  * <p>
- * The output is not a legal syntax. Do not consider this
- * format to be stable.
+ * The output is not a legal syntax.
+ * Do not consider this format to be stable.
  * <p>
  * It is not optimized for throughput and it flushes every line.
  * Consider using {@link WriterStreamRDFFlat} for performance.
  * <p>
- *
- *
  * Use via
  * <pre>
- * StreamRDFLib.print(System.out);
+ *    StreamRDF stream = StreamRDFLib.print(System.out);
  * </pre>
  */
 public class PrintingStreamRDF extends WriterStreamRDFPlain
 {
-    private PrefixMap prefixMap = PrefixMapFactory.create();
-    private NodeFormatter pretty =  new NodeFormatterTTL(null, prefixMap);
+    // This is a development helper.
+
+    private final PrefixMap prefixMap = PrefixMapFactory.create();
+    private final NodeToLabel nodeMapper = NodeToLabel.createScopeByDocument();
+    private NodeFormatter pretty = new NodeFormatterTTL(null, prefixMap, nodeMapper);
 
     public PrintingStreamRDF(OutputStream out) {
-        super(IO.wrapUTF8(out));
+        this(out, null);
         // Always flush on each items.
         // Too many points provide buffering or automatic newline
-        // handling  in different ways to get implicit consistent behaviour.
-        // This is a development helper.
+        // handling in different ways to get implicit consistent behaviour.
     }
 
     public PrintingStreamRDF(AWriter out) {
+        this(out, null);
+    }
+
+    /**
+     * Print, with prefixes already loaded (not printed).
+     */
+    public PrintingStreamRDF(OutputStream out, PrefixMap prefixes) {
+        super(IO.wrapUTF8(out));
+        if ( prefixMap != null )
+            prefixMap.putAll(prefixes);
+    }
+
+    /**
+     * Print, with prefixes already loaded (not printed).
+     */
+    public PrintingStreamRDF(AWriter out, PrefixMap prefixes) {
         super(out);
+        if ( prefixMap != null )
+            prefixMap.putAll(prefixes);
     }
 
     @Override
@@ -81,9 +100,10 @@ public class PrintingStreamRDF extends WriterStreamRDFPlain
         out.print("BASE") ;
         out.print("  ") ;
         printDirectURI(out, base);
+        out.println();
         flush();
         // Reset the formatter because of the new base URI.
-        pretty = new NodeFormatterTTL(base, prefixMap);
+        pretty = new NodeFormatterTTL(base, prefixMap, nodeMapper);
     }
 
     @Override
@@ -93,7 +113,6 @@ public class PrintingStreamRDF extends WriterStreamRDFPlain
         out.print(version);
         out.println();
     }
-
 
     @Override
     public void prefix(String prefix, String iri) {
@@ -110,16 +129,12 @@ public class PrintingStreamRDF extends WriterStreamRDFPlain
     @Override
     public void triple(Triple triple) {
         super.triple(triple);
-        flush();
+        flushOutput();
     }
 
     @Override
     public void quad(Quad quad) {
         super.quad(quad);
-        flush();
-    }
-
-    public void flush() {
-        IO.flush(out) ;
+        flushOutput();
     }
 }

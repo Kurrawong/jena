@@ -24,6 +24,7 @@ package org.apache.jena.sparql.core;
 import java.util.Iterator ;
 import java.util.List ;
 import java.util.Objects ;
+import java.util.stream.Stream;
 
 import org.apache.jena.atlas.iterator.Iter ;
 import org.apache.jena.atlas.iterator.IteratorConcat ;
@@ -32,9 +33,10 @@ import org.apache.jena.graph.Node ;
 import org.apache.jena.shared.JenaException ;
 import org.apache.jena.system.G;
 
-/** Base class for implementations of a DatasetGraph as a set of graphs.
+/**
+ * Base class for implementations of a DatasetGraph as a set of graphs.
  * This can be a fixed collection or a changeable collection depending
- * on the implementation of getDefaultGraph()/getGraph(Node)  
+ * on the implementation of getDefaultGraph()/getGraph(Node)
  */
 public abstract class DatasetGraphCollection extends DatasetGraphBaseFind
 {
@@ -55,13 +57,18 @@ public abstract class DatasetGraphCollection extends DatasetGraphBaseFind
             throw new JenaException("No such graph: "+quad.getGraph()) ;
         g.delete(quad.asTriple()) ;
     }
-    
+
     @Override
     protected Iterator<Quad> findInDftGraph(Node s, Node p , Node o)
     {
         return G.triples2quadsDftGraph(getDefaultGraph().find(s, p, o)) ;
     }
-    
+
+    @Override
+    protected Stream<Quad> streamInDftGraph(Node s, Node p, Node o) {
+        return G.triples2quadsDftGraph(getDefaultGraph().stream(s, p, o)) ;
+    }
+
     @Override
     protected Iter<Quad> findInSpecificNamedGraph(Node g, Node s, Node p , Node o)
     {
@@ -72,13 +79,21 @@ public abstract class DatasetGraphCollection extends DatasetGraphBaseFind
     }
 
     @Override
+    protected Stream<Quad> streamInSpecificNamedGraph(Node g, Node s, Node p, Node o) {
+        Graph graph = fetchGraph(g) ;
+        if ( graph == null )
+            return Stream.empty() ;
+        return G.triples2quads(g, graph.stream(s, p, o)) ;
+    }
+
+    @Override
     protected Iterator<Quad> findInAnyNamedGraphs(Node s, Node p, Node o)
     {
         Iterator<Node> gnames = listGraphNodes() ;
         IteratorConcat<Quad> iter = new IteratorConcat<>() ;
 
         // Named graphs
-        for ( ; gnames.hasNext() ; )  
+        for ( ; gnames.hasNext() ; )
         {
             Node gn = gnames.next();
             Iterator<Quad> qIter = findInSpecificNamedGraph(gn, s, p, o) ;
@@ -87,13 +102,19 @@ public abstract class DatasetGraphCollection extends DatasetGraphBaseFind
         }
         return iter ;
     }
-    
+
+    @Override
+    protected Stream<Quad> streamInAnyNamedGraphs(Node s, Node p, Node o) {
+        return Iter.asStream(listGraphNodes())
+                .flatMap(gn -> streamInSpecificNamedGraph(gn, s, p, o));
+    }
+
     @Override
     public abstract Iterator<Node> listGraphNodes() ;
 
     @Override
     public void clear() {
-        // Delete all triples in the default graph 
+        // Delete all triples in the default graph
         getDefaultGraph().clear() ;
         // Now remove the named graphs (but don't clear them - they may be shared).
         List<Node> gnList = Iter.toList(listGraphNodes()) ;
@@ -101,7 +122,7 @@ public abstract class DatasetGraphCollection extends DatasetGraphBaseFind
             removeGraph(gn) ;
         }
     }
-    
+
     protected Graph fetchGraph(Node gn)
     {
         if ( Quad.isDefaultGraph(gn) || Objects.equals(gn,Quad.tripleInQuad)) // Not preferred style

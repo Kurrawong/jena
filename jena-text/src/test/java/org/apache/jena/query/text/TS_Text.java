@@ -21,21 +21,17 @@
 
 package org.apache.jena.query.text;
 
-import org.apache.jena.query.text.assembler.TestEntityMapAssembler;
-import org.apache.jena.query.text.assembler.TestShaclAssembler;
-import org.apache.jena.query.text.assembler.TestTextDatasetAssembler;
-import org.apache.jena.query.text.assembler.TestTextIndexLuceneAssembler;
-import org.apache.jena.query.text.changes.TestDatasetMonitor;
-import org.apache.jena.query.text.assembler.TestGenericAnalyzerAssembler;
-import org.apache.jena.query.text.assembler.TestPropListsAssembler;
+import org.junit.platform.suite.api.SelectClasses;
+import org.junit.platform.suite.api.Suite;
+
 import org.apache.jena.query.text.cql.TestCqlParser;
 import org.apache.jena.query.text.cql.TestCqlToLuceneCompiler;
-import org.junit.runner.RunWith;
-import org.junit.runners.Suite;
-import org.junit.runners.Suite.SuiteClasses;
 
-@RunWith(Suite.class)
-@SuiteClasses({
+import org.apache.jena.query.text.assembler.*;
+import org.apache.jena.query.text.changes.TestDatasetMonitor;
+
+@Suite
+@SelectClasses({
 
     TestBuildTextDataset.class
     , TestDatasetMonitor.class

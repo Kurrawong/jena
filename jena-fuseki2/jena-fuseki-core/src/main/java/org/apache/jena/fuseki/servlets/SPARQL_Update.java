@@ -42,7 +42,6 @@ import java.util.Enumeration;
 import java.util.List;
 
 import jakarta.servlet.http.HttpServletRequest;
-
 import org.apache.jena.atlas.io.IO;
 import org.apache.jena.atlas.lib.Bytes;
 import org.apache.jena.atlas.lib.StrUtils;
@@ -50,15 +49,17 @@ import org.apache.jena.atlas.web.ContentType;
 import org.apache.jena.fuseki.Fuseki;
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
+import org.apache.jena.http.HttpMethod;
 import org.apache.jena.irix.IRIx;
 import org.apache.jena.irix.IRIxResolver;
-import org.apache.jena.query.QueryBuildException;
+import org.apache.jena.query.QueryException;
 import org.apache.jena.query.QueryParseException;
 import org.apache.jena.query.Syntax;
 import org.apache.jena.riot.WebContent;
 import org.apache.jena.riot.web.HttpNames;
 import org.apache.jena.shared.OperationDeniedException;
-import org.apache.jena.sparql.engine.http.QueryExceptionHTTP;
+import org.apache.jena.sparql.core.DatasetGraph;
+import org.apache.jena.sparql.exec.UpdateExec;
 import org.apache.jena.sparql.modify.UsingList;
 import org.apache.jena.update.UpdateAction;
 import org.apache.jena.update.UpdateException;
@@ -68,7 +69,7 @@ import org.apache.jena.web.HttpSC;
 
 public class SPARQL_Update extends ActionService
 {
-    // Base URI used to isolate parsing from the current directory of the server.
+    // Base URI used to isolate parsing from the current host name
     private static final String UpdateParseBase = Fuseki.BaseParserSPARQL;
     private static final IRIxResolver resolver = IRIxResolver.create()
                                                             .base(UpdateParseBase)
@@ -81,13 +82,13 @@ public class SPARQL_Update extends ActionService
     @Override
     public void execOptions(HttpAction action) {
         ActionLib.setCommonHeadersForOptions(action);
-        action.setResponseHeader(HttpNames.hAllow, "POST,PATCH,OPTIONS");
+        action.setResponseHeader(HttpNames.hAllow, "HEAD,POST,PATCH,OPTIONS");
         ServletOps.success(action);
     }
 
     @Override
     public void execGet(HttpAction action) {
-        ServletOps.errorMethodNotAllowed(HttpNames.METHOD_GET, "SPARQL Update is not supported with GET. Use POST or PATCH instead");
+        ServletOps.errorMethodNotAllowed(HttpMethod.METHOD_GET, "SPARQL Update is not supported with GET. Use POST or PATCH instead");
     }
 
     @Override
@@ -123,10 +124,10 @@ public class SPARQL_Update extends ActionService
     public void validate(HttpAction action) {
         //HttpServletRequest request = action.getRequest();
 
-        if ( HttpNames.METHOD_OPTIONS.equals(action.getRequestMethod()) )
+        if ( HttpMethod.METHOD_OPTIONS.equals(action.getRequestMethod()) )
             return;
 
-        if ( ! HttpNames.METHOD_POST.equalsIgnoreCase(action.getRequestMethod()) && ! HttpNames.METHOD_PATCH.equalsIgnoreCase(action.getRequestMethod()) )
+        if ( ! HttpMethod.METHOD_POST.equalsIgnoreCase(action.getRequestMethod()) && ! HttpMethod.METHOD_PATCH.equalsIgnoreCase(action.getRequestMethod()) )
             ServletOps.errorMethodNotAllowed("SPARQL Update : use POST or PATCH");
 
         ContentType ct = updateContentType(action);
@@ -214,10 +215,17 @@ public class SPARQL_Update extends ActionService
         // If the dsg is transactional, then we can parse and execute the update in a streaming fashion.
         // If it isn't, we need to read the entire update request before performing any updates, because
         // we have to attempt to make the request atomic in the face of malformed updates.
-        UpdateRequest req = null;
+        UpdateRequest updateRequest = null;
+
+        // Using the request for the base URL exposes information about the host,
+        // and the host may be behind a firewall, with the request going to a proxy/gateway.
+        // The request URL is not the firewall public host name.
+        String requestBase = UpdateParseBase;
+
         if (!action.isTransactional()) {
+            // No abort. We need to know the request is valid - parse it now.
             try {
-                req = UpdateFactory.read(usingList, input, UpdateParseBase, Syntax.syntaxARQ);
+                updateRequest = UpdateFactory.read(usingList, input, requestBase, Syntax.syntaxARQ);
             }
             catch (UpdateException ex) { ServletOps.errorBadRequest(ex.getMessage()); return; }
             catch (QueryParseException ex) { ServletOps.errorBadRequest(messageForException(ex)); return; }
@@ -225,29 +233,30 @@ public class SPARQL_Update extends ActionService
 
         action.beginWrite();
         try {
-            if (req == null )
-                UpdateAction.parseExecute(usingList, action.getActiveDSG(), input, UpdateParseBase, Syntax.syntaxARQ);
-            else
-                UpdateAction.execute(req, action.getActiveDSG());
+            if (updateRequest == null ) {
+                // streaming path.
+                UpdateAction.parseExecute(usingList, action.getActiveDSG(), input, requestBase, Syntax.syntaxARQ, action.getContext());
+            }
+            else {
+                // Non-streaming path. The request has been parsed.
+                UpdateRequest updateRequest2 = UsingList.modifyUpdateForUsingList(updateRequest, usingList);
+                executeRequest(action, updateRequest2, usingList, action.getActiveDSG());
+            }
             action.commit();
-        } catch (UpdateException ex) {
-            ActionLib.consumeBody(action);
-            abortSilent(action);
-            incCounter(action.getEndpoint().getCounters(), UpdateExecErrors);
-            ServletOps.errorOccurred(ex.getMessage());
         } catch (QueryParseException ex) {
             ActionLib.consumeBody(action);
             abortSilent(action);
+            incCounter(action.getEndpoint().getCounters(), UpdateExecErrors);
             String msg = messageForParseException(ex);
             action.log.warn(format("[%d] Parse error: %s", action.id, msg));
-            ServletOps.errorBadRequest(messageForException(ex));
-        } catch (QueryBuildException|QueryExceptionHTTP ex) {
+            ServletOps.errorBadRequest(msg);
+        } catch (UpdateException | QueryException ex) {
             ActionLib.consumeBody(action);
             abortSilent(action);
-            // Counter inc'ed further out.
+            incCounter(action.getEndpoint().getCounters(), UpdateExecErrors);
             String msg = messageForException(ex);
             action.log.warn(format("[%d] Bad request: %s", action.id, msg));
-            ServletOps.errorBadRequest(messageForException(ex));
+            ServletOps.errorBadRequest(msg);
         } catch (OperationDeniedException ex) {
             ActionLib.consumeBody(action);
             abortSilent(action);
@@ -259,6 +268,15 @@ public class SPARQL_Update extends ActionService
                 ServletOps.errorOccurred(ex.getMessage(), ex);
             }
         } finally { action.endWrite(); }
+    }
+
+    private static void executeRequest(HttpAction action, UpdateRequest request, UsingList usingList, DatasetGraph dsg) {
+        UpdateRequest request2 = UsingList.modifyUpdateForUsingList(request, usingList);
+        UpdateExec.newBuilder()
+                .context(action.getContext())
+                .dataset(action.getActiveDSG())
+                .update(request2)
+                .execute();
     }
 
     /**

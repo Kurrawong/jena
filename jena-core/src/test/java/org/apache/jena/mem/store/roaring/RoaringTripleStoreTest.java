@@ -18,58 +18,59 @@
  *
  *   SPDX-License-Identifier: Apache-2.0
  */
+
 package org.apache.jena.mem.store.roaring;
+
+import static org.apache.jena.junit.GraphHelper.triple;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Stream;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedClass;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import org.apache.jena.graph.Triple;
 import org.apache.jena.mem.IndexingStrategy;
 import org.apache.jena.mem.pattern.PatternClassifier;
 import org.apache.jena.mem.store.AbstractTripleStoreTest;
 import org.apache.jena.mem.store.TripleStore;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
 import org.mockito.Mockito;
 
-import java.util.Arrays;
-import java.util.Collection;
-
-import static org.apache.jena.testing_framework.GraphHelper.triple;
-import static org.junit.Assert.*;
-
-@RunWith(Parameterized.class)
+@ParameterizedClass
+@MethodSource("provideArgs")
 public class RoaringTripleStoreTest extends AbstractTripleStoreTest {
 
-    @Parameterized.Parameter
+    public static Stream<Arguments> provideArgs() {
+        List<Arguments> args = Arrays.stream(IndexingStrategy.values())
+                .map(strategy -> Arguments.of(strategy))
+                .toList();
+        return args.stream();
+    }
+
     public IndexingStrategy indexingStrategy;
 
-    @Parameterized.Parameters(name = "{0}")
-    public static Collection<Object[]> data() {
-        return Arrays.stream(IndexingStrategy.values())
-                .map(strategy -> new Object[]{strategy})
-                .toList();
-    }
+    public RoaringTripleStoreTest(IndexingStrategy indexingStrategy) { this.indexingStrategy = indexingStrategy; }
 
     @Override
     protected TripleStore createTripleStore() {
-        switch (indexingStrategy) {
-            case EAGER, LAZY, LAZY_PARALLEL, MINIMAL:
-                return new RoaringTripleStore(indexingStrategy);
-            case MANUAL:
-                return setupStoreWithSpyForSpecialManualStrategy();
-            default:
-                throw new IllegalArgumentException("Unsupported indexing strategy: " + indexingStrategy);
-        }
+        return switch (indexingStrategy) {
+            case EAGER, LAZY, LAZY_PARALLEL, MINIMAL -> new RoaringTripleStore(indexingStrategy);
+            case MANUAL -> setupStoreWithSpyForSpecialManualStrategy();
+        };
     }
 
     private static boolean isPatternRequiringIndexing(final Triple tripleMatch) {
-        switch(PatternClassifier.classify(tripleMatch)) {
-            case SUB_PRE_ANY, SUB_ANY_OBJ, SUB_ANY_ANY, ANY_PRE_OBJ, ANY_PRE_ANY, ANY_ANY_OBJ:
-                return true;
-            case ANY_ANY_ANY, SUB_PRE_OBJ:
-                return false;
-            default:
-                throw new IllegalArgumentException("Unknown pattern classification: " + PatternClassifier.classify(tripleMatch));
-        }
+        return switch (PatternClassifier.classify(tripleMatch)) {
+            case SUB_PRE_ANY, SUB_ANY_OBJ, SUB_ANY_ANY, ANY_PRE_OBJ, ANY_PRE_ANY, ANY_ANY_OBJ -> true;
+            case ANY_ANY_ANY, SUB_PRE_OBJ -> false;
+        };
     }
 
     private RoaringTripleStore setupStoreWithSpyForSpecialManualStrategy() {
@@ -91,7 +92,7 @@ public class RoaringTripleStoreTest extends AbstractTripleStoreTest {
             realStore.clearIndex();
             // Return the result of the store with the index
             return result;
-        }).when(spyStore).contains(Mockito.argThat(t -> isPatternRequiringIndexing(t)));
+        }).when(spyStore).contains(Mockito.argThat(RoaringTripleStoreTest::isPatternRequiringIndexing));
 
         // Mock {@link TripleStore#find(Triple)}
         Mockito.doAnswer(invocation -> {
@@ -107,7 +108,7 @@ public class RoaringTripleStoreTest extends AbstractTripleStoreTest {
             realStore.clearIndex();
             // Return the result of the store with the index
             return result;
-        }).when(spyStore).find(Mockito.argThat(t -> isPatternRequiringIndexing(t)));
+        }).when(spyStore).find(Mockito.argThat(RoaringTripleStoreTest::isPatternRequiringIndexing));
 
         // Mock {@link TripleStore#stream(Triple)}
         Mockito.doAnswer(invocation -> {
@@ -123,7 +124,7 @@ public class RoaringTripleStoreTest extends AbstractTripleStoreTest {
             realStore.clearIndex();
             // Return the result of the store with the index
             return result;
-        }).when(spyStore).stream(Mockito.argThat(t -> isPatternRequiringIndexing(t)));
+        }).when(spyStore).stream(Mockito.argThat(RoaringTripleStoreTest::isPatternRequiringIndexing));
 
         return spyStore;
     }
@@ -175,7 +176,7 @@ public class RoaringTripleStoreTest extends AbstractTripleStoreTest {
     }
 
     @Test
-    public void testLazyInitiallization() {
+    public void testLazyInitialization() {
         // Given
         final var sut = getSutAsRoaringTripleStore();
         sut.add(triple("s p o"));

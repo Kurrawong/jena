@@ -21,70 +21,93 @@
 
 package org.apache.jena.tdb1.store;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import org.apache.jena.atlas.lib.FileOps;
+import org.apache.jena.tdb1.ConfigTest;
 import org.apache.jena.tdb1.TDB1Exception;
 import org.apache.jena.tdb1.base.file.Location;
 import org.apache.jena.tdb1.base.file.LocationLock;
 import org.apache.jena.tdb1.sys.ProcessUtils;
 import org.apache.jena.tdb1.sys.StoreConnection;
-import org.junit.Assert;
-import org.junit.Assume;
-import org.junit.BeforeClass;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.apache.jena.tdb1.sys.TDBInternal;
 
 /**
- * Tests for {@link LocationLock} inconjucntion with {@link StoreConnection}s
+ * Tests for {@link LocationLock} in conjunction with {@link StoreConnection}s
  */
 public class TestLocationLockStoreConnection {
 
     private static boolean negativePidsTreatedAsAlive = false;
 
-    @Rule
-    public TemporaryFolder tempDir = new TemporaryFolder();
+    // Do not use @TempDir - deleted files don't get cleaned up
+    // immediately on MS Windows and JUnit6 checks this when
+    // cleaning @TempDir
+    // See beforeEach, afterEach.
+    public String tempDir;
 
-    @BeforeClass
+    @BeforeAll
     public static void setup() {
         negativePidsTreatedAsAlive = ProcessUtils.negativePidsTreatedAsAlive();
     }
 
+    @BeforeEach
+    public void beforeEach() {
+        tempDir = ConfigTest.getCleanDir()+"/store-location";
+        FileOps.ensureDir(tempDir);
+    }
+
+    @SuppressWarnings("removal")
+    @AfterEach
+    public void afterEach() {
+        TDBInternal.reset();
+        FileOps.clearDirectory(tempDir);
+    }
+
     @Test
     public void location_lock_store_connection_01() {
-        Location dir = Location.create(tempDir.getRoot().getAbsolutePath());
+        Location dir = Location.create(tempDir);
         LocationLock lock = dir.getLock();
-        Assert.assertTrue(lock.canLock());
-        Assert.assertFalse(lock.isLocked());
-        Assert.assertFalse(lock.isOwned());
-        Assert.assertTrue(lock.canObtain());
+        assertTrue(lock.canLock());
+        assertFalse(lock.isLocked());
+        assertFalse(lock.isOwned());
+        assertTrue(lock.canObtain());
 
         // Creating a StoreConnection on the location will obtain the lock
         StoreConnection.make(dir);
-        Assert.assertTrue(lock.isLocked());
-        Assert.assertTrue(lock.isOwned());
-        Assert.assertTrue(lock.canObtain());
+        assertTrue(lock.isLocked());
+        assertTrue(lock.isOwned());
+        assertTrue(lock.canObtain());
 
         // Releasing the connection releases the lock
         StoreConnection.release(dir);
-        Assert.assertFalse(lock.isLocked());
-        Assert.assertFalse(lock.isOwned());
-        Assert.assertTrue(lock.canObtain());
+        assertFalse(lock.isLocked());
+        assertFalse(lock.isOwned());
+        assertTrue(lock.canObtain());
     }
 
-    @Test(expected = TDB1Exception.class)
+    @Test
     public void location_lock_store_connection_02() throws IOException {
-        Assume.assumeTrue(negativePidsTreatedAsAlive);
+        assumeTrue(negativePidsTreatedAsAlive);
 
-        Location dir = Location.create(tempDir.getRoot().getAbsolutePath());
+        Location dir = Location.create(tempDir);
         LocationLock lock = dir.getLock();
-        Assert.assertTrue(lock.canLock());
-        Assert.assertFalse(lock.isLocked());
-        Assert.assertFalse(lock.isOwned());
-        Assert.assertTrue(lock.canObtain());
+        assertTrue(lock.canLock());
+        assertFalse(lock.isLocked());
+        assertFalse(lock.isOwned());
+        assertTrue(lock.canObtain());
 
         // Write a fake PID to the lock file
         try(BufferedWriter writer =
@@ -92,10 +115,10 @@ public class TestLocationLockStoreConnection {
             // Fake PID that would never be valid
             writer.write(Integer.toString(-1234));
         }
-        Assert.assertTrue(lock.isLocked());
-        Assert.assertFalse(lock.isOwned());
+        assertTrue(lock.isLocked());
+        assertFalse(lock.isOwned());
 
         // Attempting to create a connection on this location should error
-        StoreConnection.make(dir);
+        assertThrows(TDB1Exception.class, ()->StoreConnection.make(dir));
     }
 }
