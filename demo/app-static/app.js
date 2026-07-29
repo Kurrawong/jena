@@ -280,6 +280,23 @@ function millisToTemporal(fieldInfo, value) {
     return iso.slice(0, 10);
 }
 
+/**
+ * One rendered property value on a card. Values are plain labels, not controls: the
+ * tooltip carries the IRI behind a label, or the literal's language and datatype when
+ * there is one.
+ */
+function propValue(pv) {
+    const tooltip = pv.isUri
+        ? pv.raw
+        : [pv.lang ? `lang: ${pv.lang}` : null,
+           pv.datatype ? `datatype: ${shortName(pv.datatype)}` : null].filter(Boolean).join(' | ');
+    return {
+        value: pv.raw,
+        displayValue: pv.display,
+        tooltip,
+    };
+}
+
 function decorateLiteralDisplay(raw, lang, datatype) {
     if (lang) return `${raw} @${lang}`;
     if (datatype) return `${raw} ^^${shortName(datatype)}`;
@@ -2148,16 +2165,7 @@ DESCRIBE <${uri}>`;
                     if (pred === 'identifier') {
                         card.rows.push({
                             property: 'id',
-                            values: values.map(pv => ({
-                                value: pv.raw,
-                                displayValue: pv.display,
-                                facetField: null,
-                                isActive: false,
-                                clickable: false,
-                                mapUri: null,
-                                tooltip: '',
-                                cssClass: 'prop-chip-neutral',
-                            })),
+                            values: values.map(pv => propValue(pv)),
                         });
                         continue;
                     }
@@ -2165,20 +2173,14 @@ DESCRIBE <${uri}>`;
                         for (const pv of values) {
                             const geo = parseWktForLeaflet(pv.raw);
                             if (geo) {
-                                const tooltip = geo.type === 'point'
-                                    ? `${geo.lat.toFixed(4)}, ${geo.lon.toFixed(4)}`
-                                    : geo.coords.map(c => `${c[0].toFixed(2)},${c[1].toFixed(2)}`).join(' ');
                                 card.rows.push({
                                     property: 'location',
                                     values: [{
                                         value: geo.type === 'point' ? 'Point' : 'Polygon',
                                         displayValue: geo.type === 'point' ? 'Point' : 'Polygon',
-                                        facetField: null,
-                                        isActive: false,
-                                        clickable: false,
-                                        mapUri: card.uri,
-                                        tooltip,
-                                        cssClass: 'prop-chip-location',
+                                        tooltip: geo.type === 'point'
+                                            ? `${geo.lat.toFixed(4)}, ${geo.lon.toFixed(4)}`
+                                            : geo.coords.map(c => `${c[0].toFixed(2)},${c[1].toFixed(2)}`).join(' '),
                                     }],
                                 });
                             }
@@ -2188,55 +2190,17 @@ DESCRIBE <${uri}>`;
                     if (pred === 'year' || pred === 'depth') {
                         card.rows.push({
                             property: pred,
-                            values: values.map(pv => ({
-                                value: pv.raw,
-                                displayValue: pv.display,
-                                facetField: null,
-                                isActive: false,
-                                clickable: false,
-                                mapUri: null,
-                                tooltip: '',
-                                cssClass: 'prop-chip-neutral',
-                            })),
+                            values: values.map(pv => propValue(pv)),
                         });
                         continue;
                     }
-                    const facetField = this.predicateToFacet[pred] || null;
                     // Skip non-facetable literal values that do not add much to the card.
-                    if (!facetField && !values.some(v => v.isUri || v.lang || v.datatype)) continue;
-                    const rowValues = [];
-                    for (const pv of values) {
-                        // Find the matching facet value — match by label or raw IRI
-                        let matchValue = pv.display;
-                        if (facetField) {
-                            const facetValues = this.facets[facetField] || [];
-                            const match = facetValues.find(fv =>
-                                fv.value === pv.raw || fv.value === pv.display ||
-                                fv.label === pv.display);
-                            if (match) matchValue = match.value;
-                        }
-                        const active = facetField ? this.isSelected(facetField, matchValue) : false;
-                        rowValues.push({
-                            value: matchValue,
-                            displayValue: pv.display,
-                            facetField,
-                            isActive: active,
-                            clickable: !!facetField,
-                            mapUri: null,
-                            tooltip: pv.datatype || pv.lang
-                                ? [pv.lang ? `lang: ${pv.lang}` : null, pv.datatype ? `datatype: ${shortName(pv.datatype)}` : null].filter(Boolean).join(' | ')
-                                : '',
-                            cssClass: !facetField ? 'prop-chip-neutral'
-                                : active ? 'prop-chip-active'
-                                : 'prop-chip-clickable',
-                        });
-                    }
-                    if (rowValues.length > 0) {
-                        card.rows.push({
-                            property: pred,
-                            values: rowValues,
-                        });
-                    }
+                    const facetable = !!this.predicateToFacet[pred];
+                    if (!facetable && !values.some(v => v.isUri || v.lang || v.datatype)) continue;
+                    card.rows.push({
+                        property: pred,
+                        values: values.map(pv => propValue(pv)),
+                    });
                 }
             }
 
@@ -2541,17 +2505,6 @@ DESCRIBE <${uri}>`;
             this.mapMarkerCount = mapped;
             if (bounds.length > 0) {
                 this._map.fitBounds(bounds, { padding: [30, 30], maxZoom: 10, animate: false });
-            }
-        },
-
-        focusMapMarker(uri) {
-            const layer = this._mapMarkersByUri[uri];
-            if (!layer || !this._map || !Alpine.store('app').showMap) return;
-            layer.openPopup();
-            if (layer.getLatLng) {
-                this._map.panTo(layer.getLatLng());
-            } else if (layer.getBounds) {
-                this._map.panTo(layer.getBounds().getCenter());
             }
         },
 
