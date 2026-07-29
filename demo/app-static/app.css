@@ -379,17 +379,6 @@ code {
   overflow-y: auto;
 }
 
-/* The results column stacks so the pagination bar can sit at the foot of the panel even
-   when there are few results, rather than tucked under the last card. */
-.search-layout > .column:not(.left-panel):not(.right-panel) {
-  display: flex;
-  flex-direction: column;
-}
-
-.search-layout > .column > .result-card,
-.search-layout > .column > .notice-empty {
-  flex: none;
-}
 
 /* Left panel: ~31% */
 .search-layout > .left-panel,
@@ -1021,20 +1010,19 @@ code {
   color: var(--amber);
 }
 
-/* Pinned to the foot of the results column, which is the scroll container, so the
-   controls stay reachable without scrolling to the end of the page. */
+/* A footer across the whole window rather than a bar inside the results column: as a
+   sticky element it overlapped the cards it scrolled past, and its background could not
+   match both the page behind it and the raised card behind that. */
 .pagination-bar {
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
+  flex: none;
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.75rem 0;
-  margin-top: auto;
-  background: var(--bg-base);
-  border-top: 1px solid var(--border-subtle);
+  padding: 0.6rem 0;
+  margin: 0 -1rem;   /* cancel .section + .container.is-fluid padding to reach both edges */
+  background: var(--bg-raised);
+  border-top: 1px solid var(--border);
 }
 
 .pagination-btn {

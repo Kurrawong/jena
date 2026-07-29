@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="app.css?v=22">
+  <link rel="stylesheet" href="app.css?v=23">
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/n3@1.22.3/browser/n3.min.js"></script>
   <script src="app-config.js?v=4"></script>
@@ -527,19 +527,6 @@
             </div>
           </template>
 
-          <nav class="pagination-bar" aria-label="pagination">
-            <button class="pagination-btn" :disabled="currentPage <= 1"
-                    @click="goToPage(currentPage - 1)">&lsaquo; Prev</button>
-            <template x-for="p in paginationRange()" :key="p">
-              <button class="pagination-btn" :class="{ 'is-current': p === currentPage }"
-                      x-text="p === '...' ? '\u2026' : p"
-                      :disabled="p === '...'"
-                      @click="p !== '...' && goToPage(p)"></button>
-            </template>
-            <button class="pagination-btn" :disabled="currentPage >= totalPages()"
-                    @click="goToPage(currentPage + 1)">Next &rsaquo;</button>
-          </nav>
-
         </div>
 
         <!-- Resize handle -->
@@ -629,6 +616,19 @@
         </div>
 
       </div>
+
+      <nav class="pagination-bar" aria-label="pagination">
+        <button class="pagination-btn" :disabled="currentPage <= 1"
+                @click="goToPage(currentPage - 1)">&lsaquo; Prev</button>
+        <template x-for="p in paginationRange()" :key="p">
+          <button class="pagination-btn" :class="{ 'is-current': p === currentPage }"
+                  x-text="p === '...' ? '\u2026' : p"
+                  :disabled="p === '...'"
+                  @click="p !== '...' && goToPage(p)"></button>
+        </template>
+        <button class="pagination-btn" :disabled="currentPage >= totalPages()"
+                @click="goToPage(currentPage + 1)">Next &rsaquo;</button>
+      </nav>
 
       <!-- SPARQL Editor (must be inside x-data scope) -->
       <div class="sparql-editor" x-show="editorOpen" x-cloak
