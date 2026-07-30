@@ -48,13 +48,20 @@ jobs:
           VERSION=$(grep -m1 '<version>' pom.xml | sed 's/.*<version>\(.*\)<\/version>.*/\1/')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      # Both images come from one Dockerfile via --target, sharing the `builder`
+      # stage. The first build below populates that stage in the gha cache; the
+      # remaining three hit it, so the Maven reactor runs once per commit rather
+      # than once per image. The builder is pinned to linux/amd64, so the
+      # multi-arch push steps reuse it too.
+
       # ─── fuseki-ai: build amd64 (load), scan, push multi-arch on main ───────
 
       - name: Build fuseki-ai (amd64, load for scan)
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: build-files/docker/Dockerfile.runtime
+          file: build-files/docker/Dockerfile
+          target: runtime
           platforms: linux/amd64
           load: true
           tags: fuseki-ai:scan
@@ -76,7 +83,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: build-files/docker/Dockerfile.runtime
+          file: build-files/docker/Dockerfile
+          target: runtime
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
@@ -91,7 +99,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: build-files/docker/Dockerfile.loader
+          file: build-files/docker/Dockerfile
+          target: loader
           platforms: linux/amd64
           load: true
           tags: fuseki-loader:scan
@@ -137,7 +146,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: build-files/docker/Dockerfile.loader
+          file: build-files/docker/Dockerfile
+          target: loader
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |

@@ -5,12 +5,24 @@ SHACL-based text indexing, spatial indexing, and TDB2 datasets.
 
 ## Images
 
-**Dockerfile.loader** — Bulk data loading and index building. Builds the Fuseki
-server jar from source, then runs `loader-entrypoint.sh` to load RDF data into
-TDB2 and optionally build text and spatial indexes.
+Both images come from a single `Dockerfile`, selected with `--target`:
 
-**Dockerfile.runtime** — Runs a Fuseki server with a mounted config and
-pre-built databases.
+**`--target runtime`** (`fuseki-ai`) — Runs a Fuseki server with a mounted config
+and pre-built databases.
+
+**`--target loader`** (`fuseki-loader`) — Bulk data loading and index building.
+Runs `loader-entrypoint.sh` to load RDF data into TDB2 and optionally build text
+and spatial indexes.
+
+The `loader` target builds `FROM runtime`, because every Jena command the loader
+entrypoint invokes lives in the same shaded `jena-fuseki-server.jar` the runtime
+already ships. On top of that it adds only what `MODE=tdb2.xloader` needs: the
+`apache-jena` distribution (for the `bin/tdb2.xloader` shell script), `jq` (which
+that script calls), and the entrypoint itself.
+
+They remain two separately published images rather than one image with two
+entrypoints, so the serving image is not gated on CVEs in the distribution's
+bundled `lib/` jars — which it never executes.
 
 ## Loader Usage
 
@@ -131,15 +143,21 @@ From the repository root:
 
 ```bash
 # Loader image
-docker build -f build-files/docker/Dockerfile.loader -t jena-loader:dev .
+docker build --target loader -f build-files/docker/Dockerfile -t jena-loader:dev .
 
 # Runtime image
-docker build -f build-files/docker/Dockerfile.runtime -t jena-runtime:dev .
+docker build --target runtime -f build-files/docker/Dockerfile -t jena-runtime:dev .
 ```
 
-Both Dockerfiles use a multi-stage build: Maven builds `jena-fuseki-server.jar`
-from source (skipping tests and javadoc), then copies the jar into an
-`eclipse-temurin:21-jre` runtime image.
+The Dockerfile is multi-stage: a shared `builder` stage runs Maven once
+(`-Pcomplete -pl apache-jena,jena-fuseki2/jena-fuseki-server -am`, skipping tests
+and javadoc), then each target copies what it needs into an
+`eclipse-temurin:21-jre-ubi10-minimal` base. Because the Maven build is shared,
+building both images costs one reactor build rather than two — CI relies on this.
+
+Note that `--target runtime` still requires every module directory in the
+`COPY` list: Maven constructs the full reactor graph before `-pl` narrows it, so
+a missing module directory fails the build even for modules that are not built.
 
 ## Testing xloader
 

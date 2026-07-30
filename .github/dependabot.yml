@@ -29,8 +29,8 @@ updates:
     cooldown:
       default-days: 7
 
-  ## Our Fuseki images (Dockerfile.runtime, Dockerfile.loader), which are
-  ## the ones scan-published.yml runs trivy against.
+  ## Our Fuseki images (build-files/docker/Dockerfile, targets `runtime` and
+  ## `loader`), which are the ones scan-published.yml runs trivy against.
   - package-ecosystem: "docker"
     directory: "/build-files/docker"
     schedule:
