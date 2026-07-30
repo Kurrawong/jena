@@ -3,7 +3,17 @@
 version: '3'
 
 vars:
-  VERSION: 6.1.0-SNAPSHOT
+  # Read from pom.xml rather than hardcoded. This was pinned at 6.1.0-SNAPSHOT
+  # while the pom had moved to 6.2.0-SNAPSHOT, so local builds and CI tagged
+  # the same source differently. Deriving it cannot drift.
+  VERSION:
+    sh: grep -m1 '<version>' pom.xml | sed 's/.*<version>\(.*\)<\/version>.*/\1/'
+  # Short commit SHA, matching the immutable tag CI publishes (sha-<short>).
+  # Pinned to 7 characters because that is what docker/metadata-action's
+  # `type=sha` emits; bare `--short` lets git choose a longer prefix in a repo
+  # this size, which would not match the published tag.
+  GIT_SHA:
+    sh: git rev-parse --short=7 HEAD 2>/dev/null || echo unknown
   RUNTIME_IMAGE_NAME: '{{.RUNTIME_IMAGE_NAME | default "fuseki-lucene-shacl"}}'
   IMAGE_NAME: '{{.IMAGE_NAME | default "fuseki-lucene-shacl-loader"}}'
   IMAGE_TAG: '{{.IMAGE_TAG | default .VERSION}}'

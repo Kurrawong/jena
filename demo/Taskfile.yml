@@ -5,7 +5,11 @@ version: '3'
 vars:
   ## Must track the root pom's <version>. Override with VERSION=... if building
   ## against a differently-versioned jar.
-  VERSION: '{{.VERSION | default "6.2.0-SNAPSHOT"}}'
+  # Derived from the root pom so it cannot drift from the actual build output
+  # (the root Taskfile had drifted to 6.1.0-SNAPSHOT). Still overridable on the
+  # command line: `task VERSION=x ...`.
+  VERSION:
+    sh: grep -m1 '<version>' ../pom.xml 2>/dev/null | sed 's/.*<version>\(.*\)<\/version>.*/\1/'
   FUSEKI_JAR: ../jena-fuseki2/jena-fuseki-server/target/jena-fuseki-server-{{.VERSION}}.jar
   FUSEKI_PORT: '{{.FUSEKI_PORT | default "3030"}}'
   APP_PORT: '{{.APP_PORT | default "8000"}}'

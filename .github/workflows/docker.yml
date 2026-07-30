@@ -47,11 +47,47 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version from pom.xml
+      ## The pom version is upstream Jena's, not a version of this fork — the
+      ## fork tracks apache/jena@main, so two different commits here can both
+      ## read 6.2.0-SNAPSHOT and mean very different things. It is therefore
+      ## recorded as an image *label* rather than used as a tag. See the tag
+      ## scheme in the metadata steps below.
+      - name: Extract upstream Jena version from pom.xml
         id: version
         run: |
           VERSION=$(grep -m1 '<version>' pom.xml | sed 's/.*<version>\(.*\)<\/version>.*/\1/')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      ## Tag scheme, for both images:
+      ##   sha-<short>  immutable, exact, one per commit — the thing to pin and
+      ##                roll back to
+      ##   latest       floating, default branch only
+      ##
+      ## Provenance that used to be crammed into the tag lives in OCI labels
+      ## instead (revision, version, created, source), so `docker inspect` or
+      ## the GHCR UI answers "which commit, which Jena" without encoding it in
+      ## a tag that cannot be trusted to be unique.
+      - name: Docker metadata (runtime)
+        id: meta-runtime
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.FUSEKI_IMAGE }}
+          tags: |
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+
+      - name: Docker metadata (loader)
+        id: meta-loader
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.LOADER_IMAGE }}
+          tags: |
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
 
       # Both images come from one Dockerfile via --target, sharing the `builder`
       # stage. The first build below populates that stage in the gha cache; the
@@ -92,9 +128,9 @@ jobs:
           target: runtime
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ env.FUSEKI_IMAGE }}:${{ steps.version.outputs.version }}
-            ${{ env.FUSEKI_IMAGE }}:latest
+          tags: ${{ steps.meta-runtime.outputs.tags }}
+          labels: ${{ steps.meta-runtime.outputs.labels }}
+          annotations: ${{ steps.meta-runtime.outputs.annotations }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -155,8 +191,8 @@ jobs:
           target: loader
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ env.LOADER_IMAGE }}:${{ steps.version.outputs.version }}
-            ${{ env.LOADER_IMAGE }}:latest
+          tags: ${{ steps.meta-loader.outputs.tags }}
+          labels: ${{ steps.meta-loader.outputs.labels }}
+          annotations: ${{ steps.meta-loader.outputs.annotations }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

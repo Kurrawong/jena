@@ -24,6 +24,29 @@ They remain two separately published images rather than one image with two
 entrypoints, so the serving image is not gated on CVEs in the distribution's
 bundled `lib/` jars — which it never executes.
 
+## Tags
+
+CI publishes each image as:
+
+| Tag | Mutability |
+|-----|-----------|
+| `sha-<short>` | immutable, one per commit — pin to this |
+| `latest` | floating, default branch only |
+
+The Jena version is **not** in the tag. This fork tracks `apache/jena@main`, so the pom
+version identifies upstream rather than any state of this fork. It is recorded as
+`org.opencontainers.image.version` instead, alongside `.revision`, `.created` and
+`.source`:
+
+```bash
+docker inspect --format '{{json .Config.Labels}}' \
+  ghcr.io/kurrawong/fuseki-lucene-shacl:latest | jq
+```
+
+Do this against a **published** image. A locally built one inherits
+`org.opencontainers.image.created` and `.revision` from the UBI base — they describe Red
+Hat's base image build, not your working tree. CI overrides them; `docker build` does not.
+
 ## Loader Usage
 
 Load RDF files into a TDB2 dataset:
