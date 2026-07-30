@@ -113,6 +113,13 @@ public class TestCorrelatedNestedAttribution {
             true, true, false, false, true, false, false,
             NodeFactory.createURI(FIELD_NS + "attributionAgentWordText"));
 
+        // No analyzer at all: the index-wide StandardAnalyzer, scored by BM25. Nothing
+        // about the nested scope requires an n-gram field.
+        FieldDef attributionAgentProse = new FieldDef("attributionAgentProse", FieldType.TEXT,
+            null, null,
+            true, true, false, false, true, false, false,
+            NodeFactory.createURI(FIELD_NS + "attributionAgentProse"));
+
         List<FieldOccurrence> rootOccurrences = List.of(
             rootOccurrence(entityType, RDF.type.asNode()),
             rootOccurrence(title, LABEL_PRED));
@@ -122,7 +129,8 @@ public class TestCorrelatedNestedAttribution {
             nestedSeqOccurrence(attributionRole, HAD_ROLE, LABEL_PRED),
             nestedSeqOccurrence(attributionAgentExact, AGENT, LABEL_PRED),
             nestedSeqOccurrence(attributionAgentText, AGENT, LABEL_PRED),
-            nestedSeqOccurrence(attributionAgentWordText, AGENT, LABEL_PRED));
+            nestedSeqOccurrence(attributionAgentWordText, AGENT, LABEL_PRED),
+            nestedSeqOccurrence(attributionAgentProse, AGENT, LABEL_PRED));
 
         NestedDef attributions = new NestedDef(
             ATTRIBUTION_SCOPE,
@@ -137,7 +145,7 @@ public class TestCorrelatedNestedAttribution {
             Collections.singleton(REPORT_CLASS),
             "uri", "docType",
             Arrays.asList(entityType, title, attributionRole, attributionAgentExact,
-                attributionAgentText, attributionAgentWordText),
+                attributionAgentText, attributionAgentWordText, attributionAgentProse),
             rootOccurrences,
             Collections.emptyList(),
             Collections.singletonList(attributions));
@@ -378,6 +386,40 @@ public class TestCorrelatedNestedAttribution {
                     {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionRole"},"Principal Investigator"]},
                     {"op":"text_query","args":[{"property":"urn:jena:lucene:field#attributionAgentWordText"},"Sarah Jones"]}
                   ]}
+                ]}
+                """));
+    }
+
+    /**
+     * The configuration that scales: a plain TEXT field inside the nested scope, no
+     * analyzer, BM25. It correlates same-child exactly like the n-gram twins, and matches
+     * the multi-word input the demo sends — without an index full of prefixes, and without
+     * the client holding a copy of the vocabulary.
+     */
+    @Test
+    public void testPlainProseAgentFieldCorrelatesAndMatchesMultiWordInput() {
+        assertEquals("StandardAnalyzer + phrase query reaches a name mid-label",
+            Set.of(EX + "report-mia-2023"),
+            query("""
+                {"op":"and","args":[
+                  {"op":"=","args":[{"property":"urn:jena:lucene:field#entityType"},"http://example.org/mining/MiningReport"]},
+                  {"op":"and","args":[
+                    {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionRole"},"Principal Investigator"]},
+                    {"op":"text_query","args":[{"property":"urn:jena:lucene:field#attributionAgentProse"},"Sarah Jones"]}
+                  ]}
+                ]}
+                """));
+    }
+
+    /** A surname alone is enough, and the role clause still constrains which child matches. */
+    @Test
+    public void testPlainProseAgentFieldCorrelatesOnASurnameAlone() {
+        assertEquals("Jones is PI only on mia-2023",
+            Set.of(EX + "report-mia-2023"),
+            query("""
+                {"op":"and","args":[
+                  {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionRole"},"Principal Investigator"]},
+                  {"op":"text_query","args":[{"property":"urn:jena:lucene:field#attributionAgentProse"},"Jones"]}
                 ]}
                 """));
     }

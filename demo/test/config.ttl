@@ -163,14 +163,23 @@ field:attributionRole
     idx:facetable true ;
     idx:multiValued true .
 
-## An agent is a closed vocabulary: the UI lists the known names and the user picks one,
-## so the filter is exact equality on a KEYWORD field. Deliberately NOT an edge-ngram
-## twin — n-gramming a name buys prefix matching the picklist already gives, while
-## bloating the index and making the field useless for relevance. Free-text name search
-## belongs to authorNameText and BM25 instead.
+## Exact side of the agent name: equality filters and facet counts.
 field:attributionAgentExact
     idx:fieldName "attributionAgentExact" ;
     idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true ;
+    idx:multiValued true .
+
+## Search side, and what the agent filter box actually queries. No analyzer, so the
+## index-wide StandardAnalyzer applies and BM25 scores it: "Jones" and "Sarah Jones" both
+## reach "Dr Sarah Jones", and the clause still folds same-child with the role clause.
+## Deliberately not an edge-ngram twin — n-gramming a name expands every value to ~10-20
+## tokens, makes IDF meaningless, and buys prefix completion that costs a vocabulary
+## round trip to use. Whatever the author count, this field is the same size and speed.
+field:attributionAgentText
+    idx:fieldName "attributionAgentText" ;
+    idx:fieldType idx:TextField ;
     idx:stored false ;
     idx:multiValued true .
 
@@ -281,6 +290,7 @@ field:belowDetection
         idx:joinPath prov:qualifiedAttribution ;
         idx:property [ idx:field field:attributionRole ; sh:path ( prov:hadRole rdfs:label ) ] ;
         idx:property [ idx:field field:attributionAgentExact ; sh:path ( prov:agent rdfs:label ) ] ;
+        idx:property [ idx:field field:attributionAgentText ; sh:path ( prov:agent rdfs:label ) ] ;
     ] ;
     idx:facetHierarchy ( field:state field:commodity ) .
 

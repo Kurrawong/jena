@@ -152,7 +152,7 @@ Start here, because most fields do not want an analyzer override at all:
 | Complete a value the user is typing from memory (an identifier, a code) | `TEXT` + `idx:analyzer [ a text:EdgeNGramAnalyzer ]` |
 
 Edge-n-grams are for the third row only. They are the wrong reach for a name: see
-[Names are a picklist, not a prefix search](#names-are-a-picklist-not-a-prefix-search).
+[Names want BM25, not n-grams](#names-want-bm25-not-n-grams).
 
 ### Edge-n-gram modes
 
@@ -205,7 +205,7 @@ navigates by.
 
 `TestTypeaheadFieldConfigurations` exercises every row of both tables.
 
-### Names are a picklist, not a prefix search
+### Names want BM25, not n-grams
 
 The tempting configuration for a person's name is a per-word edge-n-gram twin, so that
 typing `Jones` completes `Dr Sarah Jones`. Do not do this. It costs:
@@ -213,17 +213,20 @@ typing `Jones` completes `Dr Sarah Jones`. Do not do this. It costs:
 - **Relevance.** Every value expands to ~10–20 tokens, IDF over prefixes is noise (`"s"`
   occurs everywhere) and length norms inflate. BM25 on the field stops meaning anything,
   which matters the moment it joins `idx:defaultSearch`.
-- **Index size**, for a gain a picklist already provides.
+- **Index size**, several times over, for every name in the corpus.
 - **Wrong multi-word semantics.** `text_query` builds a phrase query, so `"Jones Sarah"`
   misses. Right for completion, wrong for someone searching a name.
 
 And it still does not buy typo tolerance — `"Jonse"` fails under n-grams exactly as it
 fails under BM25.
 
-Names are a closed, counted vocabulary. Configure them as two fields with one path:
+A plain `TEXT` field with no analyzer override does what a name filter actually needs.
+`text_query` tokenises the input the same way the field was indexed, so `"Jones"` and
+`"Sarah Jones"` both reach `"Dr Sarah Jones"`, ranked by BM25. Pair it with a `KEYWORD`
+twin when you also want exact filtering and facet counts:
 
 ```turtle
-## Filter side: exact values with counts, offered to the user as a list
+## Exact side: equality filters and facet counts
 field:authorName
     idx:fieldName "authorName" ;
     idx:fieldType idx:KeywordField ;
@@ -238,10 +241,20 @@ field:authorNameText
     sh:path ( ex:authoredBy ex:name ) .
 ```
 
-The UI completes against the facet values (or, for a small vocabulary, a list loaded
-once), and filters with `=` on the exact field. Completion is then a substring match over
-a few hundred strings on the client — mid-word capable and free — while the search box
-gets a properly ranked name search. `demo/test/config.ttl` is configured this way.
+This holds inside an `idx:nested` scope too: a plain `TEXT` field there still folds
+same-child with its sibling clauses, so "role = Principal Investigator AND agent matches
+Sarah Jones" correlates onto one attribution record with no n-grams involved.
+`TestCorrelatedNestedAttribution` covers it.
+
+#### What about completion?
+
+A picklist is worth it only when the vocabulary is genuinely small and fixed — a set of
+roles or statuses, not a set of people. Completing a name means either shipping the
+vocabulary to the client, which stops being viable somewhere in the low thousands, or a
+query per keystroke. Prefer BM25 on whole words until there is a suggestion API worth
+using; the natural one here is a prefix filter over facet values, evaluated in the facet
+collector, which reuses the dictionary the index already has and respects the current
+filter state.
 
 An identifier is the opposite case: an open, near-unique vocabulary with no useful counts,
 which the user types verbatim and expects to be completed. That is what edge-n-grams are
@@ -351,18 +364,19 @@ field:attributionAgentExact
         idx:joinPath prov:qualifiedAttribution ;
         idx:property field:attributionRole ;
         idx:property field:attributionAgentExact ;
+        idx:property field:attributionAgentText ;
     ] .
 ```
 
-Both fields are `KEYWORD`, and both sides of the filter are `=` — role and agent are each
-picked from a list, so the two clauses fold same-child and a report surfaces only when one
-attribution record carries both.
+Role is a fixed vocabulary, so it filters with `=`. The agent name filters with
+`text_query` against the plain `TEXT` twin: `"Sarah Jones"` reaches `"Dr Sarah Jones"`,
+and the two clauses still fold same-child, so a report surfaces only when one attribution
+record carries both. The `KEYWORD` twin stays for exact filtering and facet counts.
 
-There is no n-gram twin on the agent here, on purpose: completion over a few hundred known
-names belongs in the UI, and free-text name search belongs to a `defaultSearch` field —
-see [Names are a picklist, not a prefix search](#names-are-a-picklist-not-a-prefix-search).
-`TestCorrelatedNestedAttribution` pins the correlation for both `=` and, for configurations
-that do add a text twin, `text_query`.
+No n-gram twin on the agent, on purpose — see
+[Names want BM25, not n-grams](#names-want-bm25-not-n-grams).
+`TestCorrelatedNestedAttribution` pins the correlation for `=`, for `text_query` on a
+plain field, and for the n-gram configurations that are permitted but not advised.
 
 ### Rules
 

@@ -65,7 +65,7 @@
 
   { "group": "Correlated Nested Filters" },
   { "label": "Identifier typeahead: anumber contains A94", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]},{\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"identifierType\"},\"anumber\"]},{\"op\":\"text_query\",\"args\":[{\"property\":\"identifierValueText\"},\"A94\"]}]}]}", "minResults": 2, "scrollToText": "identifiers" },
-  { "label": "Qualified attribution: PI + Dr Sarah Jones", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]},{\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"attributionRole\"},\"Principal Investigator\"]},{\"op\":\"=\",\"args\":[{\"property\":\"attributionAgentExact\"},\"Dr Sarah Jones\"]}]}]}", "minResults": 1, "scrollToText": "identifiers" },
+  { "label": "Qualified attribution: PI + Sarah Jones", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]},{\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"attributionRole\"},\"Principal Investigator\"]},{\"op\":\"text_query\",\"args\":[{\"property\":\"attributionAgentText\"},\"Sarah Jones\"]}]}]}", "minResults": 1, "scrollToText": "identifiers" },
 
   { "group": "Spatial: Bbox Filter" },
   { "label": "Australia bbox (all spatial)", "params": "?filter={\"op\":\"s_intersects\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"bbox\":[112,-44,154,-10]}]}", "minResults": 10 },

@@ -406,14 +406,14 @@ Same-child guarantee: a borehole surfaces only when ONE identifier record has pr
   "op": "and",
   "args": [
     {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionRole"},"Principal Investigator"]},
-    {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionAgentExact"},"Dr Sarah Jones"]}
+    {"op":"text_query","args":[{"property":"urn:jena:lucene:field#attributionAgentText"},"Sarah Jones"]}
   ]
 }
 ```
 
-A report surfaces only when ONE qualified-attribution record has hadRole="Principal Investigator" AND agent="Dr Sarah Jones" — not where the role is on one attribution and the name is on another.
+A report surfaces only when ONE qualified-attribution record has hadRole="Principal Investigator" AND an agent matching "Sarah Jones" — not where the role is on one attribution and the name is on another.
 
-Both clauses are `=` because both values come from a picklist. Reaching for `text_query` on an n-gram twin of the agent name instead is a common mistake: it costs relevance and index size to re-implement completion the picklist already does, and a partial name like `"Sarah Jones"` then depends on the exact n-gram mode configured — see [03-configuration.md → Names are a picklist, not a prefix search](03-configuration.md#names-are-a-picklist-not-a-prefix-search).
+`attributionAgentText` here is a plain `TEXT` field with no analyzer override, so the input is tokenised the same way the index was and `"Sarah Jones"` matches `"Dr Sarah Jones"` as a phrase. Reaching for an n-gram twin instead is a common mistake — see [03-configuration.md → Names want BM25, not n-grams](03-configuration.md#names-want-bm25-not-n-grams).
 
 **Boundary worth knowing:** the same-child fold operates within one CQL filter subtree. If the type clause sits in `cqlFilter` and the text clause sits in `queryString` (the separate text input on `luc:query`), they are not in the same CqlAnd and the fold cannot apply — each lifts independently. For same-child correctness, put both clauses in `cqlFilter` (using `=` and `text_query` as shown above).
 
