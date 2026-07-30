@@ -84,7 +84,7 @@ RUN curl -fsSL -o /jq-amd64 "https://github.com/jqlang/jq/releases/download/${JQ
 
 # ─── fuseki-ai: serving Fuseki ───────────────────────────────────────────────
 
-FROM eclipse-temurin:21-jre-ubi10-minimal AS runtime
+FROM eclipse-temurin:24-jre-ubi10-minimal AS runtime
 
 # No LABEL here on purpose. CI applies the full OCI label set — source,
 # revision, version, created — via docker/metadata-action, which derives them
