@@ -80,7 +80,7 @@ public class TestCsvRowSource {
     private static ExternalSourceDef sourceDef(ExternalFormat format, String location,
                                                String subjectColumn, String subjectPrefix) {
         return new ExternalSourceDef(format, location, subjectColumn, -1, subjectPrefix,
-            null, false, ErrorPolicy.SKIP, 0.0,
+            null, false, ErrorPolicy.SKIP,
             Arrays.asList(new ColumnBinding("property", -1, PROPERTY_FIELD),
                 new ColumnBinding("value", -1, VALUE_FIELD)));
     }
@@ -160,7 +160,7 @@ public class TestCsvRowSource {
             + "https://ex.org/s/A2,Cu,0.7\n");
 
         ExternalSourceDef def = new ExternalSourceDef(ExternalFormat.CSV, file.toString(),
-            null, 0, null, null, true, ErrorPolicy.SKIP, 0.0,
+            null, 0, null, null, true, ErrorPolicy.SKIP,
             Arrays.asList(new ColumnBinding(null, 1, PROPERTY_FIELD),
                 new ColumnBinding(null, 2, VALUE_FIELD)));
 

@@ -55,10 +55,10 @@ import org.slf4j.LoggerFactory;
  * hand before anything is written; grouping by subject is therefore mandatory.
  * <p>
  * External rows <b>augment</b> entities; they never create them. A row whose subject
- * matches no entity is counted and dropped, because extracts are routinely broader
- * than the graph. The count is always reported, and {@code idx:minMatchRate} turns a
- * catastrophically low match — the signature of a wrong {@code idx:subjectPrefix} —
- * into a hard failure.
+ * matches no entity is counted and dropped, because extracts and the graph are equally
+ * valid sources that we align, and neither is obliged to cover the other. The match and
+ * unmatch counts are always reported so a wrong {@code idx:subjectPrefix} is visible in
+ * the build log; the indexer does not judge how well the two sides line up.
  */
 public class ExternalChildMerger implements Closeable {
     private static final Logger log = LoggerFactory.getLogger(ExternalChildMerger.class);
@@ -71,7 +71,7 @@ public class ExternalChildMerger implements Closeable {
     public ExternalChildMerger(ShaclIndexMapping mapping) {
         for (IndexProfile profile : mapping.getProfiles()) {
             for (NestedDef nestedDef : profile.getExternalNestedDefs()) {
-                SourceCursor cursor = new SourceCursor(profile, nestedDef);
+                SourceCursor cursor = new SourceCursor(nestedDef);
                 cursorsByShape.computeIfAbsent(profile.getShapeNode(), k -> new ArrayList<>()).add(cursor);
                 allCursors.add(cursor);
             }
@@ -109,15 +109,12 @@ public class ExternalChildMerger implements Closeable {
 
     /**
      * Drain what is left of every source so unmatched rows are counted rather than
-     * silently ignored, report the counters, and enforce {@code idx:minMatchRate}.
+     * silently ignored, and report the counters.
      */
     public void finish() {
         for (SourceCursor cursor : allCursors) {
             cursor.drain();
             cursor.report();
-        }
-        for (SourceCursor cursor : allCursors) {
-            cursor.enforceMinMatchRate();
         }
     }
 
@@ -151,7 +148,6 @@ public class ExternalChildMerger implements Closeable {
     // ----- one configured source -----
 
     private static final class SourceCursor {
-        private final IndexProfile profile;
         private final NestedDef nestedDef;
         private final ExternalSourceDef def;
         private final ExternalRowSource source;
@@ -167,8 +163,7 @@ public class ExternalChildMerger implements Closeable {
         private long entitiesSeen;
         private long entitiesMatched;
 
-        SourceCursor(IndexProfile profile, NestedDef nestedDef) {
-            this.profile = profile;
+        SourceCursor(NestedDef nestedDef) {
             this.nestedDef = nestedDef;
             this.def = nestedDef.getExternalSource();
             this.source = ExternalRowSources.create(def);
@@ -320,21 +315,6 @@ public class ExternalChildMerger implements Closeable {
             if (stats.rowsMatched() == 0 && stats.rowsRead() > 0) {
                 log.warn("External source {} matched no entity at all. Check idx:subjectColumn and "
                     + "idx:subjectPrefix — the join key must be the full entity IRI.", describe());
-            }
-        }
-
-        void enforceMinMatchRate() {
-            double required = def.getMinMatchRate();
-            if (required <= 0.0) {
-                return;
-            }
-            double actual = stats().matchRate();
-            if (actual < required) {
-                throw new TextIndexException(String.format(Locale.US,
-                    "External source %s matched only %.1f%% of the %d entities of shape %s, "
-                    + "below the required idx:minMatchRate of %.1f%%. This usually means the "
-                    + "join key is wrong (idx:subjectColumn / idx:subjectPrefix).",
-                    describe(), actual * 100.0, entitiesSeen, profile.getShapeNode(), required * 100.0));
             }
         }
 

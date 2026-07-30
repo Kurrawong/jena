@@ -256,7 +256,6 @@ public class ShaclIndexAssembler {
         String subjectPrefix = getOptionalString(sourceRes, IndexVocab.pSubjectPrefix);
         Character delimiter = parseDelimiter(sourceRes);
         ErrorPolicy onError = parseErrorPolicy(sourceRes);
-        double minMatchRate = getOptionalDouble(sourceRes, IndexVocab.pMinMatchRate, 0.0);
 
         List<ColumnBinding> columns = new ArrayList<>();
         StmtIterator columnIter = sourceRes.listProperties(IndexVocab.pColumn);
@@ -276,7 +275,7 @@ public class ShaclIndexAssembler {
         String opColumn = getOptionalString(sourceRes, IndexVocab.pOpColumn);
 
         return new ExternalSourceDef(format, location, subjectColumn, subjectColumnIndex,
-            subjectPrefix, delimiter, headerless, onError, minMatchRate, columns,
+            subjectPrefix, delimiter, headerless, onError, columns,
             deltaLocations, opColumn);
     }
 
@@ -916,14 +915,6 @@ public class ShaclIndexAssembler {
             return defaultValue;
         }
         return stmt.getObject().asLiteral().getInt();
-    }
-
-    private static double getOptionalDouble(Resource resource, Property property, double defaultValue) {
-        Statement stmt = resource.getProperty(property);
-        if (stmt == null) {
-            return defaultValue;
-        }
-        return stmt.getObject().asLiteral().getDouble();
     }
 
     private static Node getOptionalResourceNode(Resource resource, Property property) {

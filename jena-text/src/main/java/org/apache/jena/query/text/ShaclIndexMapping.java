@@ -392,7 +392,6 @@ public class ShaclIndexMapping {
         private final Character delimiter;
         private final boolean headerless;
         private final ErrorPolicy onError;
-        private final double minMatchRate;
         private final List<ColumnBinding> columns;
         private final List<FieldDef> fields;
         private final List<String> deltaLocations;
@@ -404,10 +403,10 @@ public class ShaclIndexMapping {
         public ExternalSourceDef(ExternalFormat format, String location,
                                  String subjectColumn, int subjectColumnIndex, String subjectPrefix,
                                  Character delimiter, boolean headerless,
-                                 ErrorPolicy onError, double minMatchRate,
+                                 ErrorPolicy onError,
                                  List<ColumnBinding> columns) {
             this(format, location, subjectColumn, subjectColumnIndex, subjectPrefix,
-                delimiter, headerless, onError, minMatchRate, columns,
+                delimiter, headerless, onError, columns,
                 Collections.emptyList(), DEFAULT_OP_COLUMN);
         }
 
@@ -415,7 +414,7 @@ public class ShaclIndexMapping {
         public ExternalSourceDef(ExternalFormat format, String location,
                                  String subjectColumn, int subjectColumnIndex, String subjectPrefix,
                                  Character delimiter, boolean headerless,
-                                 ErrorPolicy onError, double minMatchRate,
+                                 ErrorPolicy onError,
                                  List<ColumnBinding> columns,
                                  List<String> deltaLocations, String opColumn) {
             this.format = Objects.requireNonNull(format, "format");
@@ -426,7 +425,6 @@ public class ShaclIndexMapping {
             this.delimiter = delimiter;
             this.headerless = headerless;
             this.onError = onError != null ? onError : ErrorPolicy.SKIP;
-            this.minMatchRate = minMatchRate;
             this.columns = columns != null
                 ? Collections.unmodifiableList(new ArrayList<>(columns))
                 : Collections.emptyList();
@@ -446,7 +444,6 @@ public class ShaclIndexMapping {
         public Character getDelimiter()          { return delimiter; }
         public boolean isHeaderless()            { return headerless; }
         public ErrorPolicy getOnError()          { return onError; }
-        public double getMinMatchRate()          { return minMatchRate; }
         public List<ColumnBinding> getColumns()  { return columns; }
         public List<FieldDef> getFields()        { return fields; }
         /** Delta files applied over the base, in order. Empty for a plain source. */
@@ -457,7 +454,7 @@ public class ShaclIndexMapping {
         /** Same source with the deltas stripped — the base layer a delta reader wraps. */
         public ExternalSourceDef withoutDeltas() {
             return new ExternalSourceDef(format, location, subjectColumn, subjectColumnIndex,
-                subjectPrefix, delimiter, headerless, onError, minMatchRate, columns);
+                subjectPrefix, delimiter, headerless, onError, columns);
         }
 
         /**
@@ -469,7 +466,7 @@ public class ShaclIndexMapping {
             List<ColumnBinding> withOp = new ArrayList<>(columns);
             withOp.add(new ColumnBinding(opColumn, -1, opField));
             return new ExternalSourceDef(format, deltaLocation, subjectColumn, subjectColumnIndex,
-                subjectPrefix, delimiter, headerless, onError, minMatchRate, withOp);
+                subjectPrefix, delimiter, headerless, onError, withOp);
         }
 
         private void validate() {
@@ -507,10 +504,6 @@ public class ShaclIndexMapping {
                         "Field " + field.getFieldIRI().getURI()
                         + " is bound to more than one column of idx:externalSource " + location);
                 }
-            }
-            if (minMatchRate < 0.0 || minMatchRate > 1.0) {
-                throw new TextIndexException(
-                    "idx:minMatchRate on " + location + " must be between 0.0 and 1.0, got " + minMatchRate);
             }
             if (!deltaLocations.isEmpty()) {
                 if (headerless) {

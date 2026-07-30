@@ -423,7 +423,6 @@ field:measuredValue
             idx:format        idx:CsvFile ;
             idx:location      "/data/measurements.csv" ;
             idx:subjectColumn "sample_iri" ;
-            idx:minMatchRate  "0.5"^^xsd:double ;
             idx:column [ idx:columnName "property" ; idx:field field:measuredProperty ] ;
             idx:column [ idx:columnName "value" ;    idx:field field:measuredValue ] ;
         ] ;
@@ -445,7 +444,6 @@ Bound fields carry **no `sh:path`** — their values come from the column. There
 | `idx:delimiter` | no | Single-character delimiter override |
 | `idx:headerless` | no | No header row; bind columns with `idx:columnIndex`. Default `false` |
 | `idx:onError` | no | `"skip"` (default, counted) or `"fail"` |
-| `idx:minMatchRate` | no | Build fails if a smaller fraction of entities matched. Default `0.0` (off) |
 | `idx:column` | yes | Repeatable binding: `idx:columnName` **or** `idx:columnIndex`, plus `idx:field` |
 | `idx:delta` | no | Delta file(s) applied over the base at build time. Several must be an ordered list |
 | `idx:opColumn` | no | Column holding `ADD`/`DELETE` in a delta. Default `"op"` |
@@ -566,7 +564,7 @@ affected entities is future work.
 ### Rules and limits
 
 - **Bulk build only.** `ShaclBulkIndexer` is the only path that populates external children. A live graph change to an entity of such a shape is refused with a warning — rebuilding from the graph alone would silently strip its children, and Lucene has no partial document update. Re-run the bulk indexer.
-- **Rows augment entities; they never create them.** A row whose subject matches no entity is counted and dropped. The count is always logged; `idx:minMatchRate` turns the catastrophic case — usually a wrong `idx:subjectPrefix` — into a build failure.
+- **Rows augment entities; they never create them.** A row whose subject matches no entity is counted and dropped. The graph and the extract are equally valid sources that we align, and neither is obliged to cover the other, so the indexer never judges how well they overlap. Match and unmatch counts and the resulting match rate are always logged — a wrong `idx:subjectPrefix` shows up as a near-zero rate. Fix it in the data, not with a threshold.
 - **An entity with no rows is still indexed**, with its graph fields and no children.
 - **A row with an empty or unparseable bound cell is dropped whole**, never coerced to `0` and never emitted as a half-populated child.
 - **No transformations.** No units, no `<0.5` detection-limit markers, no null sentinels, no computed columns. A cell either parses as its declared type or it is an error. That work belongs upstream, in whatever produced the file.
