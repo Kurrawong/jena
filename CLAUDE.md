@@ -48,6 +48,33 @@ verify with `gh auth status`. Override per-invocation with `GHCR_OWNER=...`.
 Earlier images published under `ghcr.io/aiworkerjohns/*` as `fuseki-ai` / `fuseki-loader`;
 that account did not move with the repo and those tags are not updated.
 
+### Image tags and provenance
+
+| Tag | Mutability | Purpose |
+|-----|-----------|---------|
+| `sha-<short>` | immutable, one per commit | pin and roll back to this |
+| `latest` | floating, default branch only | a downstream consumer requires it |
+
+**The pom version is not a tag.** This fork tracks `apache/jena@main`, so `6.2.0-SNAPSHOT`
+is *upstream's* version — two unrelated commits here can both carry it. Tagging by it meant
+every push silently overwrote the previous image and left no immutable reference at all.
+It is now recorded as `org.opencontainers.image.version` instead.
+
+Provenance lives in OCI labels, applied in CI by `docker/metadata-action`:
+`org.opencontainers.image.revision` (full SHA), `.version` (upstream Jena), `.created`,
+`.source`. So `docker inspect ghcr.io/kurrawong/fuseki-lucene-shacl:latest` answers "which
+commit, which Jena" without that being encoded in a tag. The Dockerfile deliberately
+carries **no** `LABEL` line — a hardcoded one went stale when the repo moved.
+
+Only trust those labels on a **published** image. The UBI base sets its own
+`org.opencontainers.image.created` and `.revision` describing Red Hat's base build, and a
+local `docker build` inherits them unchanged — they look plausible but describe the base
+image, not your tree. CI's `--label` overrides them.
+
+`Taskfile.yml` derives `VERSION` from `pom.xml` via `sh:` rather than hardcoding it; it had
+drifted to `6.1.0-SNAPSHOT` against a `6.2.0-SNAPSHOT` pom, so local builds and CI tagged
+identical source differently. Do not replace it with a literal.
+
 ## Build Commands
 
 ```bash

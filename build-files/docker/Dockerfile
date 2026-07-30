@@ -86,7 +86,17 @@ RUN curl -fsSL -o /jq-amd64 "https://github.com/jqlang/jq/releases/download/${JQ
 
 FROM eclipse-temurin:21-jre-ubi10-minimal AS runtime
 
-LABEL org.opencontainers.image.source=https://github.com/aiworkerjohns/jena
+# No LABEL here on purpose. CI applies the full OCI label set — source,
+# revision, version, created — via docker/metadata-action, which derives them
+# from the repository and commit being built. A hardcoded source label went
+# stale and wrong when the repo moved (it still read aiworkerjohns/jena long
+# after the move); deriving it removes that failure mode.
+#
+# Careful when inspecting a LOCALLY built image: the UBI base sets its own
+# org.opencontainers.image.created and .revision, describing Red Hat's base
+# image build, not this source tree. Only images built by CI carry our values
+# (buildx --label overrides the inherited keys). Trust those labels on a
+# published image, not on a local `docker build`.
 
 WORKDIR /fuseki
 
