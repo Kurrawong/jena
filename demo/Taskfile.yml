@@ -66,6 +66,7 @@ tasks:
     desc: Start Fuseki with the mining config (foreground)
     dir: test
     cmds:
+      - task: require-jar
       - java -jar ../{{.FUSEKI_JAR}} --port {{.FUSEKI_PORT}} --config config.ttl
 
   app:
@@ -105,15 +106,20 @@ tasks:
 
   load-offline:
     desc: Load the mining dataset straight into TDB2 (no server; bypasses the change listener)
+    # dir must sit on the task, not on the command: Task silently ignores a command-level
+    # dir, which sends every relative path in here one directory too high.
+    dir: test
     cmds:
+      # Guard before clean, not after: a missing jar must not cost you the database.
+      - task: require-jar
       - task: clean
-      - cmd: java -cp ../{{.FUSEKI_JAR}} tdb2.tdbloader --loc=DB data/mining.ttl data/generated.ttl
-        dir: test
+      - java -cp ../{{.FUSEKI_JAR}} tdb2.tdbloader --loc=DB data/mining.ttl data/generated.ttl
 
   index:
     desc: Bulk-index all shapes, including the boreholes' external assay CSV
     dir: test
     cmds:
+      - task: require-jar
       # BoreholeShape declares an idx:externalSource, which makes it rebuild-only:
       # a live graph change cannot re-derive assay children, so the change listener
       # refuses to touch those documents. This is the step that builds them.
@@ -216,6 +222,20 @@ tasks:
       - '{{if and .GHCR .PULL}}docker compose pull {{.SERVICE | default "fuseki"}}{{else}}true{{end}}'
       - docker compose {{.ARGS}}
 
+  # Every task that shells out to the jar checks it first. Without this, a missing or
+  # half-built jar surfaces as "Could not find or load main class", which reads like a
+  # packaging problem rather than "you have not run task build".
+  require-jar:
+    internal: true
+    dir: test
+    cmds:
+      - |
+        test -f ../{{.FUSEKI_JAR}} || {
+          echo "Fuseki jar not found: demo/test/{{.FUSEKI_JAR}}"
+          echo "Run 'task build' first, or pass VERSION=... if the pom version has moved."
+          exit 1
+        }
+
   stop-all:
     internal: true
     cmds:
@@ -227,6 +247,7 @@ tasks:
     desc: Start Fuseki in the background and block until it answers /$/ping
     dir: test
     cmds:
+      - task: require-jar
       - rm -f fuseki.log
       - nohup java -jar ../{{.FUSEKI_JAR}} --port {{.FUSEKI_PORT}} --config config.ttl > fuseki.log 2>&1 &
       - |
