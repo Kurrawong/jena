@@ -54,7 +54,7 @@
 
   { "group": "Literal Metadata" },
   { "label": "QA passed = true", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"qaPassed\"},\"true\"]}", "minResults": 5 },
-  { "label": "French review note", "params": "?q=r%C3%A9serves&filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}", "minResults": 1 },
+  { "label": "French review note", "params": "?q=réserves&filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}", "minResults": 1 },
 
   { "group": "Nested Identifier Hierarchy" },
   { "label": "Boreholes only (identifier drill-down visible)", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}", "minResults": 5, "scrollToText": "identifiers" },
