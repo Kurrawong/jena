@@ -62,7 +62,7 @@ jobs:
       # ─── fuseki-lucene-shacl: build amd64 (load), scan, push multi-arch on main ───────
 
       - name: Build fuseki-lucene-shacl (amd64, load for scan)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: build-files/docker/Dockerfile
@@ -85,7 +85,7 @@ jobs:
 
       - name: Push fuseki-lucene-shacl (multi-arch)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: build-files/docker/Dockerfile
@@ -101,7 +101,7 @@ jobs:
       # ─── fuseki-lucene-shacl-loader: build amd64 (load), smoke-test, scan, push multi-arch ──
 
       - name: Build fuseki-lucene-shacl-loader (amd64, load for scan)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: build-files/docker/Dockerfile
@@ -148,7 +148,7 @@ jobs:
 
       - name: Push fuseki-lucene-shacl-loader (multi-arch)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: build-files/docker/Dockerfile
