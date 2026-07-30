@@ -135,7 +135,7 @@ ex:bh-mia-001 a ex:Borehole ;
     ex:depth 450 ;
     schema:identifier
         [ schema:propertyID "company" ; schema:value "Glencore" ],
-        [ schema:propertyID "anumber" ; schema:value "A-9412" ],
+        [ schema:propertyID "anumber" ; schema:value "A9412" ],
         [ schema:propertyID "mnumber" ; schema:value "MIA-DDH-001" ] ;
     geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-20.74 139.50)"^^geo:wktLiteral .
 
@@ -148,7 +148,7 @@ ex:bh-mia-002 a ex:Borehole ;
     ex:depth 320 ;
     schema:identifier
         [ schema:propertyID "company" ; schema:value "Glencore" ],
-        [ schema:propertyID "anumber" ; schema:value "A-9413" ],
+        [ schema:propertyID "anumber" ; schema:value "A9413" ],
         [ schema:propertyID "mnumber" ; schema:value "MIA-DDH-002" ] .
 
 ex:bh-od-001 a ex:Borehole ;
@@ -160,7 +160,7 @@ ex:bh-od-001 a ex:Borehole ;
     ex:depth 280 ;
     schema:identifier
         [ schema:propertyID "company" ; schema:value "BHP" ],
-        [ schema:propertyID "anumber" ; schema:value "A-1208" ],
+        [ schema:propertyID "anumber" ; schema:value "A1208" ],
         [ schema:propertyID "mnumber" ; schema:value "OD-RC-001" ] .
 
 ex:bh-bod-001 a ex:Borehole ;
@@ -172,7 +172,7 @@ ex:bh-bod-001 a ex:Borehole ;
     ex:depth 600 ;
     schema:identifier
         [ schema:propertyID "company" ; schema:value "Newmont" ],
-        [ schema:propertyID "anumber" ; schema:value "A-3301" ],
+        [ schema:propertyID "anumber" ; schema:value "A3301" ],
         [ schema:propertyID "mnumber" ; schema:value "BOD-DDH-001" ] ;
     geo:asWKT "POINT(116.36 -32.78)"^^geo:wktLiteral .
 
@@ -185,7 +185,7 @@ ex:bh-bh-001 a ex:Borehole ;
     ex:depth 210 ;
     schema:identifier
         [ schema:propertyID "company" ; schema:value "Legacy Co" ],
-        [ schema:propertyID "anumber" ; schema:value "A-4402" ],
+        [ schema:propertyID "anumber" ; schema:value "A4402" ],
         [ schema:propertyID "mnumber" ; schema:value "BHM-DDH-001" ] .
 
 ex:bh-cad-001 a ex:Borehole ;
@@ -197,7 +197,7 @@ ex:bh-cad-001 a ex:Borehole ;
     ex:depth 850 ;
     schema:identifier
         [ schema:propertyID "company" ; schema:value "Newcrest" ],
-        [ schema:propertyID "anumber" ; schema:value "A-5507" ],
+        [ schema:propertyID "anumber" ; schema:value "A5507" ],
         [ schema:propertyID "mnumber" ; schema:value "CAD-DDH-001" ] .
 
 ex:bh-pil-001 a ex:Borehole ;
@@ -209,7 +209,7 @@ ex:bh-pil-001 a ex:Borehole ;
     ex:depth 150 ;
     schema:identifier
         [ schema:propertyID "company" ; schema:value "Rio Tinto" ],
-        [ schema:propertyID "anumber" ; schema:value "A-6609" ],
+        [ schema:propertyID "anumber" ; schema:value "A6609" ],
         [ schema:propertyID "mnumber" ; schema:value "PIL-RC-001" ] ;
     geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-22.35 118.60)"^^geo:wktLiteral .
 

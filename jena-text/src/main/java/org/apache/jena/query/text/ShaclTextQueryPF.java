@@ -59,8 +59,13 @@ import org.slf4j.LoggerFactory;
  * <p>
  * Supported argument format:
  * <pre>
- * (?hit ?entity ?score ?totalHits ?graph) luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)
+ * (?hit ?entity ?score ?rank ?totalHits ?graph) luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)
  * </pre>
+ * <p>
+ * {@code ?rank} is the hit's position in the whole result set, counting from 0. Result
+ * order cannot be recovered from {@code ?score}: a match-all query scores every document
+ * identically and relevance scores tie, so a consumer that receives an unordered result
+ * set — a {@code CONSTRUCT} graph — needs the rank to restore the order.
  * <p>
  * {@code ?hit} is a query-scoped blank node identifier for joining with {@code luc:match}.
  * The second string literal is the field specification: {@code "default"} searches all
@@ -83,9 +88,9 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
 
         if (argSubject.isList()) {
             int size = argSubject.getArgListSize();
-            if (size == 0 || size > 5) {
-                throw new QueryBuildException("Subject has " + size + " elements, must be 1-5 " +
-                    "(?hit ?entity ?score ?totalHits ?graph): " + argSubject);
+            if (size == 0 || size > 6) {
+                throw new QueryBuildException("Subject has " + size + " elements, must be 1-6 " +
+                    "(?hit ?entity ?score ?rank ?totalHits ?graph): " + argSubject);
             }
         }
 
@@ -152,8 +157,8 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         argSubject = Substitute.substitute(argSubject, binding);
         argObject = Substitute.substitute(argObject, binding);
 
-        // Subject shape: (?hit ?entity ?score ?totalHits ?graph)
-        Node hit = null, entity = null, score = null, totalHitsNode = null, graph = null;
+        // Subject shape: (?hit ?entity ?score ?rank ?totalHits ?graph)
+        Node hit = null, entity = null, score = null, rank = null, totalHitsNode = null, graph = null;
 
         if (argSubject.isList()) {
             hit = argSubject.getArg(0);
@@ -166,12 +171,17 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
                     throw new QueryExecException("Score is not a variable: " + argSubject);
             }
             if (argSubject.getArgListSize() > 3) {
-                totalHitsNode = argSubject.getArg(3);
+                rank = argSubject.getArg(3);
+                if (!rank.isVariable())
+                    throw new QueryExecException("Rank is not a variable: " + argSubject);
+            }
+            if (argSubject.getArgListSize() > 4) {
+                totalHitsNode = argSubject.getArg(4);
                 if (!totalHitsNode.isVariable())
                     throw new QueryExecException("Total hits is not a variable: " + argSubject);
             }
-            if (argSubject.getArgListSize() > 4) {
-                graph = argSubject.getArg(4);
+            if (argSubject.getArgListSize() > 5) {
+                graph = argSubject.getArg(5);
                 if (!graph.isVariable())
                     throw new QueryExecException("Graph is not a variable: " + argSubject);
             }
@@ -219,18 +229,20 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         }
 
         long totalHits = totalHitsNode != null ? se.getTotalHits() : -1;
-        QueryIterator qIter = resultsToQueryIterator(binding, hit, entity, score,
+        QueryIterator qIter = resultsToQueryIterator(binding, hit, entity, score, rank,
             totalHitsNode, totalHits, graph, hits, execCxt);
         return qIter;
     }
 
     private QueryIterator resultsToQueryIterator(Binding binding,
                                                   Node hitNode, Node entityNode, Node scoreNode,
+                                                  Node rankNode,
                                                   Node totalHitsNode, long totalHits, Node graphNode,
                                                   Collection<SearchHit> results, ExecutionContext execCxt) {
         Var hitVar = Var.isVar(hitNode) ? Var.alloc(hitNode) : null;
         Var entityVar = (entityNode != null && Var.isVar(entityNode)) ? Var.alloc(entityNode) : null;
         Var scoreVar = (scoreNode == null) ? null : Var.alloc(scoreNode);
+        Var rankVar = (rankNode == null) ? null : Var.alloc(rankNode);
         Var totalHitsVar = (totalHitsNode == null) ? null : Var.alloc(totalHitsNode);
         Node totalHitsValue = totalHitsVar != null
             ? NodeFactory.createLiteralDT(String.valueOf(totalHits), XSDDatatype.XSDinteger) : null;
@@ -241,6 +253,7 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
             if (hitVar != null) bmap.add(hitVar, sh.getHitId());
             if (entityVar != null) bmap.add(entityVar, sh.getEntityNode());
             if (scoreVar != null) bmap.add(scoreVar, NodeFactoryExtra.floatToNode(sh.getScore()));
+            if (rankVar != null) bmap.add(rankVar, NodeFactoryExtra.intToNode(sh.getRank()));
             if (totalHitsVar != null) bmap.add(totalHitsVar, totalHitsValue);
             if (graphVar != null && sh.getGraph() != null) bmap.add(graphVar, sh.getGraph());
             return bmap.build();

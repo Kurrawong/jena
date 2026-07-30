@@ -560,6 +560,95 @@ public class TestSortSpec {
         }
     }
 
+    /**
+     * Lucene does not score documents when a Sort is supplied, so {@code ScoreDoc.score}
+     * arrives as NaN. The hits must still carry a usable ordering signal: a score that
+     * strictly decreases with position, so a consumer that only sees an unordered result
+     * set (a CONSTRUCT graph, say) can reconstruct the requested order by sorting on it.
+     */
+    @Test
+    public void testSortedSearchEmitsRankOrderedScores() {
+        ShaclTextIndexLucene textIndex = depthIndex();
+        try {
+            List<SearchHit> hits = textIndex.searchWithHitIds(
+                Collections.emptyList(), null, null,
+                List.of(new SortSpec(FP + "depth", false)), null, null, 10);
+
+            assertEquals(List.of("http://example.org/d10", "http://example.org/d20",
+                                 "http://example.org/d30", "http://example.org/d40"),
+                hits.stream().map(hit -> hit.getEntityNode().getURI()).toList());
+
+            for (SearchHit hit : hits) {
+                assertFalse("score is NaN for " + hit.getEntityNode(),
+                    Float.isNaN(hit.getScore()));
+            }
+            for (int i = 1; i < hits.size(); i++) {
+                assertTrue("score must decrease with rank: " + hits.get(i - 1) + " then " + hits.get(i),
+                    hits.get(i).getScore() < hits.get(i - 1).getScore());
+            }
+        } finally {
+            textIndex.close();
+        }
+    }
+
+    /**
+     * The window grows as later pages are requested ({@code SearchExecution} re-searches
+     * from rank 0 with a larger limit). A hit's score must not depend on that window size,
+     * or the same document would sort differently on page 1 and page 2.
+     */
+    @Test
+    public void testSortedSearchScoresAreStableAcrossWindowSizes() {
+        ShaclTextIndexLucene textIndex = depthIndex();
+        try {
+            List<SortSpec> sort = List.of(new SortSpec(FP + "depth", false));
+            List<SearchHit> narrow = textIndex.searchWithHitIds(
+                Collections.emptyList(), null, null, sort, null, null, 2);
+            List<SearchHit> wide = textIndex.searchWithHitIds(
+                Collections.emptyList(), null, null, sort, null, null, 4);
+
+            assertEquals(2, narrow.size());
+            assertEquals(4, wide.size());
+            for (int i = 0; i < narrow.size(); i++) {
+                assertEquals(narrow.get(i).getEntityNode(), wide.get(i).getEntityNode());
+                assertEquals(narrow.get(i).getScore(), wide.get(i).getScore(), 0.0f);
+            }
+        } finally {
+            textIndex.close();
+        }
+    }
+
+    /** Four entities with INT {@code depth} 10, 20, 30, 40, indexed in scrambled order. */
+    private static ShaclTextIndexLucene depthIndex() {
+        Node depthPred = NodeFactory.createURI("http://example.org/depth");
+        FieldDef depthField = new FieldDef("depth", FieldType.INT, null,
+            true, true, false, true, false, false);
+
+        List<FieldOccurrence> rootOccurrences = Collections.singletonList(
+            occurrence(depthField, PathFactory.pathLink(depthPred), Collections.singleton(depthPred)));
+        IndexProfile profile = new IndexProfile(
+            NodeFactory.createURI("http://example.org/Shape"),
+            Collections.singleton(NodeFactory.createURI("http://example.org/Thing")),
+            "uri", "docType",
+            Collections.singletonList(depthField),
+            rootOccurrences,
+            Collections.emptyList(),
+            Collections.emptyList());
+        ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
+        EntityDefinition defn = ShaclIndexAssembler.deriveEntityDefinition(mapping);
+        TextIndexConfig config = new TextIndexConfig(defn);
+        config.setShaclMapping(mapping);
+        ShaclTextIndexLucene textIndex = new ShaclTextIndexLucene(new ByteBuffersDirectory(), config);
+
+        for (int depth : new int[] { 30, 10, 40, 20 }) {
+            Entity entity = new Entity("http://example.org/d" + depth, null);
+            entity.addValue("depth", NodeFactory.createLiteralDT(Integer.toString(depth),
+                org.apache.jena.datatypes.xsd.XSDDatatype.XSDint));
+            textIndex.updateEntityForProfile(entity, profile);
+        }
+        textIndex.commit();
+        return textIndex;
+    }
+
     @Test(expected = TextIndexException.class)
     public void testBuildLuceneSortTextFieldThrows() {
         Node titlePred = NodeFactory.createURI("http://example.org/title");

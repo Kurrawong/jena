@@ -15,7 +15,7 @@ vars:
   GHCR_OWNER: '{{.GHCR_OWNER | default "kurrawong"}}'
 
 tasks:
-  # ── Shared ───────────────────────────────────────────────
+  # ── Build ────────────────────────────────────────────────
 
   build:
     desc: Build the Fuseki server JAR (includes jena-text)
@@ -29,29 +29,79 @@ tasks:
     cmds:
       - mvn install -pl jena-fuseki2/jena-fuseki-server -am -DskipTests
 
+  # ── Run the demo (local JAR) ─────────────────────────────
+
+  refresh:
+    desc: Clean, load offline, bulk-index, start Fuseki, then launch the app
+    cmds:
+      # Load and index with the server DOWN, then bring it up on a finished index.
+      # The boreholes' assay children come from a CSV and can only be built by the
+      # bulk indexer, so pushing data into a running server is no longer enough.
+      - task: stop-all
+      - task: load-offline
+      - task: index
+      - task: start-fuseki
+      - task: app
+
+  refresh-fast:
+    desc: Restart Fuseki and app without deleting DB/Lucene or reloading data
+    cmds:
+      - task: stop-all
+      - task: start-fuseki
+      - task: app
+
+  rebuild-start:
+    desc: Rebuild Fuseki, restart the demo server, reload data, then launch the app
+    cmds:
+      - task: build
+      - task: refresh
+
+  rebuild-start-fast:
+    desc: Incremental rebuild and restart without clean reindex
+    cmds:
+      - task: build-fast
+      - task: refresh-fast
+
+  serve:
+    desc: Start Fuseki with the mining config (foreground)
+    dir: test
+    cmds:
+      - task: require-jar
+      - java -jar ../{{.FUSEKI_JAR}} --port {{.FUSEKI_PORT}} --config config.ttl
+
+  app:
+    desc: Serve the static demo app against a running Fuseki
+    cmds:
+      - ln -sfn ../test/config.ttl app-static/config.ttl
+      - ln -sfn ../test/tests.json app-static/tests.json
+      # This file is committed and RAT-checked, so the licence header has to survive
+      # regeneration, and the output has to match the committed bytes exactly —
+      # otherwise every demo run leaves the tree dirty. Keep labelCacheVersion:
+      # labels.js reads it as the cache salt.
+      - |
+        cat > app-static/app-config.js <<'CONFIG'
+        /* Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0 */
+
+        window.APP_CONFIG = {
+          fusekiBase: '/fuseki',
+          // Cache salt for label lookups. Labels are cached by the browser for a day
+          // (see serve_app.py); bump this to invalidate every cached label at once.
+          labelCacheVersion: '1',
+        };
+        CONFIG
+      - pkill -f "serve_app.py --port {{.APP_PORT}}" || true
+      - echo "Serving at http://localhost:{{.APP_PORT}} (mining proxy → {{.SERVER_URL}})"
+      - python3 serve_app.py --port {{.APP_PORT}} --directory app-static --backend {{.SERVER_URL}}
+
   stop:
     desc: Stop the running Fuseki server (sends SIGTERM for clean shutdown)
     cmds:
       - pkill -f "jena-fuseki-server" && echo "Server stopped" || echo "No server running"
 
-  test:
-    desc: Run Playwright screenshot tests and generate report
-    dir: testing
-    cmds:
-      - npx playwright test
-      - npx tsx lib/report.ts
-      - echo "Report written to testing/results/report.md"
-
-  # ── Mining ───────────────────────────────────────────────
-
-  serve:
-    desc: Start Fuseki with the mining config
-    dir: test
-    cmds:
-      - java -jar ../{{.FUSEKI_JAR}} --port {{.FUSEKI_PORT}} --config config.ttl
+  # ── Data and index ───────────────────────────────────────
 
   load:
-    desc: Load the mining dataset via GSP
+    desc: Load the mining dataset via GSP into a running server
     cmds:
       - |
         curl -s -X PUT "{{.SERVER_URL}}/mining/data?default" \
@@ -66,126 +116,25 @@ tasks:
 
   load-offline:
     desc: Load the mining dataset straight into TDB2 (no server; bypasses the change listener)
+    # dir must sit on the task, not on the command: Task silently ignores a command-level
+    # dir, which sends every relative path in here one directory too high.
     dir: test
     cmds:
-      - rm -rf DB Lucene Taxonomy
+      # Guard before clean, not after: a missing jar must not cost you the database.
+      - task: require-jar
+      - task: clean
       - java -cp ../{{.FUSEKI_JAR}} tdb2.tdbloader --loc=DB data/mining.ttl data/generated.ttl
 
   index:
     desc: Bulk-index all shapes, including the boreholes' external assay CSV
     dir: test
     cmds:
+      - task: require-jar
       # BoreholeShape declares an idx:externalSource, which makes it rebuild-only:
       # a live graph change cannot re-derive assay children, so the change listener
       # refuses to touch those documents. This is the step that builds them.
       # Requires exclusive TDB2 access, so the server must be stopped.
       - java -cp ../{{.FUSEKI_JAR}} org.apache.jena.query.text.cmd.shacltextindexer --desc=config.ttl
-
-  query:
-    desc: Run all test queries against the mining server
-    dir: test
-    cmds:
-      - for:
-          - queries/01-basic-search.rq
-          - queries/02-filtered-search.rq
-          - queries/03-facet-counts.rq
-          - queries/04-facet-filtered.rq
-          - queries/05-combined.rq
-          - queries/06-sequence-path-facet.rq
-          - queries/07-filter-by-author.rq
-          - queries/08-spatial-bbox.rq
-          - queries/09-matchraw-multivalue.rq
-          - queries/10-match-field-details.rq
-          - queries/11-hierarchical-facets.rq
-          - queries/12-range-facets.rq
-          - queries/13-mixed-facets.rq
-          - queries/14-nested-identifier-hierarchy.rq
-          - queries/15-nested-identifier-prefix-search.rq
-          - queries/16-sort-by-year-desc.rq
-          - queries/17-sort-boreholes-by-depth-asc.rq
-          - queries/18-nested-identifier-company-drilldown.rq
-          - queries/19-nested-identifier-exact-pair.rq
-          - queries/20-date-range-filter.rq
-          - queries/21-match-review-note-languages.rq
-          - queries/22-match-qa-passed-boolean.rq
-        cmd: |
-          echo "=== {{.ITEM}} ==="
-          curl -s -X POST "{{.SERVER_URL}}/mining/query" \
-            -H "Content-Type: application/sparql-query" \
-            -H "Accept: text/tab-separated-values" \
-            --data-binary @{{.ITEM}}
-          echo ""
-
-
-  app:
-    desc: Serve the static demo app with mining config
-    cmds:
-      - ln -sfn ../test/config.ttl app-static/config.ttl
-      - ln -sfn ../test/tests.json app-static/tests.json
-      # Keep the licence header: this file is committed and RAT checks it, so
-      # regenerating it without one fails the next build.
-      - |
-        printf "/* Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0 */\n\nwindow.APP_CONFIG = {\n  fusekiBase: '/fuseki',\n};\n" > app-static/app-config.js
-      - pkill -f "serve_app.py --port {{.APP_PORT}}" || true
-      - echo "Serving at http://localhost:{{.APP_PORT}} (mining proxy → {{.SERVER_URL}})"
-      - cmd: python3 serve_app.py --port {{.APP_PORT}} --directory app-static --backend {{.SERVER_URL}}
-
-  refresh:
-    desc: Clean, load offline, bulk-index, start Fuseki, then launch the app
-    cmds:
-      # Load and index with the server DOWN, then bring it up on a finished index.
-      # The boreholes' assay children come from a CSV and can only be built by the
-      # bulk indexer, so pushing data into a running server is no longer enough.
-      - pkill -f "serve_app.py --port {{.APP_PORT}}" || true
-      - pkill -f "jena-fuseki-server.*--port {{.FUSEKI_PORT}}" || true
-      - task: load-offline
-      - task: index
-      - |
-        cd test
-        rm -f fuseki.log
-        nohup java -jar ../{{.FUSEKI_JAR}} --port {{.FUSEKI_PORT}} --config config.ttl > fuseki.log 2>&1 &
-      - |
-        for i in $(seq 1 30); do
-          if curl -sf "{{.SERVER_URL}}/$/ping" >/dev/null 2>&1; then
-            exit 0
-          fi
-          sleep 1
-        done
-        echo "Fuseki failed to start; see demo/test/fuseki.log"
-        exit 1
-      - task app FUSEKI_PORT={{.FUSEKI_PORT}} APP_PORT={{.APP_PORT}}
-
-  refresh-fast:
-    desc: Restart Fuseki and app without deleting DB/Lucene or reloading data
-    cmds:
-      - pkill -f "serve_app.py --port {{.APP_PORT}}" || true
-      - pkill -f "jena-fuseki-server.*--port {{.FUSEKI_PORT}}" || true
-      - |
-        cd test
-        rm -f fuseki.log
-        nohup java -jar ../{{.FUSEKI_JAR}} --port {{.FUSEKI_PORT}} --config config.ttl > fuseki.log 2>&1 &
-      - |
-        for i in $(seq 1 30); do
-          if curl -sf "{{.SERVER_URL}}/$/ping" >/dev/null 2>&1; then
-            exit 0
-          fi
-          sleep 1
-        done
-        echo "Fuseki failed to start; see demo/test/fuseki.log"
-        exit 1
-      - task app FUSEKI_PORT={{.FUSEKI_PORT}} APP_PORT={{.APP_PORT}}
-
-  rebuild-start:
-    desc: Rebuild Fuseki, restart the demo server, reload data, then launch the app
-    cmds:
-      - task build
-      - task refresh FUSEKI_PORT={{.FUSEKI_PORT}} APP_PORT={{.APP_PORT}}
-
-  rebuild-start-fast:
-    desc: Incremental rebuild and restart without clean reindex
-    cmds:
-      - task build-fast
-      - task refresh-fast FUSEKI_PORT={{.FUSEKI_PORT}} APP_PORT={{.APP_PORT}}
 
   clean:
     desc: Remove mining TDB2, Lucene and facet-taxonomy directories
@@ -196,79 +145,127 @@ tasks:
       - rm -rf DB Lucene Taxonomy
       - echo "Cleaned mining DB, Lucene and Taxonomy directories"
 
-  docker-start:
-    desc: Start Fuseki in Docker (detached)
+  # ── Checks ───────────────────────────────────────────────
+
+  query:
+    desc: Run every query in test/queries against the mining server
     dir: test
-    env:
-      IMAGE_NAME: '{{.IMAGE_NAME}}'
-      IMAGE_TAG: '{{.IMAGE_TAG}}'
+    # No fingerprinting: this is a check to re-run on demand, not a build step.
+    method: none
+    sources:
+      - queries/*.rq
     cmds:
-      - docker compose up -d
+      - for: sources
+        cmd: |
+          echo "=== {{.ITEM}} ==="
+          curl -s -X POST "{{.SERVER_URL}}/mining/query" \
+            -H "Content-Type: application/sparql-query" \
+            -H "Accept: text/tab-separated-values" \
+            --data-binary @{{.ITEM}}
+          echo ""
+
+  test:
+    desc: Run Playwright screenshot tests and generate report
+    dir: testing
+    cmds:
+      - npx playwright test
+      - npx tsx lib/report.ts
+      - echo "Report written to testing/results/report.md"
+
+  # ── Docker ───────────────────────────────────────────────
+  # Each of these runs the local image; add GHCR=1 to pull and run the published one.
+
+  docker-start:
+    desc: Start Fuseki in Docker, detached (GHCR=1 for the published image)
+    cmds:
+      - task: compose
+        vars: {ARGS: 'up -d', PULL: 'yes'}
       - echo "Fuseki starting at {{.SERVER_URL}}"
 
-  docker-start-ghcr:
-    desc: Start Fuseki in Docker (detached) using the GHCR image
-    dir: test
-    env:
-      IMAGE_NAME: 'ghcr.io/{{.GHCR_OWNER}}/{{.IMAGE_NAME}}'
-      IMAGE_TAG: '{{.IMAGE_TAG}}'
+  docker-serve:
+    desc: Start Fuseki in Docker, foreground with logs (GHCR=1 for the published image)
     cmds:
-      - docker compose pull fuseki
-      - docker compose up -d
-      - echo "Fuseki starting at {{.SERVER_URL}} using ghcr.io/{{.GHCR_OWNER}}/{{.IMAGE_NAME}}:{{.IMAGE_TAG}}"
+      - task: compose
+        vars: {ARGS: 'up', PULL: 'yes'}
 
   docker-stop:
     desc: Stop the Docker Fuseki container
-    dir: test
     cmds:
-      - docker compose down
+      - task: compose
+        vars: {ARGS: 'down'}
       - echo "Fuseki stopped"
 
   docker-clean:
     desc: Stop Fuseki and remove Docker volumes (DB + Lucene index)
-    dir: test
     cmds:
-      - docker compose down -v
+      - task: compose
+        vars: {ARGS: 'down -v'}
       - echo "Fuseki stopped and volumes removed"
 
-  docker-serve:
-    desc: Start Fuseki in Docker (foreground with logs)
-    dir: test
-    env:
-      IMAGE_NAME: '{{.IMAGE_NAME}}'
-      IMAGE_TAG: '{{.IMAGE_TAG}}'
-    cmds:
-      - docker compose up
-
-  docker-serve-ghcr:
-    desc: Start Fuseki in Docker (foreground with logs) using the GHCR image
-    dir: test
-    env:
-      IMAGE_NAME: 'ghcr.io/{{.GHCR_OWNER}}/{{.IMAGE_NAME}}'
-      IMAGE_TAG: '{{.IMAGE_TAG}}'
-    cmds:
-      - docker compose pull fuseki
-      - docker compose up
-
-  # ── Loader / Reindexer ──────────────────────────────────
-
   loader-index:
-    desc: Run the loader image in text-only reindex mode against an existing TDB2 store
-    dir: loader
-    env:
-      IMAGE_NAME: 'fuseki-lucene-shacl-loader'
-      IMAGE_TAG: '{{.IMAGE_TAG}}'
-      MODE: 'index'
+    desc: Reindex an existing TDB2 store with the loader image (GHCR=1 for the published image)
     cmds:
-      - docker compose run --rm -e MODE={{.MODE}} loader
+      - task: compose
+        vars:
+          DIR: loader
+          SERVICE: loader
+          BASE: fuseki-lucene-shacl-loader
+          PULL: 'yes'
+          ARGS: 'run --rm -e MODE=index loader'
 
-  loader-index-ghcr:
-    desc: Run the GHCR loader image in text-only reindex mode against an existing TDB2 store
-    dir: loader
+  # ── Internal helpers ─────────────────────────────────────
+
+  compose:
+    internal: true
+    dir: '{{.DIR | default "test"}}'
+    # The registry prefix has to be resolved here, not in the global vars: a var set on
+    # the command line (GHCR=1) is not yet visible when those are evaluated.
+    vars:
+      IMAGE: '{{if .GHCR}}ghcr.io/{{.GHCR_OWNER}}/{{end}}{{.BASE | default .IMAGE_NAME}}'
     env:
-      IMAGE_NAME: 'ghcr.io/{{.GHCR_OWNER}}/fuseki-lucene-shacl-loader'
+      IMAGE_NAME: '{{.IMAGE}}'
       IMAGE_TAG: '{{.IMAGE_TAG}}'
-      MODE: 'index'
     cmds:
-      - docker compose pull loader
-      - docker compose run --rm -e MODE={{.MODE}} loader
+      - echo "Image {{.IMAGE}}:{{.IMAGE_TAG}}"
+      # Only the published image needs pulling; the local one is built by the root
+      # task file and would not exist in a registry.
+      - '{{if and .GHCR .PULL}}docker compose pull {{.SERVICE | default "fuseki"}}{{else}}true{{end}}'
+      - docker compose {{.ARGS}}
+
+  # Every task that shells out to the jar checks it first. Without this, a missing or
+  # half-built jar surfaces as "Could not find or load main class", which reads like a
+  # packaging problem rather than "you have not run task build".
+  require-jar:
+    internal: true
+    dir: test
+    cmds:
+      - |
+        test -f ../{{.FUSEKI_JAR}} || {
+          echo "Fuseki jar not found: demo/test/{{.FUSEKI_JAR}}"
+          echo "Run 'task build' first, or pass VERSION=... if the pom version has moved."
+          exit 1
+        }
+
+  stop-all:
+    internal: true
+    cmds:
+      - pkill -f "serve_app.py --port {{.APP_PORT}}" || true
+      - pkill -f "jena-fuseki-server.*--port {{.FUSEKI_PORT}}" || true
+
+  start-fuseki:
+    internal: true
+    desc: Start Fuseki in the background and block until it answers /$/ping
+    dir: test
+    cmds:
+      - task: require-jar
+      - rm -f fuseki.log
+      - nohup java -jar ../{{.FUSEKI_JAR}} --port {{.FUSEKI_PORT}} --config config.ttl > fuseki.log 2>&1 &
+      - |
+        for i in $(seq 1 30); do
+          if curl -sf "{{.SERVER_URL}}/$/ping" >/dev/null 2>&1; then
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "Fuseki failed to start; see demo/test/fuseki.log"
+        exit 1

@@ -11,6 +11,13 @@ const RESULT_LIMITS = [10, 100, 1000, 5000, 9999];
 const DEFAULT_LIMIT = 10;
 const FACET_LIMITS = [10, 25, 50, 100, 500];
 const DEFAULT_FACET_LIMIT = 10;
+const IDENTIFIER_SUGGESTION_LIMIT = 10;
+// Fields that live on a nested child. Sorting on one needs a selector naming which child
+// supplies the value, or Lucene orders by the min/max across every child of the entity.
+// The key is the sortable field; the value is the sibling field that discriminates.
+const NESTED_SORT_DISCRIMINATOR = { identifierValueExact: 'identifierType' };
+const NESTED_SORT_SEP = '@';
+const IDENTIFIER_SUGGESTION_DEBOUNCE_MS = 150;
 const DEFAULT_SORT_DIRECTION = 'asc';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -19,11 +26,17 @@ const HOUR_MS = 60 * 60 * 1000;
 // RDF namespace constants
 // ---------------------------------------------------------------------------
 
+const XSD_STRING = 'http://www.w3.org/2001/XMLSchema#string';
+const RDF_LANGSTRING = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#langString';
+const RDFS_RESOURCE = 'http://www.w3.org/2000/01/rdf-schema#Resource';
 const RDF = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 const SH = 'http://www.w3.org/ns/shacl#';
 const TEXT = 'http://jena.apache.org/text#';
 const IDX = 'urn:jena:lucene:index#';
 const FUSEKI = 'http://jena.apache.org/fuseki#';
+// Vocabulary for the search CONSTRUCT's payload. Private to the demo — the app both
+// writes the template and reads the graph back, so nothing else depends on these terms.
+const RES = 'urn:jena:lucene:result#';
 const DEMO_FIELD_IRIS = {
     identifierType: 'urn:jena:lucene:field#identifierType',
     identifierValueText: 'urn:jena:lucene:field#identifierValueText',
@@ -38,6 +51,7 @@ PREFIX dct:  <http://purl.org/dc/terms/>
 PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX ex:   <http://example.org/mining/>
 PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX res:  <urn:jena:lucene:result#>
 `;
 
 const TURTLE_PREFIXES = {
@@ -137,11 +151,19 @@ function resolveFieldName(fieldUri, fieldIRIs) {
 
 function buildSortSpec(sortField, sortDirection, fieldIRIs) {
     if (!sortField) return '';
-    const fieldIri = (fieldIRIs && fieldIRIs[sortField]) || sortField;
-    return JSON.stringify({
-        field: fieldIri,
+    const [name, childValue] = String(sortField).split(NESTED_SORT_SEP);
+    const spec = {
+        field: fieldIri(fieldIRIs, name, name),
         order: sortDirection || DEFAULT_SORT_DIRECTION,
-    });
+    };
+    const discriminator = NESTED_SORT_DISCRIMINATOR[name];
+    if (childValue && discriminator) {
+        // Order parents by the value on the child whose discriminator matches, e.g. the
+        // anumber rather than whichever identifier happens to sort first.
+        spec.filter = { field: fieldIri(fieldIRIs, discriminator, discriminator), eq: childValue };
+        spec.missing = 'last';
+    }
+    return JSON.stringify(spec);
 }
 
 function parseSortParam(sortParam, fieldIRIs) {
@@ -151,8 +173,14 @@ function parseSortParam(sortParam, fieldIRIs) {
     const idx = sortParam.lastIndexOf(':');
     const rawField = idx >= 0 ? sortParam.substring(0, idx) : sortParam;
     const rawDirection = idx >= 0 ? sortParam.substring(idx + 1) : DEFAULT_SORT_DIRECTION;
+    // A nested sort carries its child selector in the field, e.g.
+    // identifierValueExact@anumber — resolve the field part and keep the selector.
+    const sep = rawField.indexOf(NESTED_SORT_SEP);
+    const field = sep >= 0
+        ? resolveFieldName(rawField.substring(0, sep), fieldIRIs) + rawField.substring(sep)
+        : resolveFieldName(rawField, fieldIRIs);
     return {
-        field: resolveFieldName(rawField, fieldIRIs),
+        field,
         direction: rawDirection === 'desc' ? 'desc' : DEFAULT_SORT_DIRECTION,
     };
 }
@@ -213,6 +241,13 @@ function sanitizeDomId(text) {
     return String(text || '').replace(/[^a-zA-Z0-9_-]+/g, '-');
 }
 
+/** Case-insensitive substring match of `typed` over a closed list of option strings. */
+function matchOptions(options, typed) {
+    const needle = String(typed || '').trim().toLowerCase();
+    if (!needle) return options;
+    return options.filter(option => String(option).toLowerCase().includes(needle));
+}
+
 function emptyCorrelatedFilterState() {
     return {
         identifierTerms: {},
@@ -271,10 +306,50 @@ function millisToTemporal(fieldInfo, value) {
     return iso.slice(0, 10);
 }
 
-function decorateLiteralDisplay(raw, lang, datatype) {
-    if (lang) return `${raw} @${lang}`;
-    if (datatype) return `${raw} ^^${shortName(datatype)}`;
-    return raw;
+/**
+ * Convert one RDF object term into the shape the card renderer uses.
+ */
+function termToProperty(object) {
+    const raw = object.value;
+    const isUri = object.termType === 'NamedNode';
+    const lang = object.language || null;
+    // RDF 1.1 gives every plain literal an explicit xsd:string, and every
+    // language-tagged one rdf:langString. Neither is worth showing as a
+    // datatype — the SPARQL JSON results this replaced simply omitted them.
+    const rawDatatype = (!isUri && object.datatype) ? object.datatype.value : null;
+    const datatype = (rawDatatype === XSD_STRING || rawDatatype === RDF_LANGSTRING)
+        ? null : rawDatatype;
+    // IRI objects start as their short name and are upgraded in place once
+    // labels.js resolves them; literals never need a lookup. A literal's language or
+    // datatype is not appended to the text — it renders as a badge beside it.
+    const display = isUri ? shortName(raw) : raw;
+    return { display, raw, isUri, lang, datatype };
+}
+
+/**
+ * One rendered property value on a card. Values are plain labels, not controls: the
+ * tooltip carries the IRI behind a label, or the literal's language and datatype when
+ * there is one.
+ */
+function propValue(pv) {
+    // A language tag and a datatype are mutually exclusive on one literal: a tagged
+    // literal is always rdf:langString, which termToProperty already drops.
+    const badge = pv.lang || (pv.datatype ? shortName(pv.datatype) : null);
+    // The datatype is an IRI like any other, so it gets a label on the same pass. A
+    // language tag is not — it is a bare token with nothing to resolve.
+    const badgeIri = pv.lang ? null : (pv.datatype || null);
+    let tooltip = '';
+    if (pv.isUri) tooltip = pv.raw;
+    else if (pv.lang) tooltip = `language: ${pv.lang}`;
+    else if (pv.datatype) tooltip = pv.datatype;
+    return {
+        value: pv.raw,
+        displayValue: pv.display,
+        isUri: pv.isUri,
+        badge,
+        badgeIri,
+        tooltip,
+    };
 }
 
 function renderJsonTree(obj, indent) {
@@ -864,8 +939,6 @@ function parseWktForLeaflet(wktString) {
 function searchApp() {
     return {
         q: '',
-        identifier: '',
-        identifierSuggestions: [],
         limit: DEFAULT_LIMIT,
         currentPage: 1,
         resultLimits: RESULT_LIMITS,
@@ -894,12 +967,22 @@ function searchApp() {
         _loadingTimer: null,
         description: '',
         _lastTotalHits: 0,
+        _facetKey: null,
+        _logBatch: 0,          // groups a search's queries so they log in execution order
+        _labels: null,
         endpoint: '',
         queryLog: [],
         correlatedFilters: emptyCorrelatedFilterState(),
+        suggestKey: null,            // which input's suggestion list is open
+        suggestIndex: -1,            // keyboard-highlighted row, -1 for none
+        examplesOpen: false,
+        exampleGroups: [],           // [{name, examples: [{id, label, params}]}]
+        expandedExampleGroups: {},
+        activeExampleId: null,
+        identifierKindList: [],      // fixed vocabulary: anumber, company, mnumber
+        identifierKindSuggestionsByKind: {},   // kind → [{value, label, count}]
+        _identifierSuggestTimers: {},
         attributionRoleOptions: [],
-        attributionAgentOptions: [],
-        attributionAgentsByRole: {},
         spatialBbox: null,
         spatialPolygon: null,
         drawingBbox: false,
@@ -917,7 +1000,6 @@ function searchApp() {
         _mapMarkersByUri: {},
         _highlightTimer: null,
         _abortController: null,
-        _identifierSuggestTimer: null,
         editorOpen: false,
         editorQuery: '',
         editorResults: '',
@@ -954,8 +1036,13 @@ function searchApp() {
             this.temporalFields = Object.keys(this.fieldInfo).filter(name => this.fieldInfo[name]?.isTemporal);
             this.predicateToFacet = config.predicateToFacet;
             this.hierarchyDimensions = config.hierarchyDimensions || new Map();
+            this._labels = new LabelResolver(this.endpoint, APP_CONFIG.labelCacheVersion || '1');
 
+            // Identifier kinds first: they expand into sort options, and a URL naming a
+            // nested sort has no matching <option> to bind to until they exist.
+            await this.loadIdentifierKinds();
             this.loadFromUrl();
+            await this.loadExamples();
             await this.executeSearch();
             await this.loadAttributionOptions();
 
@@ -990,43 +1077,104 @@ function searchApp() {
             });
         },
 
+        /**
+         * Roles only. Agents used to be loaded here too, by an unbounded DISTINCT over
+         * every attribution node — fine for a demo, a hang for a real corpus, and
+         * unnecessary now the agent box queries the index. Roles come from a fixed
+         * vocabulary, and the LIMIT is a backstop in case that stops being true.
+         */
         async loadAttributionOptions() {
             try {
                 const data = await this.runSparql(`${SPARQL_PREFIXES}
-SELECT DISTINCT ?roleLabel ?agentLabel
+SELECT DISTINCT ?roleLabel
 WHERE {
     ?entity a ex:MiningReport ;
-        prov:qualifiedAttribution ?qa .
-    OPTIONAL { ?qa prov:hadRole/rdfs:label ?roleLabel }
-    OPTIONAL { ?qa prov:agent/rdfs:label ?agentLabel }
+        prov:qualifiedAttribution/prov:hadRole/rdfs:label ?roleLabel .
 }
-ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
-                const roles = new Set();
-                const agents = new Set();
-                const byRole = {};
-                for (const row of (data.results?.bindings || [])) {
-                    const role = row.roleLabel?.value || '';
-                    const agent = row.agentLabel?.value || '';
-                    if (role) roles.add(role);
-                    if (agent) agents.add(agent);
-                    if (role && agent) {
-                        if (!byRole[role]) byRole[role] = [];
-                        if (!byRole[role].includes(agent)) byRole[role].push(agent);
-                    }
-                }
-                this.attributionRoleOptions = [...roles];
-                this.attributionAgentOptions = [...agents];
-                this.attributionAgentsByRole = byRole;
+ORDER BY LCASE(STR(?roleLabel))
+LIMIT 100`);
+                this.attributionRoleOptions = (data.results?.bindings || [])
+                    .map(row => row.roleLabel?.value)
+                    .filter(Boolean);
             } catch (e) {
-                console.warn('Failed to load attribution options:', e);
+                console.warn('Failed to load attribution roles:', e);
                 this.attributionRoleOptions = [];
-                this.attributionAgentOptions = [];
-                this.attributionAgentsByRole = {};
             }
         },
 
         // --- Query log ---
 
+        /**
+         * Load the saved searches from tests.json.
+         *
+         * That file is a flat list where a `{"group": "..."}` entry marks the start of a
+         * section rather than being an entry itself — the shape the old navbar dropdown
+         * rendered directly. Fold it into real groups so the panel can collapse them.
+         */
+        async loadExamples() {
+            const cases = await loadTestCases();
+            const groups = [];
+            let current = null;
+            cases.forEach((tc, i) => {
+                if (tc.group) {
+                    current = { name: tc.group, examples: [] };
+                    groups.push(current);
+                    return;
+                }
+                if (!tc.label) return;
+                if (!current) {
+                    current = { name: 'Examples', examples: [] };
+                    groups.push(current);
+                }
+                current.examples.push({ id: `ex-${i}`, label: tc.label, params: tc.params || '' });
+            });
+            this.exampleGroups = groups.filter(g => g.examples.length > 0);
+            // Open the first group so the panel is not a wall of collapsed headers.
+            if (this.exampleGroups.length > 0) {
+                this.expandedExampleGroups[this.exampleGroups[0].name] = true;
+            }
+        },
+
+        exampleCount() {
+            return this.exampleGroups.reduce((n, g) => n + g.examples.length, 0);
+        },
+
+        toggleExampleGroup(name) {
+            this.expandedExampleGroups[name] = !this.expandedExampleGroups[name];
+        },
+
+        /** One-line hint at what an example actually sets, so the labels are scannable. */
+        exampleMeta(ex) {
+            const params = new URLSearchParams((ex.params || '').replace(/^\?/, ''));
+            const bits = [];
+            const q = params.get('q');
+            if (q) bits.push(`q=${q}`);
+            if (params.get('filter')) bits.push('filter');
+            if (params.get('sort')) bits.push('sort');
+            if (params.get('page')) bits.push(`page ${params.get('page')}`);
+            return bits.join(' · ') || 'wildcard';
+        },
+
+        /**
+         * Apply an example by pushing its parameters into the URL and re-reading state
+         * from there — the same path a shared link or the back button takes, so an
+         * example lands the app in a state the user could have reached themselves.
+         */
+        async applyExample(ex) {
+            this.activeExampleId = ex.id;
+            const qs = (ex.params || '').replace(/^\?/, '');
+            window.history.pushState({}, '', qs ? `?${qs}` : window.location.pathname);
+            this.loadFromUrl();
+            await this.executeSearch();
+        },
+
+        /**
+         * Log one query. The newest search sits at the top of the panel, but the queries
+         * within a search read in the order they ran — the filter that was built, the
+         * search it fed, then the DESCRIBE of the hits that search returned. Plain
+         * unshifting reversed each search, so the DESCRIBE appeared above the search it
+         * depended on, which read as though it came from nowhere.
+         */
         logQuery(label, query, durationMs, isSparql) {
             const dur = durationMs != null ? ` (${(durationMs / 1000).toFixed(2)}s)` : '';
             const trimmed = query.trim();
@@ -1035,13 +1183,17 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
             if (!sparql) {
                 try { const p = JSON.parse(trimmed); isCql = p && typeof p.op === 'string'; } catch {}
             }
-            this.queryLog.unshift({
+            const entry = {
+                batch: this._logBatch,
                 time: timeStamp(),
                 label: label + dur,
                 query: trimmed,
                 isSparql: sparql,
                 isCql,
-            });
+            };
+            let at = 0;
+            while (at < this.queryLog.length && this.queryLog[at].batch === this._logBatch) at++;
+            this.queryLog.splice(at, 0, entry);
         },
 
         // --- SPARQL editor ---
@@ -1061,6 +1213,15 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
 
         closeEditor() {
             this.editorOpen = false;
+        },
+
+        /**
+         * Escape closes one popup at a time, innermost first — the CQL viewer can be
+         * opened from the editor, so closing both at once would be surprising.
+         */
+        closeTopPopup() {
+            if (this.cqlOpen) this.closeCql();
+            else if (this.editorOpen) this.closeEditor();
         },
 
         async runEditorQuery() {
@@ -1139,10 +1300,12 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
         pushUrl() {
             const params = new URLSearchParams();
             if (this.q.trim()) params.set('q', this.q.trim());
-            if (this.identifier.trim()) params.set('id', this.identifier.trim());
             if (this.sortField) {
-                const sortIri = this.fieldIRIs[this.sortField] || this.sortField;
-                params.set('sort', `${sortIri}:${this.sortDirection}`);
+                // A nested sort carries its child selector after the field IRI.
+                const [name, child] = this.sortField.split(NESTED_SORT_SEP);
+                const sortIri = this.fieldIRIs[name] || name;
+                const suffix = child ? NESTED_SORT_SEP + child : '';
+                params.set('sort', `${sortIri}${suffix}:${this.sortDirection}`);
             }
             const cql = buildCqlFilter(
                 this.selected,
@@ -1161,7 +1324,6 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
         loadFromUrl() {
             const params = new URLSearchParams(window.location.search);
             this.q = params.get('q') || '';
-            this.identifier = params.get('id') || '';
             const sort = parseSortParam(params.get('sort'), this.fieldIRIs);
             this.sortField = sort.field;
             this.sortDirection = sort.direction;
@@ -1209,36 +1371,6 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
             if (cur < tp - 2) pages.push('...');
             pages.push(tp);
             return pages;
-        },
-
-        updateIdentifierSuggestions() {
-            clearTimeout(this._identifierSuggestTimer);
-            const term = this.identifier.trim();
-            if (!term) {
-                this.identifierSuggestions = [];
-                return;
-            }
-            this._identifierSuggestTimer = setTimeout(() => {
-                this.fetchIdentifierSuggestions(term);
-            }, 150);
-        },
-
-        async fetchIdentifierSuggestions(term) {
-            const trimmed = term.trim();
-            if (!trimmed) {
-                this.identifierSuggestions = [];
-                return;
-            }
-            try {
-                const data = await this.runSparql(this.buildIdentifierSuggestionQuery(trimmed));
-                if (this.identifier.trim() !== trimmed) return;
-                const seen = new Set();
-                this.identifierSuggestions = (data.results?.bindings || [])
-                    .map(row => row.identifier?.value)
-                    .filter(value => value && !seen.has(value) && seen.add(value));
-            } catch {
-                if (this.identifier.trim() === trimmed) this.identifierSuggestions = [];
-            }
         },
 
         async toggleFacet(field, value) {
@@ -1383,7 +1515,33 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
 
         sortLabel() {
             if (!this.sortField) return 'relevance';
-            return `${this.sortField} ${this.sortDirection === 'desc' ? 'desc' : 'asc'}`;
+            const option = this.sortOptions().find(o => o.value === this.sortField);
+            const label = option ? option.label : this.sortField;
+            return `${label} ${this.sortDirection === 'desc' ? 'desc' : 'asc'}`;
+        },
+
+        /**
+         * Sort choices. A field that lives on a nested child expands to one choice per
+         * child kind, since sorting on it is only meaningful once you say which child to
+         * read — "anumber" rather than "identifierValueExact".
+         */
+        sortOptions() {
+            const options = [];
+            for (const f of this.sortableFields) {
+                if (!NESTED_SORT_DISCRIMINATOR[f.name]) {
+                    options.push({ value: f.name, label: f.name });
+                    continue;
+                }
+                for (const kind of this.identifierKinds()) {
+                    // The option pins the discriminator to this kind, so it is simply a
+                    // sort on that kind — "anumber", not "identifierValueExact".
+                    options.push({
+                        value: `${f.name}${NESTED_SORT_SEP}${kind.value}`,
+                        label: kind.label || kind.value,
+                    });
+                }
+            }
+            return options;
         },
 
         facetLabel(fieldName) {
@@ -1478,15 +1636,16 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
                 const levels = this.hierarchyDimensions.get(dim);
                 if (!levels || levels.length < 2) return;
 
-                // Request facets on the child level's IRI from config.ttl,
-                // with a CQL filter constrained by the selected parent value.
+                // Drill down by naming the hierarchy's dimension: the engine turns the
+                // CQL "=" on the parent level into the taxonomy drill-down path. Asking
+                // for the child level's field IRI instead would return that field's own
+                // flat counts across every parent, which is a different question.
                 const parentLevel = levels[0];
                 const childLevel = levels[1];
                 const parentLevelIRI = parentLevel.iri;
-                const childLevelIRI = childLevel.iri;
 
-                const term = this.identifier.trim() || this.q.trim() || '*';
-                const searchField = this.identifier.trim() ? this.identifierFieldSelector() : 'default';
+                const term = this.q.trim() || '*';
+                const searchField = 'default';
 
                 const hierFilter = JSON.stringify({
                     op: '=',
@@ -1516,7 +1675,7 @@ ORDER BY LCASE(STR(?roleLabel)) LCASE(STR(?agentLabel))`);
 
                 const query = `${SPARQL_PREFIXES}
 SELECT ?field ?value ?low ?high ?count WHERE {
-    (?field ?value ?low ?high ?count) luc:facet ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${sparqlQuote(JSON.stringify([childLevelIRI]))} ${sparqlQuote(combinedFilter)} ${this.maxFacetValues} 0)
+    (?field ?value ?low ?high ?count) luc:facet ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${sparqlQuote(JSON.stringify([dim]))} ${sparqlQuote(combinedFilter)} ${this.maxFacetValues} 0)
 }`;
                 const data = await this.runSparql(query);
                 const children = [];
@@ -1597,18 +1756,6 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             return null;
         },
 
-        identifierFieldSpecs() {
-            const fields = [
-                this.fieldIRIs.identifier || 'urn:jena:lucene:field#identifier',
-                this.fieldIRIs.identifierValueText || 'urn:jena:lucene:field#identifierValueText',
-            ];
-            return [...new Set(fields)];
-        },
-
-        identifierFieldSelector() {
-            return JSON.stringify(this.identifierFieldSpecs());
-        },
-
         identifierHierarchyDim() {
             for (const [dim, levels] of this.hierarchyDimensions.entries()) {
                 const names = (levels || []).map(level => level.name);
@@ -1619,8 +1766,71 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             return 'identifierType_identifierValueExact';
         },
 
+        /**
+         * Facets to render in the sidebar.
+         *
+         * The identifier hierarchy is still requested — its top level supplies the
+         * identifier kinds — but it is not rendered as a facet. Drilling into it is
+         * useless: the child level is a high-cardinality set of exact identifier values,
+         * so a kind either expands to hundreds of one-count entries or, once filtered,
+         * to nothing at all. RDF models the kind and value as one nested node; the UI
+         * does not have to mirror that. The kinds are presented instead as three
+         * independent typeahead fields.
+         */
+        sidebarFacetFields() {
+            const identifierDim = this.identifierHierarchyDim();
+            return this.facetFields.filter(f => f !== identifierDim);
+        },
+
+        /**
+         * The identifier kinds, loaded once and held fixed.
+         *
+         * They cannot be read off the current search's facets: as soon as an identifier
+         * filter is active the engine turns the `=` on the kind into a taxonomy
+         * drill-down, so the dimension comes back holding *child* values — and the UI
+         * would render "A9412" as though it were a kind, with an input labelled "type
+         * ahead within A9412".
+         *
+         * A flat facet on identifierType is not an option either: it is a nested field,
+         * so its values sit on child documents and never count against parents. An
+         * unfiltered facet on the dimension returns its top level, which is the vocabulary
+         * we want, and it does not change as the user searches.
+         */
+        async loadIdentifierKinds() {
+            const dim = JSON.stringify([this.identifierHierarchyDim()]);
+            const query = `${SPARQL_PREFIXES}
+SELECT ?value ?count WHERE {
+    (?field ?value ?low ?high ?count) luc:facet ('default' 'default' '*' ${sparqlQuote(dim)} '' 50 0)
+}`;
+            try {
+                const data = await this.runSparql(query);
+                // A kind is a literal here ("anumber"), but nothing stops a dataset from
+                // using an IRI, so label it like any other IRI if it is one.
+                this.identifierKindList = (data.results?.bindings || [])
+                    .filter(row => row.value)
+                    .map(row => {
+                        const value = row.value.value;
+                        const isUri = row.value.type === 'uri';
+                        return { value, isUri, label: isUri ? shortName(value) : value };
+                    })
+                    .sort((a, b) => a.label.localeCompare(b.label));
+
+                const iris = this.identifierKindList.filter(k => k.isUri).map(k => k.value);
+                if (iris.length > 0 && this._labels) {
+                    const labels = await this._labels.resolveMany(iris);
+                    for (const kind of this.identifierKindList) {
+                        const label = labels.get(kind.value);
+                        if (label) kind.label = label;
+                    }
+                }
+            } catch (e) {
+                console.error('Loading identifier kinds failed:', e);
+                this.identifierKindList = [];
+            }
+        },
+
         identifierKinds() {
-            return this.visibleFacets(this.identifierHierarchyDim());
+            return this.identifierKindList;
         },
 
         identifierKindValue(kind) {
@@ -1636,24 +1846,157 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             }
         },
 
-        async ensureIdentifierKindSuggestions(kind) {
-            await this.ensureHierarchyChildren(this.identifierHierarchyDim(), kind);
+        /**
+         * Typeahead for one identifier kind.
+         *
+         * Two CQL clauses under an `and`, so both must hold on the *same* nested child:
+         * the kind, and an edge-ngram match on what has been typed. `identifierValueText`
+         * is indexed with EdgeNGramAnalyzer and queried with LowerCaseKeywordAnalyzer, so
+         * a prefix matches without the caller doing anything special.
+         *
+         * Faceting the hierarchy dimension (rather than the value field) is what makes the
+         * counts reflect the kind: the `=` on the kind becomes the taxonomy drill-down.
+         */
+        async fetchIdentifierKindSuggestions(kind, term) {
+            const typed = String(term || '').trim();
+            const args = [
+                { op: '=', args: [{ property: fieldIri(this.fieldIRIs, 'identifierType') }, kind] },
+            ];
+            if (typed) {
+                args.push({
+                    op: 'text_query',
+                    args: [{ property: fieldIri(this.fieldIRIs, 'identifierValueText') }, typed],
+                });
+            }
+            const filter = JSON.stringify(args.length === 1 ? args[0] : { op: 'and', args });
+            const dim = JSON.stringify([this.identifierHierarchyDim()]);
+
+            const query = `${SPARQL_PREFIXES}
+SELECT ?value ?count WHERE {
+    (?field ?value ?low ?high ?count) luc:facet ('default' 'default' '*' ${sparqlQuote(dim)} ${sparqlQuote(filter)} ${IDENTIFIER_SUGGESTION_LIMIT} 0)
+}`;
+            try {
+                const data = await this.runSparql(query);
+                const suggestions = (data.results?.bindings || [])
+                    .filter(row => row.value)
+                    .map(row => ({
+                        value: row.value.value,
+                        label: row.value.value,
+                        count: row.count ? parseInt(row.count.value, 10) : 0,
+                    }));
+                this.identifierKindSuggestionsByKind[kind] = suggestions;
+            } catch (e) {
+                console.error('Identifier typeahead failed:', e);
+                this.identifierKindSuggestionsByKind[kind] = [];
+            }
+        },
+
+        /** Debounced so a fast typist issues one query, not one per keystroke. */
+        ensureIdentifierKindSuggestions(kind, term = '') {
+            clearTimeout(this._identifierSuggestTimers[kind]);
+            this._identifierSuggestTimers[kind] = setTimeout(() => {
+                this.fetchIdentifierKindSuggestions(kind, term);
+            }, IDENTIFIER_SUGGESTION_DEBOUNCE_MS);
         },
 
         identifierSuggestionId(kind) {
             return `identifier-suggestions-${sanitizeDomId(kind)}`;
         },
 
-        identifierKindSuggestions(kind) {
-            return this.getHierarchyChildren(this.identifierHierarchyDim(), kind);
+        // ---- Suggestion dropdown ----
+        //
+        // Replaces <datalist>, which the browser renders as unstyleable native chrome —
+        // a light popup in a dark app, with no control over rows or keyboard behaviour.
+        // One list is open at a time, identified by key.
+
+        isSuggestOpen(key) {
+            return this.suggestKey === key;
         },
 
-        filteredAttributionAgents() {
-            const role = this.correlatedFilters.attributionRole.trim();
-            if (role && Array.isArray(this.attributionAgentsByRole[role])) {
-                return this.attributionAgentsByRole[role];
+        openSuggest(key) {
+            if (this.suggestKey !== key) this.suggestIndex = -1;
+            this.suggestKey = key;
+        },
+
+        /**
+         * Close the open list. Pass a key to close only that one: every input's
+         * click-outside handler fires when another input is clicked, so an unqualified
+         * close would wipe the list the click just opened.
+         */
+        closeSuggest(key = null) {
+            if (key !== null && this.suggestKey !== key) return;
+            this.suggestKey = null;
+            this.suggestIndex = -1;
+        },
+
+        /** Arrow keys wrap around, so the list is reachable from either end. */
+        moveSuggest(delta, count) {
+            if (count === 0) return;
+            this.suggestIndex = (this.suggestIndex + delta + count) % count;
+        },
+
+        chooseIdentifier(kind, value) {
+            this.setIdentifierKindValue(kind, value);
+            this.closeSuggest();
+            this.search();
+        },
+
+        /** Enter takes the highlighted row if there is one, otherwise just searches. */
+        identifierEnter(kind) {
+            const items = this.identifierKindSuggestions(kind);
+            const picked = this.suggestIndex >= 0 ? items[this.suggestIndex] : null;
+            if (picked) {
+                this.chooseIdentifier(kind, picked.value);
+                return;
             }
-            return this.attributionAgentOptions;
+            this.closeSuggest();
+            this.search();
+        },
+
+        chooseCorrelated(field, value) {
+            this.correlatedFilters[field] = value;
+            this.closeSuggest();
+            this.search();
+        },
+
+        identifierKindSuggestions(kind) {
+            return this.identifierKindSuggestionsByKind[kind] || [];
+        },
+
+        /**
+         * Roles are a genuinely small, fixed vocabulary — a handful of terms that do not
+         * grow with the data — so listing them is cheap and a picklist is the right
+         * control. Agents are not: there is no list to load, and the agent box queries
+         * the index directly.
+         */
+        filteredAttributionRoles() {
+            return matchOptions(this.attributionRoleOptions, this.correlatedFilters.attributionRole);
+        },
+
+        /**
+         * Enter on a picklist input. The filter is exact equality, so a half-typed name has
+         * to resolve to a real option: the highlighted row, else a case-insensitive exact
+         * hit, else the only remaining candidate. Failing all three the typed text stands
+         * and the search honestly returns nothing.
+         */
+        correlatedPickEnter(field, items) {
+            const picked = this.suggestIndex >= 0 ? items[this.suggestIndex] : null;
+            if (picked) {
+                this.chooseCorrelated(field, picked);
+                return;
+            }
+            const typed = String(this.correlatedFilters[field] || '').trim();
+            const exact = items.find(o => o.toLowerCase() === typed.toLowerCase());
+            if (exact) {
+                this.chooseCorrelated(field, exact);
+                return;
+            }
+            if (typed && items.length === 1) {
+                this.chooseCorrelated(field, items[0]);
+                return;
+            }
+            this.closeSuggest();
+            this.search();
         },
 
         correlatedIdentifierClauses() {
@@ -1684,6 +2027,9 @@ SELECT ?field ?value ?low ?high ?count WHERE {
                 args.push({ op: '=', args: [{ property: fieldIri(this.fieldIRIs, 'attributionRole') }, role] });
             }
             if (agent) {
+                // A BM25 text match on the nested agent field. Scales to any number of
+                // names — nothing is fetched to the client to make this box work — and
+                // still folds same-child with the role clause above.
                 args.push({ op: 'text_query', args: [{ property: fieldIri(this.fieldIRIs, 'attributionAgentText') }, agent] });
             }
             return args.length === 1 ? args : [{ op: 'and', args }];
@@ -1711,15 +2057,15 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             const parts = [];
             for (const [kind, value] of Object.entries(this.correlatedFilters.identifierTerms || {})) {
                 if (!value) continue;
-                parts.push(`${shortName(kind)} contains “${escapeHtml(value)}” on the same identifier node`);
+                parts.push(`${shortName(kind)} contains “${escapeHtml(value)}”`);
             }
             const attrRole = this.correlatedFilters.attributionRole.trim();
             const attrAgent = this.correlatedFilters.attributionAgent.trim();
             if (attrRole || attrAgent) {
                 const bits = [];
                 if (attrRole) bits.push(`role = “${escapeHtml(attrRole)}”`);
-                if (attrAgent) bits.push(`agent contains “${escapeHtml(attrAgent)}”`);
-                parts.push(bits.join(' AND ') + ' on the same attribution node');
+                if (attrAgent) bits.push(`agent matches “${escapeHtml(attrAgent)}”`);
+                parts.push(bits.join(' AND '));
             }
             return parts;
         },
@@ -1754,10 +2100,26 @@ SELECT ?field ?value ?low ?high ?count WHERE {
 
         // --- Query builders ---
 
-        buildSearchQuery() {
-            const identifier = this.identifier.trim();
-            const term = identifier || this.q.trim() || '*';
-            const searchField = identifier ? this.identifierFieldSelector() : 'default';
+        /**
+         * Everything the facet buckets depend on, and nothing else. Notably not the page:
+         * paging through an unchanged result set cannot change a bucket count, so page 2+
+         * skips the facet branch entirely and keeps the buckets already on screen.
+         */
+        facetStateKey() {
+            return JSON.stringify([
+                this.q.trim(),
+                this.selected,
+                this.spatialBbox,
+                this.spatialPolygon,
+                this.extraFilterClauses(),
+                this.maxFacetValues,
+                this.facetFields,
+            ]);
+        },
+
+        buildSearchQuery(includeFacets = true) {
+            const term = this.q.trim() || '*';
+            const searchField = 'default';
             const escaped = escapeSparql(term);
             const cqlFilter = buildCqlFilter(
                 this.selected,
@@ -1770,49 +2132,56 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             const sortSpec = buildSortSpec(this.sortField, this.sortDirection, this.fieldIRIs);
             const sortArg = sortSpec ? sparqlQuote(sortSpec) : "''";
             const facetRequests = this.facetFields.map(f => {
-                // For hierarchy dimensions, use the first level's field IRI
+                // A hierarchy is addressed by its dimension name; a plain field by its IRI.
+                // (Faceting on a level's field IRI now returns that level's own flat counts,
+                // so it is no longer a way to reach the hierarchy.)
                 const hier = this.hierarchyDimensions.get(f);
-                const iri = hier ? hier[0].iri : (this.fieldIRIs[f] || f);
+                const target = hier ? f : (this.fieldIRIs[f] || f);
                 const ranges = facetRangeSpec(f, this.fieldInfo[f]);
-                if (ranges) return { field: iri, ranges };
-                return iri;
+                if (ranges) return { field: target, ranges };
+                return target;
             });
             const facetFieldsJson = JSON.stringify(facetRequests);
+            const offset = (this.currentPage - 1) * this.limit;
 
+            const queryBranch =
+                `    { (?hit ?entity ?score ?rank ?totalHits) luc:query ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${filterArg} ${sortArg} ${this.limit} ${offset}) }`;
+
+            // Page 2+ of an unchanged filter set reuses the buckets already on screen —
+            // they cannot have changed, and recomputing them is the expensive half.
+            const facetBranch = includeFacets
+                ? `\n    UNION\n    { (?field ?value ?low ?high ?count) luc:facet ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${sparqlQuote(facetFieldsJson)} ${filterArg} ${this.maxFacetValues} 0)\n      BIND(BNODE() AS ?bucket) }`
+                : '';
+
+            // CONSTRUCT rather than SELECT: one RDF payload carrying hits and buckets
+            // together. ?hit is luc:query's own query-scoped blank node, so it serves as
+            // the hit's subject; buckets get a fresh BNODE() per solution. Each branch
+            // leaves the other's variables unbound, so only its own triples are emitted.
             return `${SPARQL_PREFIXES}
-SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
+CONSTRUCT {
+    ?hit res:entity ?entity ; res:score ?score ; res:rank ?rank ; res:totalHits ?totalHits .
+    ?bucket res:field ?field ; res:value ?value ; res:low ?low ; res:high ?high ; res:count ?count .
+}
 WHERE {
-    { (?hit ?entity ?score ?totalHits) luc:query ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${filterArg} ${sortArg} ${this.limit} ${(this.currentPage - 1) * this.limit}) }
-    UNION
-    { (?field ?value ?low ?high ?count) luc:facet ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${sparqlQuote(facetFieldsJson)} ${filterArg} ${this.maxFacetValues} 0) }
+${queryBranch}${facetBranch}
 }`;
         },
 
-        buildIdentifierSuggestionQuery(identifier) {
-            const fieldSpec = this.identifierFieldSelector();
-            return `${SPARQL_PREFIXES}
-SELECT DISTINCT ?identifier
-WHERE {
-    (?hit ?entity ?score) luc:query ('default' ${sparqlQuote(fieldSpec)} ${sparqlQuote(identifier)} '' '' 8 0) .
-    ?entity ex:identifier ?identifier .
-}
-ORDER BY LCASE(STR(?identifier))
-LIMIT 8`;
-        },
-
+        /**
+         * Card details for the whole page in one DESCRIBE.
+         *
+         * DESCRIBE takes any number of resources, so this is a single request, not one
+         * per card. It returns each entity's own triples, which is exactly what a card
+         * shows — and it says what it means, unlike an `?entity ?p ?o` SELECT.
+         *
+         * It does not carry the labels of referenced IRIs: an object comes back as
+         * commodity:Gold, not "Gold". Those are resolved separately by labels.js, one
+         * cacheable GET per IRI.
+         */
         buildDetailQuery(uris) {
             const values = uris.map(u => `<${u}>`).join(' ');
             return `${SPARQL_PREFIXES}
-SELECT ?entity ?label ?p ?o ?oLabel
-WHERE {
-    VALUES ?entity { ${values} }
-    ?entity rdfs:label ?label .
-    OPTIONAL {
-      ?entity ?p ?o .
-      FILTER(?p != rdfs:label && !isBlank(?o) && ?o != rdfs:Resource)
-      OPTIONAL { ?o rdfs:label ?oLabel }
-    }
-}`;
+DESCRIBE ${values}`;
         },
 
         buildDescribeQuery(uri) {
@@ -1822,56 +2191,71 @@ DESCRIBE <${uri}>`;
 
         // --- Result parsing ---
 
-        parseUnionResults(data) {
+        /**
+         * Read the search CONSTRUCT's graph.
+         *
+         * A graph is unordered, so result order comes back from res:rank — the hit's
+         * position in the whole result set. Score cannot do this job: a match-all query
+         * (the default '*' view) scores every document 1.0, and real relevance scores tie.
+         */
+        parseGraphResults(store) {
             const hits = [];
             const facets = {};
             let totalHits = null;
-            for (const row of (data.results?.bindings || [])) {
-                if (row.entity) {
-                    hits.push({
-                        uri: row.entity.value,
-                        score: parseFloat(row.score.value),
-                    });
-                    if (totalHits === null && row.totalHits) {
-                        totalHits = parseInt(row.totalHits.value, 10);
-                    }
-                } else if (row.field) {
-                    // ?field is a URI — resolve to field name via IRI map or shortName fallback
-                    const fieldUri = row.field.value;
-                    let f = this._resolveFieldName(fieldUri);
-                    // Check if this field is a hierarchy level — map to dimension name
-                    f = this._resolveHierarchyDim(f) || f;
-                    if (!facets[f]) facets[f] = [];
-                    // ?value may be a URI (KEYWORD) or literal (TEXT) —
-                    // store the raw value for CQL filter matching
-                    let rawVal = null;
-                    let isUri = false;
-                    let label = null;
 
-                    if (row.value) {
-                        rawVal = row.value.value;
-                        isUri = row.value.type === 'uri' || /^https?:\/\//.test(rawVal);
-                        label = isUri ? shortName(rawVal) : rawVal;
-                    } else if (row.low || row.high) {
-                        const l = row.low ? row.low.value : '*';
-                        const h = row.high ? row.high.value : '*';
-                        rawVal = `__RANGE__${row.low ? row.low.value : ''}|${row.high ? row.high.value : ''}`;
-                        label = `${l} to ${h}`;
-                    } else {
-                        // fallback for empty/null buckets if any
-                        rawVal = '__NULL__';
-                        label = '(empty)';
-                    }
-
-                    facets[f].push({
-                        value: rawVal,
-                        label: label,
-                        count: parseInt(row.count.value, 10),
-                        low: row.low ? row.low.value : null,
-                        high: row.high ? row.high.value : null,
-                    });
+            for (const node of store.getSubjects(nn(RES + 'entity'), null, null)) {
+                const entity = getObject(store, node, RES + 'entity');
+                if (!entity) continue;
+                hits.push({
+                    uri: entity.value,
+                    score: parseFloat(getLiteral(store, node, RES + 'score')),
+                    rank: parseInt(getLiteral(store, node, RES + 'rank'), 10),
+                });
+                if (totalHits === null) {
+                    const total = getLiteral(store, node, RES + 'totalHits');
+                    if (total !== null) totalHits = parseInt(total, 10);
                 }
             }
+
+            for (const quad of store.getQuads(null, nn(RES + 'field'), null, null)) {
+                const bucket = quad.subject;
+                // ?field is the field IRI that was requested, or a hierarchy's dimension
+                // name when the request named a dimension (which has no IRI).
+                const fieldTerm = quad.object;
+                let f = fieldTerm.termType === 'Literal'
+                    ? fieldTerm.value
+                    : this._resolveFieldName(fieldTerm.value);
+                f = this._resolveHierarchyDim(f) || f;
+                if (!facets[f]) facets[f] = [];
+
+                const valueTerm = getObject(store, bucket, RES + 'value');
+                const low = getLiteral(store, bucket, RES + 'low') ?? null;
+                const high = getLiteral(store, bucket, RES + 'high') ?? null;
+
+                let rawVal;
+                let label;
+                if (valueTerm) {
+                    rawVal = valueTerm.value;
+                    const isUri = valueTerm.termType === 'NamedNode' || /^https?:\/\//.test(rawVal);
+                    label = isUri ? shortName(rawVal) : rawVal;
+                } else if (low !== null || high !== null) {
+                    rawVal = `__RANGE__${low ?? ''}|${high ?? ''}`;
+                    label = `${low ?? '*'} to ${high ?? '*'}`;
+                } else {
+                    rawVal = '__NULL__';
+                    label = '(empty)';
+                }
+
+                facets[f].push({
+                    value: rawVal,
+                    label,
+                    count: parseInt(getLiteral(store, bucket, RES + 'count'), 10),
+                    low,
+                    high,
+                });
+            }
+
+            hits.sort((a, b) => a.rank - b.rank);
             return { hits, facets, totalHits };
         },
 
@@ -1900,38 +2284,64 @@ DESCRIBE <${uri}>`;
             return merged;
         },
 
-        parseEntityDetails(data, scores, orderedUris) {
+        /**
+         * Build cards from the DESCRIBE graph, one per hit, in rank order.
+         *
+         * Only the hit entities become cards. A DESCRIBE also pulls in the blank nodes
+         * hanging off them (the nested identifier and attribution nodes), which is why
+         * blank-node objects are skipped — the same exclusion the previous SELECT did
+         * with `FILTER(!isBlank(?o))`.
+         */
+        parseEntityDetails(store, hitsByUri) {
             const entities = {};
-            for (const row of (data.results?.bindings || [])) {
-                const uri = row.entity.value;
-                if (!entities[uri]) {
-                    entities[uri] = {
-                        uri,
-                        label: row.label.value,
-                        score: scores[uri] || 0,
-                        identifier: null,
-                        description: null,
-                        properties: {},
-                        rows: [],
-                        turtleOpen: false,
-                        turtleLoading: false,
-                        turtleLoaded: false,
-                        turtleText: '',
-                        turtleError: null,
-                    };
-                }
+            for (const [uri, hit] of Object.entries(hitsByUri)) {
+                entities[uri] = {
+                    uri,
+                    // Filled in from labels.js once the per-IRI lookups land.
+                    label: shortName(uri),
+                    score: hit.score ?? 0,
+                    rank: hit.rank ?? Number.MAX_SAFE_INTEGER,
+                    identifier: null,
+                    description: null,
+                    properties: {},
+                    nested: {},       // predicate → [[{property, displayValue, ...}, ...], ...]
+                    rows: [],
+                    turtleOpen: false,
+                    turtleLoading: false,
+                    turtleLoaded: false,
+                    turtleText: '',
+                    turtleError: null,
+                };
+
                 const card = entities[uri];
-                if (row.p && row.o) {
-                    const pred = shortName(row.p.value);
-                    const raw = row.o.value;
-                    const isUri = row.o.type === 'uri';
-                    const lang = row.o['xml:lang'] || null;
-                    const datatype = row.o.datatype || null;
-                    const label = row.oLabel?.value;
-                    const display = label || (isUri ? shortName(raw) : decorateLiteralDisplay(raw, lang, datatype));
+                for (const quad of store.getQuads(nn(uri), null, null, null)) {
+                    const object = quad.object;
+                    if (object.value === RDFS_RESOURCE) continue;
+                    const pred = shortName(quad.predicate.value);
+
+                    // A blank node is a qualified relation — a nested identifier or
+                    // attribution. DESCRIBE returns its triples too, so render them
+                    // inline rather than dropping the whole node.
+                    if (object.termType === 'BlankNode') {
+                        const parts = [];
+                        for (const child of store.getQuads(object, null, null, null)) {
+                            if (child.object.termType === 'BlankNode') continue;
+                            parts.push({
+                                property: shortName(child.predicate.value),
+                                ...propValue(termToProperty(child.object)),
+                            });
+                        }
+                        if (parts.length > 0) {
+                            if (!card.nested[pred]) card.nested[pred] = [];
+                            card.nested[pred].push(parts);
+                        }
+                        continue;
+                    }
+
+                    const pv = termToProperty(object);
                     if (!card.properties[pred]) card.properties[pred] = [];
-                    if (!card.properties[pred].some(e => e.raw === raw)) {
-                        card.properties[pred].push({ display, raw, isUri, lang, datatype });
+                    if (!card.properties[pred].some(e => e.raw === pv.raw)) {
+                        card.properties[pred].push(pv);
                     }
                 }
             }
@@ -1946,103 +2356,96 @@ DESCRIBE <${uri}>`;
                     if (pred === 'identifier') {
                         card.rows.push({
                             property: 'id',
-                            values: values.map(pv => ({
-                                value: pv.raw,
-                                displayValue: pv.display,
-                                facetField: null,
-                                isActive: false,
-                                clickable: false,
-                                mapUri: null,
-                                tooltip: '',
-                                cssClass: 'prop-chip-neutral',
-                            })),
+                            values: values.map(pv => propValue(pv)),
                         });
                         continue;
                     }
                     if (pred === 'asWKT') {
-                        for (const pv of values) {
-                            const geo = parseWktForLeaflet(pv.raw);
-                            if (geo) {
-                                const tooltip = geo.type === 'point'
+                        // One row holding every geometry, not a row each: rows are keyed by
+                        // property name, and two rows both called 'location' would collide.
+                        const geometries = values
+                            .map(pv => parseWktForLeaflet(pv.raw))
+                            .filter(Boolean)
+                            .map(geo => ({
+                                value: geo.type === 'point' ? 'Point' : 'Polygon',
+                                displayValue: geo.type === 'point' ? 'Point' : 'Polygon',
+                                tooltip: geo.type === 'point'
                                     ? `${geo.lat.toFixed(4)}, ${geo.lon.toFixed(4)}`
-                                    : geo.coords.map(c => `${c[0].toFixed(2)},${c[1].toFixed(2)}`).join(' ');
-                                card.rows.push({
-                                    property: 'location',
-                                    values: [{
-                                        value: geo.type === 'point' ? 'Point' : 'Polygon',
-                                        displayValue: geo.type === 'point' ? 'Point' : 'Polygon',
-                                        facetField: null,
-                                        isActive: false,
-                                        clickable: false,
-                                        mapUri: card.uri,
-                                        tooltip,
-                                        cssClass: 'prop-chip-location',
-                                    }],
-                                });
-                            }
+                                    : geo.coords.map(c => `${c[0].toFixed(2)},${c[1].toFixed(2)}`).join(' '),
+                            }));
+                        if (geometries.length > 0) {
+                            card.rows.push({ property: 'location', values: geometries });
                         }
                         continue;
                     }
                     if (pred === 'year' || pred === 'depth') {
                         card.rows.push({
                             property: pred,
-                            values: values.map(pv => ({
-                                value: pv.raw,
-                                displayValue: pv.display,
-                                facetField: null,
-                                isActive: false,
-                                clickable: false,
-                                mapUri: null,
-                                tooltip: '',
-                                cssClass: 'prop-chip-neutral',
-                            })),
+                            values: values.map(pv => propValue(pv)),
                         });
                         continue;
                     }
-                    const facetField = this.predicateToFacet[pred] || null;
                     // Skip non-facetable literal values that do not add much to the card.
-                    if (!facetField && !values.some(v => v.isUri || v.lang || v.datatype)) continue;
-                    const rowValues = [];
-                    for (const pv of values) {
-                        // Find the matching facet value — match by label or raw IRI
-                        let matchValue = pv.display;
-                        if (facetField) {
-                            const facetValues = this.facets[facetField] || [];
-                            const match = facetValues.find(fv =>
-                                fv.value === pv.raw || fv.value === pv.display ||
-                                fv.label === pv.display);
-                            if (match) matchValue = match.value;
-                        }
-                        const active = facetField ? this.isSelected(facetField, matchValue) : false;
-                        rowValues.push({
-                            value: matchValue,
-                            displayValue: pv.display,
-                            facetField,
-                            isActive: active,
-                            clickable: !!facetField,
-                            mapUri: null,
-                            tooltip: pv.datatype || pv.lang
-                                ? [pv.lang ? `lang: ${pv.lang}` : null, pv.datatype ? `datatype: ${shortName(pv.datatype)}` : null].filter(Boolean).join(' | ')
-                                : '',
-                            cssClass: !facetField ? 'prop-chip-neutral'
-                                : active ? 'prop-chip-active'
-                                : 'prop-chip-clickable',
-                        });
-                    }
-                    if (rowValues.length > 0) {
-                        card.rows.push({
-                            property: pred,
-                            values: rowValues,
-                        });
-                    }
+                    const facetable = !!this.predicateToFacet[pred];
+                    if (!facetable && !values.some(v => v.isUri || v.lang || v.datatype)) continue;
+                    card.rows.push({
+                        property: pred,
+                        values: values.map(pv => propValue(pv)),
+                    });
+                }
+
+                // Qualified relations last: each nested node becomes one line of
+                // "property value" pairs, so the parts that belong together stay together.
+                for (const [pred, children] of Object.entries(card.nested)) {
+                    card.rows.push({ property: pred, values: [], children });
                 }
             }
 
-            if (orderedUris && orderedUris.length > 0) {
-                const rank = new Map(orderedUris.map((uri, idx) => [uri, idx]));
-                return cards.sort((a, b) => (rank.get(a.uri) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.uri) ?? Number.MAX_SAFE_INTEGER));
+            // res:rank carries the order — see parseGraphResults. Sorting by score would
+            // scramble the default '*' view, where every hit scores 1.0.
+            return cards.sort((a, b) => a.rank - b.rank);
+        },
+
+        /**
+         * Fill in labels for every IRI on the current cards — the entity IRIs themselves
+         * and any IRI-valued property. One GET per IRI, resolved from the browser cache
+         * on a repeat view. Mutates the cards in place so Alpine re-renders as they land.
+         */
+        async resolveCardLabels(cards) {
+            // Walk the rendered rows rather than the raw properties, so values nested
+            // inside a qualified relation are resolved on the same pass.
+            const eachValue = (card, fn) => {
+                for (const row of card.rows) {
+                    row.values.forEach(fn);
+                    for (const parts of (row.children || [])) parts.forEach(fn);
+                }
+            };
+
+            const iris = new Set();
+            for (const card of cards) {
+                iris.add(card.uri);
+                eachValue(card, v => {
+                    if (v.isUri) iris.add(v.value);
+                    if (v.badgeIri) iris.add(v.badgeIri);
+                });
             }
-            return cards.sort((a, b) => b.score - a.score);
+            if (iris.size === 0) return;
+
+            const labels = await this._labels.resolveMany([...iris]);
+            for (const card of cards) {
+                const own = labels.get(card.uri);
+                if (own) card.label = own;
+                eachValue(card, v => {
+                    if (v.isUri) {
+                        const label = labels.get(v.value);
+                        if (label) v.displayValue = label;
+                    }
+                    if (v.badgeIri) {
+                        const badgeLabel = labels.get(v.badgeIri);
+                        if (badgeLabel) v.badge = badgeLabel;
+                    }
+                });
+            }
         },
 
         cardTurtleButtonLabel(card) {
@@ -2078,10 +2481,7 @@ DESCRIBE <${uri}>`;
         buildDescription(hitCount, totalHits, totalSec) {
             const parts = [];
             const q = this.q.trim();
-            const identifier = this.identifier.trim();
-            if (identifier) {
-                parts.push(`Identifier search for <strong>\u201c${escapeHtml(identifier)}\u201d</strong>`);
-            } else if (q) {
+            if (q) {
                 parts.push(`Search for <strong>\u201c${escapeHtml(q)}\u201d</strong>`);
             } else {
                 parts.push('Showing <strong>all entities</strong>');
@@ -2100,12 +2500,11 @@ DESCRIBE <${uri}>`;
             if (this.spatialPolygon) {
                 filters.push('polygon [' + this.spatialPolygon.length + ' vertices]');
             }
+            // Identifier and attribution terms are correlated under the hood — each pair
+            // must hold on one nested node — but they read as ordinary filters.
+            filters.push(...this.correlatedFilterSummary());
             if (filters.length > 0) {
                 parts.push('filtered by ' + filters.join(' AND '));
-            }
-            const correlated = this.correlatedFilterSummary();
-            if (correlated.length > 0) {
-                parts.push('with correlated nested filters ' + correlated.join(' AND '));
             }
             if (this.sortField) {
                 parts.push('sorted by ' + escapeHtml(this.sortLabel()));
@@ -2140,6 +2539,7 @@ DESCRIBE <${uri}>`;
             this.hierarchyChildren = {};
             this.hierarchyOpen = {};
 
+            this._logBatch += 1;
             this.loading = true;
             this.showLoading = true;
             clearTimeout(this._loadingTimer);
@@ -2147,13 +2547,18 @@ DESCRIBE <${uri}>`;
             this.error = null;
 
             try {
-                const searchQuery = this.buildSearchQuery();
+                // The buckets depend on the query and the filters, not on the page. Fetch
+                // them only when that combination has actually changed.
+                const facetKey = this.facetStateKey();
+                const includeFacets = facetKey !== this._facetKey
+                    || Object.keys(this.facets || {}).length === 0;
+                const searchQuery = this.buildSearchQuery(includeFacets);
                 const activeFacetFilters = Object.entries(this.selected)
                     .filter(([, v]) => v && v.length > 0).length;
                 const activeFilters = activeFacetFilters
                     + Object.keys(this.correlatedFilters.identifierTerms || {}).length
                     + (this.correlatedFilters.attributionRole.trim() || this.correlatedFilters.attributionAgent.trim() ? 1 : 0);
-                const searchTerm = this.identifier.trim() || this.q.trim() || '*';
+                const searchTerm = this.q.trim() || '*';
                 const searchLabel = searchTerm
                     + (activeFilters > 0 ? ` + ${activeFilters} filter${activeFilters > 1 ? 's' : ''}` : '');
 
@@ -2169,25 +2574,33 @@ DESCRIBE <${uri}>`;
                 }
 
                 let t0 = performance.now();
-                const data = await this.runSparql(searchQuery, signal);
+                const turtle = await this.runSparqlText(searchQuery, 'text/turtle', signal);
+                const store = await parseTurtle(turtle);
                 const searchMs = performance.now() - t0;
                 this.logQuery(`Search: ${searchLabel}`, searchQuery, searchMs);
 
-                const { hits, facets, totalHits } = this.parseUnionResults(data);
-                this._lastTotalHits = totalHits || hits.length;
-                this.facets = this.mergeFacets(facets);
+                const { hits, facets, totalHits } = this.parseGraphResults(store);
+                this._lastTotalHits = totalHits ?? hits.length;
+                if (includeFacets) {
+                    this.facets = this.mergeFacets(facets);
+                    this._facetKey = facetKey;
+                }
 
                 if (hits.length > 0) {
                     const uris = hits.map(h => h.uri);
-                    const scores = Object.fromEntries(hits.map(h => [h.uri, h.score]));
+                    const hitsByUri = Object.fromEntries(hits.map(h => [h.uri, h]));
                     const detailQuery = this.buildDetailQuery(uris);
 
                     t0 = performance.now();
-                    const detailData = await this.runSparql(detailQuery, signal);
+                    const detailTurtle = await this.runSparqlText(detailQuery, 'text/turtle', signal);
+                    const detailStore = await parseTurtle(detailTurtle);
                     const detailMs = performance.now() - t0;
-                    this.logQuery(`Details: ${uris.length} entities`, detailQuery, detailMs);
+                    this.logQuery(`Details: DESCRIBE the ${uris.length} hits above`, detailQuery, detailMs);
 
-                    this.cards = this.parseEntityDetails(detailData, scores, uris);
+                    this.cards = this.parseEntityDetails(detailStore, hitsByUri);
+                    // Labels resolve in the background — the cards render immediately with
+                    // short names and upgrade in place as the lookups return.
+                    this.resolveCardLabels(this.cards);
                 } else {
                     this.cards = [];
                 }
@@ -2302,17 +2715,6 @@ DESCRIBE <${uri}>`;
             this.mapMarkerCount = mapped;
             if (bounds.length > 0) {
                 this._map.fitBounds(bounds, { padding: [30, 30], maxZoom: 10, animate: false });
-            }
-        },
-
-        focusMapMarker(uri) {
-            const layer = this._mapMarkersByUri[uri];
-            if (!layer || !this._map || !Alpine.store('app').showMap) return;
-            layer.openPopup();
-            if (layer.getLatLng) {
-                this._map.panTo(layer.getLatLng());
-            } else if (layer.getBounds) {
-                this._map.panTo(layer.getBounds().getCenter());
             }
         },
 
@@ -2625,7 +3027,7 @@ function statsApp() {
                 const statsQuery = `${SPARQL_PREFIXES}
 SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
 WHERE {
-    { (?hit ?entity ?score ?totalHits) luc:query ('default' 'default' '*' '' '' 0 0) }
+    { (?hit ?entity ?score ?rank ?totalHits) luc:query ('default' 'default' '*' '' '' 0 0) }
     UNION
     { (?field ?value ?low ?high ?count) luc:facet ('default' 'default' '*' ${sparqlQuote(facetFieldsJson)} '' 0 0) }
 }`;

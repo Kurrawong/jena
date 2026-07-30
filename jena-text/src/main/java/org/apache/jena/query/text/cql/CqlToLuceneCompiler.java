@@ -64,16 +64,26 @@ public class CqlToLuceneCompiler {
 
     private final ShaclIndexMapping mapping;
     private final FacetsConfig facetsConfig;
+    /** The index's query analyzer, used by {@code text_query} for fields that configure
+     *  no analyzer of their own — without it such a field is searched by raw term and a
+     *  differently-cased or multi-word input silently matches nothing. */
+    private final Analyzer defaultQueryAnalyzer;
 
     public record CompileResult(Query pushed, CqlExpression residual) {}
 
     public CqlToLuceneCompiler(ShaclIndexMapping mapping) {
-        this(mapping, null);
+        this(mapping, null, null);
     }
 
     public CqlToLuceneCompiler(ShaclIndexMapping mapping, FacetsConfig facetsConfig) {
+        this(mapping, facetsConfig, null);
+    }
+
+    public CqlToLuceneCompiler(ShaclIndexMapping mapping, FacetsConfig facetsConfig,
+                               Analyzer defaultQueryAnalyzer) {
         this.mapping = mapping;
         this.facetsConfig = facetsConfig;
+        this.defaultQueryAnalyzer = defaultQueryAnalyzer;
     }
 
     public CompileResult compile(CqlExpression expr) {
@@ -676,7 +686,8 @@ public class CqlToLuceneCompiler {
     /**
      * Build the analyzer-aware text query that the {@code text_query} operator
      * compiles to. Tokenises {@code value} through the field's configured query
-     * analyzer (falling back to the index analyzer if no query-side one is set)
+     * analyzer (falling back to the field's index analyzer, then to the index-wide
+     * query analyzer, if no query-side one is set)
      * and emits a {@link TermQuery} (single token) or {@link org.apache.lucene.search.PhraseQuery}
      * (multi-token, positional). Empty token streams produce {@link MatchNoDocsQuery}
      * rather than matching everything.
@@ -685,10 +696,9 @@ public class CqlToLuceneCompiler {
         String fieldName = field.getFieldName();
         org.apache.lucene.analysis.Analyzer analyzer = field.getQueryAnalyzer() != null
             ? field.getQueryAnalyzer()
-            : field.getAnalyzer();
+            : field.getAnalyzer() != null ? field.getAnalyzer() : defaultQueryAnalyzer;
         if (analyzer == null) {
-            // No analyzer configured — treat as raw term. Misconfiguration for TEXT
-            // but preserves backward compat for any callers depending on it.
+            // Nothing to analyse with (no index available to ask) — treat as a raw term.
             return new TermQuery(new Term(fieldName, value));
         }
         List<String> tokens = new ArrayList<>();

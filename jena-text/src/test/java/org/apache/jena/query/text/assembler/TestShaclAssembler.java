@@ -32,6 +32,8 @@ import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.ShaclIndexMapping.NestedDef;
 import org.apache.jena.query.text.ShaclTextIndexLucene;
 import org.apache.jena.query.text.TextIndexException;
+import org.apache.jena.query.text.analyzer.EdgeNGramAnalyzer;
+import org.apache.jena.query.text.analyzer.LowerCaseKeywordAnalyzer;
 import org.apache.jena.rdf.model.*;
 import org.apache.jena.sparql.path.P_Inverse;
 import org.apache.jena.sparql.path.P_Link;
@@ -40,6 +42,7 @@ import org.apache.jena.sys.JenaSystem;
 import org.apache.jena.vocabulary.RDF;
 import org.apache.jena.vocabulary.RDFS;
 import org.apache.jena.datatypes.xsd.XSDDatatype;
+import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.junit.Test;
 
 /**
@@ -188,6 +191,64 @@ public class TestShaclAssembler {
             assertNotNull(idField.getAnalyzer());
             assertNotNull(idField.getQueryAnalyzer());
             assertNotSame(idField.getAnalyzer(), idField.getQueryAnalyzer());
+        } finally {
+            index.close();
+        }
+    }
+
+    /**
+     * The recommended typeahead config in docs/03-configuration.md: an edge-n-gram field
+     * declares its mode and nothing else, and the matching query analyzer is implied.
+     */
+    @Test
+    public void testEdgeNGramFieldsImplyTheirQueryAnalyzer() {
+        Model model = createModel();
+
+        Resource titleField = model.createResource(EX + "titleField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "title")
+            .addProperty(model.createProperty(IndexVocab.NS, "defaultSearch"), model.createTypedLiteral(true));
+        // Whole-value prefixes: an identifier typed from the start.
+        Resource identifierField = model.createResource(EX + "identifierField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifier")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField)
+            .addProperty(model.createProperty(IndexVocab.NS, "analyzer"),
+                model.createResource().addProperty(RDF.type, TextVocab.edgeNGramAnalyzer));
+        // Per-word prefixes: a name, where any word can be typed.
+        Resource agentField = model.createResource(EX + "agentField")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "agentText")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField)
+            .addProperty(model.createProperty(IndexVocab.NS, "analyzer"),
+                model.createResource()
+                    .addProperty(RDF.type, TextVocab.edgeNGramAnalyzer)
+                    .addProperty(TextVocab.pTokenized, model.createTypedLiteral(true)));
+
+        Resource bookShape = model.createResource(EX + "BookShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Book"))
+            .addProperty(model.createProperty(SH, "property"), occurrence(model, titleField, RDFS.label))
+            .addProperty(model.createProperty(SH, "property"),
+                occurrence(model, identifierField, model.createResource(EX + "identifier")))
+            .addProperty(model.createProperty(SH, "property"),
+                occurrence(model, agentField, model.createResource(EX + "agent")));
+
+        RDFNode shapesList = model.createList(new RDFNode[]{ bookShape });
+        Resource indexSpec = model.createResource(EX + "index")
+            .addProperty(RDF.type, TextVocab.textIndexShacl)
+            .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+            .addProperty(TextVocab.pShapes, shapesList);
+
+        ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
+        try {
+            FieldDef idField = index.getShaclMapping().findField(identifierField.getURI());
+            assertTrue("text:tokenized defaults to false",
+                idField.getAnalyzer() instanceof EdgeNGramAnalyzer ngram && !ngram.isTokenized());
+            assertTrue("whole-value n-grams imply a whole-value query analyzer",
+                idField.getQueryAnalyzer() instanceof LowerCaseKeywordAnalyzer);
+
+            FieldDef textField = index.getShaclMapping().findField(agentField.getURI());
+            assertTrue("text:tokenized true selects per-word n-grams",
+                textField.getAnalyzer() instanceof EdgeNGramAnalyzer ngram && ngram.isTokenized());
+            assertTrue("per-word n-grams imply a word-tokenizing query analyzer",
+                textField.getQueryAnalyzer() instanceof StandardAnalyzer);
         } finally {
             index.close();
         }

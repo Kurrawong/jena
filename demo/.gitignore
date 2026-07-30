@@ -13,3 +13,4 @@ drillhole/run/
 test/DB/
 test/Lucene/
 test/run/
+test/fuseki.log

@@ -5,6 +5,7 @@
   { "label": "Search: \"gold mine\"", "params": "?q=gold+mine", "minResults": 1 },
   { "label": "Search: \"iron ore exploration\"", "params": "?q=iron+ore+exploration", "minResults": 1 },
   { "label": "Search: \"diamond drill\"", "params": "?q=diamond+drill", "minResults": 1 },
+  { "label": "Search: \"Jones\" (author name, ranked by BM25)", "params": "?q=Jones", "minResults": 2 },
 
   { "group": "Single Facet" },
   { "label": "commodity = Gold", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"commodity\"},\"http://example.org/mining/commodity/Gold\"]}", "minResults": 5 },
@@ -32,6 +33,11 @@
   { "label": "\"copper\" sorted by year asc", "params": "?q=copper&sort=year:asc", "minResults": 3 },
   { "label": "Reports sorted by publishedOn desc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}&sort=publishedOn:desc", "minResults": 5 },
 
+  { "group": "Nested Sort" },
+  { "label": "Boreholes by nested anumber asc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&sort=urn:jena:lucene:field#identifierValueExact@anumber:asc", "minResults": 5 },
+  { "label": "Boreholes by nested anumber desc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&sort=urn:jena:lucene:field#identifierValueExact@anumber:desc", "minResults": 5 },
+  { "label": "Boreholes by nested company asc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&sort=urn:jena:lucene:field#identifierValueExact@company:asc", "minResults": 5 },
+
   { "group": "Entity Types" },
   { "label": "Sites only", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Site\"]}", "minResults": 5 },
   { "label": "Boreholes only", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}", "minResults": 5 },
@@ -48,10 +54,7 @@
 
   { "group": "Literal Metadata" },
   { "label": "QA passed = true", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"qaPassed\"},\"true\"]}", "minResults": 5 },
-  { "label": "French review note", "params": "?q=r%C3%A9serves&filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}", "minResults": 1 },
-
-  { "group": "Identifier Search" },
-  { "label": "Identifier: 94130 (multi-valued demo record)", "params": "?id=94130", "minResults": 1 },
+  { "label": "French review note", "params": "?q=réserves&filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}", "minResults": 1 },
 
   { "group": "Nested Identifier Hierarchy" },
   { "label": "Boreholes only (identifier drill-down visible)", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}", "minResults": 5, "scrollToText": "identifiers" },
@@ -61,8 +64,8 @@
   { "label": "Exact pair: company = Newmont", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]},{\"op\":\"=\",\"args\":[{\"property\":\"identifierType\"},\"company\"]},{\"op\":\"=\",\"args\":[{\"property\":\"identifierValueExact\"},\"Newmont\"]}]}", "minResults": 1, "scrollToText": "identifiers" },
 
   { "group": "Correlated Nested Filters" },
-  { "label": "Identifier typeahead: anumber contains A-94", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]},{\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"identifierType\"},\"anumber\"]},{\"op\":\"text_query\",\"args\":[{\"property\":\"identifierValueText\"},\"A-94\"]}]}]}", "minResults": 2, "scrollToText": "correlated nested filters" },
-  { "label": "Qualified attribution: PI + Sarah Jones", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]},{\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"attributionRole\"},\"Principal Investigator\"]},{\"op\":\"text_query\",\"args\":[{\"property\":\"attributionAgentText\"},\"Sarah Jones\"]}]}]}", "minResults": 1, "scrollToText": "correlated nested filters" },
+  { "label": "Identifier typeahead: anumber contains A94", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]},{\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"identifierType\"},\"anumber\"]},{\"op\":\"text_query\",\"args\":[{\"property\":\"identifierValueText\"},\"A94\"]}]}]}", "minResults": 2, "scrollToText": "identifiers" },
+  { "label": "Qualified attribution: PI + Sarah Jones", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]},{\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"attributionRole\"},\"Principal Investigator\"]},{\"op\":\"text_query\",\"args\":[{\"property\":\"attributionAgentText\"},\"Sarah Jones\"]}]}]}", "minResults": 1, "scrollToText": "identifiers" },
 
   { "group": "Spatial: Bbox Filter" },
   { "label": "Australia bbox (all spatial)", "params": "?filter={\"op\":\"s_intersects\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"bbox\":[112,-44,154,-10]}]}", "minResults": 10 },

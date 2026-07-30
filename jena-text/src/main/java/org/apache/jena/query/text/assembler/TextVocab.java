@@ -119,6 +119,7 @@ public class TextVocab
     public static final Property pUseAnalyzer       = Vocab.property(NS, "useAnalyzer");
     public static final Property pMinGram            = Vocab.property(NS, "minGram");
     public static final Property pMaxGram            = Vocab.property(NS, "maxGram");
+    public static final Property pTokenized          = Vocab.property(NS, "tokenized");
     public static final Property pSearchFor         = Vocab.property(NS, "searchFor");
     public static final Property pAuxIndex          = Vocab.property(NS, "auxIndex");
     public static final Property pIndexAnalyzer     = Vocab.property(NS, "indexAnalyzer");

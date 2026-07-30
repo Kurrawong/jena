@@ -25,8 +25,11 @@ import java.util.*;
 
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
+import org.apache.jena.query.text.analyzer.EdgeNGramAnalyzer;
+import org.apache.jena.query.text.analyzer.LowerCaseKeywordAnalyzer;
 import org.apache.jena.sparql.path.Path;
 import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.standard.StandardAnalyzer;
 
 /**
  * Parsed representation of SHACL-driven index shapes.
@@ -155,7 +158,7 @@ public class ShaclIndexMapping {
             this.fieldName = Objects.requireNonNull(fieldName);
             this.fieldType = fieldType != null ? fieldType : FieldType.TEXT;
             this.analyzer = analyzer;
-            this.queryAnalyzer = queryAnalyzer;
+            this.queryAnalyzer = queryAnalyzer != null ? queryAnalyzer : pairedQueryAnalyzer(analyzer);
             this.stored = stored;
             this.indexed = indexed;
             this.facetable = facetable;
@@ -165,6 +168,23 @@ public class ShaclIndexMapping {
             this.storeLiteralMetadata = storeLiteralMetadata;
             this.normalizer = normalizer;
             this.fieldIRI = fieldIRI != null ? fieldIRI : NodeFactory.createURI(FIELD_IRI_PREFIX + fieldName);
+        }
+
+        /**
+         * The query-side analyzer implied by an index analyzer when the field declares no
+         * {@code idx:queryAnalyzer}. Only edge-n-gram fields need this: re-running the
+         * n-gram analyzer over the query turns every input into a pile of prefixes and
+         * matches far too much, so the sensible partner is supplied instead — a
+         * whole-value lowercaser for whole-value n-grams, and a word tokenizer for
+         * per-word n-grams. Every other analyzer is its own correct query-side partner.
+         */
+        private static Analyzer pairedQueryAnalyzer(Analyzer indexAnalyzer) {
+            if (indexAnalyzer instanceof EdgeNGramAnalyzer ngram) {
+                return ngram.isTokenized()
+                    ? new StandardAnalyzer()
+                    : new LowerCaseKeywordAnalyzer();
+            }
+            return null;
         }
 
         public Node getFieldIRI()            { return fieldIRI; }

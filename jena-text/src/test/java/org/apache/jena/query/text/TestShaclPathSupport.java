@@ -247,13 +247,8 @@ public class TestShaclPathSupport {
 
     @Test
     public void testInversePathIndexesWriter() {
-        // ex:smith ex:wrote ex:book1, so ^ex:wrote on book1 should index ex:smith's URI
-        // The wroteBy field stores URI strings as keywords
-        Map<String, List<FacetValue>> facets = textIndex.getFacetCounts(
-            Arrays.asList("wroteBy"), 10);
-
-        // wroteBy is not facetable in our setup, so let's query directly
-        // The value should be the URI of the person who wrote the book
+        // ex:smith ex:wrote ex:book1, so ^ex:wrote on book1 should index ex:smith's URI.
+        // wroteBy is not facetable here, so check it through a query rather than facet counts.
         String queryStr =
             "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "PREFIX ex: <" + NS + ">\n" +

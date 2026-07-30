@@ -28,16 +28,18 @@ Public API rules:
 ### Syntax
 
 ```sparql
-(?hit ?entity ?score ?totalHits)
+(?hit ?entity ?score ?rank ?totalHits)
   luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)
 ```
 
-Subject arity may be 1 to 4:
+Subject arity may be 1 to 6:
 
 - `?hit`
 - `?hit ?entity`
 - `?hit ?entity ?score`
-- `?hit ?entity ?score ?totalHits`
+- `?hit ?entity ?score ?rank`
+- `?hit ?entity ?score ?rank ?totalHits`
+- `?hit ?entity ?score ?rank ?totalHits ?graph`
 
 Object arity is always exactly 7.
 
@@ -69,10 +71,35 @@ Unknown field IRIs fail fast.
 |---|---|---|
 | `?hit` | blank node | Query-scoped join key for `luc:match` |
 | `?entity` | IRI | Matched entity |
-| `?score` | float | Lucene relevance score |
+| `?score` | float | Lucene relevance score; for a sorted search, `1/(1+rank)` (see below) |
+| `?rank` | `xsd:integer` | Position in the whole result set, counting from 0. Continues across pages: `offset 5` starts at rank 5 |
 | `?totalHits` | `xsd:integer` | Total matching hits across the whole result set, independent of `limit` and `offset` |
 
 `?match` is not part of `luc:query`.
+
+#### Use `?rank` for order, not `?score`
+
+SPARQL results arrive in order, so most queries never need `?rank`. It exists for
+consumers that receive an **unordered** result set — most obviously a `CONSTRUCT` graph,
+where order is not a property of the payload at all.
+
+`?score` cannot fill that role:
+
+- A match-all query (`*`) scores **every** document `1.0`, so there is nothing to sort on.
+- Real relevance scores tie routinely — two hits at `3.6702733` in the demo dataset.
+
+`?rank` is the position itself, so it is always strictly increasing and always recovers
+the order the engine returned, whether that order came from relevance or from a sort spec.
+
+#### `?score` under a sort spec
+
+Lucene does not score documents when a sort is applied, so a sorted search has no
+relevance to report. Rather than binding `NaN`, `?score` then carries `1/(1+rank)`: the
+first hit scores `1.0`, the second `0.5`, and so on. The value depends only on rank, so a
+hit keeps the same score when a later page re-runs the search with a larger window.
+
+Do not read a sorted search's `?score` as a relevance magnitude, and prefer `?rank` when
+what you want is order.
 
 ### Examples
 
@@ -101,7 +128,7 @@ Search a specific field IRI:
 Search with a CQL filter:
 
 ```sparql
-(?hit ?entity ?score ?totalHits)
+(?hit ?entity ?score ?rank ?totalHits)
   luc:query (
     "default"
     "default"
@@ -148,7 +175,7 @@ Multi-sort:
 `limit` and `offset` form a page window. Fetch the second page of 10 results:
 
 ```sparql
-(?hit ?entity ?score ?totalHits)
+(?hit ?entity ?score ?rank ?totalHits)
   luc:query ("default" "default" "learning" "" "" 10 10) .
 ```
 
@@ -324,11 +351,13 @@ Spatial:
 {"op":"text_query","args":[{"property":"urn:jena:lucene:field#title"},"gold mine"]}
 ```
 
-The supplied text is tokenised through the field's configured query analyzer (falling back to the index analyzer if no query-side one is set):
+The supplied text is tokenised through the field's query analyzer, then its index analyzer, then the index-wide one — so a `TEXT` field that configures no analyzer at all is still searched with the default (`StandardAnalyzer`) rather than by raw term:
 
 - single token → `TermQuery`
 - multiple tokens → `PhraseQuery` (positional)
 - empty token stream (e.g. all-stopword input) → matches nothing rather than everything
+
+What a field will and will not match follows from its analyzer, and a mismatch shows up as an empty result rather than an error — see [03-configuration.md → Choosing an Analyzer for a TEXT Field](03-configuration.md#choosing-an-analyzer-for-a-text-field). In particular, an edge-n-gram field only matches mid-value words when it declares `text:tokenized true`.
 
 When to choose which:
 
@@ -382,7 +411,9 @@ Same-child guarantee: a borehole surfaces only when ONE identifier record has pr
 }
 ```
 
-A report surfaces only when ONE qualified-attribution record has hadRole="Principal Investigator" AND its agent matches "Sarah Jones" — not where the role is on one attribution and the name is on another.
+A report surfaces only when ONE qualified-attribution record has hadRole="Principal Investigator" AND an agent matching "Sarah Jones" — not where the role is on one attribution and the name is on another.
+
+`attributionAgentText` here is a plain `TEXT` field with no analyzer override, so the input is tokenised the same way the index was and `"Sarah Jones"` matches `"Dr Sarah Jones"` as a phrase. Reaching for an n-gram twin instead is a common mistake — see [03-configuration.md → Names want BM25, not n-grams](03-configuration.md#names-want-bm25-not-n-grams).
 
 **Boundary worth knowing:** the same-child fold operates within one CQL filter subtree. If the type clause sits in `cqlFilter` and the text clause sits in `queryString` (the separate text input on `luc:query`), they are not in the same CqlAnd and the fold cannot apply — each lifts independently. For same-child correctness, put both clauses in `cqlFilter` (using `=` and `text_query` as shown above).
 

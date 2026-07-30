@@ -36,12 +36,15 @@ import org.apache.lucene.analysis.Analyzer;
  * <ul>
  *   <li>{@code text:minGram} — minimum n-gram length (default 1)</li>
  *   <li>{@code text:maxGram} — maximum n-gram length (default 20)</li>
+ *   <li>{@code text:tokenized} — split into words before n-gramming, so any word can be
+ *       prefix-matched rather than only the whole value (default false)</li>
  * </ul>
- * Example:
+ * Example — per-word typeahead over a person or organisation name:
  * <pre>
  * [] a text:EdgeNGramAnalyzer ;
  *    text:minGram 1 ;
- *    text:maxGram 20 .
+ *    text:maxGram 20 ;
+ *    text:tokenized true .
  * </pre>
  */
 public class EdgeNGramAnalyzerAssembler extends AssemblerBase {
@@ -61,6 +64,12 @@ public class EdgeNGramAnalyzerAssembler extends AssemblerBase {
             maxGram = maxStmt.getInt();
         }
 
-        return new EdgeNGramAnalyzer(minGram, maxGram);
+        boolean tokenized = false;
+        Statement tokenizedStmt = root.getProperty(TextVocab.pTokenized);
+        if (tokenizedStmt != null) {
+            tokenized = tokenizedStmt.getBoolean();
+        }
+
+        return new EdgeNGramAnalyzer(minGram, maxGram, tokenized);
     }
 }

@@ -109,7 +109,7 @@ To run the same `docker-compose` service using an image published to GitHub Cont
 
 ```bash
 # Start Fuseki from GHCR
-task docker-start-ghcr
+task docker-start GHCR=1
 
 # Stop
 task docker-stop
@@ -251,7 +251,7 @@ task -d .. runtime-ghcr-push
 task -d .. runtime-acr-push ACR_NAME=myregistry
 ```
 
-The demo Docker tasks here (`docker-start`, `docker-serve`, `docker-start-ghcr`) still work; they now assume the relevant image already exists locally or in GHCR.
+The demo Docker tasks here (`docker-start`, `docker-serve`, `docker-stop`, `docker-clean`, `loader-index`) still work; they now assume the relevant image already exists locally, or in GHCR when passed `GHCR=1`.
 
 ## Loader / reindexer image
 
@@ -343,7 +343,7 @@ task -d .. loader-acr-push ACR_NAME=gswadevacr
 For safe text-only reindex from GHCR:
 
 ```bash
-task loader-index-ghcr
+task loader-index GHCR=1
 ```
 
 ## Demo app (FastAPI + Bulma)

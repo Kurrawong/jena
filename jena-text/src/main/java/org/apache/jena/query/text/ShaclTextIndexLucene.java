@@ -395,7 +395,16 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      */
     /**
      * Resolve facet field IRIs to Lucene field names.
-     * Unknown identifiers are passed through unchanged.
+     * <p>
+     * A field IRI resolves to that field's own facet dimension, including when the field is
+     * also a level of a {@code facetHierarchy} — every facetable field is indexed as a flat
+     * dimension in its own right, so hierarchy membership must not redirect the request to
+     * the hierarchy's dimension. Faceting a dimension with no drill-down path returns its
+     * top level, so that redirect answered with counts for a different field.
+     * <p>
+     * To facet a hierarchy, name its dimension: those are passed through unchanged, as are
+     * identifiers that match no field at all. Naming a field that is not facetable is an
+     * error — there is no dimension to answer from.
      */
     public List<String> resolveFacetFieldNames(List<String> fieldIRIs) {
         if (fieldIRIs == null) return null;
@@ -412,16 +421,26 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             return all;
         }
         List<String> resolved = new ArrayList<>(fieldIRIs.size());
-        for (String iri : fieldIRIs) {
-            // Check if this field IRI belongs to a hierarchy — if so, resolve to the dimension name
-            ShaclIndexMapping.HierarchyDef hier = shaclMapping.findHierarchyForField(iri);
-            if (hier != null) {
-                if (!resolved.contains(hier.getDimensionName())) {
-                    resolved.add(hier.getDimensionName());
+        for (String spec : fieldIRIs) {
+            if (hierarchyDimensions.contains(spec)) {
+                if (!resolved.contains(spec)) {
+                    resolved.add(spec);
                 }
-            } else {
-                ShaclIndexMapping.FieldDef fd = shaclMapping.findField(iri);
-                resolved.add(fd != null ? fd.getFieldName() : iri);
+                continue;
+            }
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findField(spec);
+            if (fd == null) {
+                fd = shaclMapping.findFieldByName(spec);
+            }
+            if (fd == null) {
+                resolved.add(spec);
+                continue;
+            }
+            if (!fd.isFacetable()) {
+                throw new TextIndexException("Facet field is not facetable: " + spec);
+            }
+            if (!resolved.contains(fd.getFieldName())) {
+                resolved.add(fd.getFieldName());
             }
         }
         return resolved;
@@ -598,7 +617,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             if (cqlFilter != null) {
                 BooleanQuery.Builder combined = new BooleanQuery.Builder();
                 combined.add(textQuery, BooleanClause.Occur.MUST);
-                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig);
+                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig, getQueryAnalyzer());
                 CqlToLuceneCompiler.CompileResult result = compiler.compile(cqlFilter);
                 if (result.pushed() != null) {
                     combined.add(result.pushed(), BooleanClause.Occur.MUST);
@@ -632,7 +651,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 String uri = doc.get(entityField);
                 if (uri != null) {
                     Node entityNode = TextQueryFuncs.stringToNode(uri);
-                    results.add(new SearchHit(idx++, entityNode, sd.score, null, sd.doc));
+                    float score = luceneSort == null ? sd.score : rankScore(idx);
+                    results.add(new SearchHit(idx++, entityNode, score, null, sd.doc));
                 }
             }
 
@@ -649,6 +669,19 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         } finally {
             releaseSearcher(searcher);
         }
+    }
+
+    /**
+     * The score for a hit from a sorted search.
+     * <p>
+     * Lucene does not score documents when a {@link Sort} is supplied — {@code ScoreDoc.score}
+     * is {@code NaN} — so rank stands in for relevance: a value in {@code (0,1]} that strictly
+     * decreases with position, keeping "higher score first" true for sorted and unsorted
+     * searches alike. It depends only on the rank, so a hit keeps the same score when a later
+     * page re-runs the search with a larger window.
+     */
+    private static float rankScore(int rank) {
+        return 1.0f / (1 + rank);
     }
 
     /**
@@ -2226,7 +2259,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
 
             if (cqlFilter != null) {
-                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig);
+                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig, getQueryAnalyzer());
                 CqlToLuceneCompiler.CompileResult result = compiler.compile(cqlFilter);
                 if (result.pushed() != null) {
                     combined.add(result.pushed(), BooleanClause.Occur.MUST);
@@ -2251,13 +2284,15 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             List<TextHit> results = new ArrayList<>();
             String entityField = getDocDef().getEntityField();
             StoredFields storedFields = searcher.storedFields();
+            int idx = 0;
             for (ScoreDoc sd : topDocs.scoreDocs) {
                 Document doc = storedFields.document(sd.doc);
                 String uri = doc.get(entityField);
                 if (uri != null) {
                     Node entityNode = TextQueryFuncs.stringToNode(uri);
                     Node valueNode = extractValueNode(doc, resolved, valueQuery);
-                    results.add(new TextHit(entityNode, sd.score, valueNode, null, fieldNode));
+                    float score = luceneSort == null ? sd.score : rankScore(idx++);
+                    results.add(new TextHit(entityNode, score, valueNode, null, fieldNode));
                 }
             }
             return results;
@@ -2311,7 +2346,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
 
             if (cqlFilter != null) {
-                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig);
+                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig, getQueryAnalyzer());
                 CqlToLuceneCompiler.CompileResult cr = compiler.compile(cqlFilter);
                 if (cr.pushed() != null) {
                     combined.add(cr.pushed(), BooleanClause.Occur.MUST);
@@ -2360,7 +2395,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 bq.add(parseQueryForFields(queryString, resolved), BooleanClause.Occur.MUST);
             }
             if (cqlFilter != null) {
-                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig);
+                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig, getQueryAnalyzer());
                 CqlToLuceneCompiler.CompileResult cr = compiler.compile(cqlFilter);
                 if (cr.pushed() != null) {
                     bq.add(cr.pushed(), BooleanClause.Occur.MUST);

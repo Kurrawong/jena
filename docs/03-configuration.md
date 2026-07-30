@@ -138,6 +138,128 @@ Public API rule:
 
 `idx:DateField` and `idx:DateTimeField` are accepted as deprecated aliases for `idx:TemporalField`.
 
+## Choosing an Analyzer for a TEXT Field
+
+A `TEXT` field is only as searchable as its analyzer, and picking the wrong one produces a
+field that silently matches nothing rather than an error.
+
+Start here, because most fields do not want an analyzer override at all:
+
+| Goal | Configuration |
+|---|---|
+| Find entities by words in their text | `TEXT`, **no** `idx:analyzer` — the index-wide `StandardAnalyzer` applies and BM25 ranks the hits |
+| Filter to one value of a closed vocabulary (a person, an organisation, a status) | `KEYWORD` + `idx:facetable`, filtered with `=` on a value the UI offers from the facet list |
+| Complete a value the user is typing from memory (an identifier, a code) | `TEXT` + `idx:analyzer [ a text:EdgeNGramAnalyzer ]` |
+
+Edge-n-grams are for the third row only. They are the wrong reach for a name: see
+[Names want BM25, not n-grams](#names-want-bm25-not-n-grams).
+
+### Edge-n-gram modes
+
+```turtle
+## Whole-value prefixes — "RPT-MIA" reaches "RPT-MIA-2023-001", "2023" does not
+field:identifierValueText
+    idx:fieldName "identifierValueText" ;
+    idx:fieldType idx:TextField ;
+    idx:analyzer [ a text:EdgeNGramAnalyzer ] ;
+    sh:path schema:value .
+```
+
+`text:tokenized true` switches to per-word n-grams, so any word of a multi-word value can
+be prefix-matched and multi-word input matches as an adjacent phrase. Use it when the
+values are segmented and users search by the segment they remember — dashed identifiers,
+mostly. `text:minGram` (default 1) and `text:maxGram` (default 20) bound the n-gram
+lengths; in per-word mode the whole word is also indexed, so words longer than `maxGram`
+remain searchable in full.
+
+### The query analyzer is implied
+
+Do not set `idx:queryAnalyzer` on an edge-n-gram field. Running the n-gram analyzer over
+the *query* as well as the index turns every input into a pile of prefixes and matches far
+too much, so the field's mode selects its partner automatically:
+
+| `idx:analyzer` | Implied `idx:queryAnalyzer` |
+|---|---|
+| `text:EdgeNGramAnalyzer` | `text:LowerCaseKeywordAnalyzer` — the input is one lowercased term |
+| `text:EdgeNGramAnalyzer` with `text:tokenized true` | `text:StandardAnalyzer` — the input is split into words the same way the index was |
+| anything else | none; the analyzer is its own correct query-side partner |
+
+An explicit `idx:queryAnalyzer` still wins, for the cases these defaults do not cover.
+
+### Choosing between whole-value and per-word
+
+For a value with no punctuation or spaces — `"A9412"` — the two n-gram modes behave
+identically. They diverge as soon as the value has more than one word or segment:
+
+| Value | Input | whole-value | per-word |
+|---|---|---|---|
+| `Dr Sarah Jones` | `Dr Sar` | ✅ | ✅ |
+| `Dr Sarah Jones` | `Jones` | ❌ | ✅ |
+| `Dr Sarah Jones` | `Sarah Jones` | ❌ | ✅ |
+| `RPT-MIA-2023-001` | `RPT-MIA` | ✅ | ✅ |
+| `RPT-MIA-2023-001` | `2023` | ❌ | ✅ |
+
+Whole-value is right when a value must be matched as an indivisible string and a mid-value
+fragment should *not* hit. Per-word is right when the value has internal structure the user
+navigates by.
+
+`TestTypeaheadFieldConfigurations` exercises every row of both tables.
+
+### Names want BM25, not n-grams
+
+The tempting configuration for a person's name is a per-word edge-n-gram twin, so that
+typing `Jones` completes `Dr Sarah Jones`. Do not do this. It costs:
+
+- **Relevance.** Every value expands to ~10–20 tokens, IDF over prefixes is noise (`"s"`
+  occurs everywhere) and length norms inflate. BM25 on the field stops meaning anything,
+  which matters the moment it joins `idx:defaultSearch`.
+- **Index size**, several times over, for every name in the corpus.
+- **Wrong multi-word semantics.** `text_query` builds a phrase query, so `"Jones Sarah"`
+  misses. Right for completion, wrong for someone searching a name.
+
+And it still does not buy typo tolerance — `"Jonse"` fails under n-grams exactly as it
+fails under BM25.
+
+A plain `TEXT` field with no analyzer override does what a name filter actually needs.
+`text_query` tokenises the input the same way the field was indexed, so `"Jones"` and
+`"Sarah Jones"` both reach `"Dr Sarah Jones"`, ranked by BM25. Pair it with a `KEYWORD`
+twin when you also want exact filtering and facet counts:
+
+```turtle
+## Exact side: equality filters and facet counts
+field:authorName
+    idx:fieldName "authorName" ;
+    idx:fieldType idx:KeywordField ;
+    idx:facetable true ;
+    sh:path ( ex:authoredBy ex:name ) .
+
+## Search side: BM25 over the same name, no analyzer override
+field:authorNameText
+    idx:fieldName "authorNameText" ;
+    idx:fieldType idx:TextField ;
+    idx:defaultSearch true ;
+    sh:path ( ex:authoredBy ex:name ) .
+```
+
+This holds inside an `idx:nested` scope too: a plain `TEXT` field there still folds
+same-child with its sibling clauses, so "role = Principal Investigator AND agent matches
+Sarah Jones" correlates onto one attribution record with no n-grams involved.
+`TestCorrelatedNestedAttribution` covers it.
+
+#### What about completion?
+
+A picklist is worth it only when the vocabulary is genuinely small and fixed — a set of
+roles or statuses, not a set of people. Completing a name means either shipping the
+vocabulary to the client, which stops being viable somewhere in the low thousands, or a
+query per keystroke. Prefer BM25 on whole words until there is a suggestion API worth
+using; the natural one here is a prefix filter over facet values, evaluated in the facet
+collector, which reuses the dictionary the index already has and respects the current
+filter state.
+
+An identifier is the opposite case: an open, near-unique vocabulary with no useful counts,
+which the user types verbatim and expects to be completed. That is what edge-n-grams are
+for.
+
 ## Paths
 
 Direct path:
@@ -201,8 +323,7 @@ Add a second occurrence of the value field with an analyzer-backed `TEXT` field.
 field:identifierValueText
     idx:fieldName "identifierValueText" ;
     idx:fieldType idx:TextField ;
-    idx:analyzer <#edgeNgramAnalyzer> ;
-    idx:queryAnalyzer <#lowercaseKeywordAnalyzer> ;
+    idx:analyzer [ a text:EdgeNGramAnalyzer ; text:tokenized true ] ;
     sh:path schema:value .
 
 <#BoreholeShape>
@@ -231,33 +352,31 @@ field:attributionRole
     idx:facetable true ;
     sh:path prov:hadRole .
 
-field:attributionAgent
-    idx:fieldName "attributionAgent" ;
+field:attributionAgentExact
+    idx:fieldName "attributionAgentExact" ;
     idx:fieldType idx:KeywordField ;
     idx:facetable true ;
-    sh:path prov:agent .
-
-field:attributionAgentText
-    idx:fieldName "attributionAgentText" ;
-    idx:fieldType idx:TextField ;
-    idx:analyzer <#edgeNgramAnalyzer> ;
-    idx:queryAnalyzer <#lowercaseKeywordAnalyzer> ;
-    sh:path prov:agent .
+    sh:path ( prov:agent rdfs:label ) .
 
 <#MiningReportShape>
     sh:targetClass ex:MiningReport ;
     idx:nested [
         idx:joinPath prov:qualifiedAttribution ;
         idx:property field:attributionRole ;
-        idx:property field:attributionAgent ;
+        idx:property field:attributionAgentExact ;
         idx:property field:attributionAgentText ;
     ] .
 ```
 
-Then at query time:
+Role is a fixed vocabulary, so it filters with `=`. The agent name filters with
+`text_query` against the plain `TEXT` twin: `"Sarah Jones"` reaches `"Dr Sarah Jones"`,
+and the two clauses still fold same-child, so a report surfaces only when one attribution
+record carries both. The `KEYWORD` twin stays for exact filtering and facet counts.
 
-- exact role + exact agent → both `=` clauses fold same-child
-- exact role + text/typeahead on agent → `=` + `text_query` fold same-child
+No n-gram twin on the agent, on purpose — see
+[Names want BM25, not n-grams](#names-want-bm25-not-n-grams).
+`TestCorrelatedNestedAttribution` pins the correlation for `=`, for `text_query` on a
+plain field, and for the n-gram configurations that are permitted but not advised.
 
 ### Rules
 
@@ -265,6 +384,8 @@ Then at query time:
 - `idx:joinPath` may be a simple predicate, an inverse predicate, or a sequence of predicate steps. It does not support alternative paths.
 - Both the exact-keyword and edge-ngram-text variants can sit on the same SHACL path — they are different Lucene fields driven by their own analyzers.
 - `idx:facetHierarchy` inside an `idx:nested` block defines a hierarchy whose levels are correlated per child record (no cartesian products).
+- A field named in an `idx:facetHierarchy` keeps its own flat facet dimension. Faceting on the field IRI returns that field's counts across all parents; faceting on the hierarchy's dimension name returns its top level, or the children of a drill-down path. The two are addressed separately and neither shadows the other.
+- Faceting on a field that is not `idx:facetable` is an error — there is no dimension to answer from.
 
 ## External Content (CSV/TSV)
 

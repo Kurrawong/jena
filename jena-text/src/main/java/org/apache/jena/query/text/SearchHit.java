@@ -36,6 +36,7 @@ import org.apache.jena.graph.NodeFactory;
  */
 public class SearchHit {
     private final Node hitId;
+    private final int rank;
     private final Node entityNode;
     private final float score;
     private final Node graph;
@@ -44,6 +45,7 @@ public class SearchHit {
 
     public SearchHit(int index, Node entityNode, float score, Node graph, int luceneDocId) {
         this.hitId = NodeFactory.createBlankNode("hit" + index);
+        this.rank = index;
         this.entityNode = entityNode;
         this.score = score;
         this.graph = graph;
@@ -51,6 +53,15 @@ public class SearchHit {
     }
 
     public Node getHitId() { return hitId; }
+
+    /**
+     * Position in the whole result set, counting from 0 — not within the page. A score
+     * cannot stand in for this: a match-all query scores every document identically, and
+     * relevance scores tie. Rank is what lets a consumer holding an unordered result set
+     * reconstruct the order the search returned.
+     */
+    public int getRank() { return rank; }
+
     public Node getEntityNode() { return entityNode; }
     public float getScore() { return score; }
     public Node getGraph() { return graph; }
