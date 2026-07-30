@@ -351,11 +351,13 @@ Spatial:
 {"op":"text_query","args":[{"property":"urn:jena:lucene:field#title"},"gold mine"]}
 ```
 
-The supplied text is tokenised through the field's configured query analyzer (falling back to the index analyzer if no query-side one is set):
+The supplied text is tokenised through the field's query analyzer, then its index analyzer, then the index-wide one — so a `TEXT` field that configures no analyzer at all is still searched with the default (`StandardAnalyzer`) rather than by raw term:
 
 - single token → `TermQuery`
 - multiple tokens → `PhraseQuery` (positional)
 - empty token stream (e.g. all-stopword input) → matches nothing rather than everything
+
+What a field will and will not match follows from its analyzer, and a mismatch shows up as an empty result rather than an error — see [03-configuration.md → Choosing an Analyzer for a TEXT Field](03-configuration.md#choosing-an-analyzer-for-a-text-field). In particular, an edge-n-gram field only matches mid-value words when it declares `text:tokenized true`.
 
 When to choose which:
 
@@ -404,12 +406,14 @@ Same-child guarantee: a borehole surfaces only when ONE identifier record has pr
   "op": "and",
   "args": [
     {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionRole"},"Principal Investigator"]},
-    {"op":"text_query","args":[{"property":"urn:jena:lucene:field#attributionAgentText"},"Sarah Jones"]}
+    {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionAgentExact"},"Dr Sarah Jones"]}
   ]
 }
 ```
 
-A report surfaces only when ONE qualified-attribution record has hadRole="Principal Investigator" AND its agent matches "Sarah Jones" — not where the role is on one attribution and the name is on another.
+A report surfaces only when ONE qualified-attribution record has hadRole="Principal Investigator" AND agent="Dr Sarah Jones" — not where the role is on one attribution and the name is on another.
+
+Both clauses are `=` because both values come from a picklist. Reaching for `text_query` on an n-gram twin of the agent name instead is a common mistake: it costs relevance and index size to re-implement completion the picklist already does, and a partial name like `"Sarah Jones"` then depends on the exact n-gram mode configured — see [03-configuration.md → Names are a picklist, not a prefix search](03-configuration.md#names-are-a-picklist-not-a-prefix-search).
 
 **Boundary worth knowing:** the same-child fold operates within one CQL filter subtree. If the type clause sits in `cqlFilter` and the text clause sits in `queryString` (the separate text input on `luc:query`), they are not in the same CqlAnd and the fold cannot apply — each lifts independently. For same-child correctness, put both clauses in `cqlFilter` (using `=` and `text_query` as shown above).
 
