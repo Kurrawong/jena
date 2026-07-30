@@ -617,7 +617,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             if (cqlFilter != null) {
                 BooleanQuery.Builder combined = new BooleanQuery.Builder();
                 combined.add(textQuery, BooleanClause.Occur.MUST);
-                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig);
+                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig, getQueryAnalyzer());
                 CqlToLuceneCompiler.CompileResult result = compiler.compile(cqlFilter);
                 if (result.pushed() != null) {
                     combined.add(result.pushed(), BooleanClause.Occur.MUST);
@@ -2259,7 +2259,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
 
             if (cqlFilter != null) {
-                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig);
+                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig, getQueryAnalyzer());
                 CqlToLuceneCompiler.CompileResult result = compiler.compile(cqlFilter);
                 if (result.pushed() != null) {
                     combined.add(result.pushed(), BooleanClause.Occur.MUST);
@@ -2346,7 +2346,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
 
             if (cqlFilter != null) {
-                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig);
+                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig, getQueryAnalyzer());
                 CqlToLuceneCompiler.CompileResult cr = compiler.compile(cqlFilter);
                 if (cr.pushed() != null) {
                     combined.add(cr.pushed(), BooleanClause.Occur.MUST);
@@ -2395,7 +2395,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 bq.add(parseQueryForFields(queryString, resolved), BooleanClause.Occur.MUST);
             }
             if (cqlFilter != null) {
-                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig);
+                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig, getQueryAnalyzer());
                 CqlToLuceneCompiler.CompileResult cr = compiler.compile(cqlFilter);
                 if (cr.pushed() != null) {
                     bq.add(cr.pushed(), BooleanClause.Occur.MUST);
