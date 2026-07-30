@@ -17,13 +17,14 @@ Maven-in-Docker builds).
 
 ## The images
 
-Two independently built images, sharing a Maven builder stage and the same
-`eclipse-temurin:21-jre-ubi10-minimal` runtime base:
+Two images built from a single `build-files/docker/Dockerfile` via `--target`, sharing one
+Maven builder stage and the same `eclipse-temurin:21-jre-ubi10-minimal` runtime base.
+`loader` builds `FROM runtime`, so it is a strict superset:
 
-| Image | Dockerfile | Contents |
-|-------|-----------|----------|
-| `fuseki-ai` | `build-files/docker/Dockerfile.runtime` | lean server — just `jena-fuseki-server.jar` |
-| `fuseki-loader` | `build-files/docker/Dockerfile.loader` | `-Pcomplete` build **+** bundled `apache-jena` distribution (`/fuseki/apache-jena/lib/*.jar`) **+** `jq`; multi-mode `loader-entrypoint.sh` |
+| Image | Target | Contents |
+|-------|--------|----------|
+| `fuseki-ai` | `runtime` | lean server — just `jena-fuseki-server.jar` |
+| `fuseki-loader` | `loader` | everything in `runtime` **+** bundled `apache-jena` distribution (`/fuseki/apache-jena/lib/*.jar`) **+** `jq`; multi-mode `loader-entrypoint.sh` |
 
 Implication for triage: a **base / OS** CVE affects *both* images. A **Java-library** CVE
 often exists in both, but trivy can only version-detect the unpacked jars in the loader's
@@ -76,8 +77,9 @@ compatible; do not invent versions.
 
 **OS package** (`Class: os-pkgs`, `Type: redhat`):
 1. The fix is almost always a newer base image. Propose bumping
-   `eclipse-temurin:21-jre-ubi10-minimal` in **both** `Dockerfile.runtime` *and*
-   `Dockerfile.loader` to a newer tag or pinned digest.
+   `eclipse-temurin:21-jre-ubi10-minimal` in `build-files/docker/Dockerfile` to a newer
+   tag or pinned digest. There is a single `FROM` line for both images — the `loader`
+   target inherits it via `FROM runtime`, so one edit covers both.
 2. If no fixed version is published yet, say so and name the affected package — don't guess.
 
 ## Report format
