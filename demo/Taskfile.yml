@@ -74,11 +74,21 @@ tasks:
     cmds:
       - ln -sfn ../test/config.ttl app-static/config.ttl
       - ln -sfn ../test/tests.json app-static/tests.json
-      # Keep the licence header: this file is committed and RAT checks it, so
-      # regenerating it without one fails the next build. Keep labelCacheVersion
-      # too — labels.js reads it as the cache salt.
+      # This file is committed and RAT-checked, so the licence header has to survive
+      # regeneration, and the output has to match the committed bytes exactly —
+      # otherwise every demo run leaves the tree dirty. Keep labelCacheVersion:
+      # labels.js reads it as the cache salt.
       - |
-        printf "/* Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0 */\n\nwindow.APP_CONFIG = {\n  fusekiBase: '/fuseki',\n  labelCacheVersion: '1',\n};\n" > app-static/app-config.js
+        cat > app-static/app-config.js <<'CONFIG'
+        /* Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0 */
+
+        window.APP_CONFIG = {
+          fusekiBase: '/fuseki',
+          // Cache salt for label lookups. Labels are cached by the browser for a day
+          // (see serve_app.py); bump this to invalidate every cached label at once.
+          labelCacheVersion: '1',
+        };
+        CONFIG
       - pkill -f "serve_app.py --port {{.APP_PORT}}" || true
       - echo "Serving at http://localhost:{{.APP_PORT}} (mining proxy → {{.SERVER_URL}})"
       - python3 serve_app.py --port {{.APP_PORT}} --directory app-static --backend {{.SERVER_URL}}
