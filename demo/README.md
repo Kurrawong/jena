@@ -269,7 +269,7 @@ Build the loader image from the repo root:
 task -d .. loader-build
 ```
 
-This produces `fuseki-loader:6.1.0-SNAPSHOT`.
+This produces `fuseki-lucene-shacl-loader:6.1.0-SNAPSHOT`.
 
 ### Running
 
@@ -280,7 +280,7 @@ docker run --rm \
   -v fuseki-db:/data/DB \
   -v fuseki-lucene:/data/Lucene \
   -e JAVA_OPTS="-Xmx8g" \
-  fuseki-loader:6.1.0-SNAPSHOT
+  fuseki-lucene-shacl-loader:6.1.0-SNAPSHOT
 ```
 
 | Volume mount | Purpose |
@@ -319,14 +319,14 @@ docker run --rm \
   -v fuseki-db:/data/DB \
   -v fuseki-lucene:/data/Lucene \
   -e JAVA_OPTS="-Xmx8g" \
-  ghcr.io/aiworkerjohns/fuseki-loader:6.1.0-SNAPSHOT
+  ghcr.io/kurrawong/fuseki-lucene-shacl-loader:6.1.0-SNAPSHOT
 
 # 2. Start the server with the same volumes
 docker run -d -p 3030:3030 \
   -v ./config.ttl:/fuseki/config.ttl:ro \
   -v fuseki-db:/fuseki/DB \
   -v fuseki-lucene:/fuseki/Lucene \
-  ghcr.io/aiworkerjohns/fuseki-ai:6.1.0-SNAPSHOT
+  ghcr.io/kurrawong/fuseki-lucene-shacl:6.1.0-SNAPSHOT
 ```
 
 A `docker-compose.yml` example is provided in `loader/`.

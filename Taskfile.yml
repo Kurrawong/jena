@@ -4,10 +4,12 @@ version: '3'
 
 vars:
   VERSION: 6.1.0-SNAPSHOT
-  RUNTIME_IMAGE_NAME: '{{.RUNTIME_IMAGE_NAME | default "fuseki-ai"}}'
-  IMAGE_NAME: '{{.IMAGE_NAME | default "fuseki-loader"}}'
+  RUNTIME_IMAGE_NAME: '{{.RUNTIME_IMAGE_NAME | default "fuseki-lucene-shacl"}}'
+  IMAGE_NAME: '{{.IMAGE_NAME | default "fuseki-lucene-shacl-loader"}}'
   IMAGE_TAG: '{{.IMAGE_TAG | default .VERSION}}'
-  GHCR_OWNER: '{{.GHCR_OWNER | default "aiworkerjohns"}}'
+  # Must be lowercase: Docker repository names reject uppercase, so "Kurrawong"
+  # cannot be used verbatim.
+  GHCR_OWNER: '{{.GHCR_OWNER | default "kurrawong"}}'
   # Vulnerability scanning (trivy). TRIVY can point at an alternate binary.
   TRIVY: '{{.TRIVY | default "trivy"}}'
   TRIVY_MIN_VERSION: '0.69.3'
@@ -70,10 +72,11 @@ tasks:
       - docker buildx build --builder {{.BUILDX_BUILDER}} --platform {{.ACR_PLATFORMS}} --target loader -f build-files/docker/Dockerfile -t {{.ACR_NAME}}.azurecr.io/{{.IMAGE_NAME}}:{{.IMAGE_TAG}} -t {{.ACR_NAME}}.azurecr.io/{{.IMAGE_NAME}}:latest --push .
 
   push_gswa:
-    desc: Push runtime (as rdf-delta-server) and fuseki-loader to the GSWA ACR (gswareg.azurecr.io) with :IMAGE_TAG and :latest
+    desc: Push runtime (as rdf-delta-server) and the loader to the GSWA ACR (gswareg.azurecr.io) with :IMAGE_TAG and :latest
     cmds:
       # On gswareg the runtime is published under the GSWA naming convention
-      # (rdf-delta-server), not fuseki-ai. GHCR and gswadevacr keep fuseki-ai.
+      # (rdf-delta-server), not fuseki-lucene-shacl. GHCR and gswadevacr use
+      # fuseki-lucene-shacl.
       - task: runtime-acr-push
         vars:
           ACR_NAME: gswareg

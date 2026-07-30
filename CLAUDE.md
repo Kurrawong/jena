@@ -26,11 +26,27 @@ git remote add upstream https://github.com/apache/jena.git
 git fetch upstream main
 ```
 
-**Docker image pushes to GHCR**: images still publish to `ghcr.io/aiworkerjohns/*`
-(`Taskfile.yml` defaults `GHCR_OWNER` to `aiworkerjohns`), which has not moved with the
-repo. The `gh` CLI must have `aiworkerjohns` as the active account with the
-`write:packages` scope — verify with `gh auth status` and switch if needed:
-`gh auth switch --user aiworkerjohns`. Override per-invocation with `GHCR_OWNER=...`.
+**Docker image pushes to GHCR**: images publish to `ghcr.io/kurrawong/*`, following the
+repo to its new home:
+
+| Image | Dockerfile target |
+|-------|-------------------|
+| `ghcr.io/kurrawong/fuseki-lucene-shacl` | `runtime` |
+| `ghcr.io/kurrawong/fuseki-lucene-shacl-loader` | `loader` |
+
+The owner is written as the **lowercase literal `kurrawong`**, not
+`${{ github.repository_owner }}`. That expression preserves the owner's casing —
+`Kurrawong` — and Docker repository names must be lowercase, so buildx rejects the tag
+before contacting the registry. Every CI push failed this way between the repo move and
+2026-07-30 with `invalid tag "ghcr.io/Kurrawong/...": repository name must be lowercase`.
+Do not "simplify" it back to the expression.
+
+CI pushes with `GITHUB_TOKEN` (`packages: write`), which needs no extra setup. For local
+`task *-ghcr-push`, the `gh` CLI needs the `write:packages` scope for the `Kurrawong` org —
+verify with `gh auth status`. Override per-invocation with `GHCR_OWNER=...`.
+
+Earlier images published under `ghcr.io/aiworkerjohns/*` as `fuseki-ai` / `fuseki-loader`;
+that account did not move with the repo and those tags are not updated.
 
 ## Build Commands
 

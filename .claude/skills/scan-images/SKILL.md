@@ -1,7 +1,7 @@
 ---
 name: scan-images
 description: >-
-  Scan the Fuseki Docker images (fuseki-ai runtime, fuseki-loader indexer) for OS
+  Scan the Fuseki Docker images (fuseki-lucene-shacl runtime, fuseki-lucene-shacl-loader indexer) for OS
   and Java-library CVEs by running the Taskfile `scan` task (trivy), then report the
   findings and propose the exact dependency / base-image changes that fix them. Use
   when asked to scan, audit, or check the Docker images for vulnerabilities or CVEs.
@@ -23,8 +23,8 @@ Maven builder stage and the same `eclipse-temurin:21-jre-ubi10-minimal` runtime 
 
 | Image | Target | Contents |
 |-------|--------|----------|
-| `fuseki-ai` | `runtime` | lean server — just `jena-fuseki-server.jar` |
-| `fuseki-loader` | `loader` | everything in `runtime` **+** bundled `apache-jena` distribution (`/fuseki/apache-jena/lib/*.jar`) **+** `jq`; multi-mode `loader-entrypoint.sh` |
+| `fuseki-lucene-shacl` | `runtime` | lean server — just `jena-fuseki-server.jar` |
+| `fuseki-lucene-shacl-loader` | `loader` | everything in `runtime` **+** bundled `apache-jena` distribution (`/fuseki/apache-jena/lib/*.jar`) **+** `jq`; multi-mode `loader-entrypoint.sh` |
 
 Implication for triage: a **base / OS** CVE affects *both* images. A **Java-library** CVE
 often exists in both, but trivy can only version-detect the unpacked jars in the loader's
@@ -52,12 +52,12 @@ task scan SCAN_SEVERITY=CRITICAL,HIGH,MEDIUM # widen severity
 - If an image is missing locally the task tells you to build it first
   (`task loader-build` / `task runtime-build`).
 
-> **Scan the *right* image.** A scan only describes the exact local tag you point it at.
-> `demo/test/docker-compose.yml` reuses the `fuseki-ai` image tag for a *different*,
-> Alpine-based demo build — so a stale demo image can masquerade as the production runtime and
-> report Alpine CVEs the real UBI image never had. For an accurate production scan, rebuild
-> from the root Taskfile first (`task runtime-build` / `task loader-build`) and confirm
-> `Metadata.OS` in the JSON report reads `redhat` (the UBI base), not `alpine`.
+> **Scan the *right* image.** A scan only describes the exact local tag you point it at, and
+> `demo/` consumes the same `fuseki-lucene-shacl` / `fuseki-lucene-shacl-loader` tags it can
+> also pull from GHCR — so a stale or pulled image can be scanned in place of the one your
+> working tree would build. For an accurate scan of current source, rebuild from the root
+> Taskfile first (`task runtime-build` / `task loader-build`) and confirm `Metadata.OS` in the
+> JSON report reads `redhat` (the UBI base).
 
 ## Turn each finding into a suggested fix
 
