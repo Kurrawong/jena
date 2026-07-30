@@ -169,7 +169,7 @@ public class TestGswaMeasurementCsv {
         FieldDef belowDetection = belowDetectionField();
 
         ExternalSourceDef source = new ExternalSourceDef(ExternalFormat.CSV, csv.toString(),
-            "collar_id", -1, COLLAR_NS, null, false, ErrorPolicy.SKIP, 0.0,
+            "collar_id", -1, COLLAR_NS, null, false, ErrorPolicy.SKIP,
             Arrays.asList(new ColumnBinding("property", -1, analyte),
                 new ColumnBinding("value", -1, value),
                 new ColumnBinding("below_detection", -1, belowDetection)));

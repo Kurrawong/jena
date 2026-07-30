@@ -96,7 +96,6 @@ public class IndexVocab {
     public static final Property pDelimiter         = Vocab.property(NS, "delimiter");
     public static final Property pHeaderless        = Vocab.property(NS, "headerless");
     public static final Property pOnError           = Vocab.property(NS, "onError");
-    public static final Property pMinMatchRate      = Vocab.property(NS, "minMatchRate");
     public static final Property pColumn            = Vocab.property(NS, "column");
     public static final Property pColumnName        = Vocab.property(NS, "columnName");
     public static final Property pColumnIndex       = Vocab.property(NS, "columnIndex");

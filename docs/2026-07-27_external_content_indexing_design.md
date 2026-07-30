@@ -276,7 +276,6 @@ no join path to derive a scope name from.
 | `idx:delimiter` | Delimiter override for delimited text |
 | `idx:headerless` | No header row; bind with `idx:columnIndex` instead of `idx:columnName` |
 | `idx:onError` | `skip` (default, counted) or `fail` |
-| `idx:minMatchRate` | Build fails if fewer than this fraction of entities matched |
 
 ### Input shape
 
@@ -372,7 +371,10 @@ document, so it silently drops data.
 
 The "row matches no entity" counter is the most valuable diagnostic here: a
 subject-prefix or key-format mistake produces a technically successful build with
-near-zero matches, which is why `idx:minMatchRate` exists as a guard.
+near-zero matches, and the reported match rate is what makes that visible. The
+indexer does not enforce a minimum — the graph and the extract are equally valid
+sources being aligned, no threshold could be guessed for a legitimate partial
+overlap, and a bad join key is a data fix, not a config one.
 
 ## Not-stored semantics
 
@@ -562,7 +564,7 @@ Additive, and mostly on existing block-join rails.
   exactly one scope; bound columns exist where the schema is discoverable.
 - **`ShaclBulkIndexer`** — sort work items by `entityUri` when external sources
   are present; open sources; merge-join in `processItems`; counters for rows
-  read / matched / unmatched / skipped; enforce `idx:minMatchRate`.
+  read / matched / unmatched / skipped.
 - **`ShaclEntityBuilder`** — accept pre-resolved external rows and emit them as
   child documents in the entity's block, reusing `addFieldToDoc` so field typing,
   docvalues and points behave identically regardless of origin.
@@ -633,7 +635,9 @@ nested scope today.
 **Why is unmatched-subject a skip rather than an error?** External extracts are
 routinely broader than the graph. Failing on the first extra row would make
 normal data unusable. But silent skipping hides the catastrophic case, so the
-count is always reported and `idx:minMatchRate` turns it into a hard failure.
+count and the match rate are always reported — loudly, with a warning when
+nothing matched at all. Reporting is where it stops: judging the overlap is not
+the indexer's job.
 
 ## Open questions
 

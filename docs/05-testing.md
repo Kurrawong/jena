@@ -63,7 +63,7 @@ All tests run via JUnit 4 and are aggregated in `TS_Text.java` (Surefire only pi
 |-------|-------|---------------|
 | `TestCsvRowSource` | 15 | CSV/TSV reading: header and positional binding, `idx:subjectPrefix`, glob expansion in filename order, empty cell → null, blank join key skipped-but-counted, rows emitted in file order without an ordering check, and the config errors on open — missing file, empty glob, missing subject/bound column |
 | `TestExternalSourceAssembler` | 13 | Turtle config: narrow source, optional properties, headerless positional binding, bound fields becoming profile fields, hierarchy over external fields, and the validation rules — `idx:joinPath` xor `idx:externalSource`, required `idx:nestedName`, no `sh:path` on a bound column, exactly one of `idx:columnName`/`idx:columnIndex`, unknown format, unsupported field type |
-| `TestExternalContentIndexing` | 19 | End-to-end: rows become children of the matching entity; entities with no rows still indexed; unmatched rows counted and dropped; same-child `=` + range correlation; entity-level AND across two properties is *not* same-child; sort by a not-stored external value with `missing` placement; `idx:subjectPrefix`; `idx:minMatchRate` failing a bad join key; unsorted buffering; empty and unparseable cells; `idx:onError "fail"`; hierarchical facets over external children; live graph change does not strip external children. Plus wide children (depth-from/depth-to/analyte/value on one child): four-way same-child correlation, the decorrelation check that a Cu child and a deep child on the same hole do not satisfy one AND, and two analytes still not being same-child |
+| `TestExternalContentIndexing` | 19 | End-to-end: rows become children of the matching entity; entities with no rows still indexed; unmatched rows counted and dropped; same-child `=` + range correlation; entity-level AND across two properties is *not* same-child; sort by a not-stored external value with `missing` placement; `idx:subjectPrefix`; a bad join key building successfully with a zero match rate in the counters; unsorted buffering; empty and unparseable cells; `idx:onError "fail"`; hierarchical facets over external children; live graph change does not strip external children. Plus wide children (depth-from/depth-to/analyte/value on one child): four-way same-child correlation, the decorrelation check that a Cu child and a deep child on the same hole do not satisfy one AND, and two analytes still not being same-child |
 
 ### Existing Tests (unchanged, verifying no regressions)
 
@@ -143,7 +143,7 @@ TextIndexLucene index = (TextIndexLucene) Assembler.general().open(indexSpec);
 - Hierarchical facets: taxonomy indexing, top-level counts, drill-down via CQL filters, flat+hierarchy coexistence
 - Range facets on numeric fields: single-valued, multi-valued, open-ended buckets, mixed flat+range requests, and 5-slot `luc:facet` bindings
 - Multi-valued numeric sorting semantics (`MIN` for ascending, `MAX` for descending)
-- External content from CSV/TSV: the IRI join, match/unmatch counters, `idx:minMatchRate`, sortedness verification, and the same-child vs entity-level correlation boundary
+- External content from CSV/TSV: the IRI join, match/unmatch counters, sortedness verification, and the same-child vs entity-level correlation boundary
 
 ### Not yet covered (candidates for future tests)
 

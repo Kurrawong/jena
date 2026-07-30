@@ -107,7 +107,7 @@ public class TestExternalDeltaSource {
 
     private ExternalSourceDef def(Path base, List<String> deltas) {
         return new ExternalSourceDef(ExternalFormat.CSV, base.toString(), "iri", -1, null,
-            null, false, ErrorPolicy.SKIP, 0.0,
+            null, false, ErrorPolicy.SKIP,
             Arrays.asList(new ColumnBinding("property", -1, ANALYTE),
                 new ColumnBinding("value", -1, VALUE)),
             deltas, "op");
@@ -284,7 +284,7 @@ public class TestExternalDeltaSource {
     public void deltasNoLongerRequireAnOrderingAssertion() throws IOException {
         Path base = write("base.csv", BASE);
         ExternalSourceDef def = new ExternalSourceDef(ExternalFormat.CSV, base.toString(),
-            "iri", -1, null, null, false, ErrorPolicy.SKIP, 0.0,
+            "iri", -1, null, null, false, ErrorPolicy.SKIP,
             Arrays.asList(new ColumnBinding("property", -1, ANALYTE),
                 new ColumnBinding("value", -1, VALUE)),
             List.of("delta.csv"), "op");

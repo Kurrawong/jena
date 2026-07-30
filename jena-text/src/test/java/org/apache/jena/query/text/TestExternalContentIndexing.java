@@ -66,8 +66,8 @@ import org.junit.Test;
  *   <li>an AND of {@code =} and a range folds into <em>one</em> child, while an AND
  *       across two properties is entity-level and explicitly not same-child;</li>
  *   <li>a not-stored value still filters, facets and sorts;</li>
- *   <li>a wrong join key fails the build via {@code idx:minMatchRate} rather than
- *       producing a successful build with nothing in it.</li>
+ *   <li>a wrong join key still builds, and is visible as a zero match rate in the
+ *       reported counters rather than being second-guessed by the indexer.</li>
  * </ul>
  */
 public class TestExternalContentIndexing {
@@ -148,10 +148,10 @@ public class TestExternalContentIndexing {
     }
 
     private ExternalSourceDef csvSource(String location, String subjectColumn, String subjectPrefix,
-                                        boolean sorted, ErrorPolicy onError, double minMatchRate,
+                                        boolean sorted, ErrorPolicy onError,
                                         FieldDef property, FieldDef value, FieldDef band) {
         return new ExternalSourceDef(ExternalFormat.CSV, location, subjectColumn, -1, subjectPrefix,
-            null, false, onError, minMatchRate,
+            null, false, onError,
             Arrays.asList(new ColumnBinding("property", -1, property),
                 new ColumnBinding("value", -1, value),
                 new ColumnBinding("band", -1, band)));
@@ -212,7 +212,7 @@ public class TestExternalContentIndexing {
         FieldDef property = propertyField();
         FieldDef value = valueField();
         FieldDef band = bandField();
-        buildIndex(csvSource(csv.toString(), "sample_iri", null, sorted, ErrorPolicy.SKIP, 0.0,
+        buildIndex(csvSource(csv.toString(), "sample_iri", null, sorted, ErrorPolicy.SKIP,
             property, value, band), nameField(), property, value, band, false);
     }
 
@@ -407,7 +407,7 @@ public class TestExternalContentIndexing {
         FieldDef property = propertyField();
         FieldDef value = valueField();
         FieldDef band = bandField();
-        buildIndex(csvSource(csv.toString(), "sample_id", NS, true, ErrorPolicy.SKIP, 0.0,
+        buildIndex(csvSource(csv.toString(), "sample_id", NS, true, ErrorPolicy.SKIP,
             property, value, band), nameField(), property, value, band, false);
 
         assertEquals(List.of("s1"), filter(eq("measuredProperty", "Au")));
@@ -415,10 +415,11 @@ public class TestExternalContentIndexing {
         assertEquals(0, onlyStats().rowsUnmatched());
     }
 
-    /** A wrong join key produces a technically successful build with near-zero matches.
-     *  idx:minMatchRate is what turns that into a failure. */
+    /** A wrong join key is a data problem, not a config error: the build succeeds and the
+     *  counters say plainly that nothing joined. The indexer aligns the two sources; it
+     *  does not judge how well they overlap, because no threshold could be guessed. */
     @Test
-    public void minMatchRateFailsABadJoinKey() throws IOException {
+    public void aWrongJoinKeyMatchesNothingAndSaysSo() throws IOException {
         Path csv = writeCsv("wrong-prefix.csv",
             "sample_iri,property,value,band\n"
             + "http://wrong.example/s1,Au,12.4,high\n"
@@ -427,13 +428,15 @@ public class TestExternalContentIndexing {
         FieldDef property = propertyField();
         FieldDef value = valueField();
         FieldDef band = bandField();
-        ExternalSourceDef source = csvSource(csv.toString(), "sample_iri", null, true,
-            ErrorPolicy.SKIP, 0.5, property, value, band);
+        buildIndex(csvSource(csv.toString(), "sample_iri", null, true, ErrorPolicy.SKIP,
+            property, value, band), nameField(), property, value, band, false);
 
-        TextIndexException e = assertThrows(TextIndexException.class,
-            () -> buildIndex(source, nameField(), property, value, band, false));
-        assertTrue("message should point at the join key: " + e.getMessage(),
-            e.getMessage().contains("idx:subjectColumn"));
+        ExternalChildMerger.SourceStats stats = onlyStats();
+        assertEquals("no row found its entity", 0, stats.rowsMatched());
+        assertEquals("both rows are counted as unmatched", 2, stats.rowsUnmatched());
+        assertEquals(0.0, stats.matchRate(), 0.0);
+        assertEquals("the entities are still indexed, just childless",
+            Collections.emptyList(), filter(eq("measuredProperty", "Au")));
     }
 
     /** An unsorted source is buffered rather than rejected, and produces the same index. */
@@ -500,7 +503,7 @@ public class TestExternalContentIndexing {
         FieldDef value = valueField();
         FieldDef band = bandField();
         ExternalSourceDef source = csvSource(csv.toString(), "sample_iri", null, true,
-            ErrorPolicy.FAIL, 0.0, property, value, band);
+            ErrorPolicy.FAIL, property, value, band);
 
         TextIndexException e = assertThrows(TextIndexException.class,
             () -> buildIndex(source, nameField(), property, value, band, false));
@@ -515,7 +518,7 @@ public class TestExternalContentIndexing {
         FieldDef property = propertyField();
         FieldDef value = valueField();
         FieldDef band = bandField();
-        buildIndex(csvSource(csv.toString(), "sample_iri", null, true, ErrorPolicy.SKIP, 0.0,
+        buildIndex(csvSource(csv.toString(), "sample_iri", null, true, ErrorPolicy.SKIP,
             property, value, band), nameField(), property, value, band, true);
 
         Map<String, Long> top = toFacetMap(textIndex.getFacetCounts(
@@ -578,7 +581,7 @@ public class TestExternalContentIndexing {
         FieldDef band = bandField();
         ExternalSourceDef source = new ExternalSourceDef(ExternalFormat.CSV,
             dir.resolve("measurements.csv").toString(), "sample_iri", -1, null,
-            null, false, ErrorPolicy.SKIP, 0.0,
+            null, false, ErrorPolicy.SKIP,
             Arrays.asList(new ColumnBinding("property", -1, property),
                 new ColumnBinding("value", -1, value),
                 new ColumnBinding("band", -1, band)),
@@ -640,7 +643,7 @@ public class TestExternalContentIndexing {
             false, true, true, true, false, false);
 
         ExternalSourceDef source = new ExternalSourceDef(ExternalFormat.CSV, csv.toString(),
-            "hole_iri", -1, null, null, false, ErrorPolicy.SKIP, 0.0,
+            "hole_iri", -1, null, null, false, ErrorPolicy.SKIP,
             Arrays.asList(new ColumnBinding("depth_from", -1, depthFrom),
                 new ColumnBinding("depth_to", -1, depthTo),
                 new ColumnBinding("analyte", -1, analyte),

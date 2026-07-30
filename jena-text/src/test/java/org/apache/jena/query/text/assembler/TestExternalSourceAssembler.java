@@ -112,7 +112,6 @@ public class TestExternalSourceAssembler {
         assertEquals("sample_iri", source.getSubjectColumn());
         assertNull(source.getSubjectPrefix());
         assertEquals("skip is the default error policy", ErrorPolicy.SKIP, source.getOnError());
-        assertEquals(0.0, source.getMinMatchRate(), 0.0);
         assertEquals(2, source.getColumns().size());
     }
 
@@ -145,7 +144,6 @@ public class TestExternalSourceAssembler {
             + "            idx:subjectColumn \"sample_id\" ;\n"
             + "            idx:subjectPrefix \"https://ex.org/id/sample/\" ;\n"
             + "            idx:onError       \"fail\" ;\n"
-            + "            idx:minMatchRate  \"0.75\"^^xsd:double ;\n"
             + "            idx:column [ idx:columnName \"property\" ; idx:field field:measuredProperty ] ;\n"
             + "        ] ;\n"
             + "    ] .\n");
@@ -154,7 +152,6 @@ public class TestExternalSourceAssembler {
         assertEquals(ExternalFormat.TSV, source.getFormat());
         assertEquals("https://ex.org/id/sample/", source.getSubjectPrefix());
         assertEquals(ErrorPolicy.FAIL, source.getOnError());
-        assertEquals(0.75, source.getMinMatchRate(), 1e-9);
     }
 
     @Test
