@@ -23,38 +23,66 @@ package org.apache.jena.query.text.analyzer;
 
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.Tokenizer;
 import org.apache.lucene.analysis.core.KeywordTokenizer;
 import org.apache.lucene.analysis.core.LowerCaseFilter;
 import org.apache.lucene.analysis.ngram.EdgeNGramTokenFilter;
+import org.apache.lucene.analysis.standard.StandardTokenizer;
 
 /**
- * Analyzer for prefix/typeahead indexing: treats the entire field value as a
- * single token (keyword), lowercases it, then produces edge n-grams from 1 to
- * {@code maxGram} characters.
+ * Analyzer for prefix/typeahead indexing. Lowercases the value and emits edge
+ * n-grams from {@code minGram} to {@code maxGram} characters. Two modes decide
+ * what the n-grams are prefixes <em>of</em>:
+ * <dl>
+ *   <dt>whole-value (default, {@code tokenized = false})</dt>
+ *   <dd>The entire value is one token, so only prefixes of the whole string match.
+ *       {@code "RPT-MIA-2023-001"} is reachable by typing it from the start, and
+ *       punctuation is never split on. Pair with {@link LowerCaseKeywordAnalyzer}
+ *       as the query analyzer.</dd>
+ *   <dt>per-word ({@code tokenized = true})</dt>
+ *   <dd>The value is split into words first, so any word can be prefix-matched:
+ *       {@code "Sarah"} and {@code "Sarah Jo"} both reach {@code "Dr Sarah Jones"}.
+ *       This is what names, titles and other prose-like short values need. Pair with
+ *       a word-tokenizing query analyzer — {@code text:StandardAnalyzer} — so that
+ *       multi-word input tokenizes the same way and matches as a phrase.</dd>
+ * </dl>
+ * In per-word mode the original token is preserved alongside the n-grams, so words
+ * longer than {@code maxGram} stay searchable in full.
  * <p>
- * Pair this with {@link LowerCaseKeywordAnalyzer} as the query analyzer
- * (via {@code idx:queryAnalyzer}) so that a user's prefix input is matched
- * against the indexed n-grams without being n-grammed itself.
+ * The query analyzer matters: n-gramming the <em>query</em> as well as the index
+ * matches far too much. When a field configures this analyzer with no explicit
+ * {@code idx:queryAnalyzer}, the matching one for its mode is supplied by default.
  */
 public class EdgeNGramAnalyzer extends Analyzer {
 
     private final int minGram;
     private final int maxGram;
+    private final boolean tokenized;
 
     public EdgeNGramAnalyzer() {
         this(1, 20);
     }
 
     public EdgeNGramAnalyzer(int minGram, int maxGram) {
+        this(minGram, maxGram, false);
+    }
+
+    public EdgeNGramAnalyzer(int minGram, int maxGram, boolean tokenized) {
         this.minGram = minGram;
         this.maxGram = maxGram;
+        this.tokenized = tokenized;
+    }
+
+    /** True when values are split into words before n-gramming. */
+    public boolean isTokenized() {
+        return tokenized;
     }
 
     @Override
     protected TokenStreamComponents createComponents(String fieldName) {
-        KeywordTokenizer source = new KeywordTokenizer();
+        Tokenizer source = tokenized ? new StandardTokenizer() : new KeywordTokenizer();
         TokenStream stream = new LowerCaseFilter(source);
-        stream = new EdgeNGramTokenFilter(stream, minGram, maxGram, false);
+        stream = new EdgeNGramTokenFilter(stream, minGram, maxGram, tokenized);
         return new TokenStreamComponents(source, stream);
     }
 
