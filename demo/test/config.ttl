@@ -115,11 +115,16 @@ field:indexedAt
     idx:sortable true ;
     idx:storeLiteralMetadata true .
 
+## Searchable from the main box: the notes are prose, they are the only multilingual
+## values in the dataset, and a note in French should be findable by a French word.
+## Without idx:defaultSearch the field is indexed but unreachable through fieldSpec
+## "default", so a query for a term only it contains silently returns nothing.
 field:reviewNote
     idx:fieldName "reviewNote" ;
     idx:fieldType idx:TextField ;
     idx:stored false ;
-    idx:multiValued true .
+    idx:multiValued true ;
+    idx:defaultSearch true .
 
 field:qaPassed
     idx:fieldName "qaPassed" ;
