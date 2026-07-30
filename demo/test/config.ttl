@@ -134,11 +134,21 @@ field:confidenceScore
     idx:facetable true ;
     idx:sortable true .
 
+## The picklist/facet side of a name: exact values, counted, filtered with "=".
 field:authorName
     idx:fieldName "authorName" ;
     idx:fieldType idx:KeywordField ;
     idx:stored false ;
     idx:facetable true .
+
+## The search side of the same name. No analyzer, so the index-wide StandardAnalyzer
+## applies and BM25 ranks the match — which is what a name typed into the search box
+## needs. Prefix completion is the picklist's job, not this field's.
+field:authorNameText
+    idx:fieldName "authorNameText" ;
+    idx:fieldType idx:TextField ;
+    idx:stored false ;
+    idx:defaultSearch true .
 
 field:authoredByUri
     idx:fieldName "authoredByUri" ;
@@ -153,19 +163,16 @@ field:attributionRole
     idx:facetable true ;
     idx:multiValued true .
 
+## An agent is a closed vocabulary: the UI lists the known names and the user picks one,
+## so the filter is exact equality on a KEYWORD field. Deliberately NOT an edge-ngram
+## twin — n-gramming a name buys prefix matching the picklist already gives, while
+## bloating the index and making the field useless for relevance. Free-text name search
+## belongs to authorNameText and BM25 instead.
 field:attributionAgentExact
     idx:fieldName "attributionAgentExact" ;
     idx:fieldType idx:KeywordField ;
     idx:stored false ;
     idx:multiValued true .
-
-field:attributionAgentText
-    idx:fieldName "attributionAgentText" ;
-    idx:fieldType idx:TextField ;
-    idx:stored false ;
-    idx:multiValued true ;
-    idx:analyzer [ a text:EdgeNGramAnalyzer ] ;
-    idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] .
 
 field:depth
     idx:fieldName "depth" ;
@@ -174,13 +181,15 @@ field:depth
     idx:sortable true ;
     idx:facetable true .
 
+## Identifiers are dashed ("RPT-MIA-2023-001"), and people search by the segment they
+## remember, so these are per-word too. Drop idx:tokenized to require typing from the
+## start of the value instead.
 field:identifier
     idx:fieldName "identifier" ;
     idx:fieldType idx:TextField ;
     idx:stored false ;
     idx:multiValued true ;
-    idx:analyzer [ a text:EdgeNGramAnalyzer ] ;
-    idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] .
+    idx:analyzer [ a text:EdgeNGramAnalyzer ; text:tokenized true ] .
 
 field:identifierType
     idx:fieldName "identifierType" ;
@@ -206,8 +215,7 @@ field:identifierValueText
     idx:fieldType idx:TextField ;
     idx:stored false ;
     idx:multiValued true ;
-    idx:analyzer [ a text:EdgeNGramAnalyzer ] ;
-    idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] .
+    idx:analyzer [ a text:EdgeNGramAnalyzer ; text:tokenized true ] .
 
 field:location
     idx:fieldName "location" ;
@@ -267,12 +275,12 @@ field:belowDetection
     sh:property [ idx:field field:qaPassed ; sh:path ex:qaPassed ] ;
     sh:property [ idx:field field:confidenceScore ; sh:path ex:confidenceScore ] ;
     sh:property [ idx:field field:authorName ; sh:path ( ex:authoredBy ex:name ) ] ;
+    sh:property [ idx:field field:authorNameText ; sh:path ( ex:authoredBy ex:name ) ] ;
     sh:property [ idx:field field:authoredByUri ; sh:path [ sh:inversePath ex:authored ] ] ;
     idx:nested [
         idx:joinPath prov:qualifiedAttribution ;
         idx:property [ idx:field field:attributionRole ; sh:path ( prov:hadRole rdfs:label ) ] ;
         idx:property [ idx:field field:attributionAgentExact ; sh:path ( prov:agent rdfs:label ) ] ;
-        idx:property [ idx:field field:attributionAgentText ; sh:path ( prov:agent rdfs:label ) ] ;
     ] ;
     idx:facetHierarchy ( field:state field:commodity ) .
 

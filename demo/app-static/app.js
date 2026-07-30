@@ -41,7 +41,7 @@ const DEMO_FIELD_IRIS = {
     identifierType: 'urn:jena:lucene:field#identifierType',
     identifierValueText: 'urn:jena:lucene:field#identifierValueText',
     attributionRole: 'urn:jena:lucene:field#attributionRole',
-    attributionAgentText: 'urn:jena:lucene:field#attributionAgentText',
+    attributionAgentExact: 'urn:jena:lucene:field#attributionAgentExact',
 };
 
 const SPARQL_PREFIXES = `\
@@ -239,6 +239,13 @@ function resolveClauseProperty(clause, fieldIRIs) {
 
 function sanitizeDomId(text) {
     return String(text || '').replace(/[^a-zA-Z0-9_-]+/g, '-');
+}
+
+/** Case-insensitive substring match of `typed` over a closed list of option strings. */
+function matchOptions(options, typed) {
+    const needle = String(typed || '').trim().toLowerCase();
+    if (!needle) return options;
+    return options.filter(option => String(option).toLowerCase().includes(needle));
 }
 
 function emptyCorrelatedFilterState() {
@@ -495,8 +502,8 @@ function extractCorrelatedFilterState(clause, fieldIRIs, correlated) {
                     break;
                 }
                 attrRole = String(child.args[1] || '');
-            } else if (prop === 'attributionAgentText') {
-                if (!isEqualsLeaf(child) && !isTextQueryLeaf(child)) {
+            } else if (prop === 'attributionAgentExact') {
+                if (!isEqualsLeaf(child)) {
                     supported = false;
                     break;
                 }
@@ -524,7 +531,7 @@ function extractCorrelatedFilterState(clause, fieldIRIs, correlated) {
             correlated.attributionRole = String(clause.args[1] || '');
             return true;
         }
-        if (prop === 'attributionAgentText' && (isEqualsLeaf(clause) || isTextQueryLeaf(clause))) {
+        if (prop === 'attributionAgentExact' && isEqualsLeaf(clause)) {
             correlated.attributionAgent = String(clause.args[1] || '');
             return true;
         }
@@ -1964,26 +1971,52 @@ SELECT ?value ?count WHERE {
             this.search();
         },
 
-        correlatedEnter(field, items) {
+        identifierKindSuggestions(kind) {
+            return this.identifierKindSuggestionsByKind[kind] || [];
+        },
+
+        /**
+         * Role and agent are closed vocabularies loaded once by loadAttributionOptions(),
+         * so completion is a filter over that list rather than a query. Narrowing here —
+         * client-side, on a substring, no round trip — is what an edge-ngram field on the
+         * name would otherwise be doing at index scale, and it can match mid-word for free.
+         */
+        filteredAttributionRoles() {
+            return matchOptions(this.attributionRoleOptions, this.correlatedFilters.attributionRole);
+        },
+
+        filteredAttributionAgents() {
+            const role = this.correlatedFilters.attributionRole.trim();
+            const options = role && Array.isArray(this.attributionAgentsByRole[role])
+                ? this.attributionAgentsByRole[role]
+                : this.attributionAgentOptions;
+            return matchOptions(options, this.correlatedFilters.attributionAgent);
+        },
+
+        /**
+         * Enter on a picklist input. The filter is exact equality, so a half-typed name has
+         * to resolve to a real option: the highlighted row, else a case-insensitive exact
+         * hit, else the only remaining candidate. Failing all three the typed text stands
+         * and the search honestly returns nothing.
+         */
+        correlatedPickEnter(field, items) {
             const picked = this.suggestIndex >= 0 ? items[this.suggestIndex] : null;
             if (picked) {
                 this.chooseCorrelated(field, picked);
                 return;
             }
+            const typed = String(this.correlatedFilters[field] || '').trim();
+            const exact = items.find(o => o.toLowerCase() === typed.toLowerCase());
+            if (exact) {
+                this.chooseCorrelated(field, exact);
+                return;
+            }
+            if (typed && items.length === 1) {
+                this.chooseCorrelated(field, items[0]);
+                return;
+            }
             this.closeSuggest();
             this.search();
-        },
-
-        identifierKindSuggestions(kind) {
-            return this.identifierKindSuggestionsByKind[kind] || [];
-        },
-
-        filteredAttributionAgents() {
-            const role = this.correlatedFilters.attributionRole.trim();
-            if (role && Array.isArray(this.attributionAgentsByRole[role])) {
-                return this.attributionAgentsByRole[role];
-            }
-            return this.attributionAgentOptions;
         },
 
         correlatedIdentifierClauses() {
@@ -2014,7 +2047,9 @@ SELECT ?value ?count WHERE {
                 args.push({ op: '=', args: [{ property: fieldIri(this.fieldIRIs, 'attributionRole') }, role] });
             }
             if (agent) {
-                args.push({ op: 'text_query', args: [{ property: fieldIri(this.fieldIRIs, 'attributionAgentText') }, agent] });
+                // Exact equality, not a text match: the agent is chosen from the list of
+                // known names, so there is nothing to complete or analyze at query time.
+                args.push({ op: '=', args: [{ property: fieldIri(this.fieldIRIs, 'attributionAgentExact') }, agent] });
             }
             return args.length === 1 ? args : [{ op: 'and', args }];
         },
@@ -2048,7 +2083,7 @@ SELECT ?value ?count WHERE {
             if (attrRole || attrAgent) {
                 const bits = [];
                 if (attrRole) bits.push(`role = “${escapeHtml(attrRole)}”`);
-                if (attrAgent) bits.push(`agent contains “${escapeHtml(attrAgent)}”`);
+                if (attrAgent) bits.push(`agent = “${escapeHtml(attrAgent)}”`);
                 parts.push(bits.join(' AND '));
             }
             return parts;

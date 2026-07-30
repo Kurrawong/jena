@@ -298,14 +298,14 @@
                              placeholder="e.g. Principal Investigator"
                              @focus="openSuggest('attr:role')"
                              @input="openSuggest('attr:role')"
-                             @keydown.arrow-down.prevent="moveSuggest(1, attributionRoleOptions.length)"
-                             @keydown.arrow-up.prevent="moveSuggest(-1, attributionRoleOptions.length)"
+                             @keydown.arrow-down.prevent="moveSuggest(1, filteredAttributionRoles().length)"
+                             @keydown.arrow-up.prevent="moveSuggest(-1, filteredAttributionRoles().length)"
                              @keydown.escape.stop="closeSuggest()"
-                             @keydown.enter.prevent="correlatedEnter('attributionRole', attributionRoleOptions)">
+                             @keydown.enter.prevent="correlatedPickEnter('attributionRole', filteredAttributionRoles())">
                       <div class="suggest-menu"
-                           x-show="isSuggestOpen('attr:role') && attributionRoleOptions.length > 0"
+                           x-show="isSuggestOpen('attr:role') && filteredAttributionRoles().length > 0"
                            x-cloak>
-                        <template x-for="(option, i) in attributionRoleOptions" :key="option">
+                        <template x-for="(option, i) in filteredAttributionRoles()" :key="option">
                           <button type="button" class="suggest-item"
                                   :class="{ 'is-highlighted': suggestIndex === i }"
                                   @mouseenter="suggestIndex = i"
@@ -323,13 +323,13 @@
                              type="text"
                              autocomplete="off"
                              x-model="correlatedFilters.attributionAgent"
-                             placeholder="e.g. Sarah Jones"
+                             placeholder="pick a name, e.g. Dr Sarah Jones"
                              @focus="openSuggest('attr:agent')"
                              @input="openSuggest('attr:agent')"
                              @keydown.arrow-down.prevent="moveSuggest(1, filteredAttributionAgents().length)"
                              @keydown.arrow-up.prevent="moveSuggest(-1, filteredAttributionAgents().length)"
                              @keydown.escape.stop="closeSuggest()"
-                             @keydown.enter.prevent="correlatedEnter('attributionAgent', filteredAttributionAgents())">
+                             @keydown.enter.prevent="correlatedPickEnter('attributionAgent', filteredAttributionAgents())">
                       <div class="suggest-menu"
                            x-show="isSuggestOpen('attr:agent') && filteredAttributionAgents().length > 0"
                            x-cloak>
