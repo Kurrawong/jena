@@ -10,9 +10,9 @@ vars:
   FUSEKI_PORT: '{{.FUSEKI_PORT | default "3030"}}'
   APP_PORT: '{{.APP_PORT | default "8000"}}'
   SERVER_URL: http://localhost:{{.FUSEKI_PORT}}
-  IMAGE_NAME: '{{.IMAGE_NAME | default "fuseki-ai"}}'
+  IMAGE_NAME: '{{.IMAGE_NAME | default "fuseki-lucene-shacl"}}'
   IMAGE_TAG: '{{.IMAGE_TAG | default .VERSION}}'
-  GHCR_OWNER: '{{.GHCR_OWNER | default "aiworkerjohns"}}'
+  GHCR_OWNER: '{{.GHCR_OWNER | default "kurrawong"}}'
 
 tasks:
   # ── Shared ───────────────────────────────────────────────
@@ -256,7 +256,7 @@ tasks:
     desc: Run the loader image in text-only reindex mode against an existing TDB2 store
     dir: loader
     env:
-      IMAGE_NAME: 'fuseki-loader'
+      IMAGE_NAME: 'fuseki-lucene-shacl-loader'
       IMAGE_TAG: '{{.IMAGE_TAG}}'
       MODE: 'index'
     cmds:
@@ -266,7 +266,7 @@ tasks:
     desc: Run the GHCR loader image in text-only reindex mode against an existing TDB2 store
     dir: loader
     env:
-      IMAGE_NAME: 'ghcr.io/{{.GHCR_OWNER}}/fuseki-loader'
+      IMAGE_NAME: 'ghcr.io/{{.GHCR_OWNER}}/fuseki-lucene-shacl-loader'
       IMAGE_TAG: '{{.IMAGE_TAG}}'
       MODE: 'index'
     cmds:

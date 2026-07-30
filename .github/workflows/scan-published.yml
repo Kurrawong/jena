@@ -13,8 +13,10 @@ permissions:
   issues: write
 
 env:
-  FUSEKI_IMAGE: ghcr.io/${{ github.repository_owner }}/fuseki-ai
-  LOADER_IMAGE: ghcr.io/${{ github.repository_owner }}/fuseki-loader
+  ## Lowercase literal owner — see the note in docker.yml. The repo owner is
+  ## "Kurrawong", and Docker repository names must be lowercase.
+  FUSEKI_IMAGE: ghcr.io/kurrawong/fuseki-lucene-shacl
+  LOADER_IMAGE: ghcr.io/kurrawong/fuseki-lucene-shacl-loader
 
 jobs:
   scan:
@@ -27,24 +29,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Scan fuseki-ai
+      - name: Scan fuseki-lucene-shacl
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.FUSEKI_IMAGE }}:latest
           format: table
           severity: HIGH,CRITICAL
           scanners: vuln
-          output: trivy-fuseki-ai.txt
+          output: trivy-fuseki-lucene-shacl.txt
           exit-code: '0'
 
-      - name: Scan fuseki-loader
+      - name: Scan fuseki-lucene-shacl-loader
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.LOADER_IMAGE }}:latest
           format: table
           severity: HIGH,CRITICAL
           scanners: vuln
-          output: trivy-fuseki-loader.txt
+          output: trivy-fuseki-lucene-shacl-loader.txt
           exit-code: '0'
 
       - name: Detect findings
@@ -55,10 +57,10 @@ jobs:
           # table, so the file is empty / has no Total line.
           ai_findings=0
           loader_findings=0
-          if [ -s trivy-fuseki-ai.txt ] && grep -qE "Total: [1-9][0-9]*" trivy-fuseki-ai.txt; then
+          if [ -s trivy-fuseki-lucene-shacl.txt ] && grep -qE "Total: [1-9][0-9]*" trivy-fuseki-lucene-shacl.txt; then
             ai_findings=1
           fi
-          if [ -s trivy-fuseki-loader.txt ] && grep -qE "Total: [1-9][0-9]*" trivy-fuseki-loader.txt; then
+          if [ -s trivy-fuseki-lucene-shacl-loader.txt ] && grep -qE "Total: [1-9][0-9]*" trivy-fuseki-lucene-shacl-loader.txt; then
             loader_findings=1
           fi
           if [ "$ai_findings" = "1" ] || [ "$loader_findings" = "1" ]; then
@@ -79,18 +81,18 @@ jobs:
             echo "- **Scanned at:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
             echo ""
             echo "### \`${{ env.FUSEKI_IMAGE }}:latest\`"
-            if [ -s trivy-fuseki-ai.txt ] && grep -qE "Total: [1-9][0-9]*" trivy-fuseki-ai.txt; then
+            if [ -s trivy-fuseki-lucene-shacl.txt ] && grep -qE "Total: [1-9][0-9]*" trivy-fuseki-lucene-shacl.txt; then
               echo '```'
-              cat trivy-fuseki-ai.txt
+              cat trivy-fuseki-lucene-shacl.txt
               echo '```'
             else
               echo "_clean — no HIGH/CRITICAL findings_"
             fi
             echo ""
             echo "### \`${{ env.LOADER_IMAGE }}:latest\`"
-            if [ -s trivy-fuseki-loader.txt ] && grep -qE "Total: [1-9][0-9]*" trivy-fuseki-loader.txt; then
+            if [ -s trivy-fuseki-lucene-shacl-loader.txt ] && grep -qE "Total: [1-9][0-9]*" trivy-fuseki-lucene-shacl-loader.txt; then
               echo '```'
-              cat trivy-fuseki-loader.txt
+              cat trivy-fuseki-lucene-shacl-loader.txt
               echo '```'
             else
               echo "_clean — no HIGH/CRITICAL findings_"

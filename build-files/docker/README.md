@@ -7,10 +7,10 @@ SHACL-based text indexing, spatial indexing, and TDB2 datasets.
 
 Both images come from a single `Dockerfile`, selected with `--target`:
 
-**`--target runtime`** (`fuseki-ai`) — Runs a Fuseki server with a mounted config
+**`--target runtime`** (`fuseki-lucene-shacl`) — Runs a Fuseki server with a mounted config
 and pre-built databases.
 
-**`--target loader`** (`fuseki-loader`) — Bulk data loading and index building.
+**`--target loader`** (`fuseki-lucene-shacl-loader`) — Bulk data loading and index building.
 Runs `loader-entrypoint.sh` to load RDF data into TDB2 and optionally build text
 and spatial indexes.
 
@@ -34,7 +34,7 @@ docker run \
   -v "./databases:/databases" \
   -v "./config.ttl:/config.ttl" \
   --rm \
-  ghcr.io/aiworkerjohns/jena-loader:latest
+  ghcr.io/kurrawong/fuseki-lucene-shacl-loader:latest
 ```
 
 The loader reads the assembler config at `/config.ttl` to discover the TDB2
@@ -50,7 +50,7 @@ docker run \
   -v "./databases:/databases" \
   -v "./config.ttl:/config.ttl" \
   --rm \
-  ghcr.io/aiworkerjohns/jena-loader:latest
+  ghcr.io/kurrawong/fuseki-lucene-shacl-loader:latest
 ```
 
 ## Environment Variables
@@ -131,7 +131,7 @@ docker run \
   -v "./databases:/databases" \
   -v "./config.ttl:/config/config.ttl" \
   -p 3030:3030 \
-  ghcr.io/aiworkerjohns/jena-runtime:latest
+  ghcr.io/kurrawong/fuseki-lucene-shacl:latest
 ```
 
 The runtime image starts Fuseki with `--config /config/config.ttl` and enables
@@ -143,10 +143,10 @@ From the repository root:
 
 ```bash
 # Loader image
-docker build --target loader -f build-files/docker/Dockerfile -t jena-loader:dev .
+docker build --target loader -f build-files/docker/Dockerfile -t fuseki-lucene-shacl-loader:dev .
 
 # Runtime image
-docker build --target runtime -f build-files/docker/Dockerfile -t jena-runtime:dev .
+docker build --target runtime -f build-files/docker/Dockerfile -t fuseki-lucene-shacl:dev .
 ```
 
 The Dockerfile is multi-stage: a shared `builder` stage runs Maven once

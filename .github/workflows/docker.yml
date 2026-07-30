@@ -17,8 +17,13 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  FUSEKI_IMAGE: ghcr.io/${{ github.repository_owner }}/fuseki-ai
-  LOADER_IMAGE: ghcr.io/${{ github.repository_owner }}/fuseki-loader
+  ## Owner is a lowercase literal, not ${{ github.repository_owner }}. That
+  ## expression returns the owner with its original casing — "Kurrawong" — and
+  ## Docker repository names must be lowercase, so buildx rejected the tag
+  ## before reaching the registry and every push since the repo moved failed
+  ## with: invalid tag "ghcr.io/Kurrawong/...": repository name must be lowercase
+  FUSEKI_IMAGE: ghcr.io/kurrawong/fuseki-lucene-shacl
+  LOADER_IMAGE: ghcr.io/kurrawong/fuseki-lucene-shacl-loader
 
 jobs:
   build-and-push:
@@ -54,9 +59,9 @@ jobs:
       # than once per image. The builder is pinned to linux/amd64, so the
       # multi-arch push steps reuse it too.
 
-      # ─── fuseki-ai: build amd64 (load), scan, push multi-arch on main ───────
+      # ─── fuseki-lucene-shacl: build amd64 (load), scan, push multi-arch on main ───────
 
-      - name: Build fuseki-ai (amd64, load for scan)
+      - name: Build fuseki-lucene-shacl (amd64, load for scan)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -64,21 +69,21 @@ jobs:
           target: runtime
           platforms: linux/amd64
           load: true
-          tags: fuseki-ai:scan
+          tags: fuseki-lucene-shacl:scan
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Scan fuseki-ai (HIGH, CRITICAL)
+      - name: Scan fuseki-lucene-shacl (HIGH, CRITICAL)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: fuseki-ai:scan
+          image-ref: fuseki-lucene-shacl:scan
           format: table
           severity: HIGH,CRITICAL
           scanners: vuln
           exit-code: '1'
           ignore-unfixed: false
 
-      - name: Push fuseki-ai (multi-arch)
+      - name: Push fuseki-lucene-shacl (multi-arch)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/build-push-action@v6
         with:
@@ -93,9 +98,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ─── fuseki-loader: build amd64 (load), smoke-test, scan, push multi-arch ──
+      # ─── fuseki-lucene-shacl-loader: build amd64 (load), smoke-test, scan, push multi-arch ──
 
-      - name: Build fuseki-loader (amd64, load for scan)
+      - name: Build fuseki-lucene-shacl-loader (amd64, load for scan)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -103,11 +108,11 @@ jobs:
           target: loader
           platforms: linux/amd64
           load: true
-          tags: fuseki-loader:scan
+          tags: fuseki-lucene-shacl-loader:scan
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Smoke-test fuseki-loader with tdb2.xloader
+      - name: Smoke-test fuseki-lucene-shacl-loader with tdb2.xloader
         run: |
           mkdir -p "$RUNNER_TEMP/xloader-db" "$RUNNER_TEMP/xloader-tmp"
           docker run --rm \
@@ -117,7 +122,7 @@ jobs:
             -v "$PWD/build-files/docker/test-xloader/data:/rdf:ro" \
             -v "$RUNNER_TEMP/xloader-db:/data/DB" \
             -v "$RUNNER_TEMP/xloader-tmp:/tmp" \
-            fuseki-loader:scan
+            fuseki-lucene-shacl-loader:scan
 
       - name: Verify xloader smoke-test dataset
         run: |
@@ -126,22 +131,22 @@ jobs:
           } | docker run --rm -i \
                 -v "$RUNNER_TEMP/xloader-db:/data/DB" \
                 --entrypoint java \
-                fuseki-loader:scan \
+                fuseki-lucene-shacl-loader:scan \
                 -cp /fuseki/jena-fuseki-server.jar tdb2.tdbquery --loc /data/DB/ds --query=- --results=csv)"
           echo "$actual"
           test "$(printf '%s' "$actual" | tail -n 1 | tr -d '\r')" = "4"
 
-      - name: Scan fuseki-loader (HIGH, CRITICAL)
+      - name: Scan fuseki-lucene-shacl-loader (HIGH, CRITICAL)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: fuseki-loader:scan
+          image-ref: fuseki-lucene-shacl-loader:scan
           format: table
           severity: HIGH,CRITICAL
           scanners: vuln
           exit-code: '1'
           ignore-unfixed: false
 
-      - name: Push fuseki-loader (multi-arch)
+      - name: Push fuseki-lucene-shacl-loader (multi-arch)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/build-push-action@v6
         with:
