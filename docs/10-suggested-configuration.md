@@ -42,7 +42,12 @@ different Lucene fields; they cost one extra term dictionary and they never figh
 **Fields are path-free and reusable.** Define `field:title` once; bind it to `rdfs:label` on
 one shape and `dcterms:title` on another. Occurrences carry paths, fields carry behaviour.
 
-**Prefer a rebuild to a clever incremental trick.** A wrong document is worse than a slow one.
+**Config changes are not retroactive.** Every flag decides what gets written at index time, so
+flipping `idx:facetable`, `idx:sortable`, `idx:stored`, a field type or an analyzer changes
+nothing about documents already written — they keep the structures they were built with, and
+the new setting applies only to entities indexed after it. A field that starts answering
+queries wrongly rather than not at all is the usual symptom. Reindex after any field-level
+change.
 
 ## The matrix
 
