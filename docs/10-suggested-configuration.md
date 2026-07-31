@@ -27,7 +27,7 @@ What to write, not what the defaults are. `idx:indexed` and `idx:stored` both de
 | Name, exact match + counts | author, operator, publisher | `KeywordField` | ✗ | ✓ | ✓ + `idx:normalizer` | exact match only |
 | Description / abstract | `dcterms:description` | `TextField` | ✓ | — | — | ✓ |
 | Identifier / code, exact | `RPT-MIA-2023-001` | `KeywordField` | ✗ | ✓ if counted | — | exact match only |
-| Identifier, prefix typeahead | same value, n-grams | `TextField` | ✗ | — | — | via `text:GenericAnalyzer` |
+| Identifier, prefix typeahead | `RPT-MIA` | `TextField` | ✗ | — | — | via `text:GenericAnalyzer` |
 | Vocabulary term | `Gold`, `Approved`, `WA` | `KeywordField` | ✗ | ✓ | ✓ if sorted on | exact match only |
 | Level of a facet hierarchy | `country` then `state` | `KeywordField` | ✗ | ✓ | — | ✗ |
 | Entity class | `rdf:type` → `Borehole` | `KeywordField` | ✗ | ✓ | — | ✗ |
