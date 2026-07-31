@@ -35,7 +35,7 @@ What to write, not what the defaults are. `idx:indexed` and `idx:stored` both de
 | Measurement / grade / score | `12.4` | `DoubleField` | ✗ | ✓ | ✓ | ✗ |
 | Full date or timestamp | `2023-04-01`, `2023-04-01T09:00:00Z` | `TemporalField` | ✗ | ✓ | ✓ | ✗ |
 | Geometry | `POINT(151.2 -33.9)` | `LatLonField` | ✗ | — | rejected | ✗ |
-| Repeated correlated record | an assay, an observation, a qualified identifier | ordinary fields inside an [`idx:nested`](#observations-sosa-style) block | ✓ to project the child that matched | ✓ | ✓ | ✗ |
+| Repeated correlated record | an assay, an observation, a qualified identifier | ordinary fields inside an [`idx:nested`](#observations-sosa-style) block | ✗ | ✓ | ✓ | ✗ |
 
 Filtering, faceting and sorting read points and docvalues, never the stored copy, so `✗`
 costs nothing but projection.
@@ -280,20 +280,20 @@ and range filters are gone.
 field:observedProperty
     idx:fieldName "observedProperty" ;
     idx:fieldType idx:KeywordField ;
-    idx:stored true ;           # projected by luc:nestedMatch
+    idx:stored false ;
     idx:facetable true .
 
 field:resultValue
     idx:fieldName "resultValue" ;
     idx:fieldType idx:DoubleField ;
-    idx:stored true ;
+    idx:stored false ;
     idx:facetable true ;
     idx:sortable true .
 
 field:resultUnits
     idx:fieldName "resultUnits" ;
     idx:fieldType idx:KeywordField ;
-    idx:stored true ;
+    idx:stored false ;
     idx:facetable true .
 
 <#SampleShape>
@@ -314,6 +314,10 @@ lead at 5%. Correlation covers `=`, ranges, `in`, `between`, `like` and `text_qu
 Millions of observations that are not in the graph: use `idx:externalSource` instead — one CSV
 row per child, same semantics. See
 [External Content](03-configuration.md#external-content-csvtsv).
+
+`luc:nestedMatch` projects stored child fields only, and a record with nothing stored is not
+projected at all — so read the children back from the graph. Store them when they come from an
+`idx:externalSource`, where there are no triples to read.
 
 **Don't** nest a single-field child; that is a multi-valued field with extra machinery.
 
