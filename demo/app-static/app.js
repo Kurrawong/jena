@@ -160,7 +160,7 @@ function buildSortSpec(sortField, sortDirection, fieldIRIs) {
     if (childValue && discriminator) {
         // Order parents by the value on the child whose discriminator matches, e.g. the
         // anumber rather than whichever identifier happens to sort first.
-        spec.filter = { field: fieldIri(fieldIRIs, discriminator, discriminator), eq: childValue };
+        spec.selector = { field: fieldIri(fieldIRIs, discriminator, discriminator), eq: childValue };
         spec.missing = 'last';
     }
     return JSON.stringify(spec);

@@ -32,18 +32,18 @@ import java.util.Locale;
  * sort-key chooser, not a result filter: entities with no matching child stay in the
  * result set and are placed per {@link #missing()}.
  *
- * @param field       the field identifier (IRI) to sort by; for a selector spec this is
- *                    the child value field
- * @param descending  true for descending order, false for ascending
- * @param filterField the co-located child discriminator field identifier (IRI), or null
- *                    for a flat sort
- * @param filterValue the value {@code filterField} must equal on the child supplying the
- *                    sort key; null for a flat sort
- * @param missing     placement of entities with no sort value, or null for the Lucene
- *                    default (selector specs default to {@link MissingPlacement#LAST})
+ * @param field         the field identifier (IRI) to sort by; for a selector spec this is
+ *                      the child value field
+ * @param descending    true for descending order, false for ascending
+ * @param selectorField the co-located child discriminator field identifier (IRI), or null
+ *                      for a flat sort
+ * @param selectorValue the value {@code selectorField} must equal on the child supplying
+ *                      the sort key; null for a flat sort
+ * @param missing       placement of entities with no sort value, or null for the Lucene
+ *                      default (selector specs default to {@link MissingPlacement#LAST})
  */
-public record SortSpec(String field, boolean descending, String filterField,
-                       String filterValue, MissingPlacement missing) {
+public record SortSpec(String field, boolean descending, String selectorField,
+                       String selectorValue, MissingPlacement missing) {
 
     /** Where entities with no sort value land in the final result order. */
     public enum MissingPlacement { FIRST, LAST }
@@ -55,13 +55,13 @@ public record SortSpec(String field, boolean descending, String filterField,
 
     /** True when this spec selects its sort key from a nested child doc. */
     public boolean hasSelector() {
-        return filterField != null;
+        return selectorField != null;
     }
 
     public String toCanonical() {
         StringBuilder sb = new StringBuilder(field);
-        if (filterField != null) {
-            sb.append('[').append(filterField).append('=').append(filterValue).append(']');
+        if (selectorField != null) {
+            sb.append('[').append(selectorField).append('=').append(selectorValue).append(']');
         }
         sb.append(descending ? ":desc" : ":asc");
         if (missing != null) {

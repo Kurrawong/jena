@@ -41,13 +41,20 @@ import org.apache.jena.atlas.json.JsonValue;
  * child by a co-located discriminator:
  * <pre>{@code
  * {"field": "...#identifierValue",
- *  "filter": {"field": "...#identifierType", "eq": "companyID"},
+ *  "selector": {"field": "...#identifierType", "eq": "companyID"},
  *  "order": "asc", "missing": "last"}
  * }</pre>
+ * The selector key is deliberately not called {@code filter}: {@code luc:query} already
+ * takes a {@code filter} that restricts the result set, whereas this one only chooses
+ * which child supplies the sort key. Unknown keys are rejected rather than ignored, so
+ * the old spelling fails loudly instead of silently sorting unselected.
+ * <p>
  * Parsing here is purely syntactic; the nested scope is inferred and validated against
  * the SHACL mapping in {@code ShaclTextIndexLucene.buildLuceneSort}.
  */
 public class SortSpecParser {
+
+    private static final List<String> KEYS = List.of("field", "order", "selector", "missing");
 
     public static List<SortSpec> parse(String json) {
         JsonValue val = JSON.parseAny(json);
@@ -68,6 +75,7 @@ public class SortSpecParser {
     }
 
     private static SortSpec parseOne(JsonObject obj) {
+        checkKeys(obj);
         if (!obj.hasKey("field")) {
             throw new TextIndexException("Sort spec must have a 'field' key: " + obj);
         }
@@ -78,21 +86,21 @@ public class SortSpecParser {
             descending = "desc".equalsIgnoreCase(order);
         }
 
-        String filterField = null;
-        String filterValue = null;
-        if (obj.hasKey("filter")) {
-            JsonValue filterVal = obj.get("filter");
-            if (!filterVal.isObject()) {
+        String selectorField = null;
+        String selectorValue = null;
+        if (obj.hasKey("selector")) {
+            JsonValue selectorVal = obj.get("selector");
+            if (!selectorVal.isObject()) {
                 throw new TextIndexException(
-                    "Sort spec 'filter' must be an object {\"field\":..., \"eq\":...}: " + obj);
+                    "Sort spec 'selector' must be an object {\"field\":..., \"eq\":...}: " + obj);
             }
-            JsonObject filter = filterVal.getAsObject();
-            if (!filter.hasKey("field") || !filter.hasKey("eq")) {
+            JsonObject selector = selectorVal.getAsObject();
+            if (!selector.hasKey("field") || !selector.hasKey("eq")) {
                 throw new TextIndexException(
-                    "Sort spec 'filter' must have both 'field' and 'eq' keys: " + obj);
+                    "Sort spec 'selector' must have both 'field' and 'eq' keys: " + obj);
             }
-            filterField = filter.get("field").getAsString().value();
-            filterValue = asLexicalForm(filter.get("eq"), obj);
+            selectorField = selector.get("field").getAsString().value();
+            selectorValue = asLexicalForm(selector.get("eq"), obj);
         }
 
         SortSpec.MissingPlacement missing = null;
@@ -108,10 +116,29 @@ public class SortSpecParser {
             }
         }
 
-        return new SortSpec(field, descending, filterField, filterValue, missing);
+        return new SortSpec(field, descending, selectorField, selectorValue, missing);
     }
 
-    /** Lexical form of a filter's {@code eq} value — strings, numbers and booleans all
+    /**
+     * Reject keys the sort spec does not define, so a typo or a stale {@code filter} is an
+     * error rather than a silently dropped instruction that returns plausible-looking rows
+     * in the wrong order.
+     */
+    private static void checkKeys(JsonObject obj) {
+        for (String key : obj.keys()) {
+            if (KEYS.contains(key)) {
+                continue;
+            }
+            String hint = "filter".equals(key)
+                ? " The nested sort selector is now 'selector'; 'filter' on luc:query is the "
+                    + "separate CQL result-set filter."
+                : "";
+            throw new TextIndexException("Unknown sort spec key '" + key + "'. Expected one of "
+                + KEYS + "." + hint);
+        }
+    }
+
+    /** Lexical form of a selector's {@code eq} value — strings, numbers and booleans all
      *  become the term text the discriminator field was indexed with. */
     private static String asLexicalForm(JsonValue value, JsonObject context) {
         if (value.isString()) {
@@ -124,7 +151,7 @@ public class SortSpecParser {
             return Boolean.toString(value.getAsBoolean().value());
         }
         throw new TextIndexException(
-            "Sort spec filter 'eq' must be a string, number or boolean: " + context);
+            "Sort spec selector 'eq' must be a string, number or boolean: " + context);
     }
 
     /**

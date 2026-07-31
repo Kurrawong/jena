@@ -12,6 +12,14 @@ API, and `TestNestedSortSelector` / `TestSortSpec` for the behaviour this note s
 The named-sort-preset variant below was **not** implemented — the inline form covers the
 requirement and a preset adds config surface for no new capability.
 
+**Superseded on 2026-07-31: the key is `selector`, not `filter`.** The spelling below is
+kept as the record of what was designed; it is no longer accepted. `luc:query` already
+takes a `filter` that restricts the result set, so the same word named two unrelated
+operations in one API — exactly the confusion this note's "sort selector, not a result
+filter" paragraph was written to pre-empt. `SortSpec.filterField` / `filterValue` are
+likewise now `selectorField` / `selectorValue`. Unknown sort-spec keys are rejected, so
+the old spelling errors rather than being ignored.
+
 This note records the design for ordering parent
 (entity-per-document) search results by a value drawn from a specific nested
 child record — e.g. "sort by the identifier value **where** identifierType =

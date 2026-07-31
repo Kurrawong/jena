@@ -200,12 +200,12 @@ public class TestNestedSortSelector {
 
     // ---- Sort-spec JSON helpers ----
 
-    private static String selectorSort(String valueField, String filterField, String filterValue,
+    private static String selectorSort(String valueField, String selectorField, String selectorValue,
             String order, String missing) {
         StringBuilder sb = new StringBuilder();
         sb.append("{\"field\":\"").append(FP).append(valueField).append("\"")
-          .append(",\"filter\":{\"field\":\"").append(FP).append(filterField)
-          .append("\",\"eq\":\"").append(filterValue).append("\"}")
+          .append(",\"selector\":{\"field\":\"").append(FP).append(selectorField)
+          .append("\",\"eq\":\"").append(selectorValue).append("\"}")
           .append(",\"order\":\"").append(order).append("\"");
         if (missing != null) {
             sb.append(",\"missing\":\"").append(missing).append("\"");
