@@ -42,6 +42,7 @@ public class SearchHit {
     private final Node graph;
     private final int luceneDocId;
     private List<FieldMatch> fieldMatches;
+    private List<NestedMatch> nestedMatches;
 
     public SearchHit(int index, Node entityNode, float score, Node graph, int luceneDocId) {
         this.hitId = NodeFactory.createBlankNode("hit" + index);
@@ -73,6 +74,19 @@ public class SearchHit {
 
     public void setFieldMatches(List<FieldMatch> fieldMatches) {
         this.fieldMatches = fieldMatches != null ? new ArrayList<>(fieldMatches) : null;
+    }
+
+    /**
+     * The block-join child documents that satisfied the query's filter, each carrying its
+     * own grouping node. Empty when the filter had no clause on a nested scope — nothing
+     * selected a child, so there is no "the child that matched" to report.
+     */
+    public List<NestedMatch> getNestedMatches() {
+        return nestedMatches != null ? nestedMatches : Collections.emptyList();
+    }
+
+    public void setNestedMatches(List<NestedMatch> nestedMatches) {
+        this.nestedMatches = nestedMatches != null ? new ArrayList<>(nestedMatches) : null;
     }
 
     @Override

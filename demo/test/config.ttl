@@ -164,7 +164,7 @@ field:authoredByUri
 field:attributionRole
     idx:fieldName "attributionRole" ;
     idx:fieldType idx:KeywordField ;
-    idx:stored false ;
+    idx:stored true ;             # projected by luc:nestedMatch
     idx:facetable true ;
     idx:multiValued true .
 
@@ -172,7 +172,7 @@ field:attributionRole
 field:attributionAgentExact
     idx:fieldName "attributionAgentExact" ;
     idx:fieldType idx:KeywordField ;
-    idx:stored false ;
+    idx:stored true ;             # projected by luc:nestedMatch
     idx:facetable true ;
     idx:multiValued true .
 
@@ -254,7 +254,10 @@ field:grade
     idx:indexed   true ;          # range filters
     idx:facetable true ;          # range facets
     idx:sortable  true ;          # nested sort selector
-    idx:stored    false .         # the assay database is the source of truth
+    idx:stored    true .          # projected by luc:nestedMatch, so a filtered hit can
+                                  # show the assay that matched. Storing a volatile number
+                                  # means the index must be rebuilt when it changes; the
+                                  # assay database remains the source of truth.
 
 field:gradeUnits
     idx:fieldName "gradeUnits" ;

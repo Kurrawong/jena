@@ -187,6 +187,12 @@ it finds entities that link *to* the report.
 | `17-sort-boreholes-by-depth-asc.rq` | Sort boreholes by `depth` ascending via field-IRI sort JSON |
 | `18-nested-identifier-company-drilldown.rq` | Drill down identifier values under `identifierType = company` |
 | `19-nested-identifier-exact-pair.rq` | Correlated exact filter on `identifierType = company` + `identifierValueExact` |
+| `20-date-range-filter.rq` | Date range filter on `idx:TemporalField` using CQL2-JSON `between` |
+| `21-match-review-note-languages.rq` | `luc:match` round-tripping language-tagged literals from stored metadata |
+| `22-match-qa-passed-boolean.rq` | `luc:match` round-tripping typed boolean literals from stored metadata |
+| `23-nested-identifier-same-child-correlated.rq` | Same-child correlated filter on nested identifier records (issue #65) |
+| `24-nested-match-assay-records.rq` | `luc:nestedMatch` projecting the external CSV assay children that matched |
+| `25-nested-match-attribution-record.rq` | `luc:nestedMatch` projecting the graph-derived attribution child that matched |
 
 ### Expected results for path queries
 

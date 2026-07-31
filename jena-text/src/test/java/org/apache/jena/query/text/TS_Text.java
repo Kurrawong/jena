@@ -128,6 +128,9 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     // luc:match property function
     , TestTextMatchPF.class
 
+    // luc:nestedMatch property function
+    , TestNestedMatchProjection.class
+
     // Shared field occurrences / fan-in
     , TestSharedFieldOccurrences.class
 

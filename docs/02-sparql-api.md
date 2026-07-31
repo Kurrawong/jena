@@ -17,7 +17,8 @@ Public API rules:
 
 - Index selection is explicit and always the first object argument.
 - Field references are always field IRIs, never `idx:fieldName`.
-- `luc:query` returns `?hit`; per-hit match detail comes from `luc:match`.
+- `luc:query` returns `?hit`; per-hit match detail comes from `luc:match`, and the
+  nested child records that satisfied the filter from `luc:nestedMatch`.
 - `luc:query` no longer returns `?match`.
 - Parsing is fixed-position and fixed-arity. There is no shape-based argument inference.
 - Use `""` as the placeholder for an unused `cqlFilter` or `sortSpec`.
@@ -218,6 +219,79 @@ SELECT ?entity ?score ?field ?value WHERE {
   (?hit ?field ?value) luc:match () .
 }
 ```
+
+## luc:nestedMatch
+
+### Syntax
+
+```sparql
+(?hit ?record ?field ?value) luc:nestedMatch ()
+```
+
+The object is always `()`.
+
+### Purpose
+
+`luc:nestedMatch` projects the `idx:nested` child documents that satisfied the CQL
+filter. Where `luc:match` answers "which fields of the *text query* matched on the
+entity", this answers "which child records did the *filter* select, and what do they
+contain". It joins to `luc:query` through `?hit`, exactly as `luc:match` does.
+
+Only fields declared `idx:stored true` inside the nested block are projected; an
+indexed-but-unstored field can be filtered on but has nothing to return.
+
+### Return bindings
+
+| Variable | Type | Meaning |
+|---|---|---|
+| `?hit` | blank node | Join key from `luc:query` |
+| `?record` | blank node | Grouping key — one per matching child document |
+| `?field` | IRI | Field IRI within the child |
+| `?value` | IRI or literal | Stored field value |
+
+`?record` is the point of the API. When a filter selects two children of the same
+entity, a flat stream of `(?field ?value)` rows cannot say which value belongs with
+which key; grouping by `?record` keeps each child's fields together.
+
+### Example
+
+Given a `prov:qualifiedAttribution` nested block, "reports where Sarah Jones was the
+Principal Investigator", returning the attribution that matched:
+
+```sparql
+SELECT ?entity ?record ?field ?value WHERE {
+  (?hit ?entity)
+    luc:query ("default" "default" ""
+      '{"op":"and","args":[
+         {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionRole"},"Principal Investigator"]},
+         {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionAgentExact"},"Dr Sarah Jones"]}
+       ]}'
+      "" 10 0) .
+  (?hit ?record ?field ?value) luc:nestedMatch () .
+}
+```
+
+### Behaviour and limits
+
+- A filter with **no** nested clause projects nothing. Nothing selected a child, so
+  there is no "the child that matched" to report — returning every child of every
+  scope would be a different feature.
+- A **negated** nested clause (`{"op":"not",...}`) projects nothing for that clause.
+  It describes children that must *not* match, which are not why the entity surfaced.
+- A lone `=` on the **first level of an `idx:facetHierarchy`** projects nothing. The
+  compiler answers it with a taxonomy `DrillDownQuery` on the parent rather than a
+  block join, so no child query exists to recover. Filtering is unaffected — the right
+  entities come back, only the projection is missing. Use `in` with the same value, or
+  pair the clause with a sibling on the same nested scope, to take the block-join path:
+
+  ```json
+  {"op":"=", "args":[{"property":"…#analyte"}, "Au"]}          // filters, projects nothing
+  {"op":"in","args":[{"property":"…#analyte"}, ["Au"]]}        // filters and projects
+  ```
+- At most 100 child records per hit are projected. Exceeding that is logged, not
+  silently trimmed.
+- The projection is computed during the `luc:query` search, so it costs one extra
+  block-restricted child query per hit and needs no second Lucene search.
 
 ## luc:facet
 
@@ -544,7 +618,8 @@ page — pagination over a selector-ordered result set stays correct across page
 
 ## Shared Execution
 
-`luc:query`, `luc:facet`, and `luc:match` share a single Lucene execution when these match:
+`luc:query`, `luc:facet`, `luc:match`, and `luc:nestedMatch` share a single Lucene
+execution when these match:
 
 - resolved index identity
 - search field spec

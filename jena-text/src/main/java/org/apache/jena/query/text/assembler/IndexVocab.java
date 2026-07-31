@@ -37,6 +37,12 @@ public class IndexVocab {
     public static final String pfQuery = NS + "query";
     public static final String pfFacet = NS + "facet";
     public static final String pfMatch = NS + "match";
+    /**
+     * Deliberately not {@code NS + "nested"}: that IRI is already the {@link #pNested}
+     * configuration predicate, and registering a property function on it would intercept
+     * any query pattern reading an {@code idx:nested} block out of a config graph.
+     */
+    public static final String pfNestedMatch = NS + "nestedMatch";
 
     // Types
     public static final Resource IndexProfile   = Vocab.resource(NS, "IndexProfile");

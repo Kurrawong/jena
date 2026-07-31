@@ -843,6 +843,24 @@ public class ShaclIndexMapping {
         return null;
     }
 
+    /**
+     * The {@code idx:nested} block with the given scope name, or null if none.
+     * <p>
+     * The scope name is the one stored on each child document, so this is how the read
+     * path recovers a child's field definitions from the document it just loaded.
+     */
+    public NestedDef findNestedDefByName(String nestedName) {
+        if (nestedName == null) return null;
+        for (IndexProfile profile : profiles) {
+            for (NestedDef nestedDef : profile.getNestedDefs()) {
+                if (nestedName.equals(nestedDef.getNestedName())) {
+                    return nestedDef;
+                }
+            }
+        }
+        return null;
+    }
+
     /** True when any profile carries an {@code idx:externalSource} — such profiles are
      *  rebuild-only (see {@link ShaclTextDocProducer}). */
     public boolean hasExternalSources() {
