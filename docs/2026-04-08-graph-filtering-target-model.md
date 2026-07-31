@@ -2,6 +2,10 @@
 
 Status: design only
 
+Refined by [2026-07-31_source_graph_indexing_design.md](2026-07-31_source_graph_indexing_design.md),
+which settles the index-time flag, the multi-valued semantics, and where collection has to
+happen. The `?graph` slot this note rules out was removed from `luc:query` on 2026-07-31.
+
 ## Decision
 
 Do not add graph-specific slots to the SHACL property-function signatures.
