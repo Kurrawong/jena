@@ -653,13 +653,13 @@ analyteValue  [1 – 5)     <span class="n">  842</span></pre>
         <h3>Sort by one analyte's value</h3>
         <p>"Order these holes by their gold value, highest first" — where each hole has dozens of measurements and only one of them is gold.</p>
 <pre class="tight">{
-  <span class="p">"field"</span>:  <span class="s">"…#analyteValue"</span>,
-  <span class="p">"filter"</span>: {<span class="p">"field"</span>:<span class="s">"…#analyte"</span>, <span class="p">"eq"</span>:<span class="s">"Au"</span>},
-  <span class="p">"order"</span>:  <span class="s">"desc"</span>,
-  <span class="p">"missing"</span>:<span class="s">"last"</span>
+  <span class="p">"field"</span>:    <span class="s">"…#analyteValue"</span>,
+  <span class="p">"selector"</span>: {<span class="p">"field"</span>:<span class="s">"…#analyte"</span>, <span class="p">"eq"</span>:<span class="s">"Au"</span>},
+  <span class="p">"order"</span>:    <span class="s">"desc"</span>,
+  <span class="p">"missing"</span>:  <span class="s">"last"</span>
 }</pre>
         <ul class="clean">
-          <li>The <code>filter</code> <b style="color:var(--ink)">picks which measurement supplies the sort key</b> — it doesn't remove holes</li>
+          <li>The <code>selector</code> <b style="color:var(--ink)">picks which measurement supplies the sort key</b> — it doesn't remove holes</li>
           <li>Holes with no gold result keep their place, positioned by <code>missing</code></li>
           <li>Sorting happens before paging, so page 7 is still correct</li>
         </ul>

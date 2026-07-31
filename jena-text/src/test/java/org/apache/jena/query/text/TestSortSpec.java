@@ -110,15 +110,15 @@ public class TestSortSpec {
     public void testParseNestedSelector() {
         List<SortSpec> specs = SortSpecParser.parse(
             "{\"field\":\"identifierValue\","
-            + "\"filter\":{\"field\":\"identifierType\",\"eq\":\"companyID\"},"
+            + "\"selector\":{\"field\":\"identifierType\",\"eq\":\"companyID\"},"
             + "\"order\":\"desc\",\"missing\":\"first\"}");
         assertEquals(1, specs.size());
         SortSpec spec = specs.get(0);
         assertTrue(spec.hasSelector());
         assertEquals("identifierValue", spec.field());
         assertTrue(spec.descending());
-        assertEquals("identifierType", spec.filterField());
-        assertEquals("companyID", spec.filterValue());
+        assertEquals("identifierType", spec.selectorField());
+        assertEquals("companyID", spec.selectorValue());
         assertEquals(SortSpec.MissingPlacement.FIRST, spec.missing());
     }
 
@@ -126,26 +126,26 @@ public class TestSortSpec {
     public void testParseFlatSpecHasNoSelector() {
         SortSpec spec = SortSpecParser.parse("{\"field\":\"year\"}").get(0);
         assertFalse(spec.hasSelector());
-        assertNull(spec.filterField());
-        assertNull(spec.filterValue());
+        assertNull(spec.selectorField());
+        assertNull(spec.selectorValue());
         assertNull("absent 'missing' leaves Lucene's own default in place", spec.missing());
     }
 
     @Test
-    public void testParseNonStringFilterValue() {
+    public void testParseNonStringSelectorValue() {
         SortSpec spec = SortSpecParser.parse(
-            "{\"field\":\"reading\",\"filter\":{\"field\":\"sensorId\",\"eq\":42}}").get(0);
-        assertEquals("42", spec.filterValue());
+            "{\"field\":\"reading\",\"selector\":{\"field\":\"sensorId\",\"eq\":42}}").get(0);
+        assertEquals("42", spec.selectorValue());
     }
 
     @Test(expected = TextIndexException.class)
-    public void testParseFilterWithoutEqThrows() {
-        SortSpecParser.parse("{\"field\":\"identifierValue\",\"filter\":{\"field\":\"identifierType\"}}");
+    public void testParseSelectorWithoutEqThrows() {
+        SortSpecParser.parse("{\"field\":\"identifierValue\",\"selector\":{\"field\":\"identifierType\"}}");
     }
 
     @Test(expected = TextIndexException.class)
-    public void testParseNonObjectFilterThrows() {
-        SortSpecParser.parse("{\"field\":\"identifierValue\",\"filter\":\"companyID\"}");
+    public void testParseNonObjectSelectorThrows() {
+        SortSpecParser.parse("{\"field\":\"identifierValue\",\"selector\":\"companyID\"}");
     }
 
     @Test(expected = TextIndexException.class)
@@ -154,7 +154,7 @@ public class TestSortSpec {
     }
 
     @Test
-    public void testSelectorToCanonicalDistinguishesFilterValue() {
+    public void testSelectorToCanonicalDistinguishesSelectorValue() {
         SortSpec companyId = new SortSpec("value", false, "type", "companyID", null);
         SortSpec govId = new SortSpec("value", false, "type", "govID", null);
         assertEquals("value[type=companyID]:asc", companyId.toCanonical());
@@ -340,7 +340,7 @@ public class TestSortSpec {
                 new SortSpec(FP + "identifierValue", false, FP + "noSuchField", "companyID", null)));
             fail("an unresolvable discriminator field must be rejected");
         } catch (TextIndexException ex) {
-            assertTrue(ex.getMessage(), ex.getMessage().contains("Unknown sort filter field"));
+            assertTrue(ex.getMessage(), ex.getMessage().contains("Unknown sort selector field"));
         } finally {
             textIndex.close();
         }

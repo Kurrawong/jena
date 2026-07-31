@@ -571,38 +571,38 @@ value for the sort field. Omit it to keep Lucene's own default placement.
 ### Nested Sort Selector
 
 To order by a value drawn from one specific nested child record — "sort by the identifier
-value *where* `identifierType = companyID`" — add a `filter` to the sort object:
+value *where* `identifierType = companyID`" — add a `selector` to the sort object:
 
 ```json
 {
-  "field":  "urn:jena:lucene:field#identifierValue",
-  "filter": {"field":"urn:jena:lucene:field#identifierType","eq":"companyID"},
-  "order":  "asc",
-  "missing": "last"
+  "field":    "urn:jena:lucene:field#identifierValue",
+  "selector": {"field":"urn:jena:lucene:field#identifierType","eq":"companyID"},
+  "order":    "asc",
+  "missing":  "last"
 }
 ```
 
 | Key | Meaning |
 |-----|---------|
 | `field` | the child value field to sort on; must be `idx:sortable` |
-| `filter.field` | the co-located discriminator on the same child document |
-| `filter.eq` | the value that discriminator must equal |
+| `selector.field` | the co-located discriminator on the same child document |
+| `selector.eq` | the value that discriminator must equal |
 | `order` | `asc` (default) / `desc`, as for a flat sort |
 | `missing` | `first` \| `last` — placement of entities with no matching child. Default `last` |
 
 The nested scope is inferred from `field`; it is not part of the wire format.
 
-The `filter` is a **sort selector, not a result filter**. It chooses which child supplies
-the sort key and never removes entities: those with no matching child keep their place in
-the result set and are positioned by `missing`. To also restrict *which* entities appear,
-state that independently in `cqlFilter` — the two compose.
+The `selector` **chooses a sort key; it does not restrict the result set**. It picks which
+child supplies the key and never removes entities: those with no matching child keep their
+place in the results and are positioned by `missing`. To also restrict *which* entities
+appear, state that independently in `cqlFilter` — the two compose.
 
 When an entity has several matching children the parent key collapses MIN (ascending) /
 MAX (descending). The normal one-record-per-type case makes MIN = MAX.
 
-#### Why filter in two places?
+#### Why select and filter separately?
 
-Because the two filters act on different things. `cqlFilter` decides *which documents*
+Because the two act on different things. `cqlFilter` decides *which documents*
 come back; a sort reads its key from doc-values on a document that has already been
 picked. Filtering on the discriminator therefore does nothing at all to the sort key.
 
@@ -613,15 +613,15 @@ the parent, the sort collapses the entity's whole bag: an entity whose companyID
 `C-200` but whose govID is `A-000` sorts on `A-000`. The filter chose the entity; the
 sort key still came from the wrong record.
 
-The sort's own `filter` is what keeps the child identity long enough to say "take the
+The sort's `selector` is what keeps the child identity long enough to say "take the
 value from *this* child". The same split exists elsewhere: Elasticsearch's nested sort
 takes its own `nested.filter` independent of the query, and in SQL the discriminator
 belongs in the `LEFT JOIN ... ON` clause — move it to `WHERE` and the outer join
 collapses, dropping the very rows you wanted to keep.
 
 The selector is nested-only. A flat multivalued field is a decorrelated bag with no
-surviving per-value discriminator, so a `filter` on a root-scoped field is an error
-(`sort filter requires a nested field`). Both fields must belong to the *same*
+surviving per-value discriminator, so a `selector` on a root-scoped field is an error
+(`Sort selector requires a nested field`). Both fields must belong to the *same*
 `idx:nested` block — that is what puts them on one child document.
 
 Data-modelling requirements (no extra index configuration):
@@ -629,7 +629,7 @@ Data-modelling requirements (no extra index configuration):
 ```turtle
 :sampleShape idx:nested [
     idx:joinPath sdo:identifier ;
-    # discriminator -> child filter
+    # discriminator -> sort selector
     idx:property [ idx:field field:identifierType  ; sh:path sdo:propertyID ] ;
     # value         -> sort key
     idx:property [ idx:field field:identifierValue ; sh:path sdo:value ] ;

@@ -290,7 +290,7 @@ public class TestExternalContentIndexing {
     /** Sort by a nested value drawn from the child where measuredProperty = {@code property}. */
     private static String sortByProperty(String property, String order, String missing) {
         return "{\"field\":\"" + FP + "measuredValue\""
-            + ",\"filter\":{\"field\":\"" + FP + "measuredProperty\",\"eq\":\"" + property + "\"}"
+            + ",\"selector\":{\"field\":\"" + FP + "measuredProperty\",\"eq\":\"" + property + "\"}"
             + ",\"order\":\"" + order + "\",\"missing\":\"" + missing + "\"}";
     }
 
@@ -719,7 +719,7 @@ public class TestExternalContentIndexing {
         buildIntervalIndex(INTERVAL_CSV);
 
         String sortByAu = "{\"field\":\"" + FP + "value\""
-            + ",\"filter\":{\"field\":\"" + FP + "analyte\",\"eq\":\"Au\"}"
+            + ",\"selector\":{\"field\":\"" + FP + "analyte\",\"eq\":\"Au\"}"
             + ",\"order\":\"desc\",\"missing\":\"last\"}";
 
         assertEquals("best Au intercept first: s1 12.4, s3 5.0, s2 0.3, then s4 with none",
