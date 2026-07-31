@@ -192,7 +192,7 @@ rebuildEntityDocuments(subject)
 - `getDepth()`, `getLevelIndex(field)`, `getLevel(i)` — navigation methods
 
 `NestedDef` represents a repeated correlated child collection:
-- `nestedName` — the child scope identifier derived from `idx:joinPath`
+- `nestedName` — the child scope identifier: derived from `idx:joinPath`, or taken from the required `idx:nestedName` when the block has an `idx:externalSource` instead
 - `joinPath` — the SHACL path used to enumerate child nodes
 - `joinSteps` — the ordered forward/inverse predicate steps used for change monitoring
 - `joinPredicates` — the predicate set used for change monitoring
@@ -201,7 +201,7 @@ rebuildEntityDocuments(subject)
 
 `FieldDef` now carries explicit scope metadata:
 - root fields have `nestedName = null`
-- child fields have `nestedName = <joinPath>`
+- child fields have `nestedName = <the owning block's scope name>`
 
 This allows the runtime to distinguish:
 - root fields evaluated from the entity node

@@ -286,6 +286,34 @@ sh:path [ sh:inversePath ex:authored ] .
 
 `idx:joinPath` enumerates child nodes from the parent. Field occurrences inside the `idx:nested` block are evaluated relative to the child node, not the parent.
 
+### Block properties
+
+| Property | Required | Meaning |
+|---|---|---|
+| `idx:joinPath` | yes¹ | SHACL path enumerating child nodes from the parent |
+| `idx:externalSource` | yes¹ | Children come from a tabular source instead — see [External Content](#external-content-csvtsv) |
+| `idx:property` | yes² | Repeatable field occurrence, evaluated relative to the child node |
+| `idx:nestedName` | see below | The block's **scope name** |
+| `idx:facetHierarchy` | no | Hierarchy whose levels are correlated per child record |
+
+¹ Exactly one of `idx:joinPath` / `idx:externalSource`.
+² For a `idx:joinPath` block. An external block's fields come from its `idx:column` bindings instead, and `idx:property` there is an error.
+
+**The scope name** identifies the block. It is written to every child document as
+`_nestedScope`, and it is what lets the query path tell "these clauses must be satisfied by
+*one* child" from "any children will do", recover a child's field definitions when
+projecting `luc:nestedMatch`, and restrict a nested sort selector to the right block.
+
+- For an `idx:joinPath` block the name is **derived from the path** — you do not write it,
+  and an `idx:nestedName` there is ignored.
+- For an `idx:externalSource` block it is **required**: there is no join path to derive it
+  from. Omitting it is a config-time error.
+
+It is an opaque label, not an IRI: nothing in the data denotes it, no query names it (the
+scope is always inferred from the field), and the derived form is a path string. Pick
+something short and descriptive. Because it lands in the index, renaming it invalidates
+existing child documents — reindex after a change.
+
 ### Pattern 1 — Qualified identifier (both children are KEYWORD)
 
 `schema:identifier` records carrying `(propertyID, value)` pairs:
@@ -381,6 +409,7 @@ plain field, and for the n-gram configurations that are permitted but not advise
 ### Rules
 
 - One field IRI belongs to one scope: either root or one nested collection.
+- Scope names are resolved across the whole mapping, so an explicit `idx:nestedName` must be unique among all `idx:nested` blocks in the index, not just within its shape.
 - `idx:joinPath` may be a simple predicate, an inverse predicate, or a sequence of predicate steps. It does not support alternative paths.
 - Both the exact-keyword and edge-ngram-text variants can sit on the same SHACL path — they are different Lucene fields driven by their own analyzers.
 - `idx:facetHierarchy` inside an `idx:nested` block defines a hierarchy whose levels are correlated per child record (no cartesian products).
@@ -431,6 +460,8 @@ field:measuredValue
 ```
 
 Bound fields carry **no `sh:path`** — their values come from the column. There is no `idx:external` flag: a field is external because a column binds it, exactly as a field is nested because it appears in an `idx:nested` block.
+
+`idx:nestedName` is required here, and only here: with no `idx:joinPath` there is nothing to derive the block's scope name from. See [Block properties](#block-properties).
 
 ### Source properties
 
