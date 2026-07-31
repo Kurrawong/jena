@@ -21,28 +21,38 @@ this page is which to pick. Each recipe names the test that pins it.
 What to write, not what the defaults are. `idx:indexed` and `idx:stored` both default to
 `true`, so `✗` means set it false explicitly.
 
-| Data kind | Example | `idx:fieldType` | stored | facetable | sortable |
-|---|---|---|---|---|---|
-| Title / label, searched | `rdfs:label` of a report | `TextField` | ✓ | — | — |
-| Name, exact match + counts | author, operator, publisher | `KeywordField` | ✗ | ✓ | ✓ + `idx:normalizer` |
-| Description / abstract | `dcterms:description` | `TextField` | ✓ | — | — |
-| Identifier / code, exact | `RPT-MIA-2023-001` | `KeywordField` | ✗ | ✓ if counted | — |
-| Identifier, prefix typeahead | same value, n-grams | `TextField` | ✗ | — | — |
-| Vocabulary term | `Gold`, `Approved`, `WA` | `KeywordField` | ✗ | ✓ | ✓ if sorted on |
-| Level of a facet hierarchy | `country` then `state` | `KeywordField` | ✗ | ✓ | — |
-| Entity class | `rdf:type` → `Borehole` | `KeywordField` | ✗ | ✓ | — |
-| Year or count | `2023`, `42` | `IntField` | ✗ | ✓ | ✓ |
-| Measurement / grade / score | `12.4` | `DoubleField` | ✗ | ✓ | ✓ |
-| Full date or timestamp | `2023-04-01`, `2023-04-01T09:00:00Z` | `TemporalField` | ✗ | ✓ | ✓ |
-| Geometry | `POINT(151.2 -33.9)` | `LatLonField` | ✗ | — | rejected |
-| Repeated correlated record | an assay, an observation, a qualified identifier | ordinary fields inside an [`idx:nested`](#observations-sosa-style) block | ✓ to project the child that matched | ✓ | ✓ |
+| Data kind | Example | `idx:fieldType` | stored | facetable | sortable | Upstream |
+|---|---|---|---|---|---|---|
+| Title / label, searched | `rdfs:label` of a report | `TextField` | ✓ | — | — | ✓ |
+| Name, exact match + counts | author, operator, publisher | `KeywordField` | ✗ | ✓ | ✓ + `idx:normalizer` | match only |
+| Description / abstract | `dcterms:description` | `TextField` | ✓ | — | — | ✓ |
+| Identifier / code, exact | `RPT-MIA-2023-001` | `KeywordField` | ✗ | ✓ if counted | — | match only |
+| Identifier, prefix typeahead | same value, n-grams | `TextField` | ✗ | — | — | via `text:GenericAnalyzer` |
+| Vocabulary term | `Gold`, `Approved`, `WA` | `KeywordField` | ✗ | ✓ | ✓ if sorted on | match only |
+| Level of a facet hierarchy | `country` then `state` | `KeywordField` | ✗ | ✓ | — | ✗ |
+| Entity class | `rdf:type` → `Borehole` | `KeywordField` | ✗ | ✓ | — | ✗ |
+| Year or count | `2023`, `42` | `IntField` | ✗ | ✓ | ✓ | ✗ |
+| Measurement / grade / score | `12.4` | `DoubleField` | ✗ | ✓ | ✓ | ✗ |
+| Full date or timestamp | `2023-04-01`, `2023-04-01T09:00:00Z` | `TemporalField` | ✗ | ✓ | ✓ | ✗ |
+| Geometry | `POINT(151.2 -33.9)` | `LatLonField` | ✗ | — | rejected | ✗ |
+| Repeated correlated record | an assay, an observation, a qualified identifier | ordinary fields inside an [`idx:nested`](#observations-sosa-style) block | ✓ to project the child that matched | ✓ | ✓ | ✗ |
 
 Filtering, faceting and sorting read points and docvalues, never the stored copy, so `✗`
-costs nothing but projection. Store the searchable text fields: `luc:match` binds which field
-matched, and the value only if it is stored — and where an entity carries several labels or
-descriptions, it returns the one that matched.
+costs nothing but projection.
+
+Store the searchable text fields: `luc:match` binds which field matched, and the value only
+if it is stored — and where an entity carries several labels or descriptions, it returns the
+one that matched.
 
 Set `idx:multiValued true` wherever the predicate can repeat.
+
+**Upstream** is what Apache Jena's `text:entityMap` / `text:query` mode does. It has no field
+types: `TextIndexLucene` writes every value as an analyzed text field keyed by predicate, with
+no points, docvalues or facet fields — so no facets, no sort, no range filters, no nesting and
+no spatial. *Match only* means the value can be matched exactly by pairing the predicate with
+`text:KeywordAnalyzer` / `text:LowerCaseKeywordAnalyzer`, but not counted or sorted. Edge
+n-grams are reachable upstream by assembling a tokenizer with `text:GenericAnalyzer`; the
+`text:EdgeNGramAnalyzer` shorthand is this fork's.
 
 ## Query syntax on a TEXT field
 
