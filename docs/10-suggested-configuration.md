@@ -19,12 +19,6 @@ which is rebuild-only — the producer refuses to act on a live change, since re
 the graph alone would silently strip the CSV-derived children, and logs that the document is
 stale pending a `ShaclBulkIndexer` run.
 
-So for graph-derived fields the reason not to store is cost, not staleness: a stored copy of a
-field nothing projects is index size and merge time bought for nothing.
-
-*The live-rebuild behaviour is pinned by `TestShaclTextDocProducer`; the rebuild-only refusal
-by `TestExternalContentIndexing` ("live graph change does not strip external children").*
-
 **Each flag buys exactly one capability, and costs one structure.** `idx:indexed` for
 filtering, `idx:stored` for projection, `idx:facetable` for counts, `idx:sortable` for
 `ORDER BY`. Turn on what a query needs and nothing else. Note that `idx:stored` defaults to
