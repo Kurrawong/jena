@@ -153,6 +153,35 @@ public class TestSortSpec {
         SortSpecParser.parse("{\"field\":\"year\",\"missing\":\"middle\"}");
     }
 
+    /**
+     * The sort selector was called {@code filter} before it was renamed. The old key is not
+     * an alias: {@code luc:query}'s own {@code filter} restricts the result set, and keeping
+     * both spellings alive would preserve exactly the ambiguity the rename removes. An
+     * explicit parse error naming {@code selector} is the migration message.
+     */
+    @Test
+    public void testParseLegacyFilterKeyThrowsNamingSelector() {
+        try {
+            SortSpecParser.parse("{\"field\":\"identifierValue\","
+                + "\"filter\":{\"field\":\"identifierType\",\"eq\":\"companyID\"}}");
+            fail("the legacy 'filter' key must be rejected, not silently accepted");
+        } catch (TextIndexException ex) {
+            assertTrue("message should name the replacement key: " + ex.getMessage(),
+                ex.getMessage().contains("selector"));
+        }
+    }
+
+    @Test
+    public void testParseUnknownKeyThrows() {
+        try {
+            SortSpecParser.parse("{\"field\":\"year\",\"sortby\":\"desc\"}");
+            fail("an unrecognised sort-spec key must be rejected");
+        } catch (TextIndexException ex) {
+            assertTrue("message should name the offending key: " + ex.getMessage(),
+                ex.getMessage().contains("sortby"));
+        }
+    }
+
     @Test
     public void testSelectorToCanonicalDistinguishesSelectorValue() {
         SortSpec companyId = new SortSpec("value", false, "type", "companyID", null);

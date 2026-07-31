@@ -597,6 +597,11 @@ child supplies the key and never removes entities: those with no matching child 
 place in the results and are positioned by `missing`. To also restrict *which* entities
 appear, state that independently in `cqlFilter` — the two compose.
 
+> **Renamed from `filter`.** This key was called `filter` in earlier commits. It is not
+> accepted as an alias — a sort spec carrying `filter` (or any other unrecognised key) is
+> rejected with an error naming `selector`, rather than being silently ignored and
+> returning plausible-looking rows in the wrong order.
+
 When an entity has several matching children the parent key collapses MIN (ascending) /
 MAX (descending). The normal one-record-per-type case makes MIN = MAX.
 

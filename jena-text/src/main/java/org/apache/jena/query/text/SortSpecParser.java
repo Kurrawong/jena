@@ -46,12 +46,15 @@ import org.apache.jena.atlas.json.JsonValue;
  * }</pre>
  * The selector key is deliberately not called {@code filter}: {@code luc:query} already
  * takes a {@code filter} that restricts the result set, whereas this one only chooses
- * which child supplies the sort key.
+ * which child supplies the sort key. Unknown keys are rejected rather than ignored, so
+ * the old spelling fails loudly instead of silently sorting unselected.
  * <p>
  * Parsing here is purely syntactic; the nested scope is inferred and validated against
  * the SHACL mapping in {@code ShaclTextIndexLucene.buildLuceneSort}.
  */
 public class SortSpecParser {
+
+    private static final List<String> KEYS = List.of("field", "order", "selector", "missing");
 
     public static List<SortSpec> parse(String json) {
         JsonValue val = JSON.parseAny(json);
@@ -72,6 +75,7 @@ public class SortSpecParser {
     }
 
     private static SortSpec parseOne(JsonObject obj) {
+        checkKeys(obj);
         if (!obj.hasKey("field")) {
             throw new TextIndexException("Sort spec must have a 'field' key: " + obj);
         }
@@ -113,6 +117,25 @@ public class SortSpecParser {
         }
 
         return new SortSpec(field, descending, selectorField, selectorValue, missing);
+    }
+
+    /**
+     * Reject keys the sort spec does not define, so a typo or a stale {@code filter} is an
+     * error rather than a silently dropped instruction that returns plausible-looking rows
+     * in the wrong order.
+     */
+    private static void checkKeys(JsonObject obj) {
+        for (String key : obj.keys()) {
+            if (KEYS.contains(key)) {
+                continue;
+            }
+            String hint = "filter".equals(key)
+                ? " The nested sort selector is now 'selector'; 'filter' on luc:query is the "
+                    + "separate CQL result-set filter."
+                : "";
+            throw new TextIndexException("Unknown sort spec key '" + key + "'. Expected one of "
+                + KEYS + "." + hint);
+        }
     }
 
     /** Lexical form of a selector's {@code eq} value — strings, numbers and booleans all
