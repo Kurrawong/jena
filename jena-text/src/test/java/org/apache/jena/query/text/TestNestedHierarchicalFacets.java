@@ -425,11 +425,15 @@ public class TestNestedHierarchicalFacets {
     }
 
     @Test
-    public void testSingleLevelTopFilterStillUsesFlattenedParentField() {
+    public void testSingleLevelTopFilterLiftsToParent() {
         CqlExpression cql = CqlParser.parse("""
             {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierType"},"Company"]}
             """);
 
+        // Level 0 of a nested hierarchy lifts through ToParentBlockJoinQuery like level 1
+        // (testSingleLevelLeafFilterLiftsToParent) and like a nested field in no hierarchy
+        // at all. It previously compiled to a taxonomy DrillDownQuery on the parent, which
+        // selects the same entities but carries no child query for luc:nestedMatch.
         List<TextHit> results = textIndex.queryWithCql(null, null, cql, null, null, null, 10, null);
         assertEquals(Set.of(NS + "bh1", NS + "bh2", NS + "bh3"), toSubjectSet(results));
     }

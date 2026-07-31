@@ -61,6 +61,7 @@ import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.search.SearcherManager;
 import org.apache.lucene.search.join.BitSetProducer;
+import org.apache.lucene.search.join.ParentChildrenBlockJoinQuery;
 import org.apache.lucene.search.join.QueryBitSetProducer;
 import org.apache.lucene.search.join.ToParentBlockJoinQuery;
 import org.apache.lucene.search.join.ToParentBlockJoinSortField;
@@ -212,6 +213,12 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
     /** Upper bound on {@link #childSortFilterCache} entries. */
     private static final int MAX_CHILD_SORT_FILTERS = 256;
+
+    /**
+     * Upper bound on child records projected per hit by {@link #computeNestedMatches}.
+     * A hit whose filter selects more children than this is logged, not silently trimmed.
+     */
+    private static final int MAX_NESTED_MATCHES_PER_HIT = 100;
 
     public ShaclTextIndexLucene(Directory directory, TextIndexConfig config) {
         this(directory, null, config);
@@ -661,6 +668,14 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 computeFieldMatches(searcher, textQuery, resolvedFields, results);
             }
 
+            // Project the child documents the filter selected. Done here, inside the same
+            // try block, because this is the one place where the compiled query, a live
+            // searcher and valid parent doc ids all coexist — resolving children later
+            // would read doc ids against a reader that may have been refreshed since.
+            if (!results.isEmpty()) {
+                computeNestedMatches(searcher, finalQuery, results);
+            }
+
             return results;
         } catch (IOException ex) {
             throw new TextIndexException("searchWithHitIds", ex);
@@ -750,6 +765,126 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
             hit.setFieldMatches(fieldMatches);
         }
+    }
+
+    /**
+     * Attach to each hit the block-join child documents that satisfied the filter.
+     * <p>
+     * The child queries are recovered from the compiled query rather than from the
+     * {@link CqlExpression} it came from: the compiler has already wrapped every nested
+     * clause in a {@link ToParentBlockJoinQuery}, so its {@code getChildQuery()} is
+     * exactly the "which children" predicate, whether the clause was folded as a
+     * same-child group or lifted on its own. Nothing here re-interprets CQL.
+     * <p>
+     * Each surviving child is then re-queried with {@link ParentChildrenBlockJoinQuery},
+     * which restricts the child query to the block belonging to one parent — the same
+     * primitive an "inner hits" feature is built on, and the reason no doc id arithmetic
+     * appears in this method.
+     */
+    private void computeNestedMatches(IndexSearcher searcher, Query finalQuery, List<SearchHit> hits)
+            throws IOException {
+        List<Query> childQueries = new ArrayList<>();
+        collectChildQueries(finalQuery, childQueries);
+        if (childQueries.isEmpty()) {
+            // No nested clause: nothing selected a child, so there is no matching child
+            // to report. Returning every child of every scope would be a different
+            // feature wearing the same name.
+            return;
+        }
+
+        StoredFields storedFields = searcher.storedFields();
+        for (SearchHit hit : hits) {
+            // Sorted and de-duplicated: one child can satisfy more than one nested clause,
+            // and index order keeps the projection stable across pages.
+            Set<Integer> childDocIds = new TreeSet<>();
+            for (Query childQuery : childQueries) {
+                Query scoped = new ParentChildrenBlockJoinQuery(
+                    PARENTS_FILTER, childQuery, hit.getLuceneDocId());
+                for (ScoreDoc sd : searcher.search(scoped, MAX_NESTED_MATCHES_PER_HIT + 1).scoreDocs) {
+                    childDocIds.add(sd.doc);
+                }
+            }
+            if (childDocIds.isEmpty()) {
+                continue;
+            }
+            if (childDocIds.size() > MAX_NESTED_MATCHES_PER_HIT) {
+                log.warn("Hit {} matched {} child records; projecting the first {}",
+                    hit.getEntityNode(), childDocIds.size(), MAX_NESTED_MATCHES_PER_HIT);
+            }
+
+            List<NestedMatch> matches = new ArrayList<>();
+            for (int childDocId : childDocIds) {
+                if (matches.size() >= MAX_NESTED_MATCHES_PER_HIT) {
+                    break;
+                }
+                NestedMatch match = nestedMatchFromChild(
+                    hit.getRank(), matches.size(), storedFields.document(childDocId));
+                if (match != null) {
+                    matches.add(match);
+                }
+            }
+            hit.setNestedMatches(matches);
+        }
+    }
+
+    /**
+     * Collect the child-doc query of every {@link ToParentBlockJoinQuery} reachable in
+     * {@code query} without passing through a negation.
+     * <p>
+     * A {@code MUST_NOT} nested clause describes children that must <em>not</em> match;
+     * those children are not why the parent surfaced, so projecting them would report the
+     * opposite of what was asked.
+     */
+    private static void collectChildQueries(Query query, List<Query> out) {
+        switch (query) {
+            case ToParentBlockJoinQuery blockJoin -> out.add(blockJoin.getChildQuery());
+            case BooleanQuery booleanQuery -> {
+                for (BooleanClause clause : booleanQuery) {
+                    if (clause.occur() != BooleanClause.Occur.MUST_NOT) {
+                        collectChildQueries(clause.query(), out);
+                    }
+                }
+            }
+            case BoostQuery boost -> collectChildQueries(boost.getQuery(), out);
+            case ConstantScoreQuery constantScore -> collectChildQueries(constantScore.getQuery(), out);
+            default -> { }
+        }
+    }
+
+    /** Project one child document's stored fields, or null if it has nothing to project. */
+    private NestedMatch nestedMatchFromChild(int hitRank, int ordinal, Document childDoc) {
+        String scope = childDoc.get(NESTED_SCOPE_FIELD);
+        ShaclIndexMapping.NestedDef nestedDef = shaclMapping.findNestedDefByName(scope);
+        if (nestedDef == null) {
+            log.warn("Child document carries nested scope '{}', which is not in the current "
+                + "mapping — reindex after changing idx:joinPath", scope);
+            return null;
+        }
+
+        List<FieldMatch> fieldMatches = new ArrayList<>();
+        for (ShaclIndexMapping.FieldDef fd : nestedDef.getFields()) {
+            if (!fd.isStored()) {
+                continue;
+            }
+            String[] storedValues = childDoc.getValues(fd.getFieldName());
+            if (storedValues == null) {
+                continue;
+            }
+            Node fieldIRI = fd.getFieldIRI() != null
+                ? fd.getFieldIRI()
+                : NodeFactory.createLiteralString(fd.getFieldName());
+            for (int i = 0; i < storedValues.length; i++) {
+                // Every stored value is projected, positionally aligned with its datatype
+                // and language twins. selectStoredValue's "which one did the query mean"
+                // heuristic is not needed and would be wrong here: a child document holds
+                // exactly the one record being reported.
+                Node value = fieldValueToNode(childDoc, fd, new SelectedStoredValue(i, storedValues[i]));
+                if (value != null) {
+                    fieldMatches.add(new FieldMatch(fieldIRI, value, null));
+                }
+            }
+        }
+        return fieldMatches.isEmpty() ? null : new NestedMatch(hitRank, ordinal, scope, fieldMatches);
     }
 
     /**

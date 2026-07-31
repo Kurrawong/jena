@@ -8,12 +8,14 @@ This doc set covers the SHACL/entity-per-document search model in `jena-text`.
 |---|---|---|
 | `luc:query` | Done | Fixed-position query API with explicit `indexSelector` and `fieldSpec` |
 | `luc:match` | Done | Sole per-hit match-detail API |
+| `luc:nestedMatch` | Done | Projects the `idx:nested` child records a filter selected, grouped by `?record` |
 | `luc:facet` | Done | Fixed-position facet API with field IRIs and range facets |
 | Multi-index selection | Done | Query-time `indexSelector` plus `text:indexes` config |
 | Field IRIs | Done | Public SPARQL uses field IRIs only |
 | Sort pushdown | Done | Sort specs use field IRIs in the public API |
 | Nested sort selector | Done | Order by a child value where a co-located discriminator matches |
 | External content (CSV/TSV) | Done | `idx:externalSource` builds nested children from a tabular file; bulk build only |
+| External delta endpoint | Designed | NDJSON deltas over HTTP, via opt-in retained rows. Not built — at reduced volume, load the values as RDF instead |
 | Graph scoping model | Designed | Reserved synthetic field `urn:jena:lucene:field#sourceGraph`; implementation deferred |
 | Highlight API | Deferred | Reserved for later, not active in the current `luc:query` signature |
 

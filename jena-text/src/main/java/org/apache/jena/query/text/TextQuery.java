@@ -83,6 +83,12 @@ public class TextQuery
                     return new TextMatchPF() ;
                 }
             });
+            PropertyFunctionRegistry.get().put(IndexVocab.pfNestedMatch, new PropertyFunctionFactory() {
+                @Override
+                public PropertyFunction create(String uri) {
+                    return new TextNestedMatchPF() ;
+                }
+            });
 
             JenaSystem.logLifecycle("TextQuery.init - finish") ;
             // Register indirections.
