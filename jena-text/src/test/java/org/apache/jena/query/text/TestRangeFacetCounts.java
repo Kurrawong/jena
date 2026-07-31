@@ -76,11 +76,13 @@ public class TestRangeFacetCounts {
             true, true, true, true, false, false);
         FieldDef scoreField = new FieldDef("score", FieldType.DOUBLE, null,
             true, true, true, true, false, false);
-        // TEMPORAL buckets by ISO boundary — the epoch twin field carries the docvalues.
-        // storeLiteralMetadata is not optional here: validateLiteralMetadataRequirements
+        // TEMPORAL buckets by ISO boundary — the epoch twin field carries the docvalues, so
+        // the field does NOT need to be stored to be bucketed (stored=false here, which is
+        // the recommended shape for a date nothing projects).
+        // storeLiteralMetadata is not optional though: validateLiteralMetadataRequirements
         // rejects any TEMPORAL field without it.
         FieldDef publishedOnField = new FieldDef("publishedOn", FieldType.TEMPORAL, null,
-            true, true, true, true, false, false, true);
+            false, true, true, true, false, false, true);
 
         List<FieldOccurrence> rootOccurrences = Arrays.asList(
             occurrence(titleField, PathFactory.pathLink(titlePred), Collections.singleton(titlePred)),

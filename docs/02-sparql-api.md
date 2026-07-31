@@ -78,6 +78,26 @@ Supported values:
 
 Unknown field IRIs fail fast.
 
+### `queryString`
+
+Parsed by Lucene's classic
+[`QueryParser`](https://lucene.apache.org/core/10_3_1/queryparser/org/apache/lucene/queryparser/classic/package-summary.html#package.description)
+— `MultiFieldQueryParser` when `fieldSpec` names more than one field — and scored with BM25.
+The full classic syntax is available with no extra configuration: phrases, `AND`/`OR`/`NOT`,
+`+`/`-`, wildcards (`quan*`, `qu?ntum`, and **leading** wildcards such as `*tum`, which Lucene
+disables by default and this index enables), fuzzy (`learnimg~1`), proximity
+(`"machine networks"~2`), boosts (`quantum^4`), grouping and term ranges. A bare `*` is
+short-circuited to a match-all.
+
+The string is analyzed with each target field's query analyzer, so behaviour follows the
+field: on a `KEYWORD` field the whole value is a single term.
+
+Use `cqlFilter` for structured predicates — `=`, ranges, `in`, `between`, spatial, same-child
+correlation. Field scoping belongs in `fieldSpec`: an embedded `fieldName:value` prefix in the
+query string would use internal Lucene field names and bypass the field-IRI contract.
+
+Pinned by `TestLuceneQuerySyntax`.
+
 ### Return bindings
 
 | Variable | Type | Meaning |

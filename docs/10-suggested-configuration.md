@@ -15,8 +15,8 @@ stale the moment the source changes, and a rebuild you owe.
 
 **Each flag buys exactly one capability, and costs one structure.** `idx:indexed` for
 filtering, `idx:stored` for projection, `idx:facetable` for counts, `idx:sortable` for
-`ORDER BY`. Turn on what a query needs. The defaults — indexed and stored, not facetable, not
-sortable — are right for most fields.
+`ORDER BY`. Turn on what a query needs and nothing else. Note that `idx:stored` defaults to
+`true`, which is the one default worth overriding as a habit — see the matrix.
 
 **One field, one job.** When a value needs both exact filtering and free-text search, define
 two fields over the same path rather than one field with a compromise analyzer. They are
@@ -29,37 +29,108 @@ one shape and `dcterms:title` on another. Occurrences carry paths, fields carry 
 
 ## The matrix
 
-| Data kind | `idx:fieldType` | indexed | stored | facetable | sortable | Analyzer |
-|---|---|---|---|---|---|---|
-| Title / label, for searching | `TextField` | ✓ default | ✓ if projected | — | — | index default (BM25) |
-| Name, for exact match + counts | `KeywordField` | ✓ default | ✓ default | ✓ | ✓ + `idx:normalizer` | — |
-| Description / abstract / body | `TextField` | ✓ default | ✗ | — | — | index default |
-| Identifier / code, exact | `KeywordField` | ✓ default | ✓ default | ✓ if you count them | — | — |
-| Identifier, prefix typeahead | `TextField` | ✓ default | ✗ | — | — | `EdgeNGramAnalyzer` whole-value |
-| Controlled vocabulary term | `KeywordField` | ✓ default | ✗ | ✓ | — | — |
-| Taxonomy level | `KeywordField` | ✓ default | ✗ | ✓ | — | — (+ `idx:facetHierarchy`) |
-| Entity type pivot | `KeywordField` | ✓ default | ✗ | ✓ | — | — |
-| Year / count | `IntField` | ✓ default | ✓ default | ✓ | ✓ | — |
-| Measurement / grade / score | `DoubleField` | ✓ default | ✗ | ✓ | ✓ | — |
-| Date / timestamp | `TemporalField` | ✓ default | ✓ default | ✓ | ✓ | — (+ `idx:storeLiteralMetadata true`) |
-| Geometry | `LatLonField` | ✓ default | ✓ default | — | ✗ rejected | — |
+What to **write in the config** — not what the defaults happen to be. `idx:indexed` and
+`idx:stored` both default to `true`, so "stored ✗" below means *you must set
+`idx:stored false`*.
 
-`✓ default` means you get it without writing anything. Set `idx:multiValued true` wherever the
-predicate can repeat — see [Multi-valued fields](#multi-valued-fields).
+| Data kind | Example | `idx:fieldType` | stored | facetable | sortable |
+|---|---|---|---|---|---|
+| Title / label, for searching | `rdfs:label` of a report | `TextField` | ✗ | — | — |
+| Name, for exact match + counts | author, operator, publisher | `KeywordField` | ✗ | ✓ | ✓ + `idx:normalizer` |
+| Description / abstract / body | `dcterms:description` | `TextField` | ✗ | — | — |
+| Identifier / code, exact | `RPT-MIA-2023-001` | `KeywordField` | ✗ | ✓ if you count them | — |
+| Identifier, prefix typeahead | same value, `EdgeNGramAnalyzer` | `TextField` | ✗ | — | — |
+| Controlled vocabulary term | `Gold`, `Approved`, `WA` | `KeywordField` | ✗ | ✓ | — |
+| Level of a facet hierarchy | `state` then `commodity` | `KeywordField` | ✗ | ✓ | — |
+| Entity class | `rdf:type` → `Borehole` | `KeywordField` | ✗ | ✓ | — |
+| Year or count | `2023`, `42` | `IntField` | ✗ | ✓ | ✓ |
+| Measurement / grade / score | `12.4` | `DoubleField` | ✗ | ✓ | ✓ |
+| Full date or timestamp | `2023-04-01`, `2023-04-01T09:00:00Z` | `TemporalField` | ✗ | ✓ | ✓ |
+| Geometry | `POINT(151.2 -33.9)` | `LatLonField` | ✗ | — | ✗ rejected |
+
+**Stored is ✗ on every row on purpose.** Filtering, faceting and sorting all read structures
+that `idx:stored` has nothing to do with: a date buckets from its epoch docvalues, a number
+from its points and docvalues, a keyword from its facet docvalues. Storing buys exactly one
+thing — the value coming back in `luc:match` / `luc:nestedMatch` — and costs a copy that goes
+stale. Set `idx:stored true` on the handful of fields a result list actually renders from the
+index rather than from the graph, and leave the rest.
+
+Set `idx:multiValued true` wherever the predicate can repeat — see
+[Multi-valued fields](#multi-valued-fields). Leave `idx:indexed` alone.
+
+## What a plain TEXT field already gives you
+
+A `TextField` with no analyzer override is not just "match these words". The `queryString`
+argument of `luc:query` goes to Lucene's classic
+[`QueryParser`](https://lucene.apache.org/core/10_3_1/queryparser/org/apache/lucene/queryparser/classic/package-summary.html#package.description)
+— `MultiFieldQueryParser` when the `fieldSpec` names more than one field — so the whole
+classic syntax works out of the box, scored by BM25 (Lucene's default similarity; nothing here
+overrides it):
+
+| Form | Example | Meaning |
+|---|---|---|
+| Term / phrase | `machine "machine learning"` | phrase requires adjacency |
+| Boolean | `machine AND learning`, `physics OR translation` | also `NOT`, `&&`, `\|\|` |
+| Required / prohibited | `+learning -physics` | must have, must not have |
+| Wildcard | `quan*`, `qu?ntum`, `*tum` | leading wildcards **are** enabled here |
+| Fuzzy | `learnimg~1` | edit distance |
+| Proximity (slop) | `"machine networks"~2` | terms within N positions |
+| Boost | `quantum^4 learning` | relevance weighting |
+| Grouping | `(machine OR deep) AND learning` | |
+| Range | `[a TO m]` | on a `TEXT` field, lexical |
+| Match all | `*` | short-circuits to `MatchAllDocsQuery` |
+
+So typeahead-ish and forgiving behaviour is often a query-side choice, not a config one:
+`quan*` needs no n-gram field. Reach for `EdgeNGramAnalyzer` when you want prefix matching
+*ranked and fast* on a hot path, not merely possible.
+
+Two cautions:
+
+- The query string is analyzed with the field's query analyzer, so it inherits whatever the
+  field does. On a `KEYWORD` field the whole value is one term and wildcards behave against
+  that single term, not against words inside it.
+- The parser also accepts an embedded `fieldName:value` prefix, which uses **internal**
+  `idx:fieldName` values and bypasses the field-IRI contract the rest of the API keeps. Scope
+  queries with the `fieldSpec` argument instead.
+
+Structured predicates — `=`, ranges, `in`, `between`, spatial, same-child correlation — belong
+in the CQL filter argument, not the query string. See
+[02-sparql-api.md](02-sparql-api.md).
+
+*Backed by `TestLuceneQuerySyntax`.*
 
 ## Names and titles
 
-Two fields over one path: BM25 for finding, `KEYWORD` for filtering and counting.
+First, decide whether you need one field or two.
+
+**A title or label you only search** — the report's `rdfs:label`, the paper's title — is one
+`TextField` and nothing else. There is no exact-match or facet requirement, so there is no
+second field:
+
+```turtle
+field:title
+    idx:fieldName "title" ;
+    idx:fieldType idx:TextField ;
+    idx:stored false ;
+    idx:defaultSearch true .
+```
+
+**A name that is also a filter value** — the author, the operator, the publisher, the agency —
+is the two-field case. Users search it as prose ("find reports by Sarah Jones") *and* pick it
+from a facet list ("Author: Jones, S. (14)"), and those want opposite analysis. So: two fields
+over one path, BM25 for finding, `KEYWORD` for filtering, counting and sorting.
 
 ```turtle
 field:authorNameText
     idx:fieldName "authorNameText" ;
     idx:fieldType idx:TextField ;
+    idx:stored false ;
     idx:defaultSearch true .
 
 field:authorName
     idx:fieldName "authorName" ;
     idx:fieldType idx:KeywordField ;
+    idx:stored false ;
     idx:facetable true ;
     idx:sortable true ;
     idx:normalizer [ a text:LowerCaseKeywordAnalyzer ] .
@@ -90,6 +161,7 @@ Names want BM25.
 field:identifier
     idx:fieldName "identifier" ;
     idx:fieldType idx:KeywordField ;
+    idx:stored false ;
     idx:facetable true .
 
 field:identifierPrefix
@@ -122,14 +194,20 @@ field:description
     idx:defaultSearch true .
 ```
 
-**Why.** Long prose is the one case where `idx:stored false` clearly pays: the stored copy is
-the biggest thing in the index and the graph can return it by IRI. Keep it indexed — that is
-the whole point — and put it in `defaultSearch` so a bare query string reaches it.
+**Why.** Prose is where not storing pays most: the stored copy would be the biggest thing in
+the index, and the graph returns it by IRI for the page of results you actually render. Keep
+it indexed — that is the whole point — and put it in `defaultSearch` so a bare query string
+reaches it.
 
 Set `text:storeValues true` on the index only if `luc:match` needs to project field values at
 all; it is `false` by default.
 
 ## Controlled vocabularies, categories, taxonomies
+
+A **vocabulary term** is one value from a closed list — `Gold`, `Approved`, `WA`. A
+**taxonomy level** is one field per rung of a fixed drill-down: state, then commodity within
+state. The fields are ordinary `KEYWORD` facet fields; `idx:facetHierarchy` is what declares
+that one nests under the other, so a UI can offer WA → Gold → … without a query per rung.
 
 ```turtle
 field:commodity
@@ -166,7 +244,9 @@ produced, having emitted `iron` and `ore`. The filter matches nothing, with no e
 
 *Backed by `TestHierarchicalFacets`, `TestHierarchicalFacetsSparql`, `TestNativeFacetCounts`.*
 
-## Entity type pivots
+## Entity class
+
+Index `rdf:type` as an ordinary `KEYWORD` facet field and bind it on **every** shape:
 
 ```turtle
 field:entityType
@@ -177,10 +257,18 @@ field:entityType
 
 <#MiningReportShape>
     sh:property [ idx:field field:entityType ; sh:path rdf:type ] .
+
+<#BoreholeShape>
+    sh:property [ idx:field field:entityType ; sh:path rdf:type ] .
 ```
 
-An IRI-valued path indexes as its IRI string, so this gives "23 Reports, 51 Boreholes" across
-a mixed index without a second query. Bind it on every shape.
+**Why.** One index usually holds several shapes, and a search crosses all of them. Faceting on
+this field answers "what kinds of thing matched?" — *Reports 23, Boreholes 51, Sites 4* — in
+the same request as the hits, and the same field filters a result list down to one class. An
+IRI-valued path indexes as its IRI string, so the facet values are the class IRIs.
+
+Note this is a *field you configure*, not the internal `idx:discriminatorField` — that one is
+written automatically for delete scoping and is not a public facet.
 
 ## Numbers and measurements
 
@@ -209,23 +297,34 @@ moment the value is corrected.
 
 ## Dates
 
+`TemporalField` is for a **full date or timestamp** — an `xsd:date` like `2023-04-01` or an
+`xsd:dateTime` like `2023-04-01T09:00:00Z`. A bare year is not a date: index `2023` as an
+`IntField` and it filters, buckets and sorts as the number it is.
+
 ```turtle
 field:publishedOn
     idx:fieldName "publishedOn" ;
     idx:fieldType idx:TemporalField ;
+    idx:stored false ;
     idx:facetable true ;
     idx:sortable true ;
     idx:storeLiteralMetadata true .   # required — config fails without it
 ```
 
-**Why.** A `TEMPORAL` field parses `xsd:date` / `xsd:dateTime` to epoch millis and indexes
-*that* — filtering and sorting are numeric, and date-only values are treated as start-of-day
-UTC. Range facets take ISO boundaries (`"2019-01-01"`), not epoch numbers, so a config change
-is never needed to re-bucket.
+**Why.** A `TEMPORAL` field parses the lexical form to epoch millis and indexes *that*, in a
+companion field — filtering and sorting are numeric, and a date-only value is treated as
+start-of-day UTC. Range facets take ISO boundaries (`"2019-01-01"`), not epoch numbers, so
+re-bucketing is a query change, never a reindex.
+
+The epoch companion is what answers queries, so the field does not need to be stored to be
+filtered, bucketed or sorted. Set `idx:stored true` only if a result row shows the date
+straight from the index.
 
 `idx:storeLiteralMetadata true` is **not optional**: a `TEMPORAL` field without it is rejected
-at config time. It stores the datatype and language alongside the value so a projected hit
-rebuilds as the literal it came from rather than a bare string.
+at config time (`ShaclIndexMapping.validateLiteralMetadataRequirements`). It stores the
+datatype and language alongside the value so a projected hit rebuilds as the literal it came
+from rather than a bare string. The check is unconditional, so you must set it even on an
+unstored date where the metadata has nothing to qualify.
 
 A value that fails to parse is logged and simply does not participate in range queries — the
 entity is still indexed on its other fields, so a bad date silently narrows results rather
@@ -246,17 +345,20 @@ One row per observation, correlated per child. This is the case `idx:nested` exi
 field:observedProperty
     idx:fieldName "observedProperty" ;
     idx:fieldType idx:KeywordField ;
+    idx:stored true ;           # projected by luc:nestedMatch — see below
     idx:facetable true .
 
 field:resultValue
     idx:fieldName "resultValue" ;
     idx:fieldType idx:DoubleField ;
+    idx:stored true ;           # ditto — a hit should show which reading matched
     idx:facetable true ;
     idx:sortable true .
 
 field:resultUnits
     idx:fieldName "resultUnits" ;
     idx:fieldType idx:KeywordField ;
+    idx:stored true ;
     idx:facetable true .
 
 <#SampleShape>
@@ -300,7 +402,8 @@ parent are well covered; if you need `sosa:resultTime` per observation, add a te
 ```turtle
 field:location
     idx:fieldName "location" ;
-    idx:fieldType idx:LatLonField .
+    idx:fieldType idx:LatLonField ;
+    idx:stored false .          # the WKT lives in the graph
 
 <#SiteShape>
     sh:property [ idx:field field:location ; sh:path geo:asWKT ] .

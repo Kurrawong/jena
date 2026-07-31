@@ -151,6 +151,9 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     // TEMPORAL fields: epoch filtering, sort, and literal reconstruction on read
     , TestDateLiteralRoundTrip.class
 
+    // Classic Lucene query syntax reaching the queryString argument
+    , TestLuceneQuerySyntax.class
+
     // Demo data validation
     , TestDemoDataParsing.class
     , TestDemoMiningScenarios.class

@@ -3,7 +3,7 @@
 ## Running Tests
 
 ```bash
-# Full jena-text suite (778 tests)
+# Full jena-text suite (790 tests)
 mvn test -pl jena-text
 
 # Only SHACL / faceting tests
@@ -44,6 +44,7 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 | `TestShaclTextDocProducer` | 5 | Change listener: add type creates doc, add property rebuilds, delete type removes, irrelevant predicate ignored, multiple entities |
 | `TestShaclAssembler` | 9 | Config parsing: valid shapes, SHACL/entity-map exclusivity, hierarchy config, and assembler validation paths |
 | `TestShaclEntityPerDocument` | 7 | End-to-end: text search, SPARQL `luc:query`, facet counts, filtered facets, add after load, entity-per-doc model verification |
+| `TestLuceneQuerySyntax` | 12 | The `queryString` argument reaching Lucene's classic parser: phrase, boolean, required/prohibited, trailing/leading/single-char wildcard, fuzzy, proximity slop, boost, grouping, lexical term range, and the bare `*` match-all short-circuit |
 | `TestDateLiteralRoundTrip` | 4 | TEMPORAL fields: `between` and `>=` over the epoch twin field, typed `xsd:date`/`xsd:dateTime` reconstruction on read, language-tagged literal round trip, and an unparseable date dropping out of range queries without failing the build |
 
 ### Hierarchical Facets Tests
@@ -70,7 +71,7 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 
 ### Existing Tests (unchanged, verifying no regressions)
 
-The remaining suite covers text search, multilingual support, graph indexing, deletion, analyzers, property lists, spatial filtering, nested identifiers, and demo mining scenarios. The full `jena-text` module currently passes at 778 tests.
+The remaining suite covers text search, multilingual support, graph indexing, deletion, analyzers, property lists, spatial filtering, nested identifiers, and demo mining scenarios. The full `jena-text` module currently passes at 790 tests.
 
 ---
 
