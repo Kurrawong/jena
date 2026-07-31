@@ -28,13 +28,14 @@ What to write, not what the defaults are. `idx:indexed` and `idx:stored` both de
 | Description / abstract | `dcterms:description` | `TextField` | ✓ | — | — |
 | Identifier / code, exact | `RPT-MIA-2023-001` | `KeywordField` | ✗ | ✓ if counted | — |
 | Identifier, prefix typeahead | same value, n-grams | `TextField` | ✗ | — | — |
-| Vocabulary term | `Gold`, `Approved`, `WA` | `KeywordField` | ✗ | ✓ | — |
+| Vocabulary term | `Gold`, `Approved`, `WA` | `KeywordField` | ✗ | ✓ | ✓ if sorted on |
 | Level of a facet hierarchy | `country` then `state` | `KeywordField` | ✗ | ✓ | — |
 | Entity class | `rdf:type` → `Borehole` | `KeywordField` | ✗ | ✓ | — |
 | Year or count | `2023`, `42` | `IntField` | ✗ | ✓ | ✓ |
 | Measurement / grade / score | `12.4` | `DoubleField` | ✗ | ✓ | ✓ |
 | Full date or timestamp | `2023-04-01`, `2023-04-01T09:00:00Z` | `TemporalField` | ✗ | ✓ | ✓ |
 | Geometry | `POINT(151.2 -33.9)` | `LatLonField` | ✗ | — | rejected |
+| Repeated correlated record | an assay, an observation, a qualified identifier | ordinary fields inside an [`idx:nested`](#observations-sosa-style) block | ✓ to project the child that matched | ✓ | ✓ |
 
 Filtering, faceting and sorting read points and docvalues, never the stored copy, so `✗`
 costs nothing but projection. Store the searchable text fields: `luc:match` binds which field
@@ -68,7 +69,7 @@ The string is analyzed with the field's query analyzer — on a `KEYWORD` field 
 is one term. Scope with `fieldSpec`, not an embedded `fieldName:` prefix, which uses internal
 field names. Structured predicates belong in `cqlFilter`.
 
-*`TestLuceneQuerySyntax`*
+*[TestLuceneQuerySyntax](../jena-text/src/test/java/org/apache/jena/query/text/TestLuceneQuerySyntax.java)*
 
 ## Titles and names
 
@@ -112,7 +113,7 @@ field:authorName
 **Don't** n-gram a name: term explosion, broken ranking, and `"Jon"` matches `"Jones"`,
 `"Jonathan"` and `"Jonsson"` indistinguishably.
 
-*`TestKeywordNormalizer`, `TestKeywordNormalizerTwinField`, `TestKeywordRawSortAndExactMatch`*
+*[TestKeywordNormalizer](../jena-text/src/test/java/org/apache/jena/query/text/TestKeywordNormalizer.java), [TestKeywordNormalizerTwinField](../jena-text/src/test/java/org/apache/jena/query/text/TestKeywordNormalizerTwinField.java), [TestKeywordRawSortAndExactMatch](../jena-text/src/test/java/org/apache/jena/query/text/TestKeywordRawSortAndExactMatch.java)*
 
 ## Identifiers and codes
 
@@ -134,7 +135,7 @@ Whole-value n-grams: `"RPT-MIA"` reaches `RPT-MIA-2023-001`, `"2023"` does not. 
 `text:tokenized true` for interior segments, accepting that `"2023"` then matches every 2023
 report.
 
-*`TestTypeaheadFieldConfigurations`*
+*[TestTypeaheadFieldConfigurations](../jena-text/src/test/java/org/apache/jena/query/text/TestTypeaheadFieldConfigurations.java)*
 
 ## Descriptions
 
@@ -150,7 +151,7 @@ Store it: a hit on a description is worth nothing if the result cannot show whic
 descriptions matched. Drop to `idx:stored false` only where the text is long enough that the
 stored copy dominates the index and the graph can serve it by IRI instead.
 
-*`TestTextMatchPF`, `TestShaclLucQueryRawValueOnMultiValuedField`*
+*[TestTextMatchPF](../jena-text/src/test/java/org/apache/jena/query/text/TestTextMatchPF.java), [TestShaclLucQueryRawValueOnMultiValuedField](../jena-text/src/test/java/org/apache/jena/query/text/TestShaclLucQueryRawValueOnMultiValuedField.java)*
 
 ## Vocabularies and taxonomies
 
@@ -192,7 +193,7 @@ Each level keeps its own flat dimension, so faceting on `field:state` alone stil
 **Don't** use `TEXT`. `=` compiles to a term query either way, so against a tokenised field it
 looks for the term `"Iron Ore"`, which analysis never produced — matching nothing, silently.
 
-*`TestHierarchicalFacets`, `TestHierarchicalFacetsSparql`, `TestNativeFacetCounts`*
+*[TestHierarchicalFacets](../jena-text/src/test/java/org/apache/jena/query/text/TestHierarchicalFacets.java), [TestHierarchicalFacetsSparql](../jena-text/src/test/java/org/apache/jena/query/text/TestHierarchicalFacetsSparql.java), [TestNativeFacetCounts](../jena-text/src/test/java/org/apache/jena/query/text/TestNativeFacetCounts.java)*
 
 ## Entity class
 
@@ -228,7 +229,7 @@ Numeric docvalues come from `facetable`/`sortable` independently of `idx:indexed
 `idx:indexed false` yields a field that counts and sorts but cannot be filtered — and the
 filter is dropped silently, not rejected. Leave `idx:indexed` alone.
 
-*`TestRangeFacetCounts`*
+*[TestRangeFacetCounts](../jena-text/src/test/java/org/apache/jena/query/text/TestRangeFacetCounts.java)*
 
 ## Dates
 
@@ -258,7 +259,7 @@ so bad dates narrow results silently. Validate on the way in.
 **Don't** use `KEYWORD` for sortable dates: lexical order is correct only for zero-padded ISO,
 and range filters are gone.
 
-*`TestDateLiteralRoundTrip`, `TestRangeFacetCounts`*
+*[TestDateLiteralRoundTrip](../jena-text/src/test/java/org/apache/jena/query/text/TestDateLiteralRoundTrip.java), [TestRangeFacetCounts](../jena-text/src/test/java/org/apache/jena/query/text/TestRangeFacetCounts.java)*
 
 ## Observations (SOSA-style)
 
@@ -303,11 +304,9 @@ row per child, same semantics. See
 
 **Don't** nest a single-field child; that is a multi-valued field with extra machinery.
 
-**Untested:** a `TEMPORAL` field inside a nested block.
-
-*`TestNestedJoinPathSupport`, `TestCorrelatedNestedAttribution`, `TestNestedHierarchicalFacets`,
-`TestNestedMatchProjection`, `TestNestedSortSelector`, `TestExternalContentIndexing`,
-`TestGswaMeasurementCsv`*
+*[TestNestedJoinPathSupport](../jena-text/src/test/java/org/apache/jena/query/text/TestNestedJoinPathSupport.java), [TestCorrelatedNestedAttribution](../jena-text/src/test/java/org/apache/jena/query/text/TestCorrelatedNestedAttribution.java), [TestNestedHierarchicalFacets](../jena-text/src/test/java/org/apache/jena/query/text/TestNestedHierarchicalFacets.java),
+[TestNestedMatchProjection](../jena-text/src/test/java/org/apache/jena/query/text/TestNestedMatchProjection.java), [TestNestedSortSelector](../jena-text/src/test/java/org/apache/jena/query/text/TestNestedSortSelector.java), [TestExternalContentIndexing](../jena-text/src/test/java/org/apache/jena/query/text/TestExternalContentIndexing.java),
+[TestGswaMeasurementCsv](../jena-text/src/test/java/org/apache/jena/query/text/TestGswaMeasurementCsv.java)*
 
 ## Geometry
 
@@ -326,7 +325,7 @@ logged and skipped, so mixed geometry columns index only in part. CRS84 and EPSG
 work; GDA94/GDA2020 are treated as WGS84. Sorting is rejected and equality is meaningless —
 use the spatial CQL operators ([09-spatial.md](09-spatial.md)).
 
-*`TestSpatialFiltering`*
+*[TestSpatialFiltering](../jena-text/src/test/java/org/apache/jena/query/text/TestSpatialFiltering.java)*
 
 ## Multi-valued fields
 
@@ -334,7 +333,7 @@ Without `idx:multiValued true`, values after the first are dropped with a log wa
 looks fine until one entity has two commodities. On `KEYWORD` it also selects `SortedSet`
 docvalues, making sort on a repeated field well-defined.
 
-*`TestKeywordNormalizerMultiValued`, `TestShaclLucQueryRawValueOnMultiValuedField`*
+*[TestKeywordNormalizerMultiValued](../jena-text/src/test/java/org/apache/jena/query/text/TestKeywordNormalizerMultiValued.java), [TestShaclLucQueryRawValueOnMultiValuedField](../jena-text/src/test/java/org/apache/jena/query/text/TestShaclLucQueryRawValueOnMultiValuedField.java)*
 
 ## Anti-patterns
 
