@@ -23,9 +23,9 @@ What to write, not what the defaults are. `idx:indexed` and `idx:stored` both de
 
 | Data kind | Example | `idx:fieldType` | stored | facetable | sortable |
 |---|---|---|---|---|---|
-| Title / label, searched | `rdfs:label` of a report | `TextField` | ✗ | — | — |
+| Title / label, searched | `rdfs:label` of a report | `TextField` | ✓ | — | — |
 | Name, exact match + counts | author, operator, publisher | `KeywordField` | ✗ | ✓ | ✓ + `idx:normalizer` |
-| Description / abstract | `dcterms:description` | `TextField` | ✗ | — | — |
+| Description / abstract | `dcterms:description` | `TextField` | ✓ | — | — |
 | Identifier / code, exact | `RPT-MIA-2023-001` | `KeywordField` | ✗ | ✓ if counted | — |
 | Identifier, prefix typeahead | same value, n-grams | `TextField` | ✗ | — | — |
 | Vocabulary term | `Gold`, `Approved`, `WA` | `KeywordField` | ✗ | ✓ | — |
@@ -36,8 +36,12 @@ What to write, not what the defaults are. `idx:indexed` and `idx:stored` both de
 | Full date or timestamp | `2023-04-01`, `2023-04-01T09:00:00Z` | `TemporalField` | ✗ | ✓ | ✓ |
 | Geometry | `POINT(151.2 -33.9)` | `LatLonField` | ✗ | — | rejected |
 
-Filtering, faceting and sorting read points and docvalues, never the stored copy — so `✗`
-costs nothing but projection. Set `idx:multiValued true` wherever the predicate can repeat.
+Filtering, faceting and sorting read points and docvalues, never the stored copy, so `✗`
+costs nothing but projection. Store the searchable text fields: `luc:match` binds which field
+matched, and the value only if it is stored — and where an entity carries several labels or
+descriptions, it returns the one that matched.
+
+Set `idx:multiValued true` wherever the predicate can repeat.
 
 ## Query syntax on a TEXT field
 
@@ -74,9 +78,11 @@ A label you only search is one field:
 field:title
     idx:fieldName "title" ;
     idx:fieldType idx:TextField ;
-    idx:stored false ;
+    idx:stored true ;
     idx:defaultSearch true .
 ```
+
+Stored, so `luc:match` can show which label matched.
 
 A name that is also a filter value — author, operator, publisher — is two fields over one
 path, because it is searched as prose *and* picked from a facet list:
@@ -85,7 +91,7 @@ path, because it is searched as prose *and* picked from a facet list:
 field:authorNameText
     idx:fieldName "authorNameText" ;
     idx:fieldType idx:TextField ;
-    idx:stored false ;
+    idx:stored true ;
     idx:defaultSearch true .
 
 field:authorName
@@ -136,12 +142,15 @@ report.
 field:description
     idx:fieldName "description" ;
     idx:fieldType idx:TextField ;
-    idx:stored false ;
+    idx:stored true ;
     idx:defaultSearch true .
 ```
 
-The stored copy would be the largest thing in the index; the graph returns it by IRI.
-`text:storeValues` on the index is `false` by default.
+Store it: a hit on a description is worth nothing if the result cannot show which of several
+descriptions matched. Drop to `idx:stored false` only where the text is long enough that the
+stored copy dominates the index and the graph can serve it by IRI instead.
+
+*`TestTextMatchPF`, `TestShaclLucQueryRawValueOnMultiValuedField`*
 
 ## Vocabularies and taxonomies
 
@@ -333,7 +342,7 @@ docvalues, making sort on a repeated field well-defined.
 |---|---|
 | `idx:indexed false` on a filtered field | Clause dropped and logged; results come back unfiltered, no error |
 | One `TEXT` field for exact match *and* search | Tokenisation breaks `=` |
-| Storing values nothing projects | Index size for no benefit |
+| Storing values nothing projects | Index size for no benefit (a facet or sort field is not projected) |
 | n-grams on names | Term explosion, broken ranking |
 | Flattening correlated children | Cross-matching between unrelated child records |
 | Forgetting `idx:multiValued` | Values after the first vanish with a log line |
