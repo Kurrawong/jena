@@ -39,17 +39,15 @@ public class SearchHit {
     private final int rank;
     private final Node entityNode;
     private final float score;
-    private final Node graph;
     private final int luceneDocId;
     private List<FieldMatch> fieldMatches;
     private List<NestedMatch> nestedMatches;
 
-    public SearchHit(int index, Node entityNode, float score, Node graph, int luceneDocId) {
+    public SearchHit(int index, Node entityNode, float score, int luceneDocId) {
         this.hitId = NodeFactory.createBlankNode("hit" + index);
         this.rank = index;
         this.entityNode = entityNode;
         this.score = score;
-        this.graph = graph;
         this.luceneDocId = luceneDocId;
     }
 
@@ -65,7 +63,6 @@ public class SearchHit {
 
     public Node getEntityNode() { return entityNode; }
     public float getScore() { return score; }
-    public Node getGraph() { return graph; }
     public int getLuceneDocId() { return luceneDocId; }
 
     public List<FieldMatch> getFieldMatches() {

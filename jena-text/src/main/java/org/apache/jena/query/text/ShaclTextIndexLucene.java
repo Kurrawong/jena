@@ -659,7 +659,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 if (uri != null) {
                     Node entityNode = TextQueryFuncs.stringToNode(uri);
                     float score = luceneSort == null ? sd.score : rankScore(idx);
-                    results.add(new SearchHit(idx++, entityNode, score, null, sd.doc));
+                    results.add(new SearchHit(idx++, entityNode, score, sd.doc));
                 }
             }
 

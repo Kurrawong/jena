@@ -29,18 +29,30 @@ Public API rules:
 ### Syntax
 
 ```sparql
-(?hit ?entity ?score ?rank ?totalHits)
+(?hit ?entity ?score ?totalHits)
   luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)
 ```
 
-Subject arity may be 1 to 6:
+Subject arity may be 1 to 5:
 
 - `?hit`
 - `?hit ?entity`
 - `?hit ?entity ?score`
-- `?hit ?entity ?score ?rank`
-- `?hit ?entity ?score ?rank ?totalHits`
-- `?hit ?entity ?score ?rank ?totalHits ?graph`
+- `?hit ?entity ?score ?totalHits`
+- `?hit ?entity ?score ?totalHits ?rank`
+
+`?rank` sits last rather than beside `?score`, where it would read more naturally. It was
+added after the earlier positions were already in use, and appending it was the only
+placement that left an existing subject list binding what it already bound.
+
+There is no `?graph` slot. A sixth position briefly existed and never bound a value: a
+SHACL document is assembled from a union view over every graph, so an entity's indexed
+values may come from several graphs at once and there is no single source graph to bind.
+Graph provenance is modelled as a doc-level field instead — see
+[graph filtering target model](2026-04-08-graph-filtering-target-model.md) and
+[source graph indexing](2026-07-31_source_graph_indexing_design.md), both design-only.
+A query still naming the old slot is rejected at build time rather than silently binding
+`?graph` to a rank integer.
 
 Object arity is always exactly 7.
 
@@ -73,8 +85,8 @@ Unknown field IRIs fail fast.
 | `?hit` | blank node | Query-scoped join key for `luc:match` |
 | `?entity` | IRI | Matched entity |
 | `?score` | float | Lucene relevance score; for a sorted search, `1/(1+rank)` (see below) |
-| `?rank` | `xsd:integer` | Position in the whole result set, counting from 0. Continues across pages: `offset 5` starts at rank 5 |
 | `?totalHits` | `xsd:integer` | Total matching hits across the whole result set, independent of `limit` and `offset` |
+| `?rank` | `xsd:integer` | Position in the whole result set, counting from 0. Continues across pages: `offset 5` starts at rank 5 |
 
 `?match` is not part of `luc:query`.
 
@@ -129,7 +141,7 @@ Search a specific field IRI:
 Search with a CQL filter:
 
 ```sparql
-(?hit ?entity ?score ?rank ?totalHits)
+(?hit ?entity ?score ?totalHits)
   luc:query (
     "default"
     "default"
@@ -176,7 +188,7 @@ Multi-sort:
 `limit` and `offset` form a page window. Fetch the second page of 10 results:
 
 ```sparql
-(?hit ?entity ?score ?rank ?totalHits)
+(?hit ?entity ?score ?totalHits)
   luc:query ("default" "default" "learning" "" "" 10 10) .
 ```
 

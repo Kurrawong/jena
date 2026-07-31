@@ -194,7 +194,7 @@ public class TestOffsetPaging {
         String q =
             "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?totalHits WHERE {\n" +
-            "  (?hit ?s ?score ?rank ?totalHits) luc:query (\"default\" \"default\" \"item\" \"\" \"\" 3 5)\n" +
+            "  (?hit ?s ?score ?totalHits) luc:query (\"default\" \"default\" \"item\" \"\" \"\" 3 5)\n" +
             "} LIMIT 1";
         dataset.begin(ReadWrite.READ);
         try {
@@ -220,7 +220,7 @@ public class TestOffsetPaging {
         String q =
             "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s ?rank WHERE {\n" +
-            "  (?hit ?s ?score ?rank) luc:query (\"default\" \"default\" \"item\" \"\" \"\" 4 0)\n" +
+            "  (?hit ?s ?score ?totalHits ?rank) luc:query (\"default\" \"default\" \"item\" \"\" \"\" 4 0)\n" +
             "}";
         dataset.begin(ReadWrite.READ);
         try (QueryExecution qe = QueryExecutionFactory.create(QueryFactory.create(q), dataset)) {
@@ -241,7 +241,7 @@ public class TestOffsetPaging {
         String q =
             "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s ?rank WHERE {\n" +
-            "  (?hit ?s ?score ?rank) luc:query (\"default\" \"default\" \"item\" \"\" \"\" 3 5)\n" +
+            "  (?hit ?s ?score ?totalHits ?rank) luc:query (\"default\" \"default\" \"item\" \"\" \"\" 3 5)\n" +
             "}";
         dataset.begin(ReadWrite.READ);
         try (QueryExecution qe = QueryExecutionFactory.create(QueryFactory.create(q), dataset)) {
@@ -256,13 +256,16 @@ public class TestOffsetPaging {
         }
     }
 
-    /** ?rank sits between ?score and ?totalHits, so the later positions still resolve. */
+    /**
+     * ?rank sits last, so ?totalHits keeps the fourth position it held before rank existed
+     * and a subject list written against the older shape still binds it.
+     */
     @Test
-    public void testTotalHitsFollowsRank() {
+    public void testRankFollowsTotalHits() {
         String q =
             "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?rank ?totalHits WHERE {\n" +
-            "  (?hit ?s ?score ?rank ?totalHits) luc:query (\"default\" \"default\" \"item\" \"\" \"\" 3 5)\n" +
+            "  (?hit ?s ?score ?totalHits ?rank) luc:query (\"default\" \"default\" \"item\" \"\" \"\" 3 5)\n" +
             "} LIMIT 1";
         dataset.begin(ReadWrite.READ);
         try (QueryExecution qe = QueryExecutionFactory.create(QueryFactory.create(q), dataset)) {
@@ -279,5 +282,33 @@ public class TestOffsetPaging {
     @Test(expected = QueryExecException.class)
     public void testNegativeOffsetRejected() {
         runQuery(10, -1);
+    }
+
+    /**
+     * Five is the whole subject list. There was a sixth slot, {@code ?graph}, which never
+     * bound a value — a SHACL document is assembled from a union view over every graph, so
+     * a hit has no single source graph. It was removed rather than left as a hole that
+     * pushed ?rank out of position; graph provenance belongs in a doc-level field instead
+     * (docs/2026-04-08-graph-filtering-target-model.md). Rejecting six keeps the removal
+     * loud: a query still naming the old slot fails at build rather than silently binding
+     * ?graph to a rank integer.
+     */
+    @Test
+    public void testSixElementSubjectListRejected() {
+        String q =
+            "PREFIX luc: <urn:jena:lucene:index#>\n" +
+            "SELECT * WHERE {\n" +
+            "  (?hit ?s ?score ?totalHits ?graph ?rank) luc:query (\"default\" \"default\" \"item\" \"\" \"\" 3 0)\n" +
+            "}";
+        dataset.begin(ReadWrite.READ);
+        try (QueryExecution qe = QueryExecutionFactory.create(QueryFactory.create(q), dataset)) {
+            qe.execSelect().hasNext();
+            fail("A six-element subject list should be rejected");
+        } catch (QueryBuildException e) {
+            assertTrue("Message should state the permitted arity: " + e.getMessage(),
+                e.getMessage().contains("must be 1-5"));
+        } finally {
+            dataset.end();
+        }
     }
 }
