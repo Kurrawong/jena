@@ -9,10 +9,10 @@
 # The assay children come from data/assays.csv and never enter the graph, so these
 # values can only be read back out of the index.
 #
-# The filter is "in", not "=", on purpose: analyte is level 0 of the
-# (analyte, gradeUnits) facet hierarchy, and a lone "=" on a level-0 field compiles to
-# a taxonomy drill-down on the parent rather than a block join — which filters correctly
-# but leaves no child query for luc:nestedMatch to project from.
+# "in" is used only because two analytes are needed to show two records under one
+# borehole. A single-value "=" projects identically — analyte is level 0 of the
+# (analyte, gradeUnits) facet hierarchy, and nested-scoped fields stay on the block-join
+# path at every hierarchy level.
 
 PREFIX luc: <urn:jena:lucene:index#>
 

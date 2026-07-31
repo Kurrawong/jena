@@ -531,6 +531,20 @@ public class CqlToLuceneCompiler {
             return null;
         }
 
+        // A nested-scoped field stays on the block-join path even at level 0.
+        //
+        // The taxonomy drill-down matches exactly the same parents — the hierarchy facet
+        // paths of a nested scope are written onto the parent document — but it carries no
+        // child query, so nothing downstream can say WHICH child matched and luc:nestedMatch
+        // has nothing to project. Level 1+ of the same hierarchy already lifts through
+        // maybeLiftToParent, so the short-circuit made a lone level-0 equality the one
+        // filter whose compilation depended on a field happening to be declared as a
+        // hierarchy level. Root-scoped hierarchy fields keep the drill-down: they have no
+        // children, so there is nothing to lose.
+        if (mapping.findNestedDefForFieldName(field.getFieldName()) != null) {
+            return null;
+        }
+
         DrillDownQuery drillDownQuery = new DrillDownQuery(facetsConfig);
         drillDownQuery.add(hierarchy.getDimensionName(), String.valueOf(cmp.value()));
         return drillDownQuery;

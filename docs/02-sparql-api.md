@@ -278,16 +278,13 @@ SELECT ?entity ?record ?field ?value WHERE {
   scope would be a different feature.
 - A **negated** nested clause (`{"op":"not",...}`) projects nothing for that clause.
   It describes children that must *not* match, which are not why the entity surfaced.
-- A lone `=` on the **first level of an `idx:facetHierarchy`** projects nothing. The
-  compiler answers it with a taxonomy `DrillDownQuery` on the parent rather than a
-  block join, so no child query exists to recover. Filtering is unaffected — the right
-  entities come back, only the projection is missing. Use `in` with the same value, or
-  pair the clause with a sibling on the same nested scope, to take the block-join path:
-
-  ```json
-  {"op":"=", "args":[{"property":"…#analyte"}, "Au"]}          // filters, projects nothing
-  {"op":"in","args":[{"property":"…#analyte"}, ["Au"]]}        // filters and projects
-  ```
+- Projection does not depend on how a clause is written. `=` and `in` over the same
+  value, and a clause on a field that is an `idx:facetHierarchy` level versus one that
+  isn't, all project the same records. This required a compiler change: a lone `=` on
+  the *first level* of a hierarchy used to compile to a taxonomy `DrillDownQuery` on the
+  parent, which selects the same entities but carries no child query. Nested-scoped
+  fields now stay on the block-join path at every level. Root-scoped hierarchy fields
+  keep the drill-down — they have no children to lose.
 - At most 100 child records per hit are projected. Exceeding that is logged, not
   silently trimmed.
 - The projection is computed during the `luc:query` search, so it costs one extra

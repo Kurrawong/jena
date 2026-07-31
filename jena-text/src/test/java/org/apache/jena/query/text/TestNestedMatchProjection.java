@@ -391,36 +391,62 @@ public class TestNestedMatchProjection {
     }
 
     /**
-     * A lone {@code =} on the <em>first level</em> of an {@code idx:facetHierarchy} is
-     * answered by the taxonomy: the compiler emits a {@code DrillDownQuery} against the
-     * parent's facet ordinals instead of lifting a child query through a block join. No
-     * block join means no child query to recover, so nothing is projected.
+     * A lone {@code =} on the <em>first level</em> of an {@code idx:facetHierarchy}
+     * projects, like any other nested clause.
      * <p>
-     * The filter itself is unaffected — the right entities come back. Only the
-     * "which child" projection is unavailable. Using {@code in} instead of {@code =},
-     * or pairing the clause with a sibling on the same scope, takes the block-join path
-     * and does project; the sibling-pair case is
-     * {@link #testMatchingChildRecordIsProjected}, which passes with this same hierarchy
-     * configured.
+     * It did not before: the compiler answered a level-0 equality with a taxonomy
+     * {@code DrillDownQuery} against the parent's facet ordinals, which matches the same
+     * parents but carries no child query. That made a single facet tick — the most
+     * ordinary interaction a UI has, and the one that emits {@code =} rather than
+     * {@code in} — the one case where the matching child could not be recovered.
+     * <p>
+     * {@code =} and {@code in} over the same single value must now agree on both the
+     * entities and the projection.
      */
     @Test
-    public void testLevelZeroHierarchyEqualityProjectsNoRecords() {
+    public void testLevelZeroHierarchyEqualityProjectsLikeAnyNestedClause() {
         List<SearchHit> viaEquality = search("""
             {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionRole"},"Principal Investigator"]}
             """);
         assertEquals(3, viaEquality.size(), "every report has a Principal Investigator");
         for (SearchHit hit : viaEquality) {
-            assertTrue(hit.getNestedMatches().isEmpty(),
-                "a taxonomy drill-down carries no child query to project from");
+            assertEquals(1, hit.getNestedMatches().size(),
+                "the attribution that carried the matching role is recoverable");
         }
 
         List<SearchHit> viaIn = search("""
             {"op":"in","args":[{"property":"urn:jena:lucene:field#attributionRole"},["Principal Investigator"]]}
             """);
-        assertEquals(3, viaIn.size(), "same entities via the block-join path");
+        assertEquals(3, viaIn.size(), "'in' over one value selects the same entities");
         for (SearchHit hit : viaIn) {
             assertEquals(1, hit.getNestedMatches().size(),
-                "'in' lifts through a block join, so the matching child is recoverable");
+                "and projects the same single child record");
+        }
+    }
+
+    /**
+     * The projection must not depend on whether a field happens to be declared as a
+     * hierarchy level: {@code attributionRole} is level 0 of one, {@code attributionNote}
+     * belongs to no hierarchy at all, and a lone equality on either behaves the same way.
+     */
+    @Test
+    public void testHierarchyAndNonHierarchyFieldsProjectAlike() {
+        List<SearchHit> viaHierarchyField = search("""
+            {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionRole"},"Reviewer"]}
+            """);
+        List<SearchHit> viaPlainField = search("""
+            {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionNote"},"internal-Reviewer"]}
+            """);
+
+        assertEquals(viaPlainField.size(), viaHierarchyField.size(),
+            "the two clauses select the same reports");
+        for (SearchHit hit : viaHierarchyField) {
+            assertEquals(1, hit.getNestedMatches().size(),
+                "hierarchy level-0 field projects one child");
+        }
+        for (SearchHit hit : viaPlainField) {
+            assertEquals(1, hit.getNestedMatches().size(),
+                "non-hierarchy field projects one child");
         }
     }
 
