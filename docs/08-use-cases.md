@@ -228,17 +228,20 @@ flowchart LR
 ```turtle
 PREFIX field: <urn:jena:lucene:field#>
 
-## Sequence path — index author name on the book
 field:authorName
     idx:fieldName "authorName" ;
-    idx:fieldType idx:KeywordField ;
-    sh:path ( ex:writtenBy ex:name ) .
+    idx:fieldType idx:KeywordField .
 
-## Inverse path — index who references this entity
 field:referencedBy
     idx:fieldName "referencedBy" ;
-    idx:fieldType idx:KeywordField ;
-    sh:path [ sh:inversePath ex:references ] .
+    idx:fieldType idx:KeywordField .
+
+<#BookShape>
+    sh:targetClass ex:Book ;
+    ## Sequence path — index author name on the book
+    sh:property [ idx:field field:authorName ; sh:path ( ex:writtenBy ex:name ) ] ;
+    ## Inverse path — index who references this entity
+    sh:property [ idx:field field:referencedBy ; sh:path [ sh:inversePath ex:references ] ] .
 ```
 
 **Where this applies:**
@@ -299,8 +302,10 @@ field:identifier
     idx:fieldName "identifier" ;
     idx:fieldType idx:TextField ;
     idx:analyzer [ a text:EdgeNGramAnalyzer ] ;
-    idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] ;
-    sh:path ex:identifier .
+    idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] .
+
+## on the shape:
+##   sh:property [ idx:field field:identifier ; sh:path ex:identifier ]
 ```
 
 Example query:
@@ -350,8 +355,10 @@ ex:report-001 ex:authorName "Dr Sarah Jones" .
 
 ## Index configuration approach (graph unchanged)
 <#field-authorName>
-    idx:fieldName "authorName" ;
-    sh:path ( ex:authoredBy ex:name ) .
+    idx:fieldName "authorName" .
+
+<#MiningReportShape>
+    sh:property [ idx:field <#field-authorName> ; sh:path ( ex:authoredBy ex:name ) ] .
 ```
 
 The indexer follows the path at index time and stores the result in the Lucene document. When the source data changes, the index updates automatically via the change listener.

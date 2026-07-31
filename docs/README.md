@@ -76,9 +76,17 @@ SELECT ?field ?value ?low ?high ?count WHERE {
 |---|---|
 | [01-user-guide.md](01-user-guide.md) | Practical setup and query usage |
 | [02-sparql-api.md](02-sparql-api.md) | Full SHACL SPARQL signatures and examples |
-| [03-configuration.md](03-configuration.md) | Assembler and index configuration |
+| [03-configuration.md](03-configuration.md) | Assembler and index configuration — every `idx:` term |
 | [04-architecture.md](04-architecture.md) | Internal design and execution flow |
 | [05-testing.md](05-testing.md) | Test coverage and commands |
+| [06-design-decisions.md](06-design-decisions.md) | Why the model is shaped the way it is |
+| [07-future-work.md](07-future-work.md) | Known gaps and candidates |
+| [08-use-cases.md](08-use-cases.md) | Worked query scenarios |
+| [09-spatial.md](09-spatial.md) | WKT indexing and spatial filters |
+| [10-suggested-configuration.md](10-suggested-configuration.md) | Opinionated defaults per data kind — names, identifiers, dates, observations |
+
+Dated files (`2026-*.md`) are design notes: a snapshot of the thinking at that date, not
+reference. Where one disagrees with the numbered docs, the numbered docs win.
 
 ## Build And Test
 

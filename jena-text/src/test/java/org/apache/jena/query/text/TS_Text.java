@@ -148,6 +148,12 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     // Range facets
     , TestRangeFacetCounts.class
 
+    // TEMPORAL fields: epoch filtering, sort, and literal reconstruction on read
+    , TestDateLiteralRoundTrip.class
+
+    // Classic Lucene query syntax reaching the queryString argument
+    , TestLuceneQuerySyntax.class
+
     // Demo data validation
     , TestDemoDataParsing.class
     , TestDemoMiningScenarios.class

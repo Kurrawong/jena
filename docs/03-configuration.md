@@ -43,23 +43,29 @@ Notes:
 @prefix idx:  <urn:jena:lucene:index#> .
 @prefix sh:   <http://www.w3.org/ns/shacl#> .
 
-<#index> a text:TextIndexLucene ;
+<#index> a text:TextIndexShacl ;
     text:indexId "default" ;
     text:directory "mem" ;
+    text:taxonomyDirectory <file:Taxonomy> ;
     text:shapes ( <#BookShape> <#ArticleShape> ) ;
     text:storeValues true ;
     text:maxFacetHits 50000 .
 ```
 
-Important properties:
+SHACL mode is `text:TextIndexShacl`, and it **requires** `text:shapes`. `text:TextIndexLucene`
+is the classic triple-per-document index and ignores `text:shapes` entirely — configure that
+one with `text:entityMap`.
 
-| Property | Meaning |
-|---|---|
-| `text:indexId` | Token id used by `indexSelector`, for example `"default"` or `"objects"` |
-| `text:directory` | Lucene storage location |
-| `text:shapes` | RDF list of SHACL shapes |
-| `text:storeValues` | Store values for `luc:match` and facet value binding |
-| `text:maxFacetHits` | Maximum documents considered during facet collection |
+| Property | Required | Meaning |
+|---|---|---|
+| `text:indexId` | no | Token id used by `indexSelector`, for example `"default"` or `"objects"` |
+| `text:directory` | yes | Lucene storage location. The literal `"mem"` is in-memory; anything else is a path or file IRI |
+| `text:shapes` | yes | RDF list of SHACL shapes, one document profile each |
+| `text:taxonomyDirectory` | no | Where hierarchical-facet ordinals live. Left unset the taxonomy is in-memory — fine when indexing and querying share a JVM, and a silent total loss of hierarchical facet counts when they do not (a bulk build writes the ordinals, the process exits, the server starts empty) |
+| `text:storeValues` | no, default `false` | Store values for `luc:match` and facet value binding |
+| `text:maxFacetHits` | no | Maximum documents considered during facet collection |
+| `text:analyzer` | no | Index-wide default analyzer |
+| `text:queryAnalyzer` | no | Index-wide query analyzer |
 
 If the index resource itself is a URI resource, that URI is also accepted as an `indexSelector`.
 
@@ -74,45 +80,57 @@ Each SHACL shape contributes one document profile.
 
 <#BookShape>
     sh:targetClass ex:Book ;
-    sh:property field:title ;
-    sh:property field:category ;
-    sh:property field:authorName .
+    sh:property [ idx:field field:title ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:category ; sh:path ex:category ] ;
+    sh:property [ idx:field field:authorName ; sh:path ( ex:authoredBy ex:name ) ] .
 ```
+
+Each `sh:property` is an **occurrence**: it names a canonical field and the path that feeds
+it. Pointing `sh:property` straight at a field resource is the old form and is rejected.
+
+| Property | Required | Meaning |
+|---|---|---|
+| `sh:targetClass` | yes | Entity class this profile indexes. Repeatable |
+| `sh:property` | yes¹ | A root field occurrence |
+| `idx:nested` | yes¹ | A child collection — see [Nested Child Records](#nested-child-records) |
+| `idx:facetHierarchy` | no | Ordered list of fields forming one hierarchical facet dimension |
+| `idx:docIdField` | no, default `"uri"` | Lucene field holding the entity IRI. Must be identical across every profile in one index |
+| `idx:discriminatorField` | no, default `"docType"` | Lucene field holding the target class's local name, so deletes stay scoped to one profile |
+
+¹ A shape needs at least one of `sh:property` / `idx:nested`.
 
 ## Fields
 
-Named field resources are the recommended pattern.
+A field is defined **once**, as a named resource, and carries **no path**. The path lives on
+the occurrence that references it, which is what lets one field be fed from several paths and
+several shapes.
 
 ```turtle
 @prefix field: <urn:jena:lucene:field#> .
 @prefix idx:   <urn:jena:lucene:index#> .
-@prefix sh:    <http://www.w3.org/ns/shacl#> .
 
 field:title
     idx:fieldName "title" ;
     idx:fieldType idx:TextField ;
-    idx:defaultSearch true ;
-    sh:path rdfs:label .
+    idx:defaultSearch true .
 
 field:category
     idx:fieldName "category" ;
     idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path ex:category .
+    idx:facetable true .
 
 field:year
     idx:fieldName "year" ;
     idx:fieldType idx:IntField ;
     idx:facetable true ;
-    idx:sortable true ;
-    sh:path ex:year .
+    idx:sortable true .
 
 field:publishedOn
     idx:fieldName "publishedOn" ;
     idx:fieldType idx:TemporalField ;
     idx:facetable true ;
     idx:sortable true ;
-    sh:path ex:publishedOn .
+    idx:storeLiteralMetadata true .   # not optional on TEMPORAL
 ```
 
 Public API rule:
@@ -124,19 +142,54 @@ Public API rule:
 
 ## Field Properties
 
-| Property | Meaning |
-|---|---|
-| `idx:fieldName` | Internal Lucene field name |
-| `idx:fieldType` | `idx:TextField`, `idx:KeywordField`, `idx:IntField`, `idx:LongField`, `idx:DoubleField`, `idx:TemporalField`, `idx:LatLonField` |
-| `idx:facetable` | Enables faceting |
-| `idx:sortable` | Enables sort pushdown |
-| `idx:multiValued` | Allows multiple values |
-| `idx:defaultSearch` | Included when `fieldSpec` is `"default"` |
-| `idx:analyzer` | Index-time analyzer override |
-| `idx:queryAnalyzer` | Query-time analyzer override |
-| `sh:path` | Direct, sequence, inverse, or nested path |
+These go on the **canonical field**, never on an occurrence.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `idx:fieldName` | required | Internal Lucene field name |
+| `idx:fieldType` | `idx:TextField` | `idx:TextField`, `idx:KeywordField`, `idx:IntField`, `idx:LongField`, `idx:DoubleField`, `idx:TemporalField`, `idx:LatLonField` |
+| `idx:stored` | `true` | Keep the value so `luc:match` / `luc:nestedMatch` can project it |
+| `idx:indexed` | `true` | Write searchable terms/points — this is what makes the field **filterable** |
+| `idx:facetable` | `false` | Write facet docvalues — required to appear in `luc:facet` |
+| `idx:sortable` | `false` | Write sort docvalues — required for `ORDER BY` pushdown |
+| `idx:multiValued` | `false` | Allow more than one value per entity |
+| `idx:defaultSearch` | `false` | Included when `fieldSpec` is `"default"` |
+| `idx:analyzer` | index-wide default | Index-time analyzer override (`TEXT`) |
+| `idx:queryAnalyzer` | implied by `idx:analyzer` | Query-time analyzer override |
+| `idx:normalizer` | none | `KEYWORD` only — analyzer driving the indexed term and sort key while the stored value and facet label stay raw |
+| `idx:storeLiteralMetadata` | `false` | Store the datatype and language tag so a projected value rebuilds as the original literal. **Required on every `TEMPORAL` field** |
+
+The four write-side flags are independent, and each buys exactly one capability:
+
+| Flag | Structure written | Without it |
+|---|---|---|
+| `idx:indexed` | inverted terms / points | filters on the field are **silently dropped** — the clause becomes residual, is logged, and never applied |
+| `idx:stored` | stored value | `luc:match` has nothing to project |
+| `idx:facetable` | facet docvalues | faceting the field is an error |
+| `idx:sortable` | sort docvalues | no sort pushdown |
+
+Numeric and temporal fields take their facet/sort docvalues from `idx:facetable` **or** `idx:sortable`, independently of `idx:indexed` — so a numeric field can be facetable and sortable but not filterable. That is rarely what you want; see [10-suggested-configuration.md](10-suggested-configuration.md).
 
 `idx:DateField` and `idx:DateTimeField` are accepted as deprecated aliases for `idx:TemporalField`.
+
+### Occurrence properties
+
+An occurrence binds a canonical field to a path. It carries the path and any value
+constraints; it must not repeat the field's own metadata (`idx:fieldName`, `idx:fieldType`,
+the flags, the analyzers), and the field must not carry occurrence data (`sh:path`,
+`sh:class`, `sh:nodeKind`, `sh:datatype`). Both directions are rejected at config time, so
+one field cannot end up with two different definitions.
+
+| Property | Required | Meaning |
+|---|---|---|
+| `idx:field` | yes | The canonical field this occurrence feeds |
+| `sh:path` | yes | Direct, sequence, inverse, or alternative path from the entity (or, inside `idx:nested`, from the child node) |
+| `sh:class` | no | Only index values whose reached node has this `rdf:type` |
+| `sh:nodeKind` | no | Restrict to `sh:IRI`, `sh:Literal`, or `sh:BlankNode` |
+| `sh:datatype` | no | Only index literals with this datatype |
+
+Several occurrences may feed one field — that is how a value fans in from more than one
+path. They must all resolve to the same canonical definition.
 
 ## Choosing an Analyzer for a TEXT Field
 
@@ -161,8 +214,10 @@ Edge-n-grams are for the third row only. They are the wrong reach for a name: se
 field:identifierValueText
     idx:fieldName "identifierValueText" ;
     idx:fieldType idx:TextField ;
-    idx:analyzer [ a text:EdgeNGramAnalyzer ] ;
-    sh:path schema:value .
+    idx:analyzer [ a text:EdgeNGramAnalyzer ] .
+
+## fed by an occurrence on the shape:
+##   sh:property [ idx:field field:identifierValueText ; sh:path schema:value ]
 ```
 
 `text:tokenized true` switches to per-word n-grams, so any word of a multi-word value can
@@ -230,15 +285,18 @@ twin when you also want exact filtering and facet counts:
 field:authorName
     idx:fieldName "authorName" ;
     idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path ( ex:authoredBy ex:name ) .
+    idx:facetable true .
 
 ## Search side: BM25 over the same name, no analyzer override
 field:authorNameText
     idx:fieldName "authorNameText" ;
     idx:fieldType idx:TextField ;
-    idx:defaultSearch true ;
-    sh:path ( ex:authoredBy ex:name ) .
+    idx:defaultSearch true .
+
+## Two occurrences, one path — the twin fields diverge on analysis, not on source:
+<#MiningReportShape>
+    sh:property [ idx:field field:authorName     ; sh:path ( ex:authoredBy ex:name ) ] ;
+    sh:property [ idx:field field:authorNameText ; sh:path ( ex:authoredBy ex:name ) ] .
 ```
 
 This holds inside an `idx:nested` scope too: a plain `TEXT` field there still folds
@@ -322,24 +380,25 @@ existing child documents — reindex after a change.
 field:identifierType
     idx:fieldName "identifierType" ;
     idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path schema:propertyID .
+    idx:facetable true .
 
 field:identifierValueExact
     idx:fieldName "identifierValueExact" ;
     idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path schema:value .
+    idx:facetable true .
 
 <#BoreholeShape>
     sh:targetClass ex:Borehole ;
     idx:nested [
         idx:joinPath schema:identifier ;
-        idx:property field:identifierType ;
-        idx:property field:identifierValueExact ;
+        idx:property [ idx:field field:identifierType ; sh:path schema:propertyID ] ;
+        idx:property [ idx:field field:identifierValueExact ; sh:path schema:value ] ;
         idx:facetHierarchy ( field:identifierType field:identifierValueExact ) ;
     ] .
 ```
+
+Inside a nested block the occurrence paths are relative to the **child** node, so
+`schema:propertyID` here is read from each `schema:identifier` record, not from the borehole.
 
 Query-time same-child correlation is not limited to `=`. AND-ed leaves that target the same nested scope fold into one block join, so `=`, ranges (`<`, `>`, `<=`, `>=`), `in`, `between`, `like` and `text_query` all correlate within a single child — see [02-sparql-api.md → Nested same-child filters](02-sparql-api.md#nested-same-child-filters).
 
@@ -351,16 +410,15 @@ Add a second occurrence of the value field with an analyzer-backed `TEXT` field.
 field:identifierValueText
     idx:fieldName "identifierValueText" ;
     idx:fieldType idx:TextField ;
-    idx:analyzer [ a text:EdgeNGramAnalyzer ; text:tokenized true ] ;
-    sh:path schema:value .
+    idx:analyzer [ a text:EdgeNGramAnalyzer ; text:tokenized true ] .
 
 <#BoreholeShape>
     sh:targetClass ex:Borehole ;
     idx:nested [
         idx:joinPath schema:identifier ;
-        idx:property field:identifierType ;
-        idx:property field:identifierValueExact ;
-        idx:property field:identifierValueText ;
+        idx:property [ idx:field field:identifierType ; sh:path schema:propertyID ] ;
+        idx:property [ idx:field field:identifierValueExact ; sh:path schema:value ] ;
+        idx:property [ idx:field field:identifierValueText ; sh:path schema:value ] ;
         idx:facetHierarchy ( field:identifierType field:identifierValueExact ) ;
     ] .
 ```
@@ -377,22 +435,20 @@ The exact and text fields can coexist on the same child path — index-time, eac
 field:attributionRole
     idx:fieldName "attributionRole" ;
     idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path prov:hadRole .
+    idx:facetable true .
 
 field:attributionAgentExact
     idx:fieldName "attributionAgentExact" ;
     idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path ( prov:agent rdfs:label ) .
+    idx:facetable true .
 
 <#MiningReportShape>
     sh:targetClass ex:MiningReport ;
     idx:nested [
         idx:joinPath prov:qualifiedAttribution ;
-        idx:property field:attributionRole ;
-        idx:property field:attributionAgentExact ;
-        idx:property field:attributionAgentText ;
+        idx:property [ idx:field field:attributionRole ; sh:path ( prov:hadRole rdfs:label ) ] ;
+        idx:property [ idx:field field:attributionAgentExact ; sh:path ( prov:agent rdfs:label ) ] ;
+        idx:property [ idx:field field:attributionAgentText ; sh:path ( prov:agent rdfs:label ) ] ;
     ] .
 ```
 
@@ -639,7 +695,7 @@ But the underlying Lucene field key still comes from `idx:fieldName`.
     text:dataset <#baseDs> ;
     text:indexes <#index> .
 
-<#index> a text:TextIndexLucene ;
+<#index> a text:TextIndexShacl ;
     text:indexId "default" ;
     text:directory "mem" ;
     text:storeValues true ;
@@ -648,17 +704,56 @@ But the underlying Lucene field key still comes from `idx:fieldName`.
 field:title
     idx:fieldName "title" ;
     idx:fieldType idx:TextField ;
-    idx:defaultSearch true ;
-    sh:path rdfs:label .
+    idx:defaultSearch true .
 
 field:category
     idx:fieldName "category" ;
     idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path ex:category .
+    idx:facetable true .
 
 <#BookShape>
     sh:targetClass ex:Book ;
-    sh:property field:title ;
-    sh:property field:category .
+    sh:property [ idx:field field:title ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:category ; sh:path ex:category ] .
 ```
+
+## Vocabulary Index
+
+`idx:` is `urn:jena:lucene:index#` — the same namespace SPARQL prefixes as `luc:`. The
+convention is `idx:` for configuration and `luc:` for the property functions; nothing
+enforces it.
+
+Every term the assembler reads, and where it is defined above:
+
+| Term | Goes on | Section |
+|---|---|---|
+| `idx:field` | occurrence, `idx:column` | [Occurrence properties](#occurrence-properties) |
+| `idx:fieldName` `idx:fieldType` | canonical field | [Field Properties](#field-properties) |
+| `idx:stored` `idx:indexed` `idx:facetable` `idx:sortable` `idx:multiValued` `idx:defaultSearch` | canonical field | [Field Properties](#field-properties) |
+| `idx:analyzer` `idx:queryAnalyzer` `idx:normalizer` | canonical field | [Field Properties](#field-properties) |
+| `idx:storeLiteralMetadata` | canonical field | [Field Properties](#field-properties) |
+| `idx:docIdField` `idx:discriminatorField` | shape | [Shapes](#shapes) |
+| `idx:facetHierarchy` | shape, `idx:nested` | [Shapes](#shapes), [Block properties](#block-properties) |
+| `idx:nested` | shape | [Nested Child Records](#nested-child-records) |
+| `idx:joinPath` `idx:nestedName` `idx:property` | `idx:nested` | [Block properties](#block-properties) |
+| `idx:externalSource` | `idx:nested` | [External Content](#external-content-csvtsv) |
+| `idx:format` `idx:location` `idx:subjectColumn` `idx:subjectColumnIndex` `idx:subjectPrefix` `idx:delimiter` `idx:headerless` `idx:onError` `idx:column` `idx:delta` `idx:opColumn` | `idx:externalSource` | [Source properties](#source-properties) |
+| `idx:columnName` `idx:columnIndex` | `idx:column` | [Source properties](#source-properties) |
+
+Resources rather than properties:
+
+| Term | Used as |
+|---|---|
+| `idx:TextField` `idx:KeywordField` `idx:IntField` `idx:LongField` `idx:DoubleField` `idx:TemporalField` `idx:LatLonField` | `idx:fieldType` value |
+| `idx:DateField` `idx:DateTimeField` | deprecated aliases for `idx:TemporalField` |
+| `idx:CsvFile` `idx:TsvFile` | `idx:format` value |
+
+Property function IRIs in the same namespace: `luc:query`, `luc:facet`, `luc:match`,
+`luc:nestedMatch` — see [02-sparql-api.md](02-sparql-api.md). Note that `luc:nestedMatch` is
+deliberately **not** named `luc:nested`: that IRI is already the `idx:nested` config
+predicate, and a property function registered on it would intercept any query reading a
+config graph.
+
+Terms that do **not** exist, despite appearing in older design notes: `idx:external`
+(externality follows from an `idx:column` binding), `idx:sorted` (asserting a pre-sorted
+source is not implemented; the loader sorts), and `idx:path` (use `sh:path`).

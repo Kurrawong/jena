@@ -3,14 +3,16 @@
 ## Running Tests
 
 ```bash
-# Full jena-text suite (546 tests)
+# Full jena-text suite (790 tests)
 mvn test -pl jena-text
 
 # Only SHACL / faceting tests
 mvn test -pl jena-text -Dtest="TestShaclIndexMapping,TestShaclDocumentBuilding,TestShaclTextDocProducer,TestShaclAssembler,TestShaclEntityPerDocument,TestNativeFacetCounts,TestTextFacetPF,TestTextQueryPFFilters,TestSearchExecution,TestHierarchicalFacets,TestHierarchicalFacetsSparql,TestSortSpec"
 ```
 
-All tests run via JUnit 4 and are aggregated in `TS_Text.java` (Surefire only picks up `**/TS_*.java`).
+Tests are aggregated in `TS_Text.java` (Surefire only picks up `**/TS_*.java`). The suite class uses the JUnit 5 `@Suite` / `@SelectClasses` annotations; the fork's older SHACL/faceting classes are still JUnit 4 and run through `junit-vintage-engine`. New tests should be written in JUnit 5.
+
+A class missing from `@SelectClasses` is **silently never run** — not reported as skipped. After adding a test, confirm it appears in the `-- in <class>` lines.
 
 ---
 
@@ -42,6 +44,8 @@ All tests run via JUnit 4 and are aggregated in `TS_Text.java` (Surefire only pi
 | `TestShaclTextDocProducer` | 5 | Change listener: add type creates doc, add property rebuilds, delete type removes, irrelevant predicate ignored, multiple entities |
 | `TestShaclAssembler` | 9 | Config parsing: valid shapes, SHACL/entity-map exclusivity, hierarchy config, and assembler validation paths |
 | `TestShaclEntityPerDocument` | 7 | End-to-end: text search, SPARQL `luc:query`, facet counts, filtered facets, add after load, entity-per-doc model verification |
+| `TestLuceneQuerySyntax` | 12 | The `queryString` argument reaching Lucene's classic parser: phrase, boolean, required/prohibited, trailing/leading/single-char wildcard, fuzzy, proximity slop, boost, grouping, lexical term range, and the bare `*` match-all short-circuit |
+| `TestDateLiteralRoundTrip` | 4 | TEMPORAL fields: `between` and `>=` over the epoch twin field, typed `xsd:date`/`xsd:dateTime` reconstruction on read, language-tagged literal round trip, and an unparseable date dropping out of range queries without failing the build |
 
 ### Hierarchical Facets Tests
 
@@ -67,7 +71,7 @@ All tests run via JUnit 4 and are aggregated in `TS_Text.java` (Surefire only pi
 
 ### Existing Tests (unchanged, verifying no regressions)
 
-The remaining suite covers text search, multilingual support, graph indexing, deletion, analyzers, property lists, spatial filtering, nested identifiers, and demo mining scenarios. The full `jena-text` module currently passes at 688 tests.
+The remaining suite covers text search, multilingual support, graph indexing, deletion, analyzers, property lists, spatial filtering, nested identifiers, and demo mining scenarios. The full `jena-text` module currently passes at 790 tests.
 
 ---
 
@@ -132,7 +136,7 @@ TextIndexLucene index = (TextIndexLucene) Assembler.general().open(indexSpec);
 
 - All SPARQL argument forms for `luc:query` and `luc:facet`
 - JSON filter parsing and semantics (OR within field, AND across fields)
-- All five field types (TEXT, KEYWORD, INT, LONG, DOUBLE)
+- All field types: TEXT, KEYWORD, INT, LONG, DOUBLE, TEMPORAL (`TestDateLiteralRoundTrip`), LATLON (`TestSpatialFiltering`)
 - Multi-valued fields
 - Entity lifecycle: create, update (add field), delete (remove type)
 - Assembler config parsing (valid and error cases)
@@ -142,6 +146,7 @@ TextIndexLucene index = (TextIndexLucene) Assembler.general().open(indexSpec);
 - End-to-end SPARQL sort pushdown using field IRIs
 - Hierarchical facets: taxonomy indexing, top-level counts, drill-down via CQL filters, flat+hierarchy coexistence
 - Range facets on numeric fields: single-valued, multi-valued, open-ended buckets, mixed flat+range requests, and 5-slot `luc:facet` bindings
+- Range facets on TEMPORAL fields: ISO date boundaries counted from the epoch docvalues, lower bound inclusive and upper exclusive except on the open end
 - Multi-valued numeric sorting semantics (`MIN` for ascending, `MAX` for descending)
 - External content from CSV/TSV: the IRI join, match/unmatch counters, sortedness verification, and the same-child vs entity-level correlation boundary
 

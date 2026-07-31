@@ -30,6 +30,9 @@ The main SHACL property functions are:
 
 ### 2. Define fields
 
+Which type and flags to pick for a given kind of data — names, identifiers, dates,
+observations — is covered in [10-suggested-configuration.md](10-suggested-configuration.md).
+
 ```turtle
 @prefix idx: <urn:jena:lucene:index#> .
 @prefix sh:  <http://www.w3.org/ns/shacl#> .
@@ -38,23 +41,23 @@ The main SHACL property functions are:
 field:title
     idx:fieldName "title" ;
     idx:fieldType idx:TextField ;
-    idx:defaultSearch true ;
-    sh:path rdfs:label .
+    idx:defaultSearch true .
 
 field:category
     idx:fieldName "category" ;
     idx:fieldType idx:KeywordField ;
-    idx:facetable true ;
-    sh:path ex:category .
+    idx:facetable true .
 ```
+
+Field definitions carry no path — the path belongs to the occurrence that uses the field.
 
 ### 3. Define a shape
 
 ```turtle
 <#BookShape>
     sh:targetClass ex:Book ;
-    sh:property field:title ;
-    sh:property field:category .
+    sh:property [ idx:field field:title ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:category ; sh:path ex:category ] .
 ```
 
 ### 4. Query it

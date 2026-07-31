@@ -97,7 +97,7 @@ mvn clean install -Drat.skip
 ## Running Tests
 
 ```bash
-# Run all jena-text tests (646 tests)
+# Run all jena-text tests (790 tests)
 mvn test -pl jena-text
 
 # Run a single test class
@@ -115,8 +115,9 @@ is the only entry point. A new test class that is not added to its `@SelectClass
 is **silently never run** — it is not reported as skipped, it simply does not appear.
 After adding a test, confirm its name appears in the `-- in <class>` lines of the output.
 
-Three classes are currently unregistered and therefore dead: `TestDateLiteralRoundTrip`,
-`TestFacetedResults`, `TestUpdateDocumentFacets` (12 `@Test` methods).
+Two classes are currently unregistered and therefore dead: `TestFacetedResults`,
+`TestUpdateDocumentFacets` (8 `@Test` methods). `TestDateLiteralRoundTrip` was registered on
+2026-07-31 and passes.
 
 ### JUnit 4 vs JUnit 5
 

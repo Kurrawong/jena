@@ -14,12 +14,11 @@ PREFIX geo:   <http://www.opengis.net/ont/geosparql#>
 
 field:location
     idx:fieldName "location" ;
-    idx:fieldType idx:LatLonField ;
-    sh:path geo:asWKT .
+    idx:fieldType idx:LatLonField .
 
 :SiteShape
     sh:targetClass ex:Site ;
-    sh:property field:location ;
+    sh:property [ idx:field field:location ; sh:path geo:asWKT ] ;
     # ... other fields ...
 ```
 
