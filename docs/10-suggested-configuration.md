@@ -19,17 +19,15 @@ which is rebuild-only — the producer refuses to act on a live change, since re
 the graph alone would silently strip the CSV-derived children, and logs that the document is
 stale pending a `ShaclBulkIndexer` run.
 
-**Each flag buys exactly one capability, and costs one structure.** `idx:indexed` for
-filtering, `idx:stored` for projection, `idx:facetable` for counts, `idx:sortable` for
-`ORDER BY`. Turn on what a query needs and nothing else. Note that `idx:stored` defaults to
-`true`, which is the one default worth overriding as a habit — see the matrix.
+**The flags are independent.** `idx:indexed` writes the searchable terms, `idx:stored` a
+stored copy, `idx:facetable` facet docvalues, `idx:sortable` sort docvalues. Set the ones a
+query needs. `idx:stored` defaults to `true`, so leaving it alone stores everything.
 
-**One field, one job.** When a value needs both exact filtering and free-text search, define
-two fields over the same path rather than one field with a compromise analyzer. They are
-different Lucene fields; they cost one extra term dictionary and they never fight.
+**Exact match and free-text search want separate fields.** Two fields over the same path, one
+`KEYWORD` and one `TEXT`, rather than one field with an analyzer that suits neither.
 
-**Fields are path-free and reusable.** Define `field:title` once; bind it to `rdfs:label` on
-one shape and `dcterms:title` on another. Occurrences carry paths, fields carry behaviour.
+**Fields carry behaviour, occurrences carry paths.** Define `field:title` once and bind it to
+`rdfs:label` on one shape and `dcterms:title` on another.
 
 **Config changes are not retroactive.** Every flag decides what gets written at index time, so
 flipping `idx:facetable`, `idx:sortable`, `idx:stored`, a field type or an analyzer changes
@@ -59,12 +57,11 @@ What to **write in the config** — not what the defaults happen to be. `idx:ind
 | Full date or timestamp | `2023-04-01`, `2023-04-01T09:00:00Z` | `TemporalField` | ✗ | ✓ | ✓ |
 | Geometry | `POINT(151.2 -33.9)` | `LatLonField` | ✗ | — | ✗ rejected |
 
-**Stored is ✗ on every row on purpose.** Filtering, faceting and sorting all read structures
-that `idx:stored` has nothing to do with: a date buckets from its epoch docvalues, a number
-from its points and docvalues, a keyword from its facet docvalues. Storing buys exactly one
-thing — the value coming back in `luc:match` / `luc:nestedMatch` — and costs index size and
-merge time. Set `idx:stored true` on the handful of fields a result list actually renders from
-the index rather than from the graph, and leave the rest.
+**Stored is ✗ on every row on purpose.** Filtering, faceting and sorting read points and
+docvalues, not the stored value: a date buckets from its epoch docvalues, a keyword from its
+facet docvalues. The stored copy only affects what `luc:match` / `luc:nestedMatch` can
+project. Set `idx:stored true` on the fields a result row renders from the index rather than
+from the graph.
 
 Set `idx:multiValued true` wherever the predicate can repeat — see
 [Multi-valued fields](#multi-valued-fields). Leave `idx:indexed` alone.
@@ -205,10 +202,9 @@ field:description
     idx:defaultSearch true .
 ```
 
-**Why.** Prose is where not storing pays most: the stored copy would be the biggest thing in
-the index, and the graph returns it by IRI for the page of results you actually render. Keep
-it indexed — that is the whole point — and put it in `defaultSearch` so a bare query string
-reaches it.
+**Why.** The stored copy of a description is usually the biggest thing in the index, and the
+graph returns it by IRI for the page of results being rendered. Keep it indexed, and put it in
+`defaultSearch` so a bare query string reaches it.
 
 Set `text:storeValues true` on the index only if `luc:match` needs to project field values at
 all; it is `false` by default.
@@ -301,11 +297,9 @@ Note the asymmetry worth knowing: numeric facet/sort docvalues are written from 
 field therefore produces one that counts and sorts but cannot be filtered — and the filter
 does not error, it is silently dropped. Leave `idx:indexed` alone.
 
-**Don't** store a number you can re-fetch and never display. If the values come from the
-graph the change listener keeps them current, so this is a size question, not a correctness
-one — but a stored copy of a field no result row renders is pure cost. If they come from an
-`idx:externalSource`, storing them also means a correction upstream is invisible until the
-next bulk build.
+**Don't** store a number no result row displays. Graph-derived values stay current either
+way, so this is index size rather than correctness — but values from an `idx:externalSource`
+are also frozen at the last bulk build.
 
 *Backed by `TestRangeFacetCounts` (INT, LONG, DOUBLE and TEMPORAL buckets).*
 
@@ -453,9 +447,9 @@ which is what makes sorting on a repeated field well-defined.
 |---|---|
 | `idx:indexed false` on anything a client filters | The clause is dropped, logged, and the query returns unfiltered results. No error |
 | One `TEXT` field doing exact match *and* search | Tokenisation breaks `=`; the analyzer you pick is wrong for one of the two jobs |
-| Storing values nothing projects | Index size and merge time bought for nothing. (Graph-derived values stay current — the change listener rebuilds the document — so this is cost, not staleness) |
+| Storing values nothing projects | Index size for no benefit. Graph-derived values stay current either way — the change listener rebuilds the document — so this is size, not staleness |
 | Storing external-source values you also correct upstream | A shape with `idx:externalSource` is rebuild-only: the producer refuses live changes and logs that the document is stale until `ShaclBulkIndexer` runs |
 | n-grams on names | Term explosion, broken ranking, `"Jon"` matching three unrelated people |
 | Flattening correlated children | "copper above 1%" matches the sample with copper at 0.2% and lead at 5% |
 | Forgetting `idx:multiValued` | Values after the first vanish with only a log line |
-| Facetable on a high-cardinality field | A facet dimension with a million single-count buckets answers nothing and costs memory |
+| Facetable on a high-cardinality field | A dimension of a million single-count buckets answers nothing and holds memory |
