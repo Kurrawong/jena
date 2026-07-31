@@ -14,18 +14,13 @@ narrow millions of entities to a page of candidates; the values come back from t
 
 Stored values drawn from the graph do **not** go stale: `ShaclTextDocProducer` rebuilds the
 whole entity document on any relevant triple change, resolving inverse and sequence paths back
-to the entities that need rebuilding. Two cases do decay, and they are the ones to hold in
-mind:
+to the entities that need rebuilding. The exception is a shape with an `idx:externalSource`,
+which is rebuild-only — the producer refuses to act on a live change, since rebuilding from
+the graph alone would silently strip the CSV-derived children, and logs that the document is
+stale pending a `ShaclBulkIndexer` run.
 
-- **External children.** A shape with an `idx:externalSource` is rebuild-only. The producer
-  refuses to act on a live change — rebuilding from the graph alone would silently strip the
-  CSV-derived children — and logs that the document is now stale pending a `ShaclBulkIndexer`
-  run. Values sourced from a file are as fresh as the last build.
-- **Anything corrected outside the dataset.** If the authoritative value lives in a database
-  the graph mirrors, storing it in Lucene adds a second copy to keep in step.
-
-So the reason not to store is mostly cost, not staleness: a stored copy of a field nothing
-projects is index size and merge time bought for nothing.
+So for graph-derived fields the reason not to store is cost, not staleness: a stored copy of a
+field nothing projects is index size and merge time bought for nothing.
 
 *The live-rebuild behaviour is pinned by `TestShaclTextDocProducer`; the rebuild-only refusal
 by `TestExternalContentIndexing` ("live graph change does not strip external children").*
