@@ -2145,7 +2145,7 @@ SELECT ?value ?count WHERE {
             const offset = (this.currentPage - 1) * this.limit;
 
             const queryBranch =
-                `    { (?hit ?entity ?score ?rank ?totalHits) luc:query ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${filterArg} ${sortArg} ${this.limit} ${offset}) }`;
+                `    { (?hit ?entity ?score ?totalHits ?rank) luc:query ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${filterArg} ${sortArg} ${this.limit} ${offset}) }`;
 
             // Page 2+ of an unchanged filter set reuses the buckets already on screen —
             // they cannot have changed, and recomputing them is the expensive half.
@@ -3027,7 +3027,7 @@ function statsApp() {
                 const statsQuery = `${SPARQL_PREFIXES}
 SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
 WHERE {
-    { (?hit ?entity ?score ?rank ?totalHits) luc:query ('default' 'default' '*' '' '' 0 0) }
+    { (?hit ?entity ?score ?totalHits) luc:query ('default' 'default' '*' '' '' 0 0) }
     UNION
     { (?field ?value ?low ?high ?count) luc:facet ('default' 'default' '*' ${sparqlQuote(facetFieldsJson)} '' 0 0) }
 }`;

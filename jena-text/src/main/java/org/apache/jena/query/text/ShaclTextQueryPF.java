@@ -59,13 +59,22 @@ import org.slf4j.LoggerFactory;
  * <p>
  * Supported argument format:
  * <pre>
- * (?hit ?entity ?score ?rank ?totalHits ?graph) luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)
+ * (?hit ?entity ?score ?totalHits ?rank) luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)
  * </pre>
  * <p>
  * {@code ?rank} is the hit's position in the whole result set, counting from 0. Result
  * order cannot be recovered from {@code ?score}: a match-all query scores every document
  * identically and relevance scores tie, so a consumer that receives an unordered result
  * set — a {@code CONSTRUCT} graph — needs the rank to restore the order.
+ * <p>
+ * It is last, rather than next to {@code ?score} where it reads more naturally, because it
+ * was added after the earlier positions were in use; appending was the only placement that
+ * left an existing subject list binding what it already bound.
+ * <p>
+ * There is deliberately no {@code ?graph} slot. A SHACL-mode document is built from a union
+ * view over every graph, so an entity's indexed values may come from several graphs at once
+ * and no single source graph exists to bind. Graph provenance is instead a doc-level field —
+ * see {@code docs/2026-04-08-graph-filtering-target-model.md}.
  * <p>
  * {@code ?hit} is a query-scoped blank node identifier for joining with {@code luc:match}.
  * The second string literal is the field specification: {@code "default"} searches all
@@ -88,9 +97,9 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
 
         if (argSubject.isList()) {
             int size = argSubject.getArgListSize();
-            if (size == 0 || size > 6) {
-                throw new QueryBuildException("Subject has " + size + " elements, must be 1-6 " +
-                    "(?hit ?entity ?score ?rank ?totalHits ?graph): " + argSubject);
+            if (size == 0 || size > 5) {
+                throw new QueryBuildException("Subject has " + size + " elements, must be 1-5 " +
+                    "(?hit ?entity ?score ?totalHits ?rank): " + argSubject);
             }
         }
 
@@ -157,8 +166,8 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         argSubject = Substitute.substitute(argSubject, binding);
         argObject = Substitute.substitute(argObject, binding);
 
-        // Subject shape: (?hit ?entity ?score ?rank ?totalHits ?graph)
-        Node hit = null, entity = null, score = null, rank = null, totalHitsNode = null, graph = null;
+        // Subject shape: (?hit ?entity ?score ?totalHits ?rank)
+        Node hit = null, entity = null, score = null, rank = null, totalHitsNode = null;
 
         if (argSubject.isList()) {
             hit = argSubject.getArg(0);
@@ -171,19 +180,14 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
                     throw new QueryExecException("Score is not a variable: " + argSubject);
             }
             if (argSubject.getArgListSize() > 3) {
-                rank = argSubject.getArg(3);
-                if (!rank.isVariable())
-                    throw new QueryExecException("Rank is not a variable: " + argSubject);
-            }
-            if (argSubject.getArgListSize() > 4) {
-                totalHitsNode = argSubject.getArg(4);
+                totalHitsNode = argSubject.getArg(3);
                 if (!totalHitsNode.isVariable())
                     throw new QueryExecException("Total hits is not a variable: " + argSubject);
             }
-            if (argSubject.getArgListSize() > 5) {
-                graph = argSubject.getArg(5);
-                if (!graph.isVariable())
-                    throw new QueryExecException("Graph is not a variable: " + argSubject);
+            if (argSubject.getArgListSize() > 4) {
+                rank = argSubject.getArg(4);
+                if (!rank.isVariable())
+                    throw new QueryExecException("Rank is not a variable: " + argSubject);
             }
         } else {
             hit = argSubject.getArg();
@@ -230,14 +234,14 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
 
         long totalHits = totalHitsNode != null ? se.getTotalHits() : -1;
         QueryIterator qIter = resultsToQueryIterator(binding, hit, entity, score, rank,
-            totalHitsNode, totalHits, graph, hits, execCxt);
+            totalHitsNode, totalHits, hits, execCxt);
         return qIter;
     }
 
     private QueryIterator resultsToQueryIterator(Binding binding,
                                                   Node hitNode, Node entityNode, Node scoreNode,
                                                   Node rankNode,
-                                                  Node totalHitsNode, long totalHits, Node graphNode,
+                                                  Node totalHitsNode, long totalHits,
                                                   Collection<SearchHit> results, ExecutionContext execCxt) {
         Var hitVar = Var.isVar(hitNode) ? Var.alloc(hitNode) : null;
         Var entityVar = (entityNode != null && Var.isVar(entityNode)) ? Var.alloc(entityNode) : null;
@@ -246,7 +250,6 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         Var totalHitsVar = (totalHitsNode == null) ? null : Var.alloc(totalHitsNode);
         Node totalHitsValue = totalHitsVar != null
             ? NodeFactory.createLiteralDT(String.valueOf(totalHits), XSDDatatype.XSDinteger) : null;
-        Var graphVar = (graphNode == null) ? null : Var.alloc(graphNode);
 
         Function<SearchHit, Binding> converter = (SearchHit sh) -> {
             BindingBuilder bmap = Binding.builder(binding);
@@ -255,7 +258,6 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
             if (scoreVar != null) bmap.add(scoreVar, NodeFactoryExtra.floatToNode(sh.getScore()));
             if (rankVar != null) bmap.add(rankVar, NodeFactoryExtra.intToNode(sh.getRank()));
             if (totalHitsVar != null) bmap.add(totalHitsVar, totalHitsValue);
-            if (graphVar != null && sh.getGraph() != null) bmap.add(graphVar, sh.getGraph());
             return bmap.build();
         };
 
