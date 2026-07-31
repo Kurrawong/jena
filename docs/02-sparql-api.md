@@ -609,17 +609,19 @@ Data-modelling requirements (no extra index configuration):
 ```turtle
 :sampleShape idx:nested [
     idx:joinPath sdo:identifier ;
-    idx:property field:identifierType ;    # discriminator -> child filter
-    idx:property field:identifierValue ;   # value         -> sort key
+    # discriminator -> child filter
+    idx:property [ idx:field field:identifierType  ; sh:path sdo:propertyID ] ;
+    # value         -> sort key
+    idx:property [ idx:field field:identifierValue ; sh:path sdo:value ] ;
 ] .
 
 field:identifierType
     idx:fieldName "identifierType" ; idx:fieldType idx:KeywordField ;
-    idx:indexed true ; idx:facetable true ; sh:path sdo:propertyID .
+    idx:indexed true ; idx:facetable true .
 
 field:identifierValue
     idx:fieldName "identifierValue" ; idx:fieldType idx:KeywordField ;
-    idx:sortable true ; sh:path sdo:value .
+    idx:sortable true .
 ```
 
 Because the sort happens inside Lucene, it is applied before `limit`/`offset` cut the
