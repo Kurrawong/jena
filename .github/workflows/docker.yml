@@ -6,10 +6,38 @@ on:
   pull_request:
     branches:
       - main
+    paths-ignore:
+      ## Documentation and agent config cannot change build or image output.
+      ## Deliberately NOT ignored: demo/** (TestDemoDataParsing parses those
+      ## files), build-files/**, Taskfile.yml, and .github/** itself.
+      - 'docs/**'
+      - '**/*.md'
+      - '.claude/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.gitignore'
+      - '.gitattributes'
   push:
     branches:
       - main
+    paths-ignore:
+      ## Documentation and agent config cannot change build or image output.
+      ## Deliberately NOT ignored: demo/** (TestDemoDataParsing parses those
+      ## files), build-files/**, Taskfile.yml, and .github/** itself.
+      - 'docs/**'
+      - '**/*.md'
+      - '.claude/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.gitignore'
+      - '.gitattributes'
   workflow_dispatch:
+
+## A docs commit used to leave earlier image builds running alongside the new
+## one; superseded runs are now cancelled, as they already are for pr.yml.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
