@@ -21,14 +21,14 @@ this page is which to pick. Each recipe names the test that pins it.
 What to write, not what the defaults are. `idx:indexed` and `idx:stored` both default to
 `true`, so `✗` means set it false explicitly.
 
-| Data kind | Example | `idx:fieldType` | stored | facetable | sortable | Upstream |
+| Data kind | Example | `idx:fieldType` | stored | facetable | sortable | Upstream Jena (non-SHACL fork) |
 |---|---|---|---|---|---|---|
 | Title / label, searched | `rdfs:label` of a report | `TextField` | ✓ | — | — | ✓ |
-| Name, exact match + counts | author, operator, publisher | `KeywordField` | ✗ | ✓ | ✓ + `idx:normalizer` | match only |
+| Name, exact match + counts | author, operator, publisher | `KeywordField` | ✗ | ✓ | ✓ + `idx:normalizer` | exact match only |
 | Description / abstract | `dcterms:description` | `TextField` | ✓ | — | — | ✓ |
-| Identifier / code, exact | `RPT-MIA-2023-001` | `KeywordField` | ✗ | ✓ if counted | — | match only |
+| Identifier / code, exact | `RPT-MIA-2023-001` | `KeywordField` | ✗ | ✓ if counted | — | exact match only |
 | Identifier, prefix typeahead | same value, n-grams | `TextField` | ✗ | — | — | via `text:GenericAnalyzer` |
-| Vocabulary term | `Gold`, `Approved`, `WA` | `KeywordField` | ✗ | ✓ | ✓ if sorted on | match only |
+| Vocabulary term | `Gold`, `Approved`, `WA` | `KeywordField` | ✗ | ✓ | ✓ if sorted on | exact match only |
 | Level of a facet hierarchy | `country` then `state` | `KeywordField` | ✗ | ✓ | — | ✗ |
 | Entity class | `rdf:type` → `Borehole` | `KeywordField` | ✗ | ✓ | — | ✗ |
 | Year or count | `2023`, `42` | `IntField` | ✗ | ✓ | ✓ | ✗ |
@@ -46,12 +46,15 @@ one that matched.
 
 Set `idx:multiValued true` wherever the predicate can repeat.
 
-**Upstream** is what Apache Jena's `text:entityMap` / `text:query` mode does. It has no field
-types: `TextIndexLucene` writes every value as an analyzed text field keyed by predicate, with
-no points, docvalues or facet fields — so no facets, no sort, no range filters, no nesting and
-no spatial. *Match only* means the value can be matched exactly by pairing the predicate with
-`text:KeywordAnalyzer` / `text:LowerCaseKeywordAnalyzer`, but not counted or sorted. Edge
-n-grams are reachable upstream by assembling a tokenizer with `text:GenericAnalyzer`; the
+**Upstream Jena (non-SHACL fork)** is Apache Jena's `text:entityMap` / `text:query` mode. It
+has no field types: `TextIndexLucene` writes every value as an analyzed text field keyed by
+predicate, with no points, docvalues or facet fields — so no facets, no sort, no range
+filters, no nesting and no spatial.
+
+*Exact match only* means you get the matching half of the row and not the rest: pair the
+predicate with `text:KeywordAnalyzer` or `text:LowerCaseKeywordAnalyzer` and `text:query`
+finds entities by the whole value, but nothing counts it as a facet or sorts by it. Edge
+n-grams are reachable there by assembling a tokenizer with `text:GenericAnalyzer`; the
 `text:EdgeNGramAnalyzer` shorthand is this fork's.
 
 ## Query syntax on a TEXT field
