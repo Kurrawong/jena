@@ -7,9 +7,7 @@ this page is which to pick. Each recipe names the test that pins it.
 
 - The graph holds the values; the index narrows entities. Store a field only when
   `luc:match` / `luc:nestedMatch` must project it.
-- Graph-derived documents are rebuilt on any relevant triple change. Shapes with an
-  `idx:externalSource` are rebuild-only: the producer refuses live changes and logs that the
-  document is stale until `ShaclBulkIndexer` runs.
+- Documents are rebuilt on any relevant triple change, so stored values track the graph.
 - The flags are independent: `idx:indexed` writes searchable terms, `idx:stored` a stored
   copy, `idx:facetable` facet docvalues, `idx:sortable` sort docvalues.
 - Exact match and free-text search want two fields over one path, not one field with a
@@ -336,7 +334,6 @@ docvalues, making sort on a repeated field well-defined.
 | `idx:indexed false` on a filtered field | Clause dropped and logged; results come back unfiltered, no error |
 | One `TEXT` field for exact match *and* search | Tokenisation breaks `=` |
 | Storing values nothing projects | Index size for no benefit |
-| Storing external-source values corrected upstream | Rebuild-only shape: stale until `ShaclBulkIndexer` runs |
 | n-grams on names | Term explosion, broken ranking |
 | Flattening correlated children | Cross-matching between unrelated child records |
 | Forgetting `idx:multiValued` | Values after the first vanish with a log line |
