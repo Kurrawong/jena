@@ -10,8 +10,25 @@ For what each term means, see [03-configuration.md](03-configuration.md). This p
 
 **The index is a filter, not a store of record.** The graph holds the truth. Lucene exists to
 narrow millions of entities to a page of candidates; the values come back from the KG, or from
-`luc:match` when you have deliberately stored them. Every stored value is a copy that goes
-stale the moment the source changes, and a rebuild you owe.
+`luc:match` when you have deliberately stored them.
+
+Stored values drawn from the graph do **not** go stale: `ShaclTextDocProducer` rebuilds the
+whole entity document on any relevant triple change, resolving inverse and sequence paths back
+to the entities that need rebuilding. Two cases do decay, and they are the ones to hold in
+mind:
+
+- **External children.** A shape with an `idx:externalSource` is rebuild-only. The producer
+  refuses to act on a live change — rebuilding from the graph alone would silently strip the
+  CSV-derived children — and logs that the document is now stale pending a `ShaclBulkIndexer`
+  run. Values sourced from a file are as fresh as the last build.
+- **Anything corrected outside the dataset.** If the authoritative value lives in a database
+  the graph mirrors, storing it in Lucene adds a second copy to keep in step.
+
+So the reason not to store is mostly cost, not staleness: a stored copy of a field nothing
+projects is index size and merge time bought for nothing.
+
+*The live-rebuild behaviour is pinned by `TestShaclTextDocProducer`; the rebuild-only refusal
+by `TestExternalContentIndexing` ("live graph change does not strip external children").*
 
 **Each flag buys exactly one capability, and costs one structure.** `idx:indexed` for
 filtering, `idx:stored` for projection, `idx:facetable` for counts, `idx:sortable` for
@@ -51,9 +68,9 @@ What to **write in the config** — not what the defaults happen to be. `idx:ind
 **Stored is ✗ on every row on purpose.** Filtering, faceting and sorting all read structures
 that `idx:stored` has nothing to do with: a date buckets from its epoch docvalues, a number
 from its points and docvalues, a keyword from its facet docvalues. Storing buys exactly one
-thing — the value coming back in `luc:match` / `luc:nestedMatch` — and costs a copy that goes
-stale. Set `idx:stored true` on the handful of fields a result list actually renders from the
-index rather than from the graph, and leave the rest.
+thing — the value coming back in `luc:match` / `luc:nestedMatch` — and costs index size and
+merge time. Set `idx:stored true` on the handful of fields a result list actually renders from
+the index rather than from the graph, and leave the rest.
 
 Set `idx:multiValued true` wherever the predicate can repeat — see
 [Multi-valued fields](#multi-valued-fields). Leave `idx:indexed` alone.
@@ -290,8 +307,11 @@ Note the asymmetry worth knowing: numeric facet/sort docvalues are written from 
 field therefore produces one that counts and sorts but cannot be filtered — and the filter
 does not error, it is silently dropped. Leave `idx:indexed` alone.
 
-**Don't** store a volatile number you can re-fetch. Storing means the index is stale the
-moment the value is corrected.
+**Don't** store a number you can re-fetch and never display. If the values come from the
+graph the change listener keeps them current, so this is a size question, not a correctness
+one — but a stored copy of a field no result row renders is pure cost. If they come from an
+`idx:externalSource`, storing them also means a correction upstream is invisible until the
+next bulk build.
 
 *Backed by `TestRangeFacetCounts` (INT, LONG, DOUBLE and TEMPORAL buckets).*
 
@@ -439,7 +459,8 @@ which is what makes sorting on a repeated field well-defined.
 |---|---|
 | `idx:indexed false` on anything a client filters | The clause is dropped, logged, and the query returns unfiltered results. No error |
 | One `TEXT` field doing exact match *and* search | Tokenisation breaks `=`; the analyzer you pick is wrong for one of the two jobs |
-| Storing volatile values | Every correction upstream needs a reindex before the index stops lying |
+| Storing values nothing projects | Index size and merge time bought for nothing. (Graph-derived values stay current — the change listener rebuilds the document — so this is cost, not staleness) |
+| Storing external-source values you also correct upstream | A shape with `idx:externalSource` is rebuild-only: the producer refuses live changes and logs that the document is stale until `ShaclBulkIndexer` runs |
 | n-grams on names | Term explosion, broken ranking, `"Jon"` matching three unrelated people |
 | Flattening correlated children | "copper above 1%" matches the sample with copper at 0.2% and lead at 5% |
 | Forgetting `idx:multiValued` | Values after the first vanish with only a log line |
