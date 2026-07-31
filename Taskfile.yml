@@ -84,9 +84,9 @@ tasks:
   push_gswa:
     desc: Push runtime (as rdf-delta-server) and the loader to the GSWA ACR (gswareg.azurecr.io) with :IMAGE_TAG and :latest
     cmds:
-      # On gswareg the runtime is published under the GSWA naming convention
-      # (rdf-delta-server), not fuseki-lucene-shacl. GHCR and gswadevacr use
-      # fuseki-lucene-shacl.
+      # On gswareg both images follow the GSWA naming convention —
+      # rdf-delta-server and fuseki-loader — not fuseki-lucene-shacl and
+      # fuseki-lucene-shacl-loader, which GHCR and gswadevacr use.
       - task: runtime-acr-push
         vars:
           ACR_NAME: gswareg
@@ -94,6 +94,7 @@ tasks:
       - task: loader-acr-push
         vars:
           ACR_NAME: gswareg
+          IMAGE_NAME: fuseki-loader
 
   # ── Vulnerability scanning ──────────────────────────────
 

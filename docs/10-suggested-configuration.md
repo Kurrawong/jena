@@ -29,7 +29,7 @@ What to write, not what the defaults are. `idx:indexed` and `idx:stored` both de
 | Identifier / code, exact | `RPT-MIA-2023-001` | `KeywordField` | ✗ | ✓ if counted | — |
 | Identifier, prefix typeahead | same value, n-grams | `TextField` | ✗ | — | — |
 | Vocabulary term | `Gold`, `Approved`, `WA` | `KeywordField` | ✗ | ✓ | — |
-| Level of a facet hierarchy | `state` then `commodity` | `KeywordField` | ✗ | ✓ | — |
+| Level of a facet hierarchy | `country` then `state` | `KeywordField` | ✗ | ✓ | — |
 | Entity class | `rdf:type` → `Borehole` | `KeywordField` | ✗ | ✓ | — |
 | Year or count | `2023`, `42` | `IntField` | ✗ | ✓ | ✓ |
 | Measurement / grade / score | `12.4` | `DoubleField` | ✗ | ✓ | ✓ |
