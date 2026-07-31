@@ -147,30 +147,40 @@ The stored copy would be the largest thing in the index; the graph returns it by
 
 ## Vocabularies and taxonomies
 
-A vocabulary term is one value from a closed list. A hierarchy level is one field per rung;
-`idx:facetHierarchy` declares the nesting.
+A vocabulary term is one value from a closed list. Add `idx:multiValued true` if the predicate
+repeats:
 
 ```turtle
+field:status
+    idx:fieldName "status" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true .
+```
+
+A hierarchy is one field per level, listed parent to child. `idx:facetHierarchy` declares the
+nesting so a facet can drill from a country into its states:
+
+```turtle
+field:country
+    idx:fieldName "country" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true .
+
 field:state
     idx:fieldName "state" ;
     idx:fieldType idx:KeywordField ;
     idx:stored false ;
     idx:facetable true .
 
-field:commodity
-    idx:fieldName "commodity" ;
-    idx:fieldType idx:KeywordField ;
-    idx:stored false ;
-    idx:facetable true ;
-    idx:multiValued true .
-
-<#MiningReportShape>
-    sh:property [ idx:field field:state     ; sh:path ex:state ] ;
-    sh:property [ idx:field field:commodity ; sh:path ex:commodity ] ;
-    idx:facetHierarchy ( field:state field:commodity ) .
+<#SiteShape>
+    sh:property [ idx:field field:country ; sh:path ex:country ] ;
+    sh:property [ idx:field field:state   ; sh:path ex:state ] ;
+    idx:facetHierarchy ( field:country field:state ) .
 ```
 
-Each level keeps its own flat dimension, so faceting on `field:commodity` alone still works.
+Each level keeps its own flat dimension, so faceting on `field:state` alone still works.
 
 **Don't** use `TEXT`. `=` compiles to a term query either way, so against a tokenised field it
 looks for the term `"Iron Ore"`, which analysis never produced — matching nothing, silently.
