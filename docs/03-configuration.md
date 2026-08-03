@@ -93,7 +93,7 @@ it. Pointing `sh:property` straight at a field resource is the old form and is r
 | `sh:targetClass` | yes | Entity class this profile indexes. Repeatable |
 | `sh:property` | yes¹ | A root field occurrence |
 | `idx:nested` | yes¹ | A child collection — see [Nested Child Records](#nested-child-records) |
-| `idx:facetHierarchy` | no | Ordered list of fields forming one hierarchical facet dimension |
+| `idx:facetHierarchy` | no | Ordered list of fields forming one hierarchical facet dimension — see [Hierarchical Facets](#hierarchical-facets) |
 | `idx:docIdField` | no, default `"uri"` | Lucene field holding the entity IRI. Must be identical across every profile in one index |
 | `idx:discriminatorField` | no, default `"docType"` | Lucene field holding the target class's local name, so deletes stay scoped to one profile |
 
@@ -338,6 +338,69 @@ Inverse path:
 sh:path [ sh:inversePath ex:authored ] .
 ```
 
+## Hierarchical Facets
+
+`idx:facetHierarchy` on a shape takes an ordered list of fields, outermost level first,
+and builds one facet dimension named by joining their field names with `_`. A hierarchy
+over `( field:dataTypeGrouping field:dataType )` is addressed as
+`dataTypeGrouping_dataType`: faceting on it returns the groupings, and drilling down into
+one returns the datatypes inside it.
+
+### Correlated levels
+
+How the levels are paired depends on their **paths**. When each level's path extends the
+path of the level below it — a *prefix chain* — the levels are correlated by walking those
+paths through the graph. Otherwise the dimension is the cartesian product of the levels'
+values.
+
+```turtle
+sh:property [ idx:field field:dataType         ; sh:path gswa:hasDisplayTable ] ;
+sh:property [ idx:field field:dataTypeGrouping ; sh:path ( gswa:hasDisplayTable gswa:hasGrouping ) ] ;
+idx:facetHierarchy ( field:dataTypeGrouping field:dataType ) ;
+```
+
+Here the display-table node is where the levels meet: `dataType` **is** that node, and
+`dataTypeGrouping` is one step beyond it. For an entity carrying two display tables in two
+different groupings,
+
+```text
+dataType          = [ display/borehole, display/geochem-results ]
+dataTypeGrouping  = [ datatype/Holes,   datatype/Geochemistry   ]
+```
+
+only the two paths that exist in the data are emitted — `Holes / borehole` and
+`Geochemistry / geochem-results`. Reading the two fields independently would also emit
+`Holes / geochem-results` and `Geochemistry / borehole`, so drilling into `Holes` would
+offer a datatype that is not in it and the children would out-count the parent.
+
+Correlation needs a single unambiguous node at which two levels meet, so it applies when:
+
+- every level has **exactly one** root occurrence — a field fed by two paths (fan-in) has
+  no single meeting node;
+- every level's path has a single variant — no alternative paths;
+- each level's path **strictly extends** the next level's, step for step. Inverse steps
+  chain like any other step.
+
+Levels that are not prefix-chained keep the cartesian product, which is what independent
+levels want. When such a hierarchy has more than one multi-valued level — the shape that
+silently invents paths — a warning is logged at config time naming the dimension and the
+levels involved.
+
+A correlated level's path is walked from the entity outwards, so a value that does not
+reach the level above it contributes nothing to the dimension: a display table with no
+grouping is absent from `dataTypeGrouping_dataType`, while remaining a value of the flat
+`dataType` facet. Partial paths are not emitted, because an entity must not be counted
+under a parent it does not have.
+
+Change tracking needs no extra configuration: correlation is derived from occurrences that
+are already declared, so an edit anywhere along the chain — including one to the
+vocabulary rather than to the entity, such as `display/borehole gswa:hasGrouping …` —
+reindexes every affected entity.
+
+Hierarchy ordinals live in the taxonomy directory. Leave `text:taxonomyDirectory` unset and
+the counts vanish entirely when indexing and querying are separate processes — see
+[Index Resources](#index-resources).
+
 ## Nested Child Records
 
 `idx:nested` declares a repeated child collection on a shape. Each child becomes its own Lucene doc inside the entity's block; clauses targeting the same nested scope can be combined with same-child correlation at query time.
@@ -468,7 +531,7 @@ plain field, and for the n-gram configurations that are permitted but not advise
 - Scope names are resolved across the whole mapping, so an explicit `idx:nestedName` must be unique among all `idx:nested` blocks in the index, not just within its shape.
 - `idx:joinPath` may be a simple predicate, an inverse predicate, or a sequence of predicate steps. It does not support alternative paths.
 - Both the exact-keyword and edge-ngram-text variants can sit on the same SHACL path — they are different Lucene fields driven by their own analyzers.
-- `idx:facetHierarchy` inside an `idx:nested` block defines a hierarchy whose levels are correlated per child record (no cartesian products).
+- `idx:facetHierarchy` inside an `idx:nested` block defines a hierarchy whose levels are correlated per child record (no cartesian products). A hierarchy on the shape correlates instead when its levels' paths form a prefix chain — see [Correlated levels](#correlated-levels).
 - A field named in an `idx:facetHierarchy` keeps its own flat facet dimension. Faceting on the field IRI returns that field's counts across all parents; faceting on the hierarchy's dimension name returns its top level, or the children of a drill-down path. The two are addressed separately and neither shadows the other.
 - Faceting on a field that is not `idx:facetable` is an error — there is no dimension to answer from.
 

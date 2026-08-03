@@ -28,8 +28,11 @@ import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.text.analyzer.EdgeNGramAnalyzer;
 import org.apache.jena.query.text.analyzer.LowerCaseKeywordAnalyzer;
 import org.apache.jena.sparql.path.Path;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Parsed representation of SHACL-driven index shapes.
@@ -38,6 +41,8 @@ import org.apache.lucene.analysis.standard.StandardAnalyzer;
  * separately as root or nested field occurrences.
  */
 public class ShaclIndexMapping {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ShaclIndexMapping.class);
 
     public enum FieldType {
         TEXT, KEYWORD, INT, LONG, DOUBLE, TEMPORAL, LATLON
@@ -245,6 +250,124 @@ public class ShaclIndexMapping {
         @Override
         public String toString() {
             return "HierarchyDef(" + dimensionName + ", levels=" + levels + ")";
+        }
+    }
+
+    /**
+     * A {@link HierarchyDef} whose levels can be built by walking the graph instead of
+     * by taking the cartesian product of independently-read field values.
+     * <p>
+     * This applies when the level occurrences form a <em>prefix chain</em>: each level's
+     * SHACL path extends the path of the level below it. In
+     * <pre>
+     * sh:property [ idx:field field:dataType         ; sh:path gswa:hasDisplayTable ] ;
+     * sh:property [ idx:field field:dataTypeGrouping ; sh:path ( gswa:hasDisplayTable gswa:hasGrouping ) ] ;
+     * idx:facetHierarchy ( field:dataTypeGrouping field:dataType ) ;
+     * </pre>
+     * the display-table node is where the two levels meet: {@code dataType} <em>is</em>
+     * that node and {@code dataTypeGrouping} is one step beyond it. Reading the two
+     * fields independently loses that pairing, so an entity with display tables in two
+     * different groupings yields four paths, two of which are not in the data.
+     * <p>
+     * The walk instead starts at the innermost (last, shortest-path) level and ascends
+     * one level at a time, so every emitted path corresponds to a chain of real edges.
+     * Levels that are not prefix-chained keep the cartesian behaviour.
+     */
+    public static class CorrelatedHierarchy {
+        private final HierarchyDef hierarchy;
+        private final List<FieldOccurrence> levelOccurrences;
+        private final List<Path> ascentPaths;
+
+        private CorrelatedHierarchy(HierarchyDef hierarchy, List<FieldOccurrence> levelOccurrences,
+                                    List<Path> ascentPaths) {
+            this.hierarchy = hierarchy;
+            this.levelOccurrences = Collections.unmodifiableList(new ArrayList<>(levelOccurrences));
+            this.ascentPaths = Collections.unmodifiableList(new ArrayList<>(ascentPaths));
+        }
+
+        public HierarchyDef getHierarchy()      { return hierarchy; }
+        public String getDimensionName()        { return hierarchy.getDimensionName(); }
+        public int getDepth()                   { return hierarchy.getDepth(); }
+        public FieldDef getLevel(int index)     { return hierarchy.getLevel(index); }
+        public FieldOccurrence getLevelOccurrence(int index) { return levelOccurrences.get(index); }
+
+        /** Path from the entity root to the innermost level's node. */
+        public Path getInnermostPath() {
+            return levelOccurrences.get(levelOccurrences.size() - 1).getPath();
+        }
+
+        /** Path from the node at {@code level + 1} to the node at {@code level}. */
+        public Path getAscentPath(int level) {
+            return ascentPaths.get(level);
+        }
+
+        /**
+         * Derive a correlated plan for {@code hierarchy}, or return {@code null} when its
+         * levels are not prefix-chained and the cartesian product must be kept.
+         * <p>
+         * Requires exactly one root occurrence per level with a single path variant:
+         * a field reached by two different paths (fan-in) or by an alternative path has
+         * no single node at which the levels meet.
+         */
+        static CorrelatedHierarchy derive(HierarchyDef hierarchy, List<FieldOccurrence> rootOccurrences) {
+            List<FieldOccurrence> levelOccurrences = new ArrayList<>(hierarchy.getDepth());
+            for (FieldDef level : hierarchy.getLevels()) {
+                FieldOccurrence match = null;
+                for (FieldOccurrence occurrence : rootOccurrences) {
+                    if (!occurrence.isRootScoped()
+                            || !occurrence.getField().getFieldName().equals(level.getFieldName())) {
+                        continue;
+                    }
+                    if (match != null) {
+                        return null;
+                    }
+                    match = occurrence;
+                }
+                if (match == null || match.getPathVariants().size() != 1) {
+                    return null;
+                }
+                levelOccurrences.add(match);
+            }
+
+            List<Path> ascentPaths = new ArrayList<>(hierarchy.getDepth() - 1);
+            for (int level = 0; level < hierarchy.getDepth() - 1; level++) {
+                List<JoinStep> outer = levelOccurrences.get(level).getPathVariants().get(0);
+                List<JoinStep> inner = levelOccurrences.get(level + 1).getPathVariants().get(0);
+                if (inner.size() >= outer.size() || !isPrefix(inner, outer)) {
+                    return null;
+                }
+                ascentPaths.add(toPath(outer.subList(inner.size(), outer.size())));
+            }
+
+            return new CorrelatedHierarchy(hierarchy, levelOccurrences, ascentPaths);
+        }
+
+        private static boolean isPrefix(List<JoinStep> prefix, List<JoinStep> steps) {
+            for (int i = 0; i < prefix.size(); i++) {
+                JoinStep a = prefix.get(i);
+                JoinStep b = steps.get(i);
+                if (a.isInverse() != b.isInverse() || !a.getPredicate().equals(b.getPredicate())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static Path toPath(List<JoinStep> steps) {
+            Path path = null;
+            for (JoinStep step : steps) {
+                Path link = PathFactory.pathLink(step.getPredicate());
+                if (step.isInverse()) {
+                    link = PathFactory.pathInverse(link);
+                }
+                path = (path == null) ? link : PathFactory.pathSeq(path, link);
+            }
+            return path;
+        }
+
+        @Override
+        public String toString() {
+            return "CorrelatedHierarchy(" + getDimensionName() + ", ascent=" + ascentPaths + ")";
         }
     }
 
@@ -619,6 +742,7 @@ public class ShaclIndexMapping {
         private final List<FieldOccurrence> rootOccurrences;
         private final List<HierarchyDef> hierarchies;
         private final List<NestedDef> nestedDefs;
+        private final Map<String, CorrelatedHierarchy> correlatedHierarchies;
 
         public IndexProfile(Node shapeNode, Set<Node> targetClasses,
                             String docIdField, String discriminatorField,
@@ -657,6 +781,46 @@ public class ShaclIndexMapping {
             this.nestedDefs = nestedDefs != null
                 ? Collections.unmodifiableList(new ArrayList<>(nestedDefs))
                 : Collections.emptyList();
+            this.correlatedHierarchies = deriveCorrelatedHierarchies(
+                this.shapeNode, this.hierarchies, this.rootOccurrences);
+        }
+
+        /**
+         * Work out, once at config time, which root hierarchies can be built by walking
+         * the graph rather than by cross-producting their levels.
+         * <p>
+         * A hierarchy that stays cartesian and has more than one multi-valued level is
+         * the shape that silently produces wrong counts, so it is warned about here —
+         * the alternative is a config that looks fine and quietly invents facet paths.
+         */
+        private static Map<String, CorrelatedHierarchy> deriveCorrelatedHierarchies(
+                Node shapeNode, List<HierarchyDef> hierarchies, List<FieldOccurrence> rootOccurrences) {
+            if (hierarchies.isEmpty()) {
+                return Collections.emptyMap();
+            }
+            Map<String, CorrelatedHierarchy> correlated = new LinkedHashMap<>();
+            for (HierarchyDef hierarchy : hierarchies) {
+                CorrelatedHierarchy plan = CorrelatedHierarchy.derive(hierarchy, rootOccurrences);
+                if (plan != null) {
+                    correlated.put(hierarchy.getDimensionName(), plan);
+                    continue;
+                }
+                List<String> multiValued = new ArrayList<>();
+                for (FieldDef level : hierarchy.getLevels()) {
+                    if (level.isMultiValued()) {
+                        multiValued.add(level.getFieldName());
+                    }
+                }
+                if (multiValued.size() > 1) {
+                    LOG.warn("Hierarchy '{}' on shape {} has multi-valued levels {} that are not "
+                        + "prefix-chained, so its facet paths are the cartesian product of those "
+                        + "levels. Where the values are pairwise related, drill-down will show "
+                        + "combinations that are not in the data. Give the levels SHACL paths where "
+                        + "each extends the one below it, or move them into an idx:nested block.",
+                        hierarchy.getDimensionName(), shapeNode, multiValued);
+                }
+            }
+            return Collections.unmodifiableMap(correlated);
         }
 
         public Node getShapeNode()               { return shapeNode; }
@@ -667,6 +831,16 @@ public class ShaclIndexMapping {
         public List<FieldOccurrence> getRootOccurrences() { return rootOccurrences; }
         public List<HierarchyDef> getHierarchies() { return hierarchies; }
         public List<NestedDef> getNestedDefs()   { return nestedDefs; }
+
+        /** Correlated build plans for root hierarchies, keyed by dimension name. */
+        public Collection<CorrelatedHierarchy> getCorrelatedHierarchies() {
+            return correlatedHierarchies.values();
+        }
+
+        /** The correlated plan for {@code dimensionName}, or null if it stays cartesian. */
+        public CorrelatedHierarchy getCorrelatedHierarchy(String dimensionName) {
+            return correlatedHierarchies.get(dimensionName);
+        }
 
         /** True when any nested block of this profile draws its children from an
          *  external source. Such a profile can only be built by {@link ShaclBulkIndexer};

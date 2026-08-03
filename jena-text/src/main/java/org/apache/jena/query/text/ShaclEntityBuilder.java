@@ -25,6 +25,7 @@ import java.util.*;
 
 import org.apache.jena.graph.Graph;
 import org.apache.jena.graph.Node;
+import org.apache.jena.query.text.ShaclIndexMapping.CorrelatedHierarchy;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
@@ -96,7 +97,68 @@ final class ShaclEntityBuilder {
             }
         }
 
+        for (CorrelatedHierarchy hierarchy : profile.getCorrelatedHierarchies()) {
+            addCorrelatedHierarchyPaths(graph, subject, entity, hierarchy);
+        }
+
         return entity;
+    }
+
+    /**
+     * Walk the graph to build the facet paths of a correlated hierarchy.
+     * <p>
+     * Starts at the innermost (deepest, shortest-path) level and ascends one level at a
+     * time, so each emitted path is a chain of edges that exists in the data. An entity
+     * with two display tables in different groupings yields exactly its two real paths,
+     * where cross-producting the two levels' values would yield four.
+     */
+    private static void addCorrelatedHierarchyPaths(Graph graph, Node subject, Entity entity,
+            CorrelatedHierarchy hierarchy) {
+        int innermost = hierarchy.getDepth() - 1;
+        Iterator<Node> iter = PathEval.eval(graph, subject, hierarchy.getInnermostPath(), indexingContext());
+        while (iter.hasNext()) {
+            Node node = iter.next();
+            ascendHierarchy(graph, entity, hierarchy, innermost, node, new ArrayDeque<>());
+        }
+    }
+
+    /**
+     * Prepend the value of {@code node} at {@code level} and recurse to the level above,
+     * emitting a facet path once level 0 is reached. A level that contributes no usable
+     * value, or whose ancestor step finds nothing, contributes no path at all — a
+     * partial path would count the entity under a parent it does not have.
+     */
+    private static void ascendHierarchy(Graph graph, Entity entity, CorrelatedHierarchy hierarchy,
+            int level, Node node, Deque<String> pathSoFar) {
+        FieldOccurrence occurrence = hierarchy.getLevelOccurrence(level);
+        if (!satisfiesConstraints(graph, node, occurrence)) {
+            return;
+        }
+        Object value = nodeToValue(node, occurrence.getField().getFieldType(),
+            occurrence.getField().preservesLiteralMetadata());
+        if (value == null) {
+            return;
+        }
+        String component = value.toString();
+        if (component.isBlank()) {
+            return;
+        }
+
+        pathSoFar.addFirst(component);
+        if (level == 0) {
+            entity.addHierarchyPath(hierarchy.getDimensionName(), new ArrayList<>(pathSoFar));
+        } else {
+            Iterator<Node> iter = PathEval.eval(graph, node, hierarchy.getAscentPath(level - 1),
+                indexingContext());
+            Set<Node> seen = new LinkedHashSet<>();
+            while (iter.hasNext()) {
+                Node ancestor = iter.next();
+                if (seen.add(ancestor)) {
+                    ascendHierarchy(graph, entity, hierarchy, level - 1, ancestor, pathSoFar);
+                }
+            }
+        }
+        pathSoFar.removeFirst();
     }
 
     private static Entity.NestedRecord toNestedRecord(Map<String, LinkedHashSet<Object>> recordValues) {

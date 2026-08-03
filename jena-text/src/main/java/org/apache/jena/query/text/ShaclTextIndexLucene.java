@@ -1039,6 +1039,17 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
     private void addDirectHierarchyFacetFields(Document doc, Entity entity,
             ShaclIndexMapping.IndexProfile profile, ShaclIndexMapping.HierarchyDef hierarchy) {
+        // Prefix-chained levels were correlated against the graph while the entity was
+        // built; their paths are already exact, so no cartesian product is taken here.
+        if (profile.getCorrelatedHierarchy(hierarchy.getDimensionName()) != null) {
+            for (List<String> path : entity.getHierarchyPaths(hierarchy.getDimensionName())) {
+                if (!path.isEmpty()) {
+                    doc.add(new FacetField(hierarchy.getDimensionName(), path.toArray(new String[0])));
+                }
+            }
+            return;
+        }
+
         List<List<String>> levelValues = new ArrayList<>();
         for (ShaclIndexMapping.FieldDef levelField : hierarchy.getLevels()) {
             levelValues.add(asHierarchyFacetValues(entity.get(levelField.getFieldName()),

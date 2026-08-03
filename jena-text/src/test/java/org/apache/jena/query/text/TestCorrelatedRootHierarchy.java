@@ -303,6 +303,91 @@ public class TestCorrelatedRootHierarchy {
             Long.valueOf(2), geochemistry.get(GEOCHEM_RESULTS));
     }
 
+    /**
+     * Three prefix-chained levels: theme above grouping above datatype. A document
+     * straddling two branches of the taxonomy must produce one path per branch, not the
+     * eight combinations a cartesian product over three multi-valued levels would give.
+     */
+    @Test
+    public void testThreeLevelChainStaysCorrelated() {
+        Node hasTheme = NodeFactory.createURI(NS + "hasTheme");
+        String geology = NS + "theme/Geology";
+        String chemistry = NS + "theme/Chemistry";
+        String dim = "dataTypeTheme_dataTypeGrouping_dataType";
+
+        Node dataTypeIRI = NodeFactory.createURI(FIELD_NS + "dataType");
+        Node groupingIRI = NodeFactory.createURI(FIELD_NS + "dataTypeGrouping");
+        Node themeIRI = NodeFactory.createURI(FIELD_NS + "dataTypeTheme");
+
+        FieldDef dataType = new FieldDef("dataType", FieldType.KEYWORD, null, null,
+            true, true, true, false, true, false, false, dataTypeIRI);
+        FieldDef grouping = new FieldDef("dataTypeGrouping", FieldType.KEYWORD, null, null,
+            true, true, true, false, true, false, false, groupingIRI);
+        FieldDef theme = new FieldDef("dataTypeTheme", FieldType.KEYWORD, null, null,
+            true, true, true, false, true, false, false, themeIRI);
+
+        IndexProfile profile = new IndexProfile(
+            NodeFactory.createURI(NS + "DocumentShape"),
+            Collections.singleton(DOCUMENT_CLASS),
+            "uri", "docType",
+            Arrays.asList(dataType, grouping, theme),
+            Arrays.asList(
+                occurrence(dataType, HAS_DISPLAY_TABLE),
+                occurrence(grouping, HAS_DISPLAY_TABLE, HAS_GROUPING),
+                occurrence(theme, HAS_DISPLAY_TABLE, HAS_GROUPING, hasTheme)),
+            Collections.singletonList(
+                new HierarchyDef(dim, Arrays.asList(theme, grouping, dataType))),
+            Collections.emptyList());
+
+        ShaclIndexMapping mapping = new ShaclIndexMapping(Collections.singletonList(profile));
+        TextIndexConfig config = new TextIndexConfig(ShaclIndexAssembler.deriveEntityDefinition(mapping));
+        config.setShaclMapping(mapping);
+        config.setFacetFields(mapping.getFacetFieldNames());
+        config.setValueStored(true);
+
+        ShaclTextIndexLucene index = new ShaclTextIndexLucene(
+            new ByteBuffersDirectory(), new ByteBuffersDirectory(), config);
+        Dataset baseDs = DatasetFactory.create();
+        Dataset ds = TextDatasetFactory.create(baseDs, index, true,
+            new ShaclTextDocProducer(baseDs.asDatasetGraph(), index, mapping));
+        try {
+            ds.begin(ReadWrite.WRITE);
+            try {
+                Model model = ds.getDefaultModel();
+                addGrouping(model, BOREHOLE, HOLES);
+                addGrouping(model, GEOCHEM_RESULTS, GEOCHEMISTRY);
+                model.add(ResourceFactory.createResource(HOLES),
+                    ResourceFactory.createProperty(hasTheme.getURI()),
+                    ResourceFactory.createResource(geology));
+                model.add(ResourceFactory.createResource(GEOCHEMISTRY),
+                    ResourceFactory.createProperty(hasTheme.getURI()),
+                    ResourceFactory.createResource(chemistry));
+                addDocument(model, "doc1", BOREHOLE, GEOCHEM_RESULTS);
+                ds.commit();
+            } finally {
+                ds.end();
+            }
+
+            Map<String, String[]> geologyGrouping = new HashMap<>();
+            geologyGrouping.put(dim, new String[] {geology});
+            Map<String, Long> underGeology = toFacetMap(index.getFacetCounts(
+                null, null, Collections.singletonList(dim), 20, 0, geologyGrouping).get(dim));
+            assertEquals(Long.valueOf(1), underGeology.get(HOLES));
+            assertFalse("Geochemistry does not sit under the Geology theme",
+                underGeology.containsKey(GEOCHEMISTRY));
+
+            Map<String, String[]> geologyHoles = new HashMap<>();
+            geologyHoles.put(dim, new String[] {geology, HOLES});
+            Map<String, Long> underHoles = toFacetMap(index.getFacetCounts(
+                null, null, Collections.singletonList(dim), 20, 0, geologyHoles).get(dim));
+            assertEquals(Long.valueOf(1), underHoles.get(BOREHOLE));
+            assertFalse("geochem-results is not reachable through Geology / Holes",
+                underHoles.containsKey(GEOCHEM_RESULTS));
+        } finally {
+            ds.close();
+        }
+    }
+
     /** A display table with no grouping contributes nothing to the hierarchy dimension. */
     @Test
     public void testDisplayTableWithoutGroupingIsAbsentFromHierarchy() {

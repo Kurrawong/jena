@@ -139,6 +139,7 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestHierarchicalFacetsSparql.class
     , TestNestedHierarchicalFacets.class
     , TestCorrelatedRootHierarchy.class
+    , org.apache.jena.query.text.assembler.TestCorrelatedHierarchyDerivation.class
     , TestCorrelatedNestedAttribution.class
     , TestTypeaheadFieldConfigurations.class
     , TestNestedJoinPathSupport.class

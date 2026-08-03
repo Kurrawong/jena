@@ -39,6 +39,7 @@ public class Entity
     private final RDFDatatype datatype ;
     private final Map<String, Object> map = new HashMap<>() ;
     private final Map<String, List<NestedRecord>> nestedRecords = new LinkedHashMap<>() ;
+    private final Map<String, List<List<String>>> hierarchyPaths = new LinkedHashMap<>() ;
 
     public static class NestedRecord {
         private final Map<String, Object> values = new LinkedHashMap<>() ;
@@ -108,6 +109,19 @@ public class Entity
 
     public Map<String, List<NestedRecord>> getNestedRecords() {
         return nestedRecords;
+    }
+
+    /**
+     * Record one facet path for a correlated hierarchy dimension. Such paths are walked
+     * out of the graph while the entity is built, because the correlation between levels
+     * is a property of the graph and cannot be recovered from the flattened field values.
+     */
+    public void addHierarchyPath(String dimensionName, List<String> path) {
+        hierarchyPaths.computeIfAbsent(dimensionName, k -> new ArrayList<>()).add(path);
+    }
+
+    public List<List<String>> getHierarchyPaths(String dimensionName) {
+        return hierarchyPaths.getOrDefault(dimensionName, Collections.emptyList());
     }
 
     @SuppressWarnings("unchecked")
