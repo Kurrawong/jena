@@ -118,6 +118,16 @@ final class ShaclEntityBuilder {
 
     private static List<Object> extractOccurrenceValues(Graph graph, Node subject, FieldOccurrence occurrence) {
         LinkedHashSet<Object> values = new LinkedHashSet<>();
+        if (occurrence.isSelf()) {
+            // The focus node itself: the entity at root scope, the child node inside a
+            // nested block. Constraints still apply — they filter the focus node.
+            if (!satisfiesConstraints(graph, subject, occurrence)) {
+                return Collections.emptyList();
+            }
+            Object value = nodeToValue(subject, occurrence.getField().getFieldType(),
+                occurrence.getField().preservesLiteralMetadata());
+            return value != null ? List.of(value) : Collections.emptyList();
+        }
         Iterator<Node> iter = PathEval.eval(graph, subject, occurrence.getPath(), indexingContext());
         while (iter.hasNext()) {
             Node endpoint = iter.next();

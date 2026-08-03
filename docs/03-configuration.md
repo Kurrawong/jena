@@ -183,13 +183,42 @@ one field cannot end up with two different definitions.
 | Property | Required | Meaning |
 |---|---|---|
 | `idx:field` | yes | The canonical field this occurrence feeds |
-| `sh:path` | yes | Direct, sequence, inverse, or alternative path from the entity (or, inside `idx:nested`, from the child node) |
+| `sh:path` | yes¹ | Direct, sequence, inverse, or alternative path from the entity (or, inside `idx:nested`, from the child node) |
+| `idx:self` | yes¹ | Bind the focus node itself instead of a path from it — see [Indexing the focus node](#indexing-the-focus-node) |
 | `sh:class` | no | Only index values whose reached node has this `rdf:type` |
 | `sh:nodeKind` | no | Restrict to `sh:IRI`, `sh:Literal`, or `sh:BlankNode` |
 | `sh:datatype` | no | Only index literals with this datatype |
 
+¹ Exactly one of `sh:path` / `idx:self`. Neither is an error, and so is both.
+
 Several occurrences may feed one field — that is how a value fans in from more than one
 path. They must all resolve to the same canonical definition.
+
+### Indexing the focus node
+
+`idx:self true` feeds a field from the node the occurrence is evaluated against, rather
+than from a path leading away from it. That node is the **entity** for a root occurrence
+and the **child node** inside an `idx:nested` block.
+
+```turtle
+sh:property [ idx:field field:entityIri ; idx:self true ] ;
+```
+
+The value constraints still apply — they filter the focus node itself, so
+`sh:nodeKind sh:IRI` on a self occurrence means "only index this child when it is an IRI".
+
+A focus node is a resource, so a self-bound field must be `idx:KeywordField` or
+`idx:TextField`; the numeric and temporal types have nothing to convert and are rejected at
+config time. Blank nodes yield no value at all — their labels are not stable across a
+reload, so indexing them would be meaningless — and the field is simply absent from that
+document.
+
+A self occurrence contributes no predicates to change tracking, which is correct: its value
+cannot change without the entity or the join that reaches it changing, and both are already
+tracked.
+
+The main use is a nested block whose child node is itself one of the values you want —
+see [Pattern 4](#pattern-4--hierarchy-whose-level-is-the-child-node).
 
 ## Choosing an Analyzer for a TEXT Field
 
@@ -462,13 +491,58 @@ No n-gram twin on the agent, on purpose — see
 `TestCorrelatedNestedAttribution` pins the correlation for `=`, for `text_query` on a
 plain field, and for the n-gram configurations that are permitted but not advised.
 
+### Pattern 4 — Hierarchy whose level is the child node
+
+A taxonomy is often attached to a *term* rather than to the entity: the entity references
+some term, and the term belongs to a broader grouping. Faceting on both, correlated, needs
+the term itself as a hierarchy level.
+
+```turtle
+# instance data — an entity may reference several display tables
+ex:doc1  ex:hasDisplayTable  ex:borehole , ex:downholeAssays .
+
+# vocabulary — each display table belongs to a grouping
+ex:borehole        ex:hasGrouping  ex:Holes .
+ex:downholeAssays  ex:hasGrouping  ex:Holes .
+ex:geochemResults  ex:hasGrouping  ex:Geochemistry .
+```
+
+```turtle
+<#DocumentShape>
+    sh:targetClass ex:Document ;
+    idx:nested [
+        idx:joinPath ex:hasDisplayTable ;
+        idx:property [ idx:field field:displayTable ; idx:self true ] ;
+        idx:property [ idx:field field:grouping     ; sh:path ex:hasGrouping ] ;
+        idx:facetHierarchy ( field:grouping field:displayTable ) ;
+    ] .
+```
+
+The child node **is** the display table, so its occurrence binds the focus node; the
+grouping is one step off it. Each child record carries one display table and its grouping,
+so the hierarchy is pairwise correct: a document referencing display tables in two
+different groupings produces exactly its two real paths.
+
+Declaring the two fields as **root** occurrences instead — `sh:path ex:hasDisplayTable` and
+`sh:path ( ex:hasDisplayTable ex:hasGrouping )` — would read each level's values
+independently and emit the cartesian product of the two, including
+`Holes / geochemResults`, which is not in the data. Drilling into a grouping would then
+offer terms that are not in it, and the children would out-count the parent.
+
+Both fields are child-scoped here, which is what makes them correlated, and it is also
+what determines how they behave elsewhere: they filter same-child, and they are not
+available as entity-level flat facets. If you also want a flat facet over the term across
+all entities, declare a **separate field** with its own name fed by a root occurrence on
+`ex:hasDisplayTable`. One field cannot be both — see the first rule below.
+
 ### Rules
 
 - One field IRI belongs to one scope: either root or one nested collection.
 - Scope names are resolved across the whole mapping, so an explicit `idx:nestedName` must be unique among all `idx:nested` blocks in the index, not just within its shape.
 - `idx:joinPath` may be a simple predicate, an inverse predicate, or a sequence of predicate steps. It does not support alternative paths.
 - Both the exact-keyword and edge-ngram-text variants can sit on the same SHACL path — they are different Lucene fields driven by their own analyzers.
-- `idx:facetHierarchy` inside an `idx:nested` block defines a hierarchy whose levels are correlated per child record (no cartesian products).
+- `idx:facetHierarchy` inside an `idx:nested` block defines a hierarchy whose levels are correlated per child record (no cartesian products). On a shape, the levels are read independently from the entity and cross-produced — correct when they are independent, wrong when they are pairwise related, which is what [Pattern 4](#pattern-4--hierarchy-whose-level-is-the-child-node) is for.
+- `idx:self` binds the focus node: the child node inside `idx:nested`, the entity at root. It replaces `sh:path` rather than accompanying it, and is not available on an `idx:column` — an external child is a row, not a node.
 - A field named in an `idx:facetHierarchy` keeps its own flat facet dimension. Faceting on the field IRI returns that field's counts across all parents; faceting on the hierarchy's dimension name returns its top level, or the children of a drill-down path. The two are addressed separately and neither shadows the other.
 - Faceting on a field that is not `idx:facetable` is an error — there is no dimension to answer from.
 
@@ -728,6 +802,7 @@ Every term the assembler reads, and where it is defined above:
 | Term | Goes on | Section |
 |---|---|---|
 | `idx:field` | occurrence, `idx:column` | [Occurrence properties](#occurrence-properties) |
+| `idx:self` | occurrence | [Indexing the focus node](#indexing-the-focus-node) |
 | `idx:fieldName` `idx:fieldType` | canonical field | [Field Properties](#field-properties) |
 | `idx:stored` `idx:indexed` `idx:facetable` `idx:sortable` `idx:multiValued` `idx:defaultSearch` | canonical field | [Field Properties](#field-properties) |
 | `idx:analyzer` `idx:queryAnalyzer` `idx:normalizer` | canonical field | [Field Properties](#field-properties) |
