@@ -54,8 +54,12 @@ import org.apache.jena.sparql.exec.RowSet;
 import org.apache.jena.sparql.exec.http.GSP;
 import org.apache.jena.sparql.exec.http.QueryExecHTTP;
 import org.apache.jena.sparql.sse.SSE;
+import org.apache.jena.fuseki.main.sys.FusekiSystemConstants;
 import org.apache.jena.system.Txn;
 import org.apache.jena.update.UpdateExecution;
+import org.eclipse.jetty.io.ArrayByteBufferPool;
+import org.eclipse.jetty.io.RetainableByteBuffer;
+import org.eclipse.jetty.server.Server;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 
@@ -83,6 +87,36 @@ public class TestFusekiServerBuild {
             assertFalse(server.getHttpPort() == 0 );
             assertTrue(server.getHttpsPort() == -1 );
         } finally { server.stop(); }
+    }
+
+    @Test public void fuseki_build_byte_buffer_pool() {
+        FusekiServer server = FusekiServer.create().port(0).build();
+        Server jettyServer = server.getJettyServer();
+        ArrayByteBufferPool pool = jettyServer.getBean(ArrayByteBufferPool.class);
+        assertNotNull(pool);
+        assertTrue(pool.getMaxCapacity() >= FusekiSystemConstants.jettyOutputBufferSize);
+    }
+
+    @Test public void fuseki_build_byte_buffer_pool_no_bucket_acquire() {
+        FusekiServer server = FusekiServer.create().port(0).build();
+        Server jettyServer = server.getJettyServer();
+        ArrayByteBufferPool pool = jettyServer.getBean(ArrayByteBufferPool.class);
+
+        int size = FusekiSystemConstants.jettyOutputBufferSize;
+        RetainableByteBuffer.Mutable buffer = pool.acquire(size, true);
+        buffer.release();
+
+        assertTrue(pool.getNoBucketDirectAcquires().isEmpty());
+    }
+
+    @Test public void byte_buffer_pool_default_capacity_fails_no_bucket_check() {
+        ArrayByteBufferPool defaultPool = new ArrayByteBufferPool();
+        int size = FusekiSystemConstants.jettyOutputBufferSize;
+
+        RetainableByteBuffer.Mutable buffer = defaultPool.acquire(size, true);
+        buffer.release();
+
+        assertFalse(defaultPool.getNoBucketDirectAcquires().isEmpty());
     }
 
     // The port in "testing/jetty.xml" is 1077
