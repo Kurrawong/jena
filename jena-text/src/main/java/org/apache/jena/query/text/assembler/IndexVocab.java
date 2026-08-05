@@ -85,6 +85,7 @@ public class IndexVocab {
     public static final Property pDefaultSearch = Vocab.property(NS, "defaultSearch");
     public static final Property pStoreLiteralMetadata = Vocab.property(NS, "storeLiteralMetadata");
     public static final Property pPath          = Vocab.property(NS, "path");
+    public static final Property pSelf          = Vocab.property(NS, "self");
     public static final Property pJoinPath      = Vocab.property(NS, "joinPath");
     public static final Property pProperty      = Vocab.property(NS, "property");
 

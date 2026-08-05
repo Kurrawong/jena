@@ -138,6 +138,9 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestHierarchicalFacets.class
     , TestHierarchicalFacetsSparql.class
     , TestNestedHierarchicalFacets.class
+    // idx:self — an occurrence bound to the focus node itself
+    , TestSelfBoundOccurrences.class
+    , org.apache.jena.query.text.assembler.TestSelfOccurrenceAssembler.class
     , TestCorrelatedNestedAttribution.class
     , TestTypeaheadFieldConfigurations.class
     , TestNestedJoinPathSupport.class

@@ -41,6 +41,11 @@ import org.slf4j.LoggerFactory;
 public class ShaclIndexAssembler {
     private static final Logger log = LoggerFactory.getLogger(ShaclIndexAssembler.class);
 
+    /** Field types an {@code idx:self} occurrence can feed. A focus node is a resource,
+     *  so the numeric and temporal types have nothing to convert. */
+    private static final Set<FieldType> SELF_BINDABLE_TYPES =
+        Collections.unmodifiableSet(EnumSet.of(FieldType.KEYWORD, FieldType.TEXT));
+
     private static final String SH = "http://www.w3.org/ns/shacl#";
     private static final String SH_BLANK_NODE = SH + "BlankNode";
     private static final String SH_IRI = SH + "IRI";
@@ -326,6 +331,11 @@ public class ShaclIndexAssembler {
                 "idx:column " + columnRes + " must not carry sh:path — its value comes from the "
                 + "bound column, and a path would be a second, contradicting source for the field.");
         }
+        if (columnRes.hasProperty(IndexVocab.pSelf)) {
+            throw new TextIndexException(
+                "idx:column " + columnRes + " must not carry idx:self — an external child is a "
+                + "row, not a node in the graph, so there is no focus node to bind.");
+        }
         Statement fieldStmt = columnRes.getProperty(IndexVocab.pField);
         if (fieldStmt == null || !fieldStmt.getObject().isResource()) {
             throw new TextIndexException("idx:column " + columnRes + " is missing idx:field");
@@ -441,19 +451,57 @@ public class ShaclIndexAssembler {
         reachableFields.putIfAbsent(field.getFieldIRI().getURI(), field);
 
         Path path = extractOccurrencePath(occurrenceRes);
-        if (path == null) {
-            throw new TextIndexException("Field occurrence " + occurrenceRes + " is missing sh:path");
+        boolean self = isSelfBound(occurrenceRes);
+        if (self && path != null) {
+            throw new TextIndexException("Field occurrence " + occurrenceRes
+                + " has both idx:self and sh:path. A field is fed by the focus node or by a "
+                + "path from it, never both.");
+        }
+        if (!self && path == null) {
+            throw new TextIndexException("Field occurrence " + occurrenceRes
+                + " is missing sh:path (or idx:self)");
         }
 
         Node requiredClass = getOptionalResourceNode(occurrenceRes, shClass);
         NodeKindConstraint nodeKindConstraint = getOptionalNodeKindConstraint(occurrenceRes);
         Node datatype = getOptionalResourceNode(occurrenceRes, shDatatype);
 
+        if (self) {
+            if (!SELF_BINDABLE_TYPES.contains(field.getFieldType())) {
+                throw new TextIndexException("Field occurrence " + occurrenceRes
+                    + " binds the focus node with idx:self into field "
+                    + field.getFieldIRI().getURI() + ", which has type " + field.getFieldType()
+                    + ". A focus node is a resource, so a self-bound field must be "
+                    + SELF_BINDABLE_TYPES + ".");
+            }
+            return FieldOccurrence.self(field, requiredClass, nodeKindConstraint, datatype, nestedName);
+        }
+
         List<List<JoinStep>> pathVariants = extractPathVariants(path);
         Set<Node> predicates = extractLeafPredicates(path);
 
         return new FieldOccurrence(field, path, pathVariants, predicates,
             requiredClass, nodeKindConstraint, datatype, nestedName);
+    }
+
+    /**
+     * {@code idx:self} is a marker, so it is only ever written {@code true}. An explicit
+     * {@code false} is rejected rather than read as "no self binding": the author meant
+     * something by writing it, and silently indexing nothing is the worst reading.
+     */
+    private static boolean isSelfBound(Resource occurrenceRes) {
+        Statement stmt = occurrenceRes.getProperty(IndexVocab.pSelf);
+        if (stmt == null) {
+            return false;
+        }
+        if (!stmt.getObject().isLiteral()) {
+            throw new TextIndexException("idx:self on " + occurrenceRes + " must be true");
+        }
+        if (!stmt.getObject().asLiteral().getBoolean()) {
+            throw new TextIndexException("idx:self on " + occurrenceRes
+                + " is false. Omit idx:self and give the occurrence an sh:path instead.");
+        }
+        return true;
     }
 
     private static void rejectCanonicalFieldPropertiesOnOccurrence(Resource occurrenceRes) {

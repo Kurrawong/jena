@@ -302,8 +302,37 @@ public class ShaclIndexMapping {
             }
         }
 
+        private FieldOccurrence(FieldDef field, Node requiredClass,
+                                NodeKindConstraint nodeKindConstraint, Node datatype,
+                                String nestedName) {
+            this.field = Objects.requireNonNull(field);
+            this.path = null;
+            // One variant of zero steps: the identity walk. Not the empty list, which
+            // would mean "no way to reach this field at all".
+            this.pathVariants = List.of(List.of());
+            this.predicates = Collections.emptySet();
+            this.requiredClass = requiredClass;
+            this.nodeKindConstraint = nodeKindConstraint;
+            this.datatype = datatype;
+            this.nestedName = nestedName;
+        }
+
+        /**
+         * An occurrence that binds the focus node itself rather than a path from it —
+         * the entity at root scope, the child node inside an {@code idx:nested} block.
+         * Written {@code idx:self true} in place of {@code sh:path}.
+         */
+        public static FieldOccurrence self(FieldDef field, Node requiredClass,
+                                           NodeKindConstraint nodeKindConstraint, Node datatype,
+                                           String nestedName) {
+            return new FieldOccurrence(field, requiredClass, nodeKindConstraint, datatype, nestedName);
+        }
+
         public FieldDef getField()                { return field; }
+        /** The path from the focus node, or null when this occurrence is self-bound. */
         public Path getPath()                     { return path; }
+        /** True when this occurrence binds the focus node itself ({@code idx:self}). */
+        public boolean isSelf()                   { return path == null; }
         public List<List<JoinStep>> getPathVariants() { return pathVariants; }
         public Set<Node> getPredicates()          { return predicates; }
         public Node getRequiredClass()            { return requiredClass; }
@@ -316,9 +345,10 @@ public class ShaclIndexMapping {
 
         @Override
         public String toString() {
+            String source = isSelf() ? "self" : String.valueOf(path);
             return nestedName == null
-                ? field.getFieldName() + " <- " + path
-                : field.getFieldName() + "@" + nestedName + " <- " + path;
+                ? field.getFieldName() + " <- " + source
+                : field.getFieldName() + "@" + nestedName + " <- " + source;
         }
 
         private static List<List<JoinStep>> deepUnmodifiable(List<List<JoinStep>> variants) {

@@ -3,7 +3,7 @@
 ## Running Tests
 
 ```bash
-# Full jena-text suite (790 tests)
+# Full jena-text suite (806 tests)
 mvn test -pl jena-text
 
 # Only SHACL / faceting tests
@@ -53,6 +53,8 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 |-------|-------|---------------|
 | `TestHierarchicalFacets` | 9 | Java API: taxonomy indexing, top-level facets, drill-down path building, flat+hierarchy coexistence, multi-valued hierarchies, empty dimensions |
 | `TestHierarchicalFacetsSparql` | 3 | SPARQL `luc:facet` with hierarchy: top-level via field IRI, drill-down via CQL filter, flat facets alongside hierarchy |
+| `TestSelfBoundOccurrences` | 6 | `idx:self` in a nested block, where the child node is itself a hierarchy level: top-level counts, drill-down correlated per child, children not out-counting the parent, same-child correlation with a sibling field, vocabulary-edit reindex, child-added reindex |
+| `TestSelfOccurrenceAssembler` | 8 | `idx:self` config surface: parses in a nested block and at root; rejects self+`sh:path`, neither, `idx:self false`, a numeric field, and use on an `idx:column` |
 
 ### Sort Tests
 
@@ -71,7 +73,7 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 
 ### Existing Tests (unchanged, verifying no regressions)
 
-The remaining suite covers text search, multilingual support, graph indexing, deletion, analyzers, property lists, spatial filtering, nested identifiers, and demo mining scenarios. The full `jena-text` module currently passes at 790 tests.
+The remaining suite covers text search, multilingual support, graph indexing, deletion, analyzers, property lists, spatial filtering, nested identifiers, and demo mining scenarios. The full `jena-text` module currently passes at 806 tests.
 
 ---
 
