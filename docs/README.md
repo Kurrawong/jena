@@ -18,6 +18,7 @@ This doc set covers the SHACL/entity-per-document search model in `jena-text`.
 | External delta endpoint | Designed | NDJSON deltas over HTTP, via opt-in retained rows. Not built — at reduced volume, load the values as RDF instead |
 | Graph scoping model | Designed | Reserved synthetic field `urn:jena:lucene:field#sourceGraph`; implementation deferred |
 | Source graph indexing | Designed | `idx:storeGraph` flag writing multi-valued `sourceGraph`. Not built — `?graph` was removed from `luc:query` instead, since a union-built document has no single source graph |
+| Vector search | Designed | Entity-level dense vectors as a `VECTOR` field, filtered KNN plus facets. Not built — engine choice is Jlama. The loader's missing Vector API flags, a prerequisite, are fixed |
 | Highlight API | Deferred | Reserved for later, not active in the current `luc:query` signature |
 
 ## Core Rules
