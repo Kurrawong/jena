@@ -28,7 +28,7 @@
   <artifactId>jena</artifactId>
   <packaging>pom</packaging>
   <url>https://jena.apache.org/</url>
-  <version>6.2.0-SNAPSHOT</version>
+  <version>6.3.0-SNAPSHOT</version>
 
   <parent>
     <groupId>org.apache</groupId>
@@ -60,7 +60,7 @@
     <java.version>21</java.version>
 
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <project.build.outputTimestamp>2026-05-03T09:19:42Z</project.build.outputTimestamp>
+    <project.build.outputTimestamp>2026-07-27T15:26:08Z</project.build.outputTimestamp>
 
     <!-- Logging -->
     <ver.slf4j>2.0.18</ver.slf4j>
@@ -96,14 +96,14 @@
     <ver.commons-math4>4.0-beta1</ver.commons-math4>
     <ver.commons-rdf>0.5.0</ver.commons-rdf>
     <ver.commons-csv>1.14.1</ver.commons-csv>
-    <ver.commons-codec>1.22.0</ver.commons-codec>
+    <ver.commons-codec>1.22.1</ver.commons-codec>
     <ver.commons-compress>1.28.0</ver.commons-compress>
     <ver.commons-collections>4.5.0</ver.commons-collections>
     <ver.commons-fileupload>2.0.0-M5</ver.commons-fileupload>
 
     <ver.dexxcollection>0.7</ver.dexxcollection>
     <ver.micrometer>1.17.0</ver.micrometer>
-    <ver.roaringbitmap>1.6.15</ver.roaringbitmap>
+    <ver.roaringbitmap>1.6.18</ver.roaringbitmap>
     <ver.opencsv>5.12.0</ver.opencsv>
 
     <!-- Testing -->
@@ -138,12 +138,13 @@
     <ver.plugin.enforcer>3.6.3</ver.plugin.enforcer>
     <ver.plugin.cyclonedx>2.9.2</ver.plugin.cyclonedx>
     <ver.plugin.spdx>0.7.0</ver.plugin.spdx>
+    <ver.plugin.flatten>1.8.0</ver.plugin.flatten>
 
   </properties>
 
   <issueManagement>
-    <system>JIRA</system>
-    <url>https://issues.apache.org/jira/browse/JENA</url>
+    <system>Github issues</system>
+    <url>https://github.com/apache/jena/issues</url>
   </issueManagement>
 
   <mailingLists>
@@ -169,16 +170,6 @@
         <otherArchive>https://lists.apache.org/mod_mbox/jena-dev/</otherArchive>
         <otherArchive>https://www.mail-archive.com/dev@jena.apache.org/</otherArchive>
         <otherArchive>https://markmail.org/search/?q=list%3Aorg.apache.jena.dev</otherArchive>
-      </otherArchives>
-    </mailingList>
-    <mailingList>
-      <name>Jena Commits</name>
-      <post>commits@jena.apache.org</post>
-      <subscribe>commits-subscribe@jena.apache.org</subscribe>
-      <unsubscribe>commits-unsubscribe@jena.apache.org</unsubscribe>
-      <archive>https://lists.apache.org/list.html?commits@jena.apache.org</archive>
-      <otherArchives>
-        <otherArchive>https://mail-archives.apache.org/mod_mbox/jena-commits/</otherArchive>
       </otherArchives>
     </mailingList>
   </mailingLists>
@@ -1093,6 +1084,11 @@
           <version>${ver.plugin.shade}</version>
         </plugin>
 
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>flatten-maven-plugin</artifactId>
+          <version>${ver.plugin.flatten}</version>
+        </plugin>
       </plugins>
     </pluginManagement>
   </build>
