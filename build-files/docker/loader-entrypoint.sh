@@ -12,13 +12,31 @@ NO_STATS="${NO_STATS:-}"
 THREADS="${THREADS:-$(($(nproc) > 1 ? $(nproc) - 1 : 1))}"
 JAVA_OPTS="${JAVA_OPTS:-}"
 
+# Lucene uses the Panama Vector API to SIMD-accelerate vector distance
+# computations. The runtime image enables it in its ENTRYPOINT; without the same
+# flags here the index builder runs unaccelerated.
+#
+# Applied to the text indexer only, and deliberately NOT folded into JAVA_OPTS.
+# Enabling an incubator module makes the JVM print
+#   WARNING: Using incubator modules: jdk.incubator.vector
+# to stderr at startup. The SPARQL commands below merge stderr into stdout and
+# read the result with `awk NR==2`, so applying these flags to them would shift
+# every parsed value by one line and silently yield the TSV header instead of
+# the path. Keeping them out of JAVA_OPTS also means a caller overriding
+# JAVA_OPTS (for heap, say) cannot drop them by accident.
+#
+# Set JAVA_VECTOR_OPTS="" to disable.
+if [ -z "${JAVA_VECTOR_OPTS+set}" ]; then
+  JAVA_VECTOR_OPTS="--enable-native-access=ALL-UNNAMED --add-modules jdk.incubator.vector"
+fi
+
 # Define all Jena command variables
 SPARQL_CMD="java $JAVA_OPTS -cp /fuseki/jena-fuseki-server.jar arq.sparql"
 RIOT_CMD="java $JAVA_OPTS -cp /fuseki/jena-fuseki-server.jar riotcmd.riot"
 TDB2_LOADER_CMD="java $JAVA_OPTS -cp /fuseki/jena-fuseki-server.jar tdb2.tdbloader"
 TDB2_XLOADER_CMD="JVM_ARGS=\"${JAVA_OPTS}\" /fuseki/apache-jena/bin/tdb2.xloader"
 TDB2_STATS_CMD="java $JAVA_OPTS -cp /fuseki/jena-fuseki-server.jar tdb2.tdbstats"
-TEXT_INDEXER_CMD="java $JAVA_OPTS -cp /fuseki/jena-fuseki-server.jar org.apache.jena.query.text.cmd.shacltextindexer"
+TEXT_INDEXER_CMD="java $JAVA_VECTOR_OPTS $JAVA_OPTS -cp /fuseki/jena-fuseki-server.jar org.apache.jena.query.text.cmd.shacltextindexer"
 SPATIAL_INDEXER_CMD="java $JAVA_OPTS -cp /fuseki/jena-fuseki-server.jar org.apache.jena.geosparql.spatial.cmd.SpatialIndexBuilder"
 
 echo "=== Loader Configuration ==="
@@ -30,6 +48,7 @@ echo "NO_VALIDATION: ${NO_VALIDATION:-false}"
 echo "TDB2_MODE: $TDB2_MODE"
 echo "THREADS: $THREADS (default: nproc-1)"
 echo "NO_STATS: ${NO_STATS:-false}"
+echo "JAVA_VECTOR_OPTS: ${JAVA_VECTOR_OPTS:-<none>}"
 echo "==========================="
 
 # Early failure checks
