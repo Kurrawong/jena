@@ -46,7 +46,6 @@ Notes:
 <#index> a text:TextIndexShacl ;
     text:indexId "default" ;
     text:directory "mem" ;
-    text:taxonomyDirectory <file:Taxonomy> ;
     text:shapes ( <#BookShape> <#ArticleShape> ) ;
     text:storeValues true ;
     text:maxFacetHits 50000 .
@@ -61,13 +60,26 @@ one with `text:entityMap`.
 | `text:indexId` | no | Token id used by `indexSelector`, for example `"default"` or `"objects"` |
 | `text:directory` | yes | Lucene storage location. The literal `"mem"` is in-memory; anything else is a path or file IRI |
 | `text:shapes` | yes | RDF list of SHACL shapes, one document profile each |
-| `text:taxonomyDirectory` | no | Where hierarchical-facet ordinals live. Left unset the taxonomy is in-memory — fine when indexing and querying share a JVM, and a silent total loss of hierarchical facet counts when they do not (a bulk build writes the ordinals, the process exits, the server starts empty) |
+| `text:taxonomyDirectory` | no | Where hierarchical-facet ordinals live. Defaults to a sibling of `text:directory` named `<path>_taxonomy`, or to memory when `text:directory` is `"mem"`. Set it only to put the taxonomy somewhere else |
 | `text:storeValues` | no, default `false` | Store values for `luc:match` and facet value binding |
 | `text:maxFacetHits` | no | Maximum documents considered during facet collection |
 | `text:analyzer` | no | Index-wide default analyzer |
 | `text:queryAnalyzer` | no | Index-wide query analyzer |
 
 If the index resource itself is a URI resource, that URI is also accepted as an `indexSelector`.
+
+### Upgrading: the taxonomy directory
+
+A config that declares hierarchies with `text:directory <path>` and no
+`text:taxonomyDirectory` now creates `<path>_taxonomy` beside the index on first open.
+Previously such a config kept its ordinals in memory, so hierarchical facet counts were
+lost whenever the process that built the index was not the process that served it — the
+`fuseki-lucene-shacl-loader` / `fuseki-lucene-shacl` split, which is the normal
+deployment. Those configs start returning hierarchical counts on upgrade with no edit.
+
+Rebuild the index after upgrading. An index built under the old default carries facet
+ordinals that no on-disk taxonomy resolves, and the new empty taxonomy beside it will not
+match them.
 
 ## Shapes
 

@@ -3,7 +3,7 @@
 ## Running Tests
 
 ```bash
-# Full jena-text suite (806 tests)
+# Full jena-text suite (809 tests)
 mvn test -pl jena-text
 
 # Only SHACL / faceting tests
@@ -73,7 +73,7 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 
 ### Existing Tests (unchanged, verifying no regressions)
 
-The remaining suite covers text search, multilingual support, graph indexing, deletion, analyzers, property lists, spatial filtering, nested identifiers, and demo mining scenarios. The full `jena-text` module currently passes at 806 tests.
+The remaining suite covers text search, multilingual support, graph indexing, deletion, analyzers, property lists, spatial filtering, nested identifiers, and demo mining scenarios. The full `jena-text` module currently passes at 809 tests.
 
 ---
 

@@ -97,7 +97,7 @@ mvn clean install -Drat.skip
 ## Running Tests
 
 ```bash
-# Run all jena-text tests (806 tests)
+# Run all jena-text tests (809 tests)
 mvn test -pl jena-text
 
 # Run a single test class
