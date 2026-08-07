@@ -25,6 +25,7 @@ import static org.apache.jena.query.text.assembler.TextVocab.*;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 
 import org.apache.jena.assembler.Assembler;
 import org.apache.jena.assembler.Mode;
@@ -46,9 +47,9 @@ import org.apache.lucene.store.*;
  * <pre>
  * :index rdf:type text:TextIndexShacl ;
  *     text:directory &lt;file:Lucene&gt; ;
- *     text:taxonomyDirectory &lt;file:Taxonomy&gt; ;   # optional; required to persist
- *                                                 # hierarchical facets across a
- *                                                 # separate bulk-index step
+ *     text:taxonomyDirectory &lt;file:Taxonomy&gt; ;   # optional; defaults to a sibling
+ *                                                 # &lt;text:directory&gt;_taxonomy, or to
+ *                                                 # memory for a "mem" index
  *     text:shapes ( :Shape1 :Shape2 ) ;
  *     text:storeValues true ;
  *     text:maxFacetHits 50000 .
@@ -68,16 +69,6 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
 
             Directory directory = asDirectory(root.getProperty(pDirectory).getObject());
 
-            // Optional taxonomy directory — hierarchical facet ordinals. Left unset, the
-            // taxonomy is in-memory: fine when indexing and querying share a JVM, and a
-            // silent total loss of hierarchical facet counts when they do not (a bulk
-            // build writes the ordinals, the process exits, the server starts empty).
-            Directory taxonomyDirectory = null;
-            Statement taxonomyStatement = root.getProperty(pTaxonomyDirectory);
-            if (taxonomyStatement != null) {
-                taxonomyDirectory = asDirectory(taxonomyStatement.getObject());
-            }
-
             // Shapes (required)
             Statement shapesStmt = root.getProperty(pShapes);
             if (shapesStmt == null)
@@ -85,6 +76,16 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
 
             ShaclIndexMapping shaclMapping = ShaclIndexAssembler.parseShapes(a, shapesStmt.getObject().asResource());
             EntityDefinition docDef = ShaclIndexAssembler.deriveEntityDefinition(shaclMapping);
+
+            // Optional taxonomy directory — hierarchical facet ordinals. Resolved after
+            // the shapes because the default depends on whether any hierarchy exists.
+            Directory taxonomyDirectory = null;
+            Statement taxonomyStatement = root.getProperty(pTaxonomyDirectory);
+            if (taxonomyStatement != null) {
+                taxonomyDirectory = asDirectory(taxonomyStatement.getObject());
+            } else if (shaclMapping.hasHierarchies()) {
+                taxonomyDirectory = defaultTaxonomyDirectory(directory);
+            }
 
             // Optional analyzers
             Analyzer analyzer = null;
@@ -137,6 +138,27 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
             IO.exception(e);
             return null;
         }
+    }
+
+    /**
+     * Where hierarchical facet ordinals go when {@code text:taxonomyDirectory} is absent.
+     * <p>
+     * Tied to {@code text:directory} rather than fixed, because the two have to agree
+     * about persistence. A persistent index paired with an in-memory taxonomy is the
+     * loader/server split: the bulk build writes ordinals into a directory that dies with
+     * the process, and the server then reads an index whose facet ordinals nothing can
+     * resolve. An in-memory index paired with a persistent taxonomy is the mirror image,
+     * and equally pointless.
+     * <p>
+     * So an {@link FSDirectory} index gets an {@code FSDirectory} taxonomy at a sibling
+     * {@code <path>_taxonomy}, and anything else keeps the in-memory default.
+     */
+    private static Directory defaultTaxonomyDirectory(Directory directory) throws IOException {
+        if (directory instanceof FSDirectory fsDirectory) {
+            Path indexPath = fsDirectory.getDirectory();
+            return FSDirectory.open(indexPath.resolveSibling(indexPath.getFileName() + "_taxonomy"));
+        }
+        return new ByteBuffersDirectory();
     }
 
     /** Resolve a directory-valued config node: the literal {@code "mem"} for an
