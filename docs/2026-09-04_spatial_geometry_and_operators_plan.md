@@ -33,10 +33,11 @@ leave six decisions unmade or wrong:
 3. **An existing test asserts the bug.** `TestSpatialFiltering.testUnsupportedSpatialOpIsResidual`
    (`:288`) asserts that `s_within` returns `>= 4` unfiltered rows. It must be inverted
    in PR 1, not left to fail.
-4. **Lucene relation semantics on multi-valued and geometry-less docs are not obvious**
-   and the CQL2 spec does not settle them for us. `WITHIN` on a doc with two shapes,
-   `DISJOINT` on a doc with no shape — each needs a test that pins the behaviour and a
-   doc line that states it.
+4. **Relation semantics on multi-valued and geometry-less docs need stating, not
+   discovering.** Both specs fix the *pairwise* meaning (DE-9IM), and GeoSPARQL 1.1's
+   query-rewrite rule answers the geometry-less case; the multi-valued case follows
+   once the field is read as one geometry collection. PR 4 writes this down with tests
+   and records the one place Lucene diverges from DE-9IM (boundary contact).
 5. **`s_dwithin` has no CQL2-JSON syntax to copy.** It needs designing (argument shape,
    units, parser change), which is why it is its own PR.
 6. **PR order matters.** Fail-loudly must land before the operator implementations, or
@@ -252,19 +253,54 @@ LatLonShape.newGeometryQuery(fieldName, relation, geometries.toArray(LatLonGeome
 The existing `newBoxQuery` special case goes; `Rectangle` through `newGeometryQuery`
 is the same query.
 
-**Semantics to pin with tests, then state in the docs.** These are Lucene's rules,
-which is what we ship, but nobody should have to discover them:
+**Semantics: what the specs say, and where Lucene agrees.** Verified against
+GeoSPARQL 1.1 (OGC 22-047r1), CQL2 1.0 (OGC 21-065r2) and the Lucene 10 `SpatialQuery`
+source. Every statement below gets a test and a line in `09-spatial.md`.
 
-- **`WITHIN` on a multi-valued field** — Lucene requires *every* indexed shape on the
-  doc to be within the query geometry. A site with a point in WA and a point in NSW is
-  *not* within the WA bbox. Test with `bores` from PR 2.
-- **`DISJOINT` on a doc with no geometry** — Lucene's shape queries only match docs
-  that have the field. A site with no `geo:asWKT` is neither intersecting nor
-  disjoint. Test with a geometry-less site; assert it is absent from both.
-- **`CONTAINS` against a point-indexed doc** — matches only if the query geometry is
-  that same point. Test with a Point query on `mount-isa`.
-- **Multi-geometry query with `WITHIN`** — Lucene treats the query geometries as a
-  union. Test that a shape within *either* of two query polygons matches.
+*Pairwise meaning is DE-9IM in both specs.* CQL2 requires spatial functions to be
+"evaluated as defined in clause 6.1.15 of [Simple Features Part 1]", i.e. DE-9IM.
+GeoSPARQL Table 2 gives the patterns: `sfWithin` = `T*F**F***`, `sfContains` =
+`T*****FF*`, `sfDisjoint` = `FF*FF****`, `sfIntersects` = the negation of disjoint.
+Argument order is `S_WITHIN(property, geometry)` = *property within geometry*, matching
+Lucene's `WITHIN` with no inversion.
+
+*Geometry-less feature: excluded from every relation, including disjoint.* GeoSPARQL's
+rewrite rule (clause 13) is a graph pattern that must bind `?so1 geo:hasDefaultGeometry
+?g1` before the function is ever called; a feature with no geometry never binds, so it
+is in neither the `sfWithin` nor the `sfDisjoint` result. CQL2 says the same from the
+other side: "If either geometry expression ... is `NULL` then the predicate SHALL
+evaluate to the value `NULL`", and a NULL predicate does not select the row. Lucene's
+`DISJOINT` only visits docs that have the field. **All three agree.** Test with a
+geometry-less site; assert it is absent from both `s_intersects` and `s_disjoint`.
+
+*Multi-valued field: read it as one geometry collection.* GeoSPARQL evaluates relations
+via `geo:hasDefaultGeometry`, whose definition is "the geometry that should be used for
+spatial calculations", and the spec adds that it "does not restrict the cardinality" —
+a feature with two default geometries makes SPARQL matching "simply proceed as normal",
+which the spec then calls out as producing "logically inconsistent results" (its own
+example: a feature `sfDisjoint` from itself) and labels "application-specific data
+modeling errors". So the spec's *intended* model is one geometry per feature; a feature
+with several parts is modelled as one `MULTI*` / `GEOMETRYCOLLECTION`. Under DE-9IM on a
+collection, `within` holds only if the whole collection is inside, `disjoint` only if
+every part is, `contains` only if the query lies inside the union. That is exactly
+Lucene's per-document rule: `WITHIN` and `DISJOINT` require every triangle to satisfy
+the relation; `CONTAINS` excludes the doc if any triangle is `NOTWITHIN`; `INTERSECTS`
+needs one. **A multi-valued `LatLonField` therefore behaves as if the values were one
+geometry collection**, which is the spec-conformant reading, not a Lucene quirk. State
+it that way in the docs, and note that `s_intersects` is unaffected (any-of and
+collection semantics coincide for intersection). Test with `bores` (WA point + NSW
+point): `s_intersects` WA-bbox matches; `s_within` WA-bbox does not; `s_disjoint`
+NSW-bbox does not.
+
+*Boundary contact is the one real divergence.* DE-9IM `sfWithin` requires a non-empty
+interior∩interior, so a point sitting exactly on the query polygon's edge is *not*
+within; Lucene's `WITHIN` treats on-edge as inside. Same for `sfContains`. Lucene also
+quantises coordinates to ~1 cm on encode, so exact boundary equality is already fuzzy.
+Do not engineer around this; document it as "boundary contact counts as within /
+contains", with one test that pins it using a point placed on a query bbox edge.
+
+*Multi-geometry query.* Lucene unions the query geometries. Test that a shape within
+*either* of two query polygons matches `s_within`.
 
 **Test matrix** — the four relations × {bbox, Point, LineString, Polygon-with-hole,
 MultiPolygon, GeometryCollection} query geometries, against the fixture set from PR 2.
@@ -280,8 +316,9 @@ bullets above; delete the first and second "Current limitations" bullets.
 
 ### PR 5 — `s_dwithin` distance queries
 
-**Design.** CQL2-JSON has no core distance operator; CQL1 had `DWITHIN(prop, geom,
-distance, units)`. Proposed shape, three args:
+**Design.** CQL2 1.0 has no distance operator at all — its spatial classes are purely
+topological (verified against 21-065r2) — so `s_dwithin` is a documented extension.
+CQL1 had `DWITHIN(prop, geom, distance, units)`. Proposed shape, three args:
 
 ```json
 {"op":"s_dwithin","args":[{"property":"urn:jena:lucene:field#location"},
