@@ -97,9 +97,11 @@ against the jar in `~/.m2`.
 | 3 | Spatial: honour interior rings in GeoJSON query polygons | #161 | S | — |
 | 4 | Spatial: `s_within`, `s_contains`, `s_disjoint` and all GeoJSON query geometries | #160 (rest) | M | 1, 3 |
 | 5 | Spatial: `s_dwithin` distance queries | — (new issue) | M | 1, 4 |
+| 6 | Demo: spatial data in three CRSs, all geometry types, one query per operator | — | M | 2, 4, 5 |
 
 PRs 1, 2 and 3 are independent and can be raised in parallel. PR 4 rebases on 1 and 3.
-PR 5 rebases on 4. Each PR follows CLAUDE.md: red commit first, green commit second,
+PR 5 rebases on 4. PR 6 lands last; it is the only one that touches `demo/`, so the
+engine PRs stay reviewable on their own. Each PR follows CLAUDE.md: red commit first, green commit second,
 docs in the same PR.
 
 ---
@@ -353,6 +355,50 @@ close.
 
 ---
 
+### PR 6 — Demo: three CRSs, every geometry type, one query per operator
+
+The engine tests cover the matrix; the demo exists so a person can *see* it. Today it
+shows one bbox query (`demo/test/queries/08-spatial-bbox.rq`), the data uses EPSG:4326
+almost exclusively (256 literals) with two bare CRS84 literals and **no GDA2020**, and
+the front end renders only `POINT` and the exterior ring of `POLYGON`
+(`demo/app-static/app.js:935-968`) — so nothing PR 2 indexes would appear on the map.
+
+**Data** (`demo/test/data/mining.ttl`). Add sites so that every CRS form and every
+geometry type the engine now handles has at least one instance, each commented with
+what it demonstrates:
+
+| Site | Geometry | CRS form |
+|---|---|---|
+| Haul road | `LINESTRING` crossing a tenement edge | bare CRS84, lon/lat |
+| Drill programme | `MULTIPOINT` of collars | `<EPSG/0/7844>` GDA2020, lat/lon |
+| Rail spur | `MULTILINESTRING` | `<EPSG/0/4326>`, lat/lon |
+| Tenement with excision | `POLYGON` with a hole | `<EPSG/0/7844>` GDA2020, lat/lon |
+| Project | `GEOMETRYCOLLECTION(POINT, POLYGON)` | bare CRS84 |
+| Legacy survey | `POINT` | `<EPSG/0/4283>` GDA94, lat/lon |
+
+Put the same location in two CRS forms on two sites and let the demo show they land in
+the same place: that is the whole CRS story in one glance. A site with **no** geometry
+also belongs here, so `s_disjoint` visibly excludes it.
+
+**Queries** (`demo/test/queries/`, one file each, listed in `demo/README.md`):
+`12-spatial-within.rq`, `13-spatial-contains.rq`, `14-spatial-disjoint.rq`,
+`15-spatial-linestring-crosses-bbox.rq` (the haul road, both ends outside the box),
+`16-spatial-polygon-with-hole.rq` (the excised tenement is *not* returned for a query
+inside the hole), `17-spatial-dwithin.rq`. Each header comment states the expected
+result set so the file is also a smoke test.
+
+**Front end.** Replace the regex parser in `parseWktForLeaflet` with a real WKT parser
+and `L.geoJSON`. `wellknown` (WKT → GeoJSON, ~3 KB, on jsDelivr like the other
+scripts) handles every type including holes and collections. Keep the existing prefix
+handling verbatim — strip `<...>` and swap axes for 4326/4283/7844 — because no
+general-purpose WKT library understands the GeoSPARQL CRS prefix; that is exactly the
+interop problem bare CRS84 avoids. Then `s_within`, `s_contains`, `s_disjoint` and
+`s_dwithin` need a UI affordance; a select next to the existing draw-bbox control is
+enough for a demo.
+
+**Docs.** `demo/README.md` query table; `09-spatial.md` gains a "See it in the demo"
+pointer.
+
 ## Deliberately out of scope
 
 - **Post-filtering `s_equals` / `s_crosses` / `s_overlaps` / `s_touches` with JTS.**
@@ -364,6 +410,18 @@ close.
   PR 2 pins the behaviour in a test and documents it.
 - **`XYShape` / projected CRS indexing.** Everything is transformed to WGS84 on
   ingest; that is correct.
+- **A configurable default CRS for bare WKT.** There is no such knob today —
+  `WKTReader` hard-codes `SRS_URI.DEFAULT_WKT_CRS84` (`WKTReader.java:59,352`) and
+  nothing in `jena-text` reads an env var or system property for it. Do not add one.
+  Bare WKT means CRS84 lon/lat by GeoSPARQL definition, and every GeoSPARQL-aware
+  consumer (Jena's `geof:` functions, its spatial index, other stores) reads it that
+  way; a private default breaks that. EPSG:7844 is also lat/lon, so "default to
+  GDA2020" would silently flip the axis order of every bare literal. And it buys
+  nothing: GDA2020 geographic coordinates sit within centimetres of WGS84, which is
+  why `isWgs84OrCrs84` already treats 7844 and 4283 as WGS84-equivalent, and Lucene
+  quantises to about a centimetre anyway. Clients on GDA2020 who want front-end
+  libraries to parse their WKT should emit bare CRS84 (lon lat) literals, or keep the
+  prefix in RDF and strip it client-side as the demo does.
 - **Throwing on non-spatial residuals.** Same hazard, different blast radius; filed
   as a follow-up from PR 1.
 
