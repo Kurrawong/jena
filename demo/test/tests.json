@@ -44,8 +44,12 @@
   { "label": "Reports only", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}", "minResults": 5 },
 
   { "group": "Sequence Path (Author)" },
-  { "label": "Author: Dr Sarah Jones", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"authorName\"},\"Dr Sarah Jones\"]}", "minResults": 1 },
-  { "label": "Author: James Williams", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"authorName\"},\"James Williams\"]}", "minResults": 1 },
+
+
+  { "label": "Two hops: reports whose Author is named Prof Wei Chen", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#authorName\"},\"Prof Wei Chen\"]}", "minResults": 5 },
+  { "label": "Two authors at once, in on the same two-hop field", "params": "?filter={\"op\":\"in\",\"args\":[{\"property\":\"urn:jena:lucene:field#authorName\"},[\"Prof Wei Chen\",\"Dr Priya Patel\"]]}", "minResults": 20 },
+  { "label": "Two-hop author facet composed with a plain one (state = QLD)", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#authorName\"},\"Prof Wei Chen\"]},{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#state\"},\"http://example.org/mining/state/QLD\"]}]}", "minResults": 3 },
+  { "label": "Free text plus the two-hop author filter", "params": "?q=copper&filter={\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#authorName\"},\"Prof Wei Chen\"]}", "minResults": 1 },
 
   { "group": "Temporal Filters" },
   { "label": "Reports published in 2024", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]},{\"op\":\"between\",\"args\":[{\"property\":\"publishedOn\"},\"2024-01-01\",\"2024-12-31\"]}]}", "minResults": 2 },

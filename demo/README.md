@@ -187,7 +187,7 @@ it finds entities that link *to* the report.
 | `03-facet-counts.rq` | Facet counts across commodity, state, operator |
 | `04-facet-filtered.rq` | Drill-down: facets for "gold" in WA only |
 | `05-combined.rq` | Search + facets in one query (UNION pattern) |
-| `06-sequence-path-facet.rq` | Facet counts on `authorName` (sequence path field) |
+| `06-sequence-path-facet.rq` | Facet counts on `authorName`, whose values come from `ex:authoredBy`/`ex:name` on a linked Author |
 | `07-filter-by-author.rq` | Filter results by `authorName` = "Dr Sarah Jones" |
 | `08-spatial-bbox.rq` | Bounding box spatial search |
 | `09-matchraw-multivalue.rq` | Multi-valued identifier search showing `?matchRaw` on dirty identifier data |
