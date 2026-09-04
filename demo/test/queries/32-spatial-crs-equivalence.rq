@@ -1,4 +1,7 @@
 # Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# Counts below are for the full demo dataset (mining.ttl + generated.ttl). The
+# generated sites and boreholes contribute additional matches; the named sites are
+# the ones placed deliberately to demonstrate the behaviour.
 # The same location written two ways: GDA2020 (EPSG:7844, lat/lon, explicit prefix) and
 # bare CRS84 (lon/lat, no prefix). Both index to the same place.
 #
@@ -6,7 +9,8 @@
 # coordinates pass through unchanged and the two sites are indistinguishable to a
 # spatial query.
 #
-# Expected: both Datum Demo sites, from one tight box.
+# Exactly 2 rows: site-datum-gda2020 and site-datum-crs84, from one tight box. No
+# generated data sits here, so this one is an exact result.
 PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?entity ?score WHERE {
   (?hit ?entity ?score) luc:query ("default" "default" "*"

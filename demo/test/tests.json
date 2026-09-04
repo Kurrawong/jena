@@ -92,6 +92,19 @@
   { "label": "\"mine\" sites in QLD bbox", "params": "?q=mine&filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Site\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"bbox\":[138,-29,154,-10]}]}]}", "minResults": 1 },
   { "label": "\"mine\" in WA + state=WA bbox", "params": "?q=mine&filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"http://example.org/mining/state/WA\"]},{\"op\":\"s_intersects\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"bbox\":[112,-35,129,-14]}]}]}", "minResults": 1 },
 
+
+  { "group": "Spatial: Operators" },
+  { "label": "s_within \u2014 wholly inside the Kalgoorlie box", "params": "?filter={\"op\":\"s_within\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"bbox\":[120.5,-31.5,122.5,-30.0]}]}", "minResults": 4 },
+  { "label": "s_contains \u2014 tenement encloses the box", "params": "?filter={\"op\":\"s_contains\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"bbox\":[121.25,-30.95,121.35,-30.85]}]}", "minResults": 1 },
+  { "label": "s_disjoint \u2014 clear of the Pilbara box", "params": "?filter={\"op\":\"s_disjoint\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"bbox\":[118.0,-24.0,121.0,-20.0]}]}", "minResults": 10 },
+  { "label": "s_dwithin \u2014 within 60 km of Kalgoorlie", "params": "?filter={\"op\":\"s_dwithin\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"type\":\"Point\",\"coordinates\":[121.6,-30.95]},60000]}", "minResults": 4 },
+
+  { "group": "Spatial: Geometry Types" },
+  { "label": "LineString crossing a box, both ends outside", "params": "?filter={\"op\":\"s_intersects\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"bbox\":[119.2,-23.6,120.1,-23.2]}]}", "minResults": 1 },
+  { "label": "Query polygon WITH a hole (datum pair excluded)", "params": "?filter={\"op\":\"s_intersects\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"type\":\"Polygon\",\"coordinates\":[[[121.4,-31.3],[121.8,-31.3],[121.8,-30.7],[121.4,-30.7],[121.4,-31.3]],[[121.6,-31.25],[121.72,-31.25],[121.72,-31.15],[121.6,-31.15],[121.6,-31.25]]]}]}", "minResults": 2 },
+  { "label": "Same polygon WITHOUT the hole (datum pair returns)", "params": "?filter={\"op\":\"s_intersects\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"type\":\"Polygon\",\"coordinates\":[[[121.4,-31.3],[121.8,-31.3],[121.8,-30.7],[121.4,-30.7],[121.4,-31.3]]]}]}", "minResults": 4 },
+  { "label": "GDA2020 and CRS84 agree on one location", "params": "?filter={\"op\":\"s_intersects\",\"args\":[{\"property\":\"urn:jena:lucene:field#location\"},{\"bbox\":[121.64,-31.22,121.68,-31.18]}]}", "minResults": 2 },
+
   { "group": "Hierarchical Facets" },
   { "label": "All entities (hierarchy visible)", "params": "", "minResults": 100, "scrollToText": "state_commodity" },
   { "label": "Drill-down: WA commodities", "params": "?drillDown=state_commodity:http://example.org/mining/state/WA", "minResults": 100, "scrollToText": "state_commodity" },

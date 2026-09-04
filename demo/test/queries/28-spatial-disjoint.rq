@@ -1,10 +1,15 @@
 # Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# Counts below are for the full demo dataset (mining.ttl + generated.ttl). The
+# generated sites and boreholes contribute additional matches; the named sites are
+# the ones placed deliberately to demonstrate the behaviour.
 # s_disjoint: the indexed shape shares no point with the query geometry.
 #
-# Expected: every located site outside the Pilbara box. Note the unlocated prospect is
-# NOT returned. An entity with no geometry is excluded from every spatial relation,
-# disjoint included, which follows from GeoSPARQL's query-rewrite rule and from CQL2
-# making a NULL geometry yield a NULL predicate.
+# 272 entities are clear of the Pilbara box; this query caps at 30.
+#
+# The interesting part is what is absent: site-no-geometry. An entity with no geometry
+# is excluded from every spatial relation, disjoint included. That follows from
+# GeoSPARQL's query-rewrite rule, which must bind a geometry before the relation runs,
+# and from CQL2 making a predicate with a NULL geometry evaluate to NULL.
 PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?entity ?score WHERE {
   (?hit ?entity ?score) luc:query ("default" "default" "*"

@@ -1,13 +1,15 @@
 # Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# Counts below are for the full demo dataset (mining.ttl + generated.ttl). The
+# generated sites and boreholes contribute additional matches; the named sites are
+# the ones placed deliberately to demonstrate the behaviour.
 # s_within: the indexed shape lies wholly inside the query geometry.
 #
-# Returns: site-excised-tenement, site-legacy-survey, site-datum-gda2020,
-# site-datum-crs84.
+# 14 rows. Look for site-excised-tenement, site-legacy-survey, site-datum-gda2020
+# and site-datum-crs84; the rest are generated boreholes and sites in the same area.
 #
 # Not returned, and each for its own reason:
 #   site-drill-collars   its two collars are outside this box
 #   site-no-geometry     an entity with no geometry is in no spatial result at all
-#   every point-indexed site elsewhere in Australia
 PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?entity ?score WHERE {
   (?hit ?entity ?score) luc:query ("default" "default" "*"
