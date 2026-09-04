@@ -33,8 +33,9 @@ leave six decisions unmade or wrong:
 3. **An existing test asserts the bug.** `TestSpatialFiltering.testUnsupportedSpatialOpIsResidual`
    (`:288`) asserts that `s_within` returns `>= 4` unfiltered rows. It must be inverted
    in PR 1, not left to fail.
-4. **Relation semantics on multi-valued and geometry-less docs need stating, not
-   discovering.** Both specs fix the *pairwise* meaning (DE-9IM), and GeoSPARQL 1.1's
+4. **Relation semantics need measuring, not predicting.** (Two of this document's
+   original predictions turned out wrong; both are corrected in place below and in
+   #166.) Both specs fix the *pairwise* meaning (DE-9IM), and GeoSPARQL 1.1's
    query-rewrite rule answers the geometry-less case; the multi-valued case follows
    once the field is read as one geometry collection. PR 4 writes this down with tests
    and records the one place Lucene diverges from DE-9IM (boundary contact).
@@ -294,12 +295,22 @@ collection semantics coincide for intersection). Test with `bores` (WA point + N
 point): `s_intersects` WA-bbox matches; `s_within` WA-bbox does not; `s_disjoint`
 NSW-bbox does not.
 
-*Boundary contact is the one real divergence.* DE-9IM `sfWithin` requires a non-empty
-interior∩interior, so a point sitting exactly on the query polygon's edge is *not*
-within; Lucene's `WITHIN` treats on-edge as inside. Same for `sfContains`. Lucene also
-quantises coordinates to ~1 cm on encode, so exact boundary equality is already fuzzy.
-Do not engineer around this; document it as "boundary contact counts as within /
-contains", with one test that pins it using a point placed on a query bbox edge.
+*Boundary contact: no divergence after all.* **Corrected 2026-09-04 after measuring.**
+This section previously predicted that Lucene would treat on-edge as inside, diverging
+from DE-9IM. It does not. A point lying exactly on the query box edge is excluded, and
+moving the edge so the point is strictly inside makes it match — which is what DE-9IM
+`sfWithin` (`T*F**F***`, non-empty interior∩interior) requires. The specs and Lucene
+agree and there is nothing to document as a divergence. Lucene quantises coordinates to
+~1 cm on encode, so exact boundary coincidence should not be relied on either way.
+
+*The real divergence is elsewhere: zero-area query geometries.* A `Point` or
+`LineString` query geometry matches areal indexed shapes but returns **nothing** against
+`POINT`-indexed entities. Lucene computes relations against indexed triangles, and when
+neither side has area no intersection is reported. Verified against the dedicated
+`LatLonShape.newPointQuery` as well, so it is a property of `LatLonShape` rather than a
+choice of API. Keep the types supported — point-in-polygon is the common case and works
+— but pin the behaviour with a test and document the workaround (use a small `bbox` or
+`Polygon` to hit point data). It is a silent empty result, not an error.
 
 *Multi-geometry query.* Lucene unions the query geometries. Test that a shape within
 *either* of two query polygons matches `s_within`.
