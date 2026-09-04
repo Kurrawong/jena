@@ -1121,22 +1121,12 @@ function searchApp() {
             await this.executeSearch();
             await this.loadAttributionOptions();
 
-            // Auto-expand hierarchy drill-down if specified in URL
-            const drillParam = new URLSearchParams(window.location.search).get('drillDown');
-            if (drillParam) {
-                const sep = drillParam.indexOf(':');
-                if (sep > 0) {
-                    const dim = drillParam.substring(0, sep);
-                    const value = drillParam.substring(sep + 1);
-                    if (this.hierarchyDimensions.has(dim)) {
-                        await this.toggleHierarchy(dim, value);
-                    }
-                }
-            }
+            await this.applyDrillDownFromUrl();
 
             window.addEventListener('popstate', async () => {
                 this.loadFromUrl();
                 await this.executeSearch();
+                await this.applyDrillDownFromUrl();
             });
 
             // Initialize map when visible, invalidateSize on toggle
@@ -1247,6 +1237,7 @@ LIMIT 100`);
             window.history.pushState({}, '', qs ? `?${qs}` : window.location.pathname);
             this.loadFromUrl();
             await this.executeSearch();
+            await this.applyDrillDownFromUrl();
         },
 
         /**
@@ -1420,6 +1411,28 @@ LIMIT 100`);
             this.spatialPolygon = polygon;
             this.spatialRaw = spatialRaw;
             this.currentPage = Math.max(1, parseInt(params.get('page'), 10) || 1);
+        },
+
+        /**
+         * Expand a hierarchy drill-down named in the URL.
+         *
+         * Must run after executeSearch, since it needs the buckets that search produced.
+         * Called from every path that changes the URL — first load, an example, and the
+         * back button — because this used to live inline in init() and so fired only on
+         * first load. Clicking a drill-down example therefore ran its filter and expanded
+         * nothing, and since the three drill-down examples share one filter with
+         * "Boreholes only", all four showed the same rows and the page looked stuck.
+         */
+        async applyDrillDownFromUrl() {
+            const drillParam = new URLSearchParams(window.location.search).get('drillDown');
+            if (!drillParam) return;
+            const sep = drillParam.indexOf(':');
+            if (sep <= 0) return;
+            const dim = drillParam.substring(0, sep);
+            const value = drillParam.substring(sep + 1);
+            if (this.hierarchyDimensions.has(dim)) {
+                await this.toggleHierarchy(dim, value);
+            }
         },
 
         // --- Actions ---
