@@ -118,10 +118,24 @@ public sealed interface CqlExpression
         }
     }
 
-    record CqlSpatial(String op, String property, Object geometry) implements CqlExpression {
+    /**
+     * A spatial predicate. {@code distanceMetres} is set only for {@code s_dwithin},
+     * which is an extension: CQL2 1.0's spatial classes are purely topological and
+     * define no distance operator.
+     */
+    record CqlSpatial(String op, String property, Object geometry, Double distanceMetres)
+            implements CqlExpression {
+
+        /** A topological predicate, with no distance. */
+        public CqlSpatial(String op, String property, Object geometry) {
+            this(op, property, geometry, null);
+        }
+
         @Override
         public String toCanonical() {
-            return op + "(" + property + "," + geometry + ")";
+            return distanceMetres == null
+                ? op + "(" + property + "," + geometry + ")"
+                : op + "(" + property + "," + geometry + "," + distanceMetres + ")";
         }
     }
 

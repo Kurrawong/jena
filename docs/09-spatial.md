@@ -139,6 +139,30 @@ The practical consequence: to find point-indexed entities at a location, use a s
 work exactly as expected. This is a silent empty result rather than an error, so it is
 pinned by a test.
 
+## Distance queries
+
+`s_dwithin` matches entities within a radius of a point. It is an **extension**: CQL2 1.0's
+spatial classes are purely topological and define no distance operator.
+
+```json
+{"op":"s_dwithin","args":[
+  {"property":"urn:jena:lucene:field#location"},
+  {"type":"Point","coordinates":[116.35,-32.77]},
+  5000
+]}
+```
+
+The third argument is the radius in **metres**, always. There is no units argument: Lucene's
+circle takes metres, and a units parameter would be a second parser and a second class of
+bug for no gain.
+
+The geometry must be a GeoJSON `Point`; a radius around anything else is not expressible as
+a single circle and raises. A third argument on a *topological* operator also raises rather
+than being ignored, since accepting it would answer a different question than the one asked.
+
+Unlike a `Point` used as a topological query geometry, a circle has area, so `s_dwithin`
+matches point-indexed entities correctly.
+
 ## Relation semantics
 
 These follow from DE-9IM, which both CQL2 (via OGC Simple Features clause 6.1.15) and
@@ -234,7 +258,6 @@ SELECT ?entity ?score WHERE {
 ## Current limitations
 
 - `s_equals`, `s_crosses`, `s_overlaps` and `s_touches` have no Lucene equivalent and raise.
-- Distance queries are not yet supported.
 - A zero-area query geometry does not match point-indexed data; see "Query geometries" below.
 
 ## Unsupported spatial filters raise
