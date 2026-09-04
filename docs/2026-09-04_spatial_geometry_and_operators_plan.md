@@ -387,17 +387,21 @@ also belongs here, so `s_disjoint` visibly excludes it.
 inside the hole), `17-spatial-dwithin.rq`. Each header comment states the expected
 result set so the file is also a smoke test.
 
-**Front end.** Replace the regex parser in `parseWktForLeaflet` with a real WKT parser
-and `L.geoJSON`. `wellknown` (WKT → GeoJSON, ~3 KB, on jsDelivr like the other
-scripts) handles every type including holes and collections. Keep the existing prefix
-handling verbatim — strip `<...>` and swap axes for 4326/4283/7844 — because no
-general-purpose WKT library understands the GeoSPARQL CRS prefix; that is exactly the
-interop problem bare CRS84 avoids. Then `s_within`, `s_contains`, `s_disjoint` and
-`s_dwithin` need a UI affordance; a select next to the existing draw-bbox control is
-enough for a demo.
+**Front end.** Add `geo:asGeoJSON` to every demo site alongside its `geo:asWKT`, and
+render from the GeoJSON with `L.geoJSON` — no WKT parsing in the browser at all. This
+is the pattern to recommend to clients whose WKT carries a non-CRS84 prefix (GDA2020
+in particular): the WKT stays authoritative with its datum, the GeoJSON is CRS84 by
+RFC 7946, and the indexer reads only the WKT. Keep `parseWktForLeaflet` as a fallback
+for sites that have no GeoJSON, but extend it (or swap it for `wellknown`) so every
+geometry type PR 2 indexes can still be drawn. Then `s_within`, `s_contains`,
+`s_disjoint` and `s_dwithin` need a UI affordance; a select next to the existing
+draw-bbox control is enough for a demo.
 
-**Docs.** `demo/README.md` query table; `09-spatial.md` gains a "See it in the demo"
-pointer.
+**Docs.** `09-spatial.md` CRS table: say *why* 4283 and 7844 are "used directly" (the
+null transform) rather than leaving it implicit, and add a short "Serving geometry to
+web clients" subsection recommending `asGeoJSON`.
+
+Also `demo/README.md` query table, and a "See it in the demo" pointer from `09-spatial.md`.
 
 ## Deliberately out of scope
 
@@ -419,9 +423,15 @@ pointer.
   GDA2020" would silently flip the axis order of every bare literal. And it buys
   nothing: GDA2020 geographic coordinates sit within centimetres of WGS84, which is
   why `isWgs84OrCrs84` already treats 7844 and 4283 as WGS84-equivalent, and Lucene
-  quantises to about a centimetre anyway. Clients on GDA2020 who want front-end
-  libraries to parse their WKT should emit bare CRS84 (lon lat) literals, or keep the
-  prefix in RDF and strip it client-side as the demo does.
+  quantises to about a centimetre anyway (EPSG's published GDA2020 → WGS 84
+  transformation is a null transformation for the same reason). Clients on GDA2020
+  should **keep** the `<EPSG/0/7844>` prefix on `geo:asWKT` — dropping it asserts a
+  datum their data is not in. For front-end consumption they should publish
+  `geo:asGeoJSON` alongside it: GeoSPARQL 1.1 added the property for exactly this,
+  RFC 7946 fixes GeoJSON to WGS84 lon/lat with no CRS member, and every web map library
+  reads it natively. The WKT stays authoritative; the GeoJSON is the interchange copy;
+  the indexer reads only the WKT. Stripping the prefix client-side (as the demo does
+  today at `app.js:939-946`) is the fallback when the data cannot be changed.
 - **Throwing on non-spatial residuals.** Same hazard, different blast radius; filed
   as a follow-up from PR 1.
 
