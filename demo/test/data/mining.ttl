@@ -137,11 +137,11 @@ ex:site-kanawa-ridge a ex:Site ;
 ex:site-haul-road a ex:Site ;
     rdfs:label "Newman Haul Road" ;
     ex:identifier "SITE-HAUL-001" ;
-    dct:description "Haul road corridor indexed as a LineString. Both endpoints sit outside the Pilbara search box while the segment crosses it, which is why a bounding-box query must test the segment rather than its vertices." ;
+    dct:description "Haul road corridor indexed as a LineString, with bends so the shape reads as a line on the map. Every vertex sits outside the Pilbara search box and only one span crosses it, which is why a bounding-box query must test the segments rather than the vertices." ;
     ex:commodity commodity:Iron-Ore ;
     ex:state state:WA ;
     ex:status status:Active ;
-    geo:asWKT "LINESTRING(118.90 -23.40, 120.60 -23.40)"^^geo:wktLiteral .
+    geo:asWKT "LINESTRING(118.60 -23.95, 118.85 -23.70, 119.05 -23.90, 118.95 -23.45, 120.35 -23.35, 120.55 -23.65, 120.80 -23.30, 121.00 -23.55)"^^geo:wktLiteral .
 
 ex:site-drill-collars a ex:Site ;
     rdfs:label "Yandi Drill Collars" ;
