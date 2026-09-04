@@ -132,6 +132,29 @@ public class TestSpatialFiltering {
             addSite(model, "auckland", "Auckland Site",
                 "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-36.85 174.76)");
 
+            // A haul road as a LINESTRING, bare CRS84 (lon lat). Both endpoints are
+            // outside the WA bbox on longitude; the segment passes straight through it.
+            // Proves true segment intersection rather than vertex-in-box.
+            addSite(model, "haul-road", "Haul Road",
+                "LINESTRING(114.0 -25.0, 121.0 -25.0)");
+
+            // Drill collars as a MULTIPOINT, one in WA and one in NSW.
+            addSite(model, "drill-collars", "Drill Collars",
+                "MULTIPOINT((116.5 -30.0), (149.5 -33.0))");
+
+            // Rail spurs as a MULTILINESTRING, both in WA.
+            addSite(model, "rail-spurs", "Rail Spurs",
+                "MULTILINESTRING((116.0 -31.0, 116.5 -31.0), (117.0 -30.0, 117.5 -30.0))");
+
+            // A project with a point in QLD and a polygon in WA.
+            addSite(model, "project-mixed", "Mixed Project",
+                "GEOMETRYCOLLECTION(POINT(145.0 -20.0), POLYGON((118.0 -23.0, 118.5 -23.0, 118.5 -22.5, 118.0 -22.5, 118.0 -23.0)))");
+
+            // A closed ring expressed as a LINESTRING, not a POLYGON. A line has no
+            // interior, so a bbox strictly inside the ring must not match it.
+            addSite(model, "ring-as-line", "Ring As Line",
+                "LINESTRING(116.0 -33.0, 116.7 -33.0, 116.7 -32.5, 116.0 -32.5, 116.0 -33.0)");
+
             dataset.commit();
         } finally {
             dataset.end();
@@ -403,5 +426,123 @@ public class TestSpatialFiltering {
         assertTrue("The CRS84 site should be found", uris.contains(NS + "crs84-site"));
     }
 
+    // ------------------------------------------------------------------
+    // Geometry types beyond Point/Polygon/MultiPolygon
+    // ------------------------------------------------------------------
 
+    private Set<String> urisFor(CqlExpression filter) {
+        List<TextHit> results = textIndex.queryWithCql(
+            null, "*", filter, null, null, null, 100, null);
+        Set<String> uris = new HashSet<>();
+        for (TextHit hit : results) {
+            uris.add(hit.getNode().getURI());
+        }
+        return uris;
+    }
+
+    private static CqlExpression bbox(double swLon, double swLat, double neLon, double neLat) {
+        return new CqlExpression.CqlSpatial("s_intersects", FP + "location",
+            "{\"bbox\":[" + swLon + "," + swLat + "," + neLon + "," + neLat + "]}");
+    }
+
+    @Test
+    public void testLineStringSegmentCrossingBboxMatches() {
+        // WA box on longitude 115..120; the haul road runs 114 -> 121 at latitude -25,
+        // so neither endpoint is inside but the segment crosses.
+        Set<String> uris = urisFor(bbox(115, -34, 120, -20));
+        assertTrue("Haul road segment crosses the box and should match", uris.contains(NS + "haul-road"));
+    }
+
+    @Test
+    public void testMultiPointMatchesEitherMember() {
+        assertTrue("WA collar should match the WA box",
+            urisFor(bbox(115, -34, 120, -20)).contains(NS + "drill-collars"));
+        assertTrue("NSW collar should match the NSW box",
+            urisFor(bbox(148, -35, 151, -31)).contains(NS + "drill-collars"));
+    }
+
+    @Test
+    public void testMultiLineStringIsIndexed() {
+        assertTrue("Rail spurs should match a box covering them",
+            urisFor(bbox(115, -32, 118, -29)).contains(NS + "rail-spurs"));
+    }
+
+    @Test
+    public void testGeometryCollectionMatchesEitherMember() {
+        assertTrue("QLD point member should match the QLD box",
+            urisFor(bbox(144, -21, 146, -19)).contains(NS + "project-mixed"));
+        assertTrue("WA polygon member should match the WA box",
+            urisFor(bbox(117.9, -23.1, 118.6, -22.4)).contains(NS + "project-mixed"));
+    }
+
+    @Test
+    public void testClosedLineStringHasNoInterior() {
+        // A ring drawn as a LINESTRING is a line, not an area. A box strictly inside it
+        // touches none of its segments, so it must not match.
+        Set<String> uris = urisFor(bbox(116.3, -32.8, 116.4, -32.7));
+        assertFalse("A box inside a closed LINESTRING must not match it",
+            uris.contains(NS + "ring-as-line"));
+        // ... but a box straddling one of its segments must.
+        assertTrue("A box crossing the ring's edge should match",
+            urisFor(bbox(116.6, -33.1, 116.8, -32.9)).contains(NS + "ring-as-line"));
+    }
+
+    @Test
+    public void testParseWktToLuceneFieldsLineString() {
+        List<org.apache.lucene.index.IndexableField> fields =
+            ShaclTextIndexLucene.parseWktToLuceneFields("location",
+                "LINESTRING(114.0 -25.0, 121.0 -25.0)", true);
+
+        assertFalse("Should produce fields for a linestring", fields.isEmpty());
+        boolean hasStored = false;
+        for (org.apache.lucene.index.IndexableField f : fields) {
+            if (f instanceof org.apache.lucene.document.StoredField) {
+                hasStored = true;
+            }
+        }
+        assertTrue("A supported geometry must still be stored when requested", hasStored);
+    }
+
+    @Test
+    public void testParseWktToLuceneFieldsMultiLineString() {
+        List<org.apache.lucene.index.IndexableField> fields =
+            ShaclTextIndexLucene.parseWktToLuceneFields("location",
+                "MULTILINESTRING((116.0 -31.0, 116.5 -31.0), (117.0 -30.0, 117.5 -30.0))", false);
+        assertFalse("Should produce fields for a multilinestring", fields.isEmpty());
+    }
+
+    @Test
+    public void testParseWktToLuceneFieldsMultiPoint() {
+        List<org.apache.lucene.index.IndexableField> fields =
+            ShaclTextIndexLucene.parseWktToLuceneFields("location",
+                "MULTIPOINT((116.5 -30.0), (149.5 -33.0))", false);
+        assertFalse("Should produce fields for a multipoint", fields.isEmpty());
+    }
+
+    @Test
+    public void testParseWktToLuceneFieldsGeometryCollection() {
+        List<org.apache.lucene.index.IndexableField> fields =
+            ShaclTextIndexLucene.parseWktToLuceneFields("location",
+                "GEOMETRYCOLLECTION(POINT(145.0 -20.0), LINESTRING(114.0 -25.0, 121.0 -25.0), "
+                + "POLYGON((118.0 -23.0, 118.5 -23.0, 118.5 -22.5, 118.0 -22.5, 118.0 -23.0)))", false);
+        assertFalse("Should produce fields for a geometry collection", fields.isEmpty());
+    }
+
+    @Test
+    public void testDegenerateLineStringIsSkippedNotThrown() {
+        // Lucene rejects a line whose points are all identical. The indexer must
+        // downgrade that to a warning rather than failing the whole transaction.
+        List<org.apache.lucene.index.IndexableField> fields =
+            ShaclTextIndexLucene.parseWktToLuceneFields("location",
+                "LINESTRING(116.0 -31.0, 116.0 -31.0)", false);
+        assertTrue("A degenerate line should produce no fields and no exception", fields.isEmpty());
+    }
+
+    @Test
+    public void testTwoPointLineStringIsIndexed() {
+        List<org.apache.lucene.index.IndexableField> fields =
+            ShaclTextIndexLucene.parseWktToLuceneFields("location",
+                "LINESTRING(116.0 -31.0, 116.5 -31.5)", false);
+        assertFalse("A minimal two-point line is valid and should index", fields.isEmpty());
+    }
 }
