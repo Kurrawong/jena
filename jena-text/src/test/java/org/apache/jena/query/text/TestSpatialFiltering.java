@@ -1109,4 +1109,51 @@ public class TestSpatialFiltering {
             first.size() * 2, fields.size());
     }
 
+
+
+    // ------------------------------------------------------------------
+    // RFC 7946 allows an optional "bbox" member on any GeoJSON object
+    // ------------------------------------------------------------------
+
+    @Test
+    public void testGeoJsonGeometryBboxMemberDoesNotOverrideCoordinates() {
+        // RFC 7946 permits an optional "bbox" on any geometry object; it is metadata,
+        // not the geometry. GIS exports emit it routinely. Treating it as CQL2's bbox
+        // form would query the bounding box instead of the shape -- a wider result set,
+        // silently.
+        //
+        // The coordinates here are over Indonesia; the bbox is over Boddington. Only a
+        // reading that honours the coordinates gets this right.
+        String polygonElsewhere =
+            "{\"type\":\"Polygon\",\"bbox\":[116.3,-32.8,116.4,-32.7],\"coordinates\":"
+            + "[[[100.0,0.0],[101.0,0.0],[101.0,1.0],[100.0,1.0],[100.0,0.0]]]}";
+
+        assertFalse("The bbox member must not stand in for the polygon",
+            urisForOp("s_intersects", polygonElsewhere).contains(NS + "boddington"));
+    }
+
+    @Test
+    public void testGeoJsonGeometryBboxMemberIsIgnoredWhenConsistent() {
+        // The usual case: a bbox that genuinely describes the polygon. The result must
+        // be the same as without it.
+        String withBbox =
+            "{\"type\":\"Polygon\",\"bbox\":[116.0,-33.0,116.7,-32.5],\"coordinates\":"
+            + "[[[116.0,-33.0],[116.7,-33.0],[116.7,-32.5],[116.0,-32.5],[116.0,-33.0]]]}";
+        String withoutBbox =
+            "{\"type\":\"Polygon\",\"coordinates\":"
+            + "[[[116.0,-33.0],[116.7,-33.0],[116.7,-32.5],[116.0,-32.5],[116.0,-33.0]]]}";
+
+        assertEquals("An optional bbox member should not change the result",
+            urisForOp("s_intersects", withoutBbox), urisForOp("s_intersects", withBbox));
+        assertTrue("and Boddington is inside that polygon",
+            urisForOp("s_intersects", withBbox).contains(NS + "boddington"));
+    }
+
+    @Test
+    public void testCql2BboxFormStillWorks() {
+        // The CQL2 bbox form has no "type", and must keep working.
+        assertTrue("A bare bbox is still the CQL2 bbox form",
+            urisForOp("s_intersects", "{\"bbox\":[116.3,-32.8,116.4,-32.7]}")
+                .contains(NS + "boddington"));
+    }
 }
