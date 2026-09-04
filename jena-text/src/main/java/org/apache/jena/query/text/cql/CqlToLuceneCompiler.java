@@ -674,17 +674,7 @@ public class CqlToLuceneCompiler {
             }
 
             if (geomObj.hasKey("type") && "Polygon".equals(geomObj.get("type").getAsString().value())) {
-                JsonArray coordinates = geomObj.get("coordinates").getAsArray();
-                // First element is the exterior ring; CQL2/GeoJSON uses [lon, lat] order
-                JsonArray ring = coordinates.get(0).getAsArray();
-                double[] lats = new double[ring.size()];
-                double[] lons = new double[ring.size()];
-                for (int i = 0; i < ring.size(); i++) {
-                    JsonArray coord = ring.get(i).getAsArray();
-                    lons[i] = coord.get(0).getAsNumber().value().doubleValue();
-                    lats[i] = coord.get(1).getAsNumber().value().doubleValue();
-                }
-                Polygon poly = new Polygon(lats, lons);
+                Polygon poly = geoJsonPolygonToLucene(geomObj.get("coordinates").getAsArray());
                 Query q = LatLonShape.newGeometryQuery(fieldName, ShapeField.QueryRelation.INTERSECTS, poly);
                 return new CompileResult(q, null);
             }
@@ -695,6 +685,44 @@ public class CqlToLuceneCompiler {
         } catch (Exception e) {
             throw new TextIndexException("Failed to parse spatial geometry JSON: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Convert GeoJSON {@code Polygon} coordinates to a Lucene polygon.
+     * <p>
+     * Ring 0 is the exterior shell; rings 1..n are interior rings (holes) and are
+     * passed to Lucene rather than dropped, so a query polygon with a hole does not
+     * match entities sitting inside that hole. This mirrors what
+     * {@code ShaclTextIndexLucene.jtsPolygonToLucene} already does for indexed polygons.
+     * <p>
+     * GeoJSON coordinate order is [lon, lat].
+     */
+    private static Polygon geoJsonPolygonToLucene(JsonArray coordinates) {
+        Polygon[] holes = new Polygon[Math.max(0, coordinates.size() - 1)];
+        for (int h = 1; h < coordinates.size(); h++) {
+            holes[h - 1] = geoJsonRingToLucene(coordinates.get(h).getAsArray());
+        }
+        JsonArray shell = coordinates.get(0).getAsArray();
+        double[][] latLon = geoJsonRingCoordinates(shell);
+        return new Polygon(latLon[0], latLon[1], holes);
+    }
+
+    /** Convert a single GeoJSON linear ring to a Lucene polygon with no holes. */
+    private static Polygon geoJsonRingToLucene(JsonArray ring) {
+        double[][] latLon = geoJsonRingCoordinates(ring);
+        return new Polygon(latLon[0], latLon[1]);
+    }
+
+    /** Split a GeoJSON linear ring into parallel lat and lon arrays. */
+    private static double[][] geoJsonRingCoordinates(JsonArray ring) {
+        double[] lats = new double[ring.size()];
+        double[] lons = new double[ring.size()];
+        for (int i = 0; i < ring.size(); i++) {
+            JsonArray coord = ring.get(i).getAsArray();
+            lons[i] = coord.get(0).getAsNumber().value().doubleValue();
+            lats[i] = coord.get(1).getAsNumber().value().doubleValue();
+        }
+        return new double[][] { lats, lons };
     }
 
     /**

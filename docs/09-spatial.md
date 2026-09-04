@@ -112,6 +112,10 @@ SELECT ?entity ?score WHERE {
 
 The `bbox` array follows the CQL2 convention: `[swLon, swLat, neLon, neLat]`.
 
+A GeoJSON `Polygon` may also be given. Ring 0 is the exterior shell and rings 1..n are
+interior rings (holes); holes are honoured, so a donut-shaped query polygon does not
+match entities sitting inside the hole. GeoJSON coordinate order is `[lon, lat]`.
+
 ### Combining text search with spatial filter
 
 ```sparql
