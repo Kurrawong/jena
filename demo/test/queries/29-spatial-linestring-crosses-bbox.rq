@@ -1,0 +1,15 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# A LineString whose endpoints both sit OUTSIDE the query box, while the segment
+# crosses it. The haul road runs from lon 118.90 to 120.60 at lat -23.40; the box spans
+# lon 119.20 to 120.10.
+#
+# Expected: the Newman haul road. A pass proves true segment intersection rather than
+# testing the vertices.
+PREFIX luc: <urn:jena:lucene:index#>
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score) luc:query ("default" "default" "*"
+    '{"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[119.20,-23.60,120.10,-23.20]}]}'
+    ""
+    20
+    0)
+}

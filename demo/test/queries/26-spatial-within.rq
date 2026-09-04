@@ -1,0 +1,18 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# s_within: the indexed shape lies wholly inside the query geometry.
+#
+# Returns: site-excised-tenement, site-legacy-survey, site-datum-gda2020,
+# site-datum-crs84.
+#
+# Not returned, and each for its own reason:
+#   site-drill-collars   its two collars are outside this box
+#   site-no-geometry     an entity with no geometry is in no spatial result at all
+#   every point-indexed site elsewhere in Australia
+PREFIX luc: <urn:jena:lucene:index#>
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score) luc:query ("default" "default" "*"
+    '{"op":"s_within","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[120.5,-31.5,122.5,-30.0]}]}'
+    ""
+    20
+    0)
+}

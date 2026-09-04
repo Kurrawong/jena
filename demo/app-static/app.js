@@ -929,8 +929,85 @@ async function loadTestCases() {
 }
 
 // ---------------------------------------------------------------------------
-// WKT parser — extracts Leaflet-compatible coordinates from WKT literals
+// Geometry for the map.
+//
+// geo:asGeoJSON is preferred over geo:asWKT. RFC 7946 fixes GeoJSON to WGS84 lon/lat
+// with no CRS member, so Leaflet consumes it directly and nothing in the browser needs
+// to understand the GeoSPARQL "<crs-iri> WKT" prefix or per-datum axis order. The WKT
+// stays authoritative in the RDF and is what the indexer reads; the GeoJSON is the
+// interchange copy.
+//
+// parseWktForLeaflet below remains as the fallback for data that has no GeoJSON. It
+// handles only POINT and the outer ring of POLYGON, which is why publishing asGeoJSON
+// is the recommendation rather than a nicety.
 // ---------------------------------------------------------------------------
+
+/** Parse a geo:asGeoJSON literal. Returns a GeoJSON geometry object, or null. */
+function parseGeoJsonLiteral(raw) {
+    if (!raw) return null;
+    try {
+        const geom = JSON.parse(raw);
+        return (geom && typeof geom === 'object' && geom.type) ? geom : null;
+    } catch {
+        return null;
+    }
+}
+
+/** Every GeoJSON geometry on a card, preferring asGeoJSON and falling back to WKT. */
+function cardGeoJson(card) {
+    const out = [];
+    for (const pv of (card.properties.asGeoJSON || [])) {
+        const geom = parseGeoJsonLiteral(pv.raw);
+        if (geom) out.push(geom);
+    }
+    if (out.length > 0) return out;
+
+    for (const pv of (card.properties.asWKT || [])) {
+        const geo = parseWktForLeaflet(pv.raw);
+        if (!geo) continue;
+        if (geo.type === 'point') {
+            out.push({ type: 'Point', coordinates: [geo.lon, geo.lat] });
+        } else if (geo.type === 'polygon') {
+            // parseWktForLeaflet yields [lat, lon]; GeoJSON wants [lon, lat].
+            out.push({ type: 'Polygon', coordinates: [geo.coords.map(c => [c[1], c[0]])] });
+        }
+    }
+    return out;
+}
+
+/** Collect [lat, lon] pairs from any GeoJSON geometry, for fitting map bounds. */
+function geoJsonLatLngs(geom, out = []) {
+    if (!geom) return out;
+    if (geom.type === 'GeometryCollection') {
+        for (const g of (geom.geometries || [])) geoJsonLatLngs(g, out);
+        return out;
+    }
+    const walk = (coords) => {
+        if (!Array.isArray(coords)) return;
+        if (typeof coords[0] === 'number') {
+            out.push([coords[1], coords[0]]);   // [lon, lat] -> [lat, lon]
+            return;
+        }
+        for (const c of coords) walk(c);
+    };
+    walk(geom.coordinates);
+    return out;
+}
+
+/** A short human label for a geometry, used on result cards. */
+function geoJsonSummary(geom) {
+    const pts = geoJsonLatLngs(geom);
+    if (geom.type === 'Point' && pts.length === 1) {
+        return { value: 'Point', displayValue: 'Point',
+                 tooltip: `${pts[0][0].toFixed(4)}, ${pts[0][1].toFixed(4)}` };
+    }
+    const label = geom.type;
+    const n = geom.type === 'GeometryCollection'
+        ? (geom.geometries || []).length + ' parts'
+        : pts.length + ' points';
+    return { value: label, displayValue: label, tooltip: `${label}, ${n}` };
+}
+
 
 function parseWktForLeaflet(wktString) {
     let wkt = wktString.trim();
@@ -2402,19 +2479,13 @@ DESCRIBE <${uri}>`;
                         });
                         continue;
                     }
-                    if (pred === 'asWKT') {
+                    if (pred === 'asWKT' || pred === 'asGeoJSON') {
                         // One row holding every geometry, not a row each: rows are keyed by
                         // property name, and two rows both called 'location' would collide.
-                        const geometries = values
-                            .map(pv => parseWktForLeaflet(pv.raw))
-                            .filter(Boolean)
-                            .map(geo => ({
-                                value: geo.type === 'point' ? 'Point' : 'Polygon',
-                                displayValue: geo.type === 'point' ? 'Point' : 'Polygon',
-                                tooltip: geo.type === 'point'
-                                    ? `${geo.lat.toFixed(4)}, ${geo.lon.toFixed(4)}`
-                                    : geo.coords.map(c => `${c[0].toFixed(2)},${c[1].toFixed(2)}`).join(' '),
-                            }));
+                        // Built once, from asGeoJSON where available, so the second
+                        // predicate to arrive does not add a duplicate row.
+                        if (card.rows.some(r => r.property === 'location')) continue;
+                        const geometries = cardGeoJson(card).map(geoJsonSummary);
                         if (geometries.length > 0) {
                             card.rows.push({ property: 'location', values: geometries });
                         }
@@ -2722,25 +2793,21 @@ DESCRIBE <${uri}>`;
             let mapped = 0;
 
             for (const card of this.cards) {
-                const wktValues = card.properties.asWKT || [];
-                for (const pv of wktValues) {
-                    const geo = parseWktForLeaflet(pv.raw);
-                    if (!geo) continue;
-
-                    let layer;
-                    if (geo.type === 'point') {
-                        layer = L.circleMarker([geo.lat, geo.lon], {
-                            radius: 7, fillColor: '#d4944c', color: '#d4944c',
-                            weight: 2, opacity: 1, fillOpacity: 0.6,
-                        });
-                        bounds.push([geo.lat, geo.lon]);
-                    } else if (geo.type === 'polygon') {
-                        layer = L.polygon(geo.coords, {
+                for (const geom of cardGeoJson(card)) {
+                    // L.geoJSON covers Point, LineString, Polygon (holes included),
+                    // every Multi* variant and GeometryCollection, so the map shows
+                    // exactly what the indexer indexes.
+                    const layer = L.geoJSON(geom, {
+                        style: {
                             fillColor: '#d4944c', color: '#d4944c',
                             weight: 2, opacity: 0.8, fillOpacity: 0.2,
-                        });
-                        bounds.push(...geo.coords);
-                    }
+                        },
+                        pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
+                            radius: 7, fillColor: '#d4944c', color: '#d4944c',
+                            weight: 2, opacity: 1, fillOpacity: 0.6,
+                        }),
+                    });
+                    bounds.push(...geoJsonLatLngs(geom));
 
                     if (layer) {
                         const popup = `<strong>${escapeHtml(card.label)}</strong>`;

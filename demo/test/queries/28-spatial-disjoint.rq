@@ -1,0 +1,15 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# s_disjoint: the indexed shape shares no point with the query geometry.
+#
+# Expected: every located site outside the Pilbara box. Note the unlocated prospect is
+# NOT returned. An entity with no geometry is excluded from every spatial relation,
+# disjoint included, which follows from GeoSPARQL's query-rewrite rule and from CQL2
+# making a NULL geometry yield a NULL predicate.
+PREFIX luc: <urn:jena:lucene:index#>
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score) luc:query ("default" "default" "*"
+    '{"op":"s_disjoint","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[118.0,-24.0,121.0,-20.0]}]}'
+    ""
+    30
+    0)
+}

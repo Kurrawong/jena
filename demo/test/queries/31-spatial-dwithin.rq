@@ -1,0 +1,20 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# s_dwithin: everything within a radius of a point. The third argument is metres.
+#
+# An extension: CQL2 1.0's spatial classes are purely topological and define no
+# distance operator.
+#
+# Returns: site-excised-tenement, site-legacy-survey, site-datum-gda2020,
+# site-datum-crs84 — everything within 60 km of Kalgoorlie.
+#
+# Unlike a bare Point used as a topological query geometry, a circle has area, so
+# s_dwithin matches point-indexed data. Try replacing the operator with s_intersects
+# and the geometry with a bare Point: it returns nothing.
+PREFIX luc: <urn:jena:lucene:index#>
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score) luc:query ("default" "default" "*"
+    '{"op":"s_dwithin","args":[{"property":"urn:jena:lucene:field#location"},{"type":"Point","coordinates":[121.60,-30.95]},60000]}'
+    ""
+    20
+    0)
+}

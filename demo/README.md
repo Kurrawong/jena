@@ -207,6 +207,13 @@ it finds entities that link *to* the report.
 | `23-nested-identifier-same-child-correlated.rq` | Same-child correlated filter on nested identifier records (issue #65) |
 | `24-nested-match-assay-records.rq` | `luc:nestedMatch` projecting the external CSV assay children that matched |
 | `25-nested-match-attribution-record.rq` | `luc:nestedMatch` projecting the graph-derived attribution child that matched |
+| `26-spatial-within.rq` | `s_within` — the indexed shape lies wholly inside the query box |
+| `27-spatial-contains.rq` | `s_contains` — the indexed shape encloses the query box |
+| `28-spatial-disjoint.rq` | `s_disjoint`, and why the unlocated prospect is still not returned |
+| `29-spatial-linestring-crosses-bbox.rq` | A LineString with both endpoints outside the box, crossing it |
+| `30-spatial-polygon-with-hole.rq` | A query polygon with an interior ring; the hole excludes a match |
+| `31-spatial-dwithin.rq` | `s_dwithin` — everything within a radius, in metres |
+| `32-spatial-crs-equivalence.rq` | GDA2020 and bare CRS84 written for the same place, matching one box |
 
 ### Expected results for path queries
 
