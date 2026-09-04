@@ -977,4 +977,136 @@ public class TestSpatialFiltering {
             + "{\"bbox\":[112,-44,154,-10]},1000]}";
         assertThrows(TextIndexException.class, () -> urisForCqlJson(threeArgs));
     }
+    // ------------------------------------------------------------------
+    // GeoJSON literals (geo:asGeoJSON) as an alternative to WKT
+    // ------------------------------------------------------------------
+
+    @Test
+    public void testGeoJsonPointIsIndexed() {
+        // RFC 7946 fixes GeoJSON to WGS84 lon/lat with no CRS member, so there is no
+        // prefix to strip and no axis order to decide.
+        List<org.apache.lucene.index.IndexableField> fields =
+            ShaclTextIndexLucene.parseGeometryToLuceneFields("location",
+                "{\"type\":\"Point\",\"coordinates\":[121.66,-31.20]}", true);
+        assertFalse("A GeoJSON point must index", fields.isEmpty());
+    }
+
+    @Test
+    public void testGeoJsonAndWktAgreeOnLocation() {
+        // The same place as GeoJSON and as EPSG:4326 WKT must produce the same fields.
+        List<org.apache.lucene.index.IndexableField> viaGeoJson =
+            ShaclTextIndexLucene.parseGeometryToLuceneFields("location",
+                "{\"type\":\"Point\",\"coordinates\":[121.66,-31.20]}", false);
+        List<org.apache.lucene.index.IndexableField> viaWkt =
+            ShaclTextIndexLucene.parseGeometryToLuceneFields("location",
+                "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-31.20 121.66)", false);
+        assertFalse(viaGeoJson.isEmpty());
+        assertEquals("GeoJSON and WKT for one place should index identically",
+            viaWkt.size(), viaGeoJson.size());
+    }
+
+    @Test
+    public void testGeoJsonEveryGeometryTypeIsIndexed() {
+        String[] geoms = {
+            "{\"type\":\"Point\",\"coordinates\":[121.66,-31.20]}",
+            "{\"type\":\"MultiPoint\",\"coordinates\":[[119.05,-22.75],[119.30,-22.60]]}",
+            "{\"type\":\"LineString\",\"coordinates\":[[118.90,-23.40],[120.60,-23.40]]}",
+            "{\"type\":\"MultiLineString\",\"coordinates\":[[[118.55,-20.40],[118.70,-20.90]],[[118.90,-21.20],[119.10,-21.60]]]}",
+            "{\"type\":\"Polygon\",\"coordinates\":[[[121.20,-31.00],[121.80,-31.00],[121.80,-30.40],[121.20,-30.40],[121.20,-31.00]]]}",
+            "{\"type\":\"MultiPolygon\",\"coordinates\":[[[[118.20,-22.30],[118.30,-22.30],[118.30,-22.20],[118.20,-22.20],[118.20,-22.30]]]]}",
+            "{\"type\":\"GeometryCollection\",\"geometries\":[{\"type\":\"Point\",\"coordinates\":[129.75,-20.10]},{\"type\":\"LineString\",\"coordinates\":[[130.1,-20.4],[130.5,-20.1]]}]}",
+        };
+        for (String g : geoms) {
+            List<org.apache.lucene.index.IndexableField> fields =
+                ShaclTextIndexLucene.parseGeometryToLuceneFields("location", g, false);
+            assertFalse("Should index GeoJSON: " + g.substring(0, Math.min(40, g.length())),
+                fields.isEmpty());
+        }
+    }
+
+    @Test
+    public void testGeoJsonPolygonHoleIsIndexed() {
+        // Ring 0 is the shell, rings 1..n are holes, exactly as on the query side.
+        List<org.apache.lucene.index.IndexableField> withHole =
+            ShaclTextIndexLucene.parseGeometryToLuceneFields("location",
+                "{\"type\":\"Polygon\",\"coordinates\":["
+                + "[[121.20,-31.00],[121.80,-31.00],[121.80,-30.40],[121.20,-30.40],[121.20,-31.00]],"
+                + "[[121.40,-30.80],[121.60,-30.80],[121.60,-30.60],[121.40,-30.60],[121.40,-30.80]]]}",
+                false);
+        assertFalse("A GeoJSON polygon with a hole must index", withHole.isEmpty());
+    }
+
+    @Test
+    public void testMalformedGeoJsonProducesNoFields() {
+        for (String bad : new String[] {
+                "{not json",
+                "{\"type\":\"Nonsense\",\"coordinates\":[1,2]}",
+                "{\"type\":\"Point\"}" }) {
+            List<org.apache.lucene.index.IndexableField> fields =
+                ShaclTextIndexLucene.parseGeometryToLuceneFields("location", bad, false);
+            assertTrue("Malformed GeoJSON should be skipped, not thrown: " + bad,
+                fields.isEmpty());
+        }
+    }
+
+    @Test
+    public void testGeoJsonLiteralIsSearchableThroughTheIndex() {
+        dataset.begin(ReadWrite.WRITE);
+        try {
+            Model model = dataset.getDefaultModel();
+            Resource site = ResourceFactory.createResource(NS + "geojson-site");
+            model.add(site, RDF.type, ResourceFactory.createResource(NS + "Site"));
+            model.add(site, ResourceFactory.createProperty(NS, "title"), "GeoJSON Site");
+            model.addLiteral(site, ResourceFactory.createProperty(GEO, "asWKT"),
+                ResourceFactory.createTypedLiteral(
+                    "{\"type\":\"Point\",\"coordinates\":[121.66,-31.20]}",
+                    org.apache.jena.datatypes.TypeMapper.getInstance()
+                        .getSafeTypeByName(GEO + "geoJSONLiteral")));
+            dataset.commit();
+        } finally {
+            dataset.end();
+        }
+
+        CqlExpression filter = new CqlExpression.CqlSpatial("s_intersects", FP + "location",
+            "{\"bbox\":[121.64,-31.22,121.68,-31.18]}");
+        List<TextHit> results = textIndex.queryWithCql(
+            null, "*", filter, null, null, null, 100, null);
+        Set<String> uris = new HashSet<>();
+        for (TextHit hit : results) {
+            uris.add(hit.getNode().getURI());
+        }
+        assertTrue("A GeoJSON-valued geometry should be spatially searchable",
+            uris.contains(NS + "geojson-site"));
+    }
+
+    @Test
+    public void testGeoJsonFeatureIsUnwrapped() {
+        // A GIS export usually emits Feature objects rather than bare geometries.
+        List<org.apache.lucene.index.IndexableField> fields =
+            ShaclTextIndexLucene.parseGeometryToLuceneFields("location",
+                "{\"type\":\"Feature\",\"properties\":{\"name\":\"x\"},"
+                + "\"geometry\":{\"type\":\"Point\",\"coordinates\":[121.66,-31.20]}}", false);
+        assertFalse("A GeoJSON Feature should index its geometry", fields.isEmpty());
+    }
+
+    @Test
+    public void testGeoJsonFeatureCollectionIndexesEveryMember() {
+        // JTS reads a FeatureCollection as a GeometryCollection of every member's
+        // geometry, so both points are indexed and nothing is silently dropped.
+        List<org.apache.lucene.index.IndexableField> fields =
+            ShaclTextIndexLucene.parseGeometryToLuceneFields("location",
+                "{\"type\":\"FeatureCollection\",\"features\":["
+                + "{\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\",\"coordinates\":[121.66,-31.20]}},"
+                + "{\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\",\"coordinates\":[130.00,-25.00]}}]}",
+                false);
+        assertFalse("A FeatureCollection should index", fields.isEmpty());
+
+        // Both members are searchable: a box over either one finds it.
+        List<org.apache.lucene.index.IndexableField> first =
+            ShaclTextIndexLucene.parseGeometryToLuceneFields("location",
+                "{\"type\":\"Point\",\"coordinates\":[121.66,-31.20]}", false);
+        assertEquals("Two members should index as two point shapes",
+            first.size() * 2, fields.size());
+    }
+
 }

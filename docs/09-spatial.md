@@ -50,6 +50,32 @@ to −179 is read as spanning the long way round the globe, not the two-degree s
 Split such geometries into two parts before loading if the short crossing is what you
 mean.
 
+## GeoJSON literals
+
+A `LatLonField` accepts **either** WKT or GeoJSON. Bind whichever predicate the data
+uses:
+
+```turtle
+:SiteShape
+    sh:property [ idx:field field:location ; sh:path geo:asWKT ] ;
+    # ... or ...
+    sh:property [ idx:field field:location ; sh:path geo:asGeoJSON ] .
+```
+
+The two serialisations are told apart by the lexical form, not the datatype: a GeoJSON
+geometry is a JSON object and a WKT literal is not. Sniffing the value means a literal
+typed only as `xsd:string` still indexes, which is common in data converted from GIS
+exports.
+
+GeoJSON is simpler than WKT here because RFC 7946 fixes it to WGS84 longitude/latitude
+and forbids a CRS member, so there is no prefix to strip and no axis order to decide.
+Every geometry type is supported, holes included, and a `Feature` or `FeatureCollection`
+wrapper is accepted as well as a bare geometry — a `FeatureCollection` indexes every
+member's geometry, so nothing is dropped.
+
+A field may mix the two across entities. The same location expressed as GeoJSON and as
+EPSG:4326 WKT indexes identically.
+
 ## CRS handling
 
 Lucene indexes all coordinates in WGS84 (latitude/longitude in degrees). The indexer automatically handles CRS detection and normalisation:
