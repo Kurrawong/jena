@@ -69,8 +69,9 @@ exports.
 
 GeoJSON is simpler than WKT here because RFC 7946 fixes it to WGS84 longitude/latitude
 and forbids a CRS member, so there is no prefix to strip and no axis order to decide.
-Every geometry type is supported, holes included, and a `Feature` or `FeatureCollection`
-wrapper is accepted as well as a bare geometry — a `FeatureCollection` indexes every
+An optional RFC 7946 `bbox` member is ignored, as it should be. Every geometry type is
+supported, holes included, and a `Feature` or `FeatureCollection` wrapper is accepted as
+well as a bare geometry — a `FeatureCollection` indexes every
 member's geometry, so nothing is dropped.
 
 A field may mix the two across entities. The same location expressed as GeoJSON and as
@@ -156,6 +157,11 @@ Either the CQL2 `bbox` form or a GeoJSON object:
 
 Several query geometries are **unioned**: a shape satisfying the relation against any one
 of them matches. GeoJSON coordinate order is `[lon, lat]`.
+
+The CQL2 `bbox` form is recognised by having **no** `type`. RFC 7946 permits an optional
+`bbox` member on any GeoJSON object, where it is metadata describing the geometry rather
+than the geometry itself, and GIS exports emit it routinely — so a geometry carrying one
+is read from its `coordinates`, not its `bbox`.
 
 ### Zero-area query geometries do not match point data
 
