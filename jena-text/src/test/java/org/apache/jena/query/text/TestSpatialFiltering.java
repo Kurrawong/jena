@@ -897,4 +897,84 @@ public class TestSpatialFiltering {
             e.getMessage().contains("s_touches"));
     }
 
+
+    // ------------------------------------------------------------------
+    // s_dwithin — distance queries
+    // ------------------------------------------------------------------
+
+    private static String dwithin(double lon, double lat, double metres) {
+        return "{\"op\":\"s_dwithin\",\"args\":[{\"property\":\"" + FP + "location\"},"
+            + "{\"type\":\"Point\",\"coordinates\":[" + lon + "," + lat + "]}," + metres + "]}";
+    }
+
+    private Set<String> urisForCqlJson(String json) {
+        CqlExpression filter = org.apache.jena.query.text.cql.CqlParser.parse(json);
+        List<TextHit> results = textIndex.queryWithCql(
+            null, "*", filter, null, null, null, 100, null);
+        Set<String> uris = new HashSet<>();
+        for (TextHit hit : results) {
+            uris.add(hit.getNode().getURI());
+        }
+        return uris;
+    }
+
+    @Test
+    public void testDwithinSmallRadiusMatchesOnlyTheNearestSite() {
+        // 20 km around Boddington. The next nearest fixture, ring-body, is ~56 km away.
+        Set<String> uris = urisForCqlJson(dwithin(116.35, -32.77, 20000));
+        assertTrue("Boddington is at the centre", uris.contains(NS + "boddington"));
+        assertFalse("Ring-body is ~56 km away and outside 20 km", uris.contains(NS + "ring-body"));
+        assertFalse("Cadia Valley is in NSW", uris.contains(NS + "cadia-valley"));
+    }
+
+    @Test
+    public void testDwithinLargeRadiusSpansTheContinentButNotBeyond() {
+        Set<String> uris = urisForCqlJson(dwithin(116.35, -32.77, 4000000));
+        assertTrue("Cadia Valley is ~3000 km away, inside 4000 km",
+            uris.contains(NS + "cadia-valley"));
+        assertTrue("Mount Isa is inside 4000 km", uris.contains(NS + "mount-isa"));
+        assertFalse("Auckland is ~5300 km away and outside", uris.contains(NS + "auckland"));
+    }
+
+    @Test
+    public void testDwithinReachesAnAreaShape() {
+        // big-area spans lat -27..-23, lon 120..125. A circle centred just west of it
+        // with a radius long enough to reach must match; a shorter one must not.
+        assertTrue("A circle reaching the polygon matches",
+            urisForCqlJson(dwithin(119.0, -25.0, 200000)).contains(NS + "big-area"));
+        assertFalse("A circle stopping short does not",
+            urisForCqlJson(dwithin(119.0, -25.0, 20000)).contains(NS + "big-area"));
+    }
+
+    @Test
+    public void testDwithinExcludesGeometryLessEntity() {
+        assertFalse("An entity with no geometry is in no spatial result",
+            urisForCqlJson(dwithin(116.35, -32.77, 4000000)).contains(NS + "no-geometry"));
+    }
+
+    @Test
+    public void testDwithinRequiresAPointGeometry() {
+        String withPolygon = "{\"op\":\"s_dwithin\",\"args\":[{\"property\":\"" + FP + "location\"},"
+            + "{\"type\":\"Polygon\",\"coordinates\":[[[115.0,-33.0],[117.0,-33.0],[117.0,-32.0],[115.0,-32.0],[115.0,-33.0]]]},"
+            + "1000]}";
+        TextIndexException e = assertThrows(TextIndexException.class, () -> urisForCqlJson(withPolygon));
+        assertTrue("Message should say a point is required: " + e.getMessage(),
+            e.getMessage().contains("Point"));
+    }
+
+    @Test
+    public void testDwithinRequiresADistance() {
+        String noDistance = "{\"op\":\"s_dwithin\",\"args\":[{\"property\":\"" + FP + "location\"},"
+            + "{\"type\":\"Point\",\"coordinates\":[116.35,-32.77]}]}";
+        assertThrows(TextIndexException.class, () -> urisForCqlJson(noDistance));
+    }
+
+    @Test
+    public void testTopologicalOperatorRejectsADistanceArgument() {
+        // A third argument is only meaningful for s_dwithin. Accepting and ignoring it
+        // would silently answer a different question than the one asked.
+        String threeArgs = "{\"op\":\"s_intersects\",\"args\":[{\"property\":\"" + FP + "location\"},"
+            + "{\"bbox\":[112,-44,154,-10]},1000]}";
+        assertThrows(TextIndexException.class, () -> urisForCqlJson(threeArgs));
+    }
 }
