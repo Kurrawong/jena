@@ -193,6 +193,12 @@ tasks:
     cmds:
       - FUSEKI_PORT={{.FUSEKI_PORT}} node --test check-examples.mjs
 
+  test-wkt:
+    desc: Unit-test the browser WKT parser (Node's built-in runner, no deps)
+    dir: testing
+    cmds:
+      - node --test wkt.test.mjs
+
   test:
     desc: Run Playwright screenshot tests and generate report
     dir: testing

@@ -215,6 +215,29 @@ it finds entities that link *to* the report.
 | `31-spatial-dwithin.rq` | `s_dwithin` — everything within a radius, in metres |
 | `32-spatial-crs-equivalence.rq` | GDA2020 and bare CRS84 written for the same place, matching one box |
 
+### Geometry on the map
+
+`geo:asWKT` literals are parsed in the browser by `app-static/wkt.js`. GeoSPARQL allows a
+CRS IRI prefix, `<crs> POINT(...)`, which no general-purpose WKT library understands, and
+the axis order depends on that CRS, so the demo strips and normalises it itself:
+
+| CRS | Axis order |
+|---|---|
+| bare WKT, or CRS84 | lon lat |
+| EPSG:4326 | lat lon |
+| EPSG:4283 (GDA94) | lat lon |
+| EPSG:7844 (GDA2020) | lat lon |
+
+Every geometry type is drawn, holes included. A projected CRS such as EPSG:28350 is
+skipped with a console warning rather than guessed, since drawing metres as degrees would
+put the shape in the Gulf of Guinea.
+
+Run the parser's tests with no extra dependencies:
+
+```bash
+node --test testing/wkt.test.mjs
+```
+
 ### Expected results for path queries
 
 **Query 06** should return author facets showing each author wrote 2 reports:

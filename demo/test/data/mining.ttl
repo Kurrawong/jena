@@ -125,10 +125,10 @@ ex:site-kanawa-ridge a ex:Site ;
 ## --- Spatial demo sites ---
 ## Every geometry type the indexer handles, across the three CRS forms it accepts.
 ##
-## Each site also carries geo:asGeoJSON. The WKT stays authoritative and keeps its CRS
-## prefix; the GeoJSON is the interchange copy the browser renders. RFC 7946 fixes
-## GeoJSON to WGS84 lon/lat with no CRS member, so no web map library has to know about
-## the GeoSPARQL prefix. The indexer reads only the WKT.
+## The WKT keeps its CRS prefix. The demo app strips that prefix and normalises axis
+## order in the browser (see app-static/wkt.js), which is what any client consuming
+## GeoSPARQL WKT has to do: no general-purpose WKT library understands the
+## "<crs-iri> GEOMETRY(...)" form, and the axis order depends on that CRS.
 ##
 ## GDA2020 (EPSG:7844) and GDA94 (EPSG:4283) are lat/lon and are treated as
 ## WGS84-equivalent: EPSG publishes the GDA2020 -> WGS 84 transformation as a null
@@ -141,8 +141,7 @@ ex:site-haul-road a ex:Site ;
     ex:commodity commodity:Iron-Ore ;
     ex:state state:WA ;
     ex:status status:Active ;
-    geo:asWKT "LINESTRING(118.90 -23.40, 120.60 -23.40)"^^geo:wktLiteral ;
-    geo:asGeoJSON "{\"type\":\"LineString\",\"coordinates\":[[118.90,-23.40],[120.60,-23.40]]}"^^geo:geoJSONLiteral .
+    geo:asWKT "LINESTRING(118.90 -23.40, 120.60 -23.40)"^^geo:wktLiteral .
 
 ex:site-drill-collars a ex:Site ;
     rdfs:label "Yandi Drill Collars" ;
@@ -151,8 +150,7 @@ ex:site-drill-collars a ex:Site ;
     ex:commodity commodity:Iron-Ore ;
     ex:state state:WA ;
     ex:status status:Active ;
-    geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/7844> MULTIPOINT((-22.75 119.05), (-22.60 119.30))"^^geo:wktLiteral ;
-    geo:asGeoJSON "{\"type\":\"MultiPoint\",\"coordinates\":[[119.05,-22.75],[119.30,-22.60]]}"^^geo:geoJSONLiteral .
+    geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/7844> MULTIPOINT((-22.75 119.05), (-22.60 119.30))"^^geo:wktLiteral .
 
 ex:site-rail-spur a ex:Site ;
     rdfs:label "Port Hedland Rail Spur" ;
@@ -161,8 +159,7 @@ ex:site-rail-spur a ex:Site ;
     ex:commodity commodity:Iron-Ore ;
     ex:state state:WA ;
     ex:status status:Active ;
-    geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/4326> MULTILINESTRING((-20.40 118.55, -20.90 118.70), (-21.20 118.90, -21.60 119.10))"^^geo:wktLiteral ;
-    geo:asGeoJSON "{\"type\":\"MultiLineString\",\"coordinates\":[[[118.55,-20.40],[118.70,-20.90]],[[118.90,-21.20],[119.10,-21.60]]]}"^^geo:geoJSONLiteral .
+    geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/4326> MULTILINESTRING((-20.40 118.55, -20.90 118.70), (-21.20 118.90, -21.60 119.10))"^^geo:wktLiteral .
 
 ex:site-excised-tenement a ex:Site ;
     rdfs:label "Kalgoorlie Excised Tenement" ;
@@ -171,8 +168,7 @@ ex:site-excised-tenement a ex:Site ;
     ex:commodity commodity:Gold ;
     ex:state state:WA ;
     ex:status status:Active ;
-    geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/7844> POLYGON((-31.00 121.20, -31.00 121.80, -30.40 121.80, -30.40 121.20, -31.00 121.20), (-30.80 121.40, -30.80 121.60, -30.60 121.60, -30.60 121.40, -30.80 121.40))"^^geo:wktLiteral ;
-    geo:asGeoJSON "{\"type\":\"Polygon\",\"coordinates\":[[[121.20,-31.00],[121.80,-31.00],[121.80,-30.40],[121.20,-30.40],[121.20,-31.00]],[[121.40,-30.80],[121.60,-30.80],[121.60,-30.60],[121.40,-30.60],[121.40,-30.80]]]}"^^geo:geoJSONLiteral .
+    geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/7844> POLYGON((-31.00 121.20, -31.00 121.80, -30.40 121.80, -30.40 121.20, -31.00 121.20), (-30.80 121.40, -30.80 121.60, -30.60 121.60, -30.60 121.40, -30.80 121.40))"^^geo:wktLiteral .
 
 ex:site-mixed-project a ex:Site ;
     rdfs:label "Tanami Mixed Project" ;
@@ -181,8 +177,7 @@ ex:site-mixed-project a ex:Site ;
     ex:commodity commodity:Gold ;
     ex:state state:NT ;
     ex:status status:Active ;
-    geo:asWKT "GEOMETRYCOLLECTION(POINT(129.75 -20.10), POLYGON((130.10 -20.40, 130.50 -20.40, 130.50 -20.10, 130.10 -20.10, 130.10 -20.40)))"^^geo:wktLiteral ;
-    geo:asGeoJSON "{\"type\":\"GeometryCollection\",\"geometries\":[{\"type\":\"Point\",\"coordinates\":[129.75,-20.10]},{\"type\":\"Polygon\",\"coordinates\":[[[130.10,-20.40],[130.50,-20.40],[130.50,-20.10],[130.10,-20.10],[130.10,-20.40]]]}]}"^^geo:geoJSONLiteral .
+    geo:asWKT "GEOMETRYCOLLECTION(POINT(129.75 -20.10), POLYGON((130.10 -20.40, 130.50 -20.40, 130.50 -20.10, 130.10 -20.10, 130.10 -20.40)))"^^geo:wktLiteral .
 
 ex:site-legacy-survey a ex:Site ;
     rdfs:label "Legacy Survey Marker" ;
@@ -191,8 +186,7 @@ ex:site-legacy-survey a ex:Site ;
     ex:commodity commodity:Gold ;
     ex:state state:WA ;
     ex:status status:Historical ;
-    geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/4283> POINT(-30.75 121.47)"^^geo:wktLiteral ;
-    geo:asGeoJSON "{\"type\":\"Point\",\"coordinates\":[121.47,-30.75]}"^^geo:geoJSONLiteral .
+    geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/4283> POINT(-30.75 121.47)"^^geo:wktLiteral .
 
 ## The same physical location written two ways. site-datum-gda2020 keeps the GDA2020
 ## prefix and lat/lon order; site-datum-crs84 is bare WKT, which GeoSPARQL defines as
@@ -205,8 +199,7 @@ ex:site-datum-gda2020 a ex:Site ;
     ex:commodity commodity:Copper ;
     ex:state state:WA ;
     ex:status status:Active ;
-    geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/7844> POINT(-31.20 121.66)"^^geo:wktLiteral ;
-    geo:asGeoJSON "{\"type\":\"Point\",\"coordinates\":[121.66,-31.20]}"^^geo:geoJSONLiteral .
+    geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/7844> POINT(-31.20 121.66)"^^geo:wktLiteral .
 
 ex:site-datum-crs84 a ex:Site ;
     rdfs:label "Datum Demo (CRS84)" ;
@@ -215,8 +208,7 @@ ex:site-datum-crs84 a ex:Site ;
     ex:commodity commodity:Copper ;
     ex:state state:WA ;
     ex:status status:Active ;
-    geo:asWKT "POINT(121.66 -31.20)"^^geo:wktLiteral ;
-    geo:asGeoJSON "{\"type\":\"Point\",\"coordinates\":[121.66,-31.20]}"^^geo:geoJSONLiteral .
+    geo:asWKT "POINT(121.66 -31.20)"^^geo:wktLiteral .
 
 ## No geometry at all. Absent from every spatial result, s_disjoint included: GeoSPARQL's
 ## query rewrite never binds a geometry for it, and CQL2 makes a predicate with a NULL
