@@ -529,13 +529,35 @@ public class TestSpatialFiltering {
     }
 
     @Test
-    public void testDegenerateLineStringIsSkippedNotThrown() {
-        // Lucene rejects a line whose points are all identical. The indexer must
-        // downgrade that to a warning rather than failing the whole transaction.
+    public void testDegenerateLineStringStillIndexes() {
+        // A line whose points are all identical is degenerate but Lucene accepts it,
+        // indexing it as a zero-length shape. Pinned so the behaviour is a decision
+        // rather than an accident.
         List<org.apache.lucene.index.IndexableField> fields =
             ShaclTextIndexLucene.parseWktToLuceneFields("location",
                 "LINESTRING(116.0 -31.0, 116.0 -31.0)", false);
-        assertTrue("A degenerate line should produce no fields and no exception", fields.isEmpty());
+        assertFalse("Lucene accepts a zero-length line", fields.isEmpty());
+    }
+
+    @Test
+    public void testSinglePointLineStringProducesNoFields() {
+        // JTS rejects a one-point LINESTRING outright. The indexer must downgrade that
+        // to a warning and skip the value, not fail the enclosing transaction.
+        List<org.apache.lucene.index.IndexableField> fields =
+            ShaclTextIndexLucene.parseWktToLuceneFields("location",
+                "LINESTRING(116.0 -31.0)", false);
+        assertTrue("Invalid WKT should produce no fields and no exception", fields.isEmpty());
+    }
+
+    @Test
+    public void testAntimeridianLineStringIsNotSplit() {
+        // Lucene does not split geometries at the antimeridian. A line written from
+        // 179 to -179 is read as spanning the long way round the globe rather than the
+        // 2-degree short hop. Pinned here so the limitation is visible and documented.
+        List<org.apache.lucene.index.IndexableField> fields =
+            ShaclTextIndexLucene.parseWktToLuceneFields("location",
+                "LINESTRING(179.0 -17.0, -179.0 -17.0)", false);
+        assertFalse("An antimeridian-spanning line still indexes", fields.isEmpty());
     }
 
     @Test
