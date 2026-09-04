@@ -47,7 +47,10 @@ import org.apache.lucene.document.IntPoint;
 import org.apache.lucene.document.LatLonShape;
 import org.apache.lucene.document.LongPoint;
 import org.apache.lucene.document.ShapeField;
+import org.apache.lucene.geo.LatLonGeometry;
+import org.apache.lucene.geo.Line;
 import org.apache.lucene.geo.Polygon;
+import org.apache.lucene.geo.Rectangle;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.*;
 import org.apache.lucene.analysis.Analyzer;
@@ -75,15 +78,25 @@ public class CqlToLuceneCompiler {
     private final Analyzer defaultQueryAnalyzer;
 
     /**
-     * Spatial operators this compiler can push to Lucene. Anything outside this set
-     * raises rather than becoming a residual: a dropped residual is not applied as a
-     * filter, so silently ignoring a spatial operator returns <em>more</em> rows than
-     * were asked for. A wrong answer is worse than a refused one.
+     * CQL2 spatial operators this compiler can push to Lucene, and the Lucene relation
+     * each maps onto. Anything outside this map raises rather than becoming a residual:
+     * a dropped residual is not applied as a filter, so silently ignoring a spatial
+     * operator returns <em>more</em> rows than were asked for.
+     * <p>
+     * CQL2 argument order is {@code op(property, geometry)}, so {@code s_within} means
+     * <em>indexed shape within query geometry</em>, which is Lucene's {@code WITHIN}
+     * with no inversion. {@code s_equals}, {@code s_crosses}, {@code s_overlaps} and
+     * {@code s_touches} have no Lucene relation and are deliberately absent.
      */
-    private static final Set<String> SUPPORTED_SPATIAL_OPS = Set.of("s_intersects");
+    private static final Map<String, ShapeField.QueryRelation> SPATIAL_RELATIONS = Map.of(
+        "s_intersects", ShapeField.QueryRelation.INTERSECTS,
+        "s_within",     ShapeField.QueryRelation.WITHIN,
+        "s_contains",   ShapeField.QueryRelation.CONTAINS,
+        "s_disjoint",   ShapeField.QueryRelation.DISJOINT);
 
     /** Query geometry forms {@link #compileSpatial} understands, for error messages. */
-    private static final String SUPPORTED_QUERY_GEOMETRIES = "bbox, Polygon";
+    private static final String SUPPORTED_QUERY_GEOMETRIES =
+        "bbox, Point, MultiPoint, LineString, MultiLineString, Polygon, MultiPolygon, GeometryCollection";
 
     public record CompileResult(Query pushed, CqlExpression residual) {}
 
@@ -658,10 +671,11 @@ public class CqlToLuceneCompiler {
     }
 
     private CompileResult compileSpatial(CqlExpression.CqlSpatial spatial) {
-        if (!SUPPORTED_SPATIAL_OPS.contains(spatial.op())) {
+        ShapeField.QueryRelation relation = SPATIAL_RELATIONS.get(spatial.op());
+        if (relation == null) {
             throw new TextIndexException(
                 "Spatial operator '" + spatial.op() + "' is not supported. Supported: "
-                + String.join(", ", new java.util.TreeSet<>(SUPPORTED_SPATIAL_OPS)) + ".");
+                + String.join(", ", new java.util.TreeSet<>(SPATIAL_RELATIONS.keySet())) + ".");
         }
 
         FieldDef field = findField(spatial.property());
@@ -682,30 +696,16 @@ public class CqlToLuceneCompiler {
         try {
             JsonObject geomObj = JSON.parse(geomJson);
 
-            if (geomObj.hasKey("bbox")) {
-                JsonArray bbox = geomObj.get("bbox").getAsArray();
-                if (bbox.size() != 4) {
-                    throw new TextIndexException("bbox must have exactly 4 values [swLon, swLat, neLon, neLat], got " + bbox.size());
-                }
-                double swLon = bbox.get(0).getAsNumber().value().doubleValue();
-                double swLat = bbox.get(1).getAsNumber().value().doubleValue();
-                double neLon = bbox.get(2).getAsNumber().value().doubleValue();
-                double neLat = bbox.get(3).getAsNumber().value().doubleValue();
-
-                Query q = LatLonShape.newBoxQuery(fieldName, ShapeField.QueryRelation.INTERSECTS,
-                    swLat, neLat, swLon, neLon);
-                return new CompileResult(q, null);
+            List<LatLonGeometry> geometries = new ArrayList<>();
+            addQueryGeometries(geometries, geomObj);
+            if (geometries.isEmpty()) {
+                throw new TextIndexException(
+                    "Spatial query geometry " + describeQueryGeometry(geomObj) + " is empty.");
             }
 
-            if (geomObj.hasKey("type") && "Polygon".equals(geomObj.get("type").getAsString().value())) {
-                Polygon poly = geoJsonPolygonToLucene(geomObj.get("coordinates").getAsArray());
-                Query q = LatLonShape.newGeometryQuery(fieldName, ShapeField.QueryRelation.INTERSECTS, poly);
-                return new CompileResult(q, null);
-            }
-
-            throw new TextIndexException(
-                "Spatial query geometry " + describeQueryGeometry(geomObj)
-                + " is not supported. Supported: " + SUPPORTED_QUERY_GEOMETRIES + ".");
+            Query q = LatLonShape.newGeometryQuery(fieldName, relation,
+                geometries.toArray(new LatLonGeometry[0]));
+            return new CompileResult(q, null);
         } catch (TextIndexException e) {
             throw e;
         } catch (Exception e) {
@@ -722,6 +722,88 @@ public class CqlToLuceneCompiler {
             }
         }
         return "with keys " + geomObj.keys();
+    }
+
+    /**
+     * Append the Lucene query geometries described by a CQL2 geometry object.
+     * <p>
+     * Accepts the CQL2 {@code bbox} form and the GeoJSON {@code type}/{@code coordinates}
+     * form, recursing through {@code GeometryCollection}. Several geometries are unioned
+     * by {@link LatLonShape#newGeometryQuery}, so a shape satisfying the relation against
+     * any one of them matches.
+     * <p>
+     * GeoJSON coordinate order is [lon, lat]; the CQL2 bbox order is
+     * [swLon, swLat, neLon, neLat].
+     */
+    private static void addQueryGeometries(List<LatLonGeometry> out, JsonObject geomObj) {
+        if (geomObj.hasKey("bbox")) {
+            JsonArray bbox = geomObj.get("bbox").getAsArray();
+            if (bbox.size() != 4) {
+                throw new TextIndexException("bbox must have exactly 4 values [swLon, swLat, neLon, neLat], got " + bbox.size());
+            }
+            double swLon = bbox.get(0).getAsNumber().value().doubleValue();
+            double swLat = bbox.get(1).getAsNumber().value().doubleValue();
+            double neLon = bbox.get(2).getAsNumber().value().doubleValue();
+            double neLat = bbox.get(3).getAsNumber().value().doubleValue();
+            out.add(new Rectangle(swLat, neLat, swLon, neLon));
+            return;
+        }
+
+        if (!geomObj.hasKey("type")) {
+            throw new TextIndexException(
+                "Spatial query geometry " + describeQueryGeometry(geomObj)
+                + " is not supported. Supported: " + SUPPORTED_QUERY_GEOMETRIES + ".");
+        }
+
+        String type = geomObj.get("type").getAsString().value();
+        switch (type) {
+            case "Point" ->
+                out.add(geoJsonPointToLucene(geomObj.get("coordinates").getAsArray()));
+            case "MultiPoint" -> {
+                JsonArray points = geomObj.get("coordinates").getAsArray();
+                for (int i = 0; i < points.size(); i++) {
+                    out.add(geoJsonPointToLucene(points.get(i).getAsArray()));
+                }
+            }
+            case "LineString" ->
+                out.add(geoJsonLineToLucene(geomObj.get("coordinates").getAsArray()));
+            case "MultiLineString" -> {
+                JsonArray lines = geomObj.get("coordinates").getAsArray();
+                for (int i = 0; i < lines.size(); i++) {
+                    out.add(geoJsonLineToLucene(lines.get(i).getAsArray()));
+                }
+            }
+            case "Polygon" ->
+                out.add(geoJsonPolygonToLucene(geomObj.get("coordinates").getAsArray()));
+            case "MultiPolygon" -> {
+                JsonArray polygons = geomObj.get("coordinates").getAsArray();
+                for (int i = 0; i < polygons.size(); i++) {
+                    out.add(geoJsonPolygonToLucene(polygons.get(i).getAsArray()));
+                }
+            }
+            case "GeometryCollection" -> {
+                JsonArray members = geomObj.get("geometries").getAsArray();
+                for (int i = 0; i < members.size(); i++) {
+                    addQueryGeometries(out, members.get(i).getAsObject());
+                }
+            }
+            default -> throw new TextIndexException(
+                "Spatial query geometry '" + type + "' is not supported. Supported: "
+                + SUPPORTED_QUERY_GEOMETRIES + ".");
+        }
+    }
+
+    /** Convert a GeoJSON [lon, lat] position to a Lucene point. */
+    private static org.apache.lucene.geo.Point geoJsonPointToLucene(JsonArray coord) {
+        double lon = coord.get(0).getAsNumber().value().doubleValue();
+        double lat = coord.get(1).getAsNumber().value().doubleValue();
+        return new org.apache.lucene.geo.Point(lat, lon);
+    }
+
+    /** Convert a GeoJSON line (array of [lon, lat] positions) to a Lucene line. */
+    private static Line geoJsonLineToLucene(JsonArray positions) {
+        double[][] latLon = geoJsonRingCoordinates(positions);
+        return new Line(latLon[0], latLon[1]);
     }
 
     /**

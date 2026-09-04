@@ -357,13 +357,13 @@ public class TestSpatialFiltering {
         // compiler does not understand also produced a dropped residual.
         CqlExpression filter = new CqlExpression.CqlSpatial(
             "s_intersects", FP + "location",
-            "{\"type\":\"Point\",\"coordinates\":[116.35,-32.77]}");
+            "{\"type\":\"Circle\",\"coordinates\":[116.35,-32.77],\"radius\":1000}");
 
         TextIndexException e = assertThrows(TextIndexException.class, () ->
             textIndex.queryWithCql(null, "*", filter, null, null, null, 100, null));
 
         assertTrue("Message should name the offending geometry type: " + e.getMessage(),
-            e.getMessage().contains("Point"));
+            e.getMessage().contains("Circle"));
     }
 
     @Test
@@ -775,47 +775,76 @@ public class TestSpatialFiltering {
     }
 
     @Test
-    public void testBoundaryContactCountsAsWithin() {
-        // DE-9IM sfWithin needs a non-empty interior-interior intersection, so a point
-        // exactly on the query boundary is strictly NOT within. Lucene treats on-edge as
-        // inside. Pinned as a known, documented divergence.
+    public void testBoundaryContactIsNotWithin() {
+        // DE-9IM sfWithin (T*F**F***) needs a non-empty interior-interior intersection,
+        // so a point exactly on the query boundary is NOT within. Lucene agrees, which
+        // is worth pinning because it is easy to assume the opposite.
         String edgeBox = bboxJson(116.35, -34.0, 118.0, -31.0);  // west edge on Boddington's lon
-        assertTrue("Lucene counts boundary contact as within",
+        assertFalse("A point on the query boundary is not within it",
             urisForOp("s_within", edgeBox).contains(NS + "boddington"));
+
+        // Move the edge west so the point is strictly inside, and it matches.
+        String insetBox = bboxJson(116.30, -34.0, 118.0, -31.0);
+        assertTrue("A point strictly inside is within",
+            urisForOp("s_within", insetBox).contains(NS + "boddington"));
     }
 
     // --- GeoJSON query geometry types ------------------------------------------
 
     @Test
     public void testQueryGeometryPoint() {
-        String point = "{\"type\":\"Point\",\"coordinates\":[116.35,-32.77]}";
-        assertTrue("A point query should find the co-located point",
-            urisForOp("s_intersects", point).contains(NS + "boddington"));
+        // big-area spans lat -27..-23, lon 120..125.
+        String point = "{\"type\":\"Point\",\"coordinates\":[122.0,-25.0]}";
+        assertTrue("A point inside the indexed polygon should match",
+            urisForOp("s_intersects", point).contains(NS + "big-area"));
     }
 
     @Test
     public void testQueryGeometryLineString() {
-        // A line running west to east across Boddington's latitude.
-        String line = "{\"type\":\"LineString\",\"coordinates\":[[115.0,-32.77],[118.0,-32.77]]}";
-        assertTrue("A line through the point should match",
-            urisForOp("s_intersects", line).contains(NS + "boddington"));
+        String line = "{\"type\":\"LineString\",\"coordinates\":[[121.0,-25.0],[124.0,-25.0]]}";
+        assertTrue("A line crossing the indexed polygon should match",
+            urisForOp("s_intersects", line).contains(NS + "big-area"));
     }
 
     @Test
     public void testQueryGeometryMultiPoint() {
-        String multiPoint = "{\"type\":\"MultiPoint\",\"coordinates\":[[116.35,-32.77],[148.99,-33.47]]}";
+        // One point inside big-area, one inside the pilbara-cluster multipolygon.
+        String multiPoint = "{\"type\":\"MultiPoint\",\"coordinates\":[[122.0,-25.0],[118.25,-22.25]]}";
         Set<String> uris = urisForOp("s_intersects", multiPoint);
-        assertTrue("Should match the WA point", uris.contains(NS + "boddington"));
-        assertTrue("Should match the NSW point", uris.contains(NS + "cadia-valley"));
+        assertTrue("Should match big-area", uris.contains(NS + "big-area"));
+        assertTrue("Should match pilbara-cluster", uris.contains(NS + "pilbara-cluster"));
     }
 
     @Test
     public void testQueryGeometryMultiLineString() {
         String multiLine = "{\"type\":\"MultiLineString\",\"coordinates\":"
-            + "[[[115.0,-32.77],[118.0,-32.77]],[[148.0,-33.47],[150.0,-33.47]]]}";
+            + "[[[121.0,-25.0],[124.0,-25.0]],[[118.21,-22.25],[118.29,-22.25]]]}";
         Set<String> uris = urisForOp("s_intersects", multiLine);
-        assertTrue("First line crosses Boddington", uris.contains(NS + "boddington"));
-        assertTrue("Second line crosses Cadia Valley", uris.contains(NS + "cadia-valley"));
+        assertTrue("First line crosses big-area", uris.contains(NS + "big-area"));
+        assertTrue("Second line crosses pilbara-cluster", uris.contains(NS + "pilbara-cluster"));
+    }
+
+    @Test
+    public void testZeroAreaQueryGeometryDoesNotMatchPointIndexedData() {
+        // Lucene computes shape relations against indexed triangles. When neither side
+        // has area -- a Point or LineString query against a POINT-indexed entity -- no
+        // intersection is reported, even via the dedicated newPointQuery API. Areal
+        // query geometries (bbox, Polygon) match point data as expected.
+        //
+        // Pinned because it is a silent empty result, not an error.
+        String pointOnBoddington = "{\"type\":\"Point\",\"coordinates\":[116.35,-32.77]}";
+        assertFalse("A Point query does not match POINT-indexed data",
+            urisForOp("s_intersects", pointOnBoddington).contains(NS + "boddington"));
+
+        String lineThroughBoddington =
+            "{\"type\":\"LineString\",\"coordinates\":[[115.0,-32.77],[118.0,-32.77]]}";
+        assertFalse("A LineString query does not match POINT-indexed data",
+            urisForOp("s_intersects", lineThroughBoddington).contains(NS + "boddington"));
+
+        // The areal equivalent of the same query does match.
+        assertTrue("A small bbox over the same point does match",
+            urisForOp("s_intersects", bboxJson(116.34, -32.78, 116.36, -32.76))
+                .contains(NS + "boddington"));
     }
 
     @Test
@@ -831,11 +860,11 @@ public class TestSpatialFiltering {
     @Test
     public void testQueryGeometryCollection() {
         String collection = "{\"type\":\"GeometryCollection\",\"geometries\":["
-            + "{\"type\":\"Point\",\"coordinates\":[116.35,-32.77]},"
-            + "{\"type\":\"Point\",\"coordinates\":[148.99,-33.47]}]}";
+            + "{\"type\":\"Point\",\"coordinates\":[122.0,-25.0]},"
+            + "{\"bbox\":[148.5,-33.7,149.5,-33.2]}]}";
         Set<String> uris = urisForOp("s_intersects", collection);
-        assertTrue("Collection member 1", uris.contains(NS + "boddington"));
-        assertTrue("Collection member 2", uris.contains(NS + "cadia-valley"));
+        assertTrue("Point member matches big-area", uris.contains(NS + "big-area"));
+        assertTrue("bbox member matches Cadia Valley", uris.contains(NS + "cadia-valley"));
     }
 
     @Test
@@ -867,4 +896,5 @@ public class TestSpatialFiltering {
         assertTrue("Message should name the operator: " + e.getMessage(),
             e.getMessage().contains("s_touches"));
     }
+
 }

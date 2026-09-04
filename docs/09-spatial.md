@@ -96,9 +96,79 @@ ex:site-b geo:asWKT "POINT(151.21 -33.87)"^^geo:wktLiteral .
 # Both index to the same location: Sydney, Australia
 ```
 
+## Operators
+
+| CQL2 operator | Lucene relation | Meaning |
+|---|---|---|
+| `s_intersects` | `INTERSECTS` | the indexed shape and the query geometry share any point |
+| `s_within` | `WITHIN` | the indexed shape lies inside the query geometry |
+| `s_contains` | `CONTAINS` | the indexed shape encloses the query geometry |
+| `s_disjoint` | `DISJOINT` | the indexed shape and the query geometry share no point |
+
+CQL2 argument order is `op(property, geometry)`, so `s_within` reads as *property within
+geometry*. `s_equals`, `s_crosses`, `s_overlaps` and `s_touches` are parsed but have no
+Lucene relation, so they raise rather than being silently dropped.
+
+## Query geometries
+
+Either the CQL2 `bbox` form or a GeoJSON object:
+
+| Form | Example |
+|---|---|
+| `bbox` | `{"bbox":[112,-44,154,-10]}` |
+| `Point` | `{"type":"Point","coordinates":[116.35,-32.77]}` |
+| `MultiPoint` | `{"type":"MultiPoint","coordinates":[[...],[...]]}` |
+| `LineString` | `{"type":"LineString","coordinates":[[...],[...]]}` |
+| `MultiLineString` | `{"type":"MultiLineString","coordinates":[[[...]],[[...]]]}` |
+| `Polygon` | `{"type":"Polygon","coordinates":[shell, hole1, ...]}` |
+| `MultiPolygon` | `{"type":"MultiPolygon","coordinates":[[shell],[shell]]}` |
+| `GeometryCollection` | `{"type":"GeometryCollection","geometries":[...]}` |
+
+Several query geometries are **unioned**: a shape satisfying the relation against any one
+of them matches. GeoJSON coordinate order is `[lon, lat]`.
+
+### Zero-area query geometries do not match point data
+
+A `Point` or `LineString` query geometry matches areal indexed shapes (polygons) but
+**not** `POINT`-indexed entities. Lucene computes relations against indexed triangles, and
+when neither side has area no intersection is reported. This holds for the dedicated
+point-query API too, so it is a property of `LatLonShape` rather than a choice here.
+
+The practical consequence: to find point-indexed entities at a location, use a small
+`bbox` or `Polygon` rather than a `Point`. Point-in-polygon queries — the common case —
+work exactly as expected. This is a silent empty result rather than an error, so it is
+pinned by a test.
+
+## Relation semantics
+
+These follow from DE-9IM, which both CQL2 (via OGC Simple Features clause 6.1.15) and
+GeoSPARQL 1.1 (Table 2) require. Lucene agrees on all of them.
+
+**A multi-valued field behaves as one geometry collection.** GeoSPARQL evaluates relations
+through `geo:hasDefaultGeometry`, does not restrict its cardinality, and calls a feature
+with several default geometries an application-specific modelling error producing
+"logically inconsistent results" — so the intended model is one geometry per feature, with
+multi-part features written as `MULTI*` or `GEOMETRYCOLLECTION`. Under DE-9IM on a
+collection, `within` holds only if the whole collection is inside and `disjoint` only if
+every part is. That is exactly Lucene's per-document rule. An entity with a WA point and
+an NSW point therefore *intersects* a WA box but is not *within* it and is not *disjoint*
+from it.
+
+**An entity with no geometry matches no relation, including `s_disjoint`.** GeoSPARQL's
+query-rewrite rule must bind a geometry before the relation function runs, and CQL2 makes
+a predicate with a NULL geometry evaluate to NULL. Lucene only visits documents that have
+the field. All three agree, so an entity with no `geo:asWKT` is absent from every spatial
+result — which is easy to get wrong for `s_disjoint`.
+
+**Boundary contact is not "within".** DE-9IM `sfWithin` is `T*F**F***`, requiring a
+non-empty interior-interior intersection, so a point lying exactly on the query polygon's
+edge is not within it. Lucene agrees. Note also that coordinates are quantised to roughly
+a centimetre on encoding, so exact boundary coincidence is not something to rely on
+either way.
+
 ## Querying with CQL2-JSON spatial filters
 
-Use the `s_intersects` operator in the CQL2-JSON filter argument of `luc:query`:
+Use a spatial operator in the CQL2-JSON filter argument of `luc:query`:
 
 ```sparql
 PREFIX luc: <urn:jena:lucene:index#>
@@ -142,8 +212,9 @@ SELECT ?entity ?score WHERE {
 
 ## Current limitations
 
-- Only `s_intersects` with `bbox` or GeoJSON `Polygon` geometry is supported. Other spatial operators (`s_within`, `s_contains`, `s_disjoint`, etc.) and the remaining GeoJSON geometry types will be added incrementally.
+- `s_equals`, `s_crosses`, `s_overlaps` and `s_touches` have no Lucene equivalent and raise.
 - Distance queries are not yet supported.
+- A zero-area query geometry does not match point-indexed data; see "Query geometries" below.
 
 ## Unsupported spatial filters raise
 
