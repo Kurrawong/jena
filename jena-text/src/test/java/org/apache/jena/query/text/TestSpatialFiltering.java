@@ -68,8 +68,10 @@ public class TestSpatialFiltering {
         FieldDef titleField = new FieldDef("title", FieldType.TEXT, null,
             true, true, false, false, false, true);
 
+        // multiValued: a Feature may carry more than one geometry, and the relation
+        // semantics for that case are exactly what several tests below pin.
         FieldDef locationField = new FieldDef("location", FieldType.LATLON, null,
-            true, true, false, false, false, false);
+            true, true, false, false, true, false);
 
         List<FieldOccurrence> rootOccurrences = Arrays.asList(
             occurrence(titleField, PathFactory.pathLink(TITLE_PRED), Collections.singleton(TITLE_PRED)),
@@ -158,6 +160,30 @@ public class TestSpatialFiltering {
             // within the outer ring but outside the hole. Wattle Downs sits in the hole.
             addSite(model, "ring-body", "Ring Body Site",
                 "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-32.77 116.95)");
+
+            // Genuinely multi-valued: two separate geo:asWKT triples on one entity, one
+            // in WA and one in NSW. Exercises the relation semantics for a field with
+            // more than one indexed shape.
+            addSite(model, "twin-sites", "Twin Sites",
+                "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-30.00 116.50)");
+            model.addLiteral(
+                ResourceFactory.createResource(NS + "twin-sites"),
+                ResourceFactory.createProperty(GEO, "asWKT"),
+                ResourceFactory.createTypedLiteral(
+                    "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-33.00 149.50)",
+                    org.apache.jena.datatypes.TypeMapper.getInstance()
+                        .getSafeTypeByName(GEO + "wktLiteral")));
+
+            // A large area used for s_contains: the indexed shape contains the query.
+            addSite(model, "big-area", "Big Area",
+                "<http://www.opengis.net/def/crs/EPSG/0/4326> POLYGON((-27.0 120.0, -27.0 125.0, -23.0 125.0, -23.0 120.0, -27.0 120.0))");
+
+            // No geometry at all. Must be absent from every spatial relation, including
+            // s_disjoint: GeoSPARQL's rewrite rule never binds a geometry for it, and
+            // CQL2 makes a predicate with a NULL geometry evaluate to NULL.
+            Resource noGeom = ResourceFactory.createResource(NS + "no-geometry");
+            model.add(noGeom, RDF.type, ResourceFactory.createResource(NS + "Site"));
+            model.add(noGeom, ResourceFactory.createProperty(NS, "title"), "No Geometry Site");
 
             dataset.commit();
         } finally {
@@ -668,5 +694,177 @@ public class TestSpatialFiltering {
 
         assertFalse("Wattle Downs sits in the first hole", uris.contains(NS + "boddington"));
         assertFalse("Ring-body site sits in the second hole", uris.contains(NS + "ring-body"));
+    }
+
+    // ------------------------------------------------------------------
+    // Relations beyond INTERSECTS, and the full GeoJSON query geometry set
+    // ------------------------------------------------------------------
+
+    private Set<String> urisForOp(String op, String geometryJson) {
+        CqlExpression filter = new CqlExpression.CqlSpatial(op, FP + "location", geometryJson);
+        List<TextHit> results = textIndex.queryWithCql(
+            null, "*", filter, null, null, null, 100, null);
+        Set<String> uris = new HashSet<>();
+        for (TextHit hit : results) {
+            uris.add(hit.getNode().getURI());
+        }
+        return uris;
+    }
+
+    private static String bboxJson(double swLon, double swLat, double neLon, double neLat) {
+        return "{\"bbox\":[" + swLon + "," + swLat + "," + neLon + "," + neLat + "]}";
+    }
+
+    @Test
+    public void testWithinMatchesShapeInsideQueryGeometry() {
+        // Boddington (116.35, -32.77) is inside a generous WA box.
+        Set<String> uris = urisForOp("s_within", bboxJson(115, -34, 118, -31));
+        assertTrue("Boddington is within the box", uris.contains(NS + "boddington"));
+        assertFalse("Cadia Valley is in NSW, not within the WA box",
+            uris.contains(NS + "cadia-valley"));
+    }
+
+    @Test
+    public void testDisjointMatchesShapesOutsideQueryGeometry() {
+        Set<String> uris = urisForOp("s_disjoint", bboxJson(115, -34, 118, -31));
+        assertFalse("Boddington is inside the box, so not disjoint from it",
+            uris.contains(NS + "boddington"));
+        assertTrue("Cadia Valley is far away and disjoint", uris.contains(NS + "cadia-valley"));
+    }
+
+    @Test
+    public void testContainsMatchesIndexedShapeContainingQueryGeometry() {
+        // big-area spans lat -27..-23, lon 120..125. The query box sits well inside it.
+        Set<String> uris = urisForOp("s_contains", bboxJson(121.0, -26.0, 122.0, -25.0));
+        assertTrue("The indexed polygon contains the query box", uris.contains(NS + "big-area"));
+        assertFalse("A point cannot contain a box", uris.contains(NS + "boddington"));
+    }
+
+    // --- spec-derived semantics -------------------------------------------------
+
+    @Test
+    public void testWithinOnMultiValuedFieldRequiresEveryShape() {
+        // twin-sites has two indexed points, one in WA and one in NSW. Under DE-9IM a
+        // feature's geometry is one collection, so it is within the WA box only if all
+        // of it is. Lucene's per-document WITHIN agrees.
+        String waBox = bboxJson(115, -34, 118, -28);
+        assertTrue("It intersects the WA box via its WA point",
+            urisForOp("s_intersects", waBox).contains(NS + "twin-sites"));
+        assertFalse("But it is not wholly within the WA box",
+            urisForOp("s_within", waBox).contains(NS + "twin-sites"));
+    }
+
+    @Test
+    public void testDisjointOnMultiValuedFieldRequiresEveryShape() {
+        // Disjoint from a box only if every one of its shapes is.
+        String waBox = bboxJson(115, -34, 118, -28);
+        assertFalse("One of its points is inside the box, so it is not disjoint",
+            urisForOp("s_disjoint", waBox).contains(NS + "twin-sites"));
+    }
+
+    @Test
+    public void testGeometryLessEntityMatchesNoRelation() {
+        // GeoSPARQL's query rewrite never binds a geometry for such a feature and CQL2
+        // makes a NULL geometry yield a NULL predicate, so it is in neither result.
+        String box = bboxJson(115, -34, 118, -31);
+        assertFalse("Absent from intersects",
+            urisForOp("s_intersects", box).contains(NS + "no-geometry"));
+        assertFalse("Absent from disjoint too, which is the surprising half",
+            urisForOp("s_disjoint", box).contains(NS + "no-geometry"));
+        assertFalse("Absent from within", urisForOp("s_within", box).contains(NS + "no-geometry"));
+    }
+
+    @Test
+    public void testBoundaryContactCountsAsWithin() {
+        // DE-9IM sfWithin needs a non-empty interior-interior intersection, so a point
+        // exactly on the query boundary is strictly NOT within. Lucene treats on-edge as
+        // inside. Pinned as a known, documented divergence.
+        String edgeBox = bboxJson(116.35, -34.0, 118.0, -31.0);  // west edge on Boddington's lon
+        assertTrue("Lucene counts boundary contact as within",
+            urisForOp("s_within", edgeBox).contains(NS + "boddington"));
+    }
+
+    // --- GeoJSON query geometry types ------------------------------------------
+
+    @Test
+    public void testQueryGeometryPoint() {
+        String point = "{\"type\":\"Point\",\"coordinates\":[116.35,-32.77]}";
+        assertTrue("A point query should find the co-located point",
+            urisForOp("s_intersects", point).contains(NS + "boddington"));
+    }
+
+    @Test
+    public void testQueryGeometryLineString() {
+        // A line running west to east across Boddington's latitude.
+        String line = "{\"type\":\"LineString\",\"coordinates\":[[115.0,-32.77],[118.0,-32.77]]}";
+        assertTrue("A line through the point should match",
+            urisForOp("s_intersects", line).contains(NS + "boddington"));
+    }
+
+    @Test
+    public void testQueryGeometryMultiPoint() {
+        String multiPoint = "{\"type\":\"MultiPoint\",\"coordinates\":[[116.35,-32.77],[148.99,-33.47]]}";
+        Set<String> uris = urisForOp("s_intersects", multiPoint);
+        assertTrue("Should match the WA point", uris.contains(NS + "boddington"));
+        assertTrue("Should match the NSW point", uris.contains(NS + "cadia-valley"));
+    }
+
+    @Test
+    public void testQueryGeometryMultiLineString() {
+        String multiLine = "{\"type\":\"MultiLineString\",\"coordinates\":"
+            + "[[[115.0,-32.77],[118.0,-32.77]],[[148.0,-33.47],[150.0,-33.47]]]}";
+        Set<String> uris = urisForOp("s_intersects", multiLine);
+        assertTrue("First line crosses Boddington", uris.contains(NS + "boddington"));
+        assertTrue("Second line crosses Cadia Valley", uris.contains(NS + "cadia-valley"));
+    }
+
+    @Test
+    public void testQueryGeometryMultiPolygon() {
+        String multiPolygon = "{\"type\":\"MultiPolygon\",\"coordinates\":["
+            + "[[[116.0,-33.0],[116.7,-33.0],[116.7,-32.5],[116.0,-32.5],[116.0,-33.0]]],"
+            + "[[[148.5,-33.7],[149.5,-33.7],[149.5,-33.2],[148.5,-33.2],[148.5,-33.7]]]]}";
+        Set<String> uris = urisForOp("s_intersects", multiPolygon);
+        assertTrue("First polygon covers Boddington", uris.contains(NS + "boddington"));
+        assertTrue("Second polygon covers Cadia Valley", uris.contains(NS + "cadia-valley"));
+    }
+
+    @Test
+    public void testQueryGeometryCollection() {
+        String collection = "{\"type\":\"GeometryCollection\",\"geometries\":["
+            + "{\"type\":\"Point\",\"coordinates\":[116.35,-32.77]},"
+            + "{\"type\":\"Point\",\"coordinates\":[148.99,-33.47]}]}";
+        Set<String> uris = urisForOp("s_intersects", collection);
+        assertTrue("Collection member 1", uris.contains(NS + "boddington"));
+        assertTrue("Collection member 2", uris.contains(NS + "cadia-valley"));
+    }
+
+    @Test
+    public void testMultiGeometryQueryWithinIsUnion() {
+        // Lucene treats several query geometries as a union, so a shape within either
+        // one satisfies WITHIN.
+        String multiPolygon = "{\"type\":\"MultiPolygon\",\"coordinates\":["
+            + "[[[116.0,-33.0],[116.7,-33.0],[116.7,-32.5],[116.0,-32.5],[116.0,-33.0]]],"
+            + "[[[148.5,-33.7],[149.5,-33.7],[149.5,-33.2],[148.5,-33.2],[148.5,-33.7]]]]}";
+        Set<String> uris = urisForOp("s_within", multiPolygon);
+        assertTrue("Boddington is within the first member", uris.contains(NS + "boddington"));
+        assertTrue("Cadia Valley is within the second member", uris.contains(NS + "cadia-valley"));
+    }
+
+    @Test
+    public void testQueryPolygonHoleAppliesToWithinToo() {
+        assertFalse("Boddington is in the hole, so not within the donut",
+            urisForOp("s_within", DONUT_AROUND_WATTLE_DOWNS).contains(NS + "boddington"));
+    }
+
+    // --- still unsupported ------------------------------------------------------
+
+    @Test
+    public void testTouchesStillThrows() {
+        // s_touches, s_crosses, s_overlaps and s_equals have no Lucene relation and must
+        // keep raising rather than silently widening the result set.
+        TextIndexException e = assertThrows(TextIndexException.class, () ->
+            urisForOp("s_touches", bboxJson(115, -34, 118, -31)));
+        assertTrue("Message should name the operator: " + e.getMessage(),
+            e.getMessage().contains("s_touches"));
     }
 }
