@@ -92,6 +92,13 @@ public class IndexVocab {
     // Hierarchical facet properties
     public static final Property pFacetHierarchy = Vocab.property(NS, "facetHierarchy");
 
+    /**
+     * Levels of a named facet hierarchy. Lets {@code idx:facetHierarchy} take a resource
+     * rather than a bare RDF list, so the hierarchy can carry an IRI and be addressed by
+     * it instead of by a name derived from its levels.
+     */
+    public static final Property pLevels = Vocab.property(NS, "levels");
+
     // External source properties (inside an idx:nested block)
     public static final Property pNestedName        = Vocab.property(NS, "nestedName");
     public static final Property pExternalSource    = Vocab.property(NS, "externalSource");

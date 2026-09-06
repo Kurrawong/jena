@@ -139,6 +139,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     private final Directory taxoDirectory;
     private final DirectoryTaxonomyWriter taxoWriter;
     private final Set<String> hierarchyDimensions;
+    /** IRI to taxonomy dimension name, for hierarchies declared with an IRI. */
+    private final Map<String, String> hierarchyDimensionsByIRI;
 
     /**
      * Filter that matches parent docs only (children docs share the entity URI in the
@@ -262,9 +264,13 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         // Initialize hierarchical facet support
         // Taxonomy dimensions use a separate index field to avoid conflict with SSDV's $facets field
         this.hierarchyDimensions = new LinkedHashSet<>();
+        this.hierarchyDimensionsByIRI = new LinkedHashMap<>();
         for (ShaclIndexMapping.HierarchyDef h : shaclMapping.getAllHierarchies()) {
             String dim = h.getDimensionName();
             hierarchyDimensions.add(dim);
+            if (h.getDimensionIRI() != null) {
+                hierarchyDimensionsByIRI.put(h.getDimensionIRI().getURI(), dim);
+            }
             facetsConfig.setHierarchical(dim, true);
             facetsConfig.setMultiValued(dim, true);
             facetsConfig.setIndexFieldName(dim, TAXO_INDEX_FIELD);
@@ -591,9 +597,13 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         }
         List<String> resolved = new ArrayList<>(fieldIRIs.size());
         for (String spec : fieldIRIs) {
-            if (hierarchyDimensions.contains(spec)) {
-                if (!resolved.contains(spec)) {
-                    resolved.add(spec);
+            // A hierarchy is addressed by its IRI when it has one, or by the dimension
+            // name derived from its levels.
+            String byIRI = hierarchyDimensionsByIRI.get(spec);
+            String dimension = byIRI != null ? byIRI : (hierarchyDimensions.contains(spec) ? spec : null);
+            if (dimension != null) {
+                if (!resolved.contains(dimension)) {
+                    resolved.add(dimension);
                 }
                 continue;
             }

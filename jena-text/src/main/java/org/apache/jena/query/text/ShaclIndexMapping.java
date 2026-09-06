@@ -225,17 +225,35 @@ public class ShaclIndexMapping {
 
     public static class HierarchyDef {
         private final String dimensionName;
+        private final Node dimensionIRI;
         private final List<FieldDef> levels;
 
         public HierarchyDef(String dimensionName, List<FieldDef> levels) {
+            this(dimensionName, levels, null);
+        }
+
+        /**
+         * @param dimensionName the Lucene taxonomy dimension, derived from the level field
+         *                      names. This is the on-disk key, so it stays derived even
+         *                      when the hierarchy carries an IRI: changing it would
+         *                      invalidate every existing index.
+         * @param dimensionIRI  optional IRI naming the hierarchy, from a resource-valued
+         *                      {@code idx:facetHierarchy}. Queries may address the
+         *                      dimension by this as well as by its name. Null for the
+         *                      plain RDF list form.
+         */
+        public HierarchyDef(String dimensionName, List<FieldDef> levels, Node dimensionIRI) {
             this.dimensionName = Objects.requireNonNull(dimensionName);
             if (levels == null || levels.size() < 2) {
                 throw new IllegalArgumentException("Hierarchy must have at least 2 levels");
             }
             this.levels = Collections.unmodifiableList(new ArrayList<>(levels));
+            this.dimensionIRI = dimensionIRI;
         }
 
         public String getDimensionName()     { return dimensionName; }
+        /** IRI naming this hierarchy, or null when it was declared as a bare RDF list. */
+        public Node getDimensionIRI()        { return dimensionIRI; }
         public List<FieldDef> getLevels()    { return levels; }
         public int getDepth()                { return levels.size(); }
         public FieldDef getLevel(int index)  { return levels.get(index); }

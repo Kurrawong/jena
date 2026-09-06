@@ -750,4 +750,110 @@ public class TestShaclAssembler {
             .findFirst()
             .orElse(null);
     }
+
+    // ------------------------------------------------------------------
+    // Named facet hierarchies (#171)
+    // ------------------------------------------------------------------
+
+    @Test
+    public void testNamedFacetHierarchyCarriesItsIRI() {
+        // A hierarchy declared as a resource with idx:levels can be addressed by its IRI.
+        // The taxonomy dimension name stays derived from the level field names, because it
+        // is the on-disk key: renaming it would invalidate every existing index.
+        Model model = createModel();
+
+        Resource titleField = model.createResource("urn:jena:lucene:field#title")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "title")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField);
+        Resource identifierType = model.createResource("urn:jena:lucene:field#identifierType")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifierType")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
+            .addProperty(model.createProperty(IndexVocab.NS, "facetable"), model.createTypedLiteral(true));
+        Resource identifierValueExact = model.createResource("urn:jena:lucene:field#identifierValueExact")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "identifierValueExact")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
+            .addProperty(model.createProperty(IndexVocab.NS, "facetable"), model.createTypedLiteral(true));
+
+        String dimIRI = "http://example.org/dim/identifierPath";
+        Resource hierarchy = model.createResource(dimIRI)
+            .addProperty(model.createProperty(IndexVocab.NS, "levels"),
+                model.createList(new RDFNode[] { identifierType, identifierValueExact }));
+
+        Resource nested = model.createResource()
+            .addProperty(model.createProperty(IndexVocab.NS, "joinPath"), model.createResource("https://schema.org/identifier"))
+            .addProperty(model.createProperty(IndexVocab.NS, "property"),
+                occurrence(model, identifierType, model.createResource("https://schema.org/propertyID")))
+            .addProperty(model.createProperty(IndexVocab.NS, "property"),
+                occurrence(model, identifierValueExact, model.createResource("https://schema.org/value")))
+            .addProperty(model.createProperty(IndexVocab.NS, "facetHierarchy"), hierarchy);
+
+        Resource shape = model.createResource(EX + "BoreholeShape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Borehole"))
+            .addProperty(model.createProperty(SH, "property"), occurrence(model, titleField, RDFS.label))
+            .addProperty(model.createProperty(IndexVocab.NS, "nested"), nested);
+
+        Resource indexSpec = model.createResource(EX + "index")
+            .addProperty(RDF.type, TextVocab.textIndexShacl)
+            .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+            .addProperty(TextVocab.pShapes, model.createList(new RDFNode[] { shape }));
+
+        ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
+        try {
+            NestedDef nestedDef = index.getShaclMapping().getProfiles().get(0).getNestedDefs().get(0);
+            var hier = nestedDef.getHierarchies().get(0);
+
+            assertNotNull("The hierarchy should carry its IRI", hier.getDimensionIRI());
+            assertEquals(dimIRI, hier.getDimensionIRI().getURI());
+            assertEquals("The taxonomy dimension name stays derived from the levels",
+                "identifierType_identifierValueExact", hier.getDimensionName());
+
+            // Addressable both ways, resolving to the one taxonomy dimension.
+            assertEquals(java.util.List.of("identifierType_identifierValueExact"),
+                index.resolveFacetFieldNames(java.util.List.of(dimIRI)));
+            assertEquals(java.util.List.of("identifierType_identifierValueExact"),
+                index.resolveFacetFieldNames(java.util.List.of("identifierType_identifierValueExact")));
+        } finally {
+            index.close();
+        }
+    }
+
+    @Test
+    public void testBareListFacetHierarchyHasNoIRI() {
+        // The existing form keeps working and carries no IRI.
+        Model model = createModel();
+
+        Resource titleField = model.createResource("urn:jena:lucene:field#title")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "title")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.TextField);
+        Resource a = model.createResource("urn:jena:lucene:field#levelA")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "levelA")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
+            .addProperty(model.createProperty(IndexVocab.NS, "facetable"), model.createTypedLiteral(true));
+        Resource b = model.createResource("urn:jena:lucene:field#levelB")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldName"), "levelB")
+            .addProperty(model.createProperty(IndexVocab.NS, "fieldType"), IndexVocab.KeywordField)
+            .addProperty(model.createProperty(IndexVocab.NS, "facetable"), model.createTypedLiteral(true));
+
+        Resource shape = model.createResource(EX + "Shape")
+            .addProperty(model.createProperty(SH, "targetClass"), model.createResource(EX + "Thing"))
+            .addProperty(model.createProperty(SH, "property"), occurrence(model, titleField, RDFS.label))
+            .addProperty(model.createProperty(SH, "property"), occurrence(model, a, model.createResource(EX + "a")))
+            .addProperty(model.createProperty(SH, "property"), occurrence(model, b, model.createResource(EX + "b")))
+            .addProperty(model.createProperty(IndexVocab.NS, "facetHierarchy"),
+                model.createList(new RDFNode[] { a, b }));
+
+        Resource indexSpec = model.createResource(EX + "index")
+            .addProperty(RDF.type, TextVocab.textIndexShacl)
+            .addProperty(TextVocab.pDirectory, model.createLiteral("mem"))
+            .addProperty(TextVocab.pShapes, model.createList(new RDFNode[] { shape }));
+
+        ShaclTextIndexLucene index = (ShaclTextIndexLucene) Assembler.general().open(indexSpec);
+        try {
+            var hier = index.getShaclMapping().getProfiles().get(0).getHierarchies().get(0);
+            assertNull("A bare RDF list carries no IRI", hier.getDimensionIRI());
+            assertEquals("levelA_levelB", hier.getDimensionName());
+        } finally {
+            index.close();
+        }
+    }
 }

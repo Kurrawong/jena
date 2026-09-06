@@ -400,7 +400,24 @@ public class ShaclIndexAssembler {
                 throw new TextIndexException("idx:facetHierarchy must be an RDF list on " + owner);
             }
 
-            RDFList hierList = hierNode.asResource().as(RDFList.class);
+            // Two forms. A bare RDF list, or a resource carrying idx:levels — which may be
+            // a URI, giving the hierarchy an IRI to be addressed by. The taxonomy
+            // dimension name stays derived from the level names either way, because it is
+            // the on-disk key and renaming it would invalidate existing indexes.
+            Resource hierRes = hierNode.asResource();
+            Node dimensionIRI = null;
+            if (hierRes.hasProperty(IndexVocab.pLevels)) {
+                RDFNode levelsNode = hierRes.getProperty(IndexVocab.pLevels).getObject();
+                if (!levelsNode.isResource()) {
+                    throw new TextIndexException("idx:levels must be an RDF list on " + hierRes);
+                }
+                if (hierRes.isURIResource()) {
+                    dimensionIRI = hierRes.asNode();
+                }
+                hierRes = levelsNode.asResource();
+            }
+
+            RDFList hierList = hierRes.as(RDFList.class);
             List<RDFNode> levelNodes = hierList.asJavaList();
             if (levelNodes.size() < 2) {
                 throw new TextIndexException(
@@ -429,7 +446,7 @@ public class ShaclIndexAssembler {
             }
 
             String dimensionName = dimNameBuilder.toString();
-            hierarchies.add(new HierarchyDef(dimensionName, levels));
+            hierarchies.add(new HierarchyDef(dimensionName, levels, dimensionIRI));
             log.debug("Parsed hierarchy: {} levels={}", dimensionName, levels);
         }
 
