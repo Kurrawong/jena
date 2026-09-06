@@ -520,6 +520,27 @@ A report surfaces only when ONE qualified-attribution record has hadRole="Princi
 
 **Boundary worth knowing:** the same-child fold operates within one CQL filter subtree. If the type clause sits in `cqlFilter` and the text clause sits in `queryString` (the separate text input on `luc:query`), they are not in the same CqlAnd and the fold cannot apply — each lifts independently. For same-child correctness, put both clauses in `cqlFilter` (using `=` and `text_query` as shown above).
 
+### Naming a field
+
+A filter may name a field by its canonical IRI or by its `idx:fieldName`. Both spellings
+work, and both work for `luc:facet` too.
+
+A name that resolves to **nothing** raises `TextIndexException`, as does filtering on a
+field that exists but is not indexed. Neither is silently ignored.
+
+That matters more than it sounds. An ignored clause is not applied anywhere, so the query
+answers with **more** rows than were asked for, and nothing in the result says so. A typo
+in a field name used to return the whole dataset. Inside an `or` it was worse: the fold
+abandons the whole disjunction when one branch cannot be pushed, so a single bad name
+dropped every other branch as well.
+
+The same rule applies to `luc:facet`: a spec matching no field and no hierarchy dimension
+raises rather than returning an empty bucket list, which was indistinguishable from a real
+field with no values.
+
+The reserved `urn:jena:lucene:index#entityIri` property is exempt, since it names no
+field. Operators it does not support still fall through as before.
+
 ## Graph Scoping
 
 Target model:

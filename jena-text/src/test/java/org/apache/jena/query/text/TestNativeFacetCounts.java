@@ -243,14 +243,12 @@ public class TestNativeFacetCounts {
     }
 
     @Test
-    public void testNonExistentField() {
-        Map<String, List<FacetValue>> facets = textIndex.getFacetCounts(
-            Arrays.asList("nonexistent"), 10
-        );
-
-        List<FacetValue> nonexistentFacets = facets.get("nonexistent");
-        assertNotNull(nonexistentFacets);
-        assertTrue(nonexistentFacets.isEmpty());
+    public void testNonExistentFieldThrows() {
+        // Returned an empty bucket list, which is indistinguishable from a real field
+        // that happens to have no values. A name that resolves to nothing is a mistake
+        // in the request, so say so.
+        assertThrows(TextIndexException.class,
+            () -> textIndex.getFacetCounts(Arrays.asList("nonexistent"), 10));
     }
 
     @Test

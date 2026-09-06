@@ -134,28 +134,25 @@ public class TestCqlToLuceneCompiler {
     }
 
     @Test
-    public void testNonIndexedFieldIsResidual() {
+    public void testNonIndexedFieldThrows() {
+        // Was a residual, and residuals are discarded, so filtering on a stored-but-not-
+        // indexed field quietly returned every row instead of none.
         CqlExpression expr = new CqlExpression.CqlComparison("=", FP + "notes", "important");
-        CqlToLuceneCompiler.CompileResult r = compiler.compile(expr);
-
-        assertNull("Non-indexed field should not push", r.pushed());
-        assertNotNull("Should be residual", r.residual());
+        assertThrows(TextIndexException.class, () -> compiler.compile(expr));
     }
 
     @Test
-    public void testUnknownFieldIsResidual() {
+    public void testUnknownFieldThrows() {
         CqlExpression expr = new CqlExpression.CqlComparison("=", "nonexistent", "val");
-        CqlToLuceneCompiler.CompileResult r = compiler.compile(expr);
-
-        assertNull(r.pushed());
-        assertNotNull(r.residual());
+        assertThrows(TextIndexException.class, () -> compiler.compile(expr));
     }
 
     @Test
     public void testAndPartialPush() {
-        // state=WA is pushable, notes=x is not (not indexed)
+        // state=WA is pushable; 'like' on an INT field is not, so it stays a residual.
+        // A field that resolves to nothing now raises instead, so it cannot be used here.
         CqlExpression pushable = new CqlExpression.CqlComparison("=", FP + "state", "WA");
-        CqlExpression residual = new CqlExpression.CqlComparison("=", FP + "notes", "important");
+        CqlExpression residual = new CqlExpression.CqlLike(FP + "year", "20%");
         CqlExpression and = new CqlExpression.CqlAnd(List.of(pushable, residual));
 
         CqlToLuceneCompiler.CompileResult r = compiler.compile(and);
@@ -191,7 +188,7 @@ public class TestCqlToLuceneCompiler {
     @Test
     public void testOrPartiallyPushableBecomesResidual() {
         CqlExpression pushable = new CqlExpression.CqlComparison("=", FP + "state", "WA");
-        CqlExpression residual = new CqlExpression.CqlComparison("=", FP + "notes", "x");
+        CqlExpression residual = new CqlExpression.CqlLike(FP + "year", "20%");
         CqlExpression or = new CqlExpression.CqlOr(List.of(pushable, residual));
 
         CqlToLuceneCompiler.CompileResult r = compiler.compile(or);
@@ -214,7 +211,7 @@ public class TestCqlToLuceneCompiler {
 
     @Test
     public void testNotResidual() {
-        CqlExpression inner = new CqlExpression.CqlComparison("=", FP + "notes", "x");
+        CqlExpression inner = new CqlExpression.CqlLike(FP + "year", "20%");
         CqlExpression not = new CqlExpression.CqlNot(inner);
 
         CqlToLuceneCompiler.CompileResult r = compiler.compile(not);
@@ -319,16 +316,16 @@ public class TestCqlToLuceneCompiler {
     }
 
     @Test
-    public void testSpatialPolygonByBareFieldNameThrows() {
+    public void testSpatialOnUnknownFieldThrows() {
         // Query APIs take field IRIs, not bare field names. A bare name resolves to no
         // field, which used to yield a residual — and residuals are discarded, so the
         // spatial filter silently vanished and the query returned unfiltered rows.
         String polygon = "{\"type\":\"Polygon\",\"coordinates\":[[[118.2,-22.3],[118.3,-22.3],[118.3,-22.2],[118.2,-22.2],[118.2,-22.3]]]}";
-        CqlExpression spatial = new CqlExpression.CqlSpatial("s_intersects", "location", polygon);
+        CqlExpression spatial = new CqlExpression.CqlSpatial("s_intersects", "nosuchfield", polygon);
 
         TextIndexException e = assertThrows(TextIndexException.class, () -> compiler.compile(spatial));
         assertTrue("Message should name the unresolved field: " + e.getMessage(),
-            e.getMessage().contains("location"));
+            e.getMessage().contains("nosuchfield"));
     }
 
     @Test

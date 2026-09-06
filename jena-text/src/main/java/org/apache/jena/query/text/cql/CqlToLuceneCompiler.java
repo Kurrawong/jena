@@ -149,10 +149,10 @@ public class CqlToLuceneCompiler {
      * text_query clauses targeting the same nested scope with sibling exact clauses.
      */
     private CompileResult compileTextQuery(CqlExpression.CqlTextQuery tq) {
-        FieldDef field = findField(tq.property());
-        if (field == null || !field.isIndexed()) {
+        if (isEntityIriProperty(tq.property())) {
             return new CompileResult(null, tq);
         }
+        FieldDef field = requireField(tq.property(), "text_query");
         FieldType ft = field.getFieldType();
         if (ft != FieldType.TEXT && ft != FieldType.KEYWORD) {
             // text_query on a numeric/temporal/spatial field has no defined meaning
@@ -515,10 +515,10 @@ public class CqlToLuceneCompiler {
             return new CompileResult(entityIriQuery, null);
         }
 
-        FieldDef field = findField(cmp.property());
-        if (field == null || !field.isIndexed()) {
+        if (isEntityIriProperty(cmp.property())) {
             return new CompileResult(null, cmp);
         }
+        FieldDef field = requireField(cmp.property(), "comparison '" + cmp.op() + "'");
 
         if ("=".equals(cmp.op())) {
             Query hierarchyQuery = compileSingleHierarchyEquality(cmp, field);
@@ -593,10 +593,10 @@ public class CqlToLuceneCompiler {
             return new CompileResult(entityIriQuery, null);
         }
 
-        FieldDef field = findField(in.property());
-        if (field == null || !field.isIndexed()) {
+        if (isEntityIriProperty(in.property())) {
             return new CompileResult(null, in);
         }
+        FieldDef field = requireField(in.property(), "'in'");
 
         FieldType ft = field.getFieldType();
         String fieldName = field.getFieldName();
@@ -625,10 +625,10 @@ public class CqlToLuceneCompiler {
     }
 
     private CompileResult compileBetween(CqlExpression.CqlBetween btw) {
-        FieldDef field = findField(btw.property());
-        if (field == null || !field.isIndexed()) {
+        if (isEntityIriProperty(btw.property())) {
             return new CompileResult(null, btw);
         }
+        FieldDef field = requireField(btw.property(), "'between'");
 
         Query q = buildRangeQuery(field, btw.lower(), btw.upper(), true, true);
         if (q == null) {
@@ -638,10 +638,10 @@ public class CqlToLuceneCompiler {
     }
 
     private CompileResult compileLike(CqlExpression.CqlLike like) {
-        FieldDef field = findField(like.property());
-        if (field == null || !field.isIndexed()) {
+        if (isEntityIriProperty(like.property())) {
             return new CompileResult(null, like);
         }
+        FieldDef field = requireField(like.property(), "'like'");
 
         FieldType ft = field.getFieldType();
         if (ft != FieldType.KEYWORD && ft != FieldType.TEXT) {
@@ -1010,8 +1010,53 @@ public class CqlToLuceneCompiler {
         };
     }
 
-    private FieldDef findField(String fieldIRI) {
-        return mapping.findField(fieldIRI);
+    /**
+     * Resolve a CQL {@code property} to a field, by canonical IRI or by bare field name.
+     * <p>
+     * Both spellings are accepted because the facet path already accepts both
+     * ({@code ShaclTextIndexLucene.resolveFacetFieldNames}), and having one spelling work
+     * for faceting while being silently ignored for filtering is worse than either rule
+     * on its own. Returns null when neither matches; callers that would otherwise emit a
+     * residual use {@link #requireField} instead.
+     */
+    /**
+     * True for the reserved {@code urn:jena:lucene:index#entityIri} pseudo-property.
+     * <p>
+     * It names no field, so it must not go through {@link #requireField}. Operators it
+     * does support are handled by {@link #compileEntityIriComparison}; the rest keep
+     * falling through to a residual, which is the behaviour they have always had.
+     */
+    private boolean isEntityIriProperty(String property) {
+        return mapping.findDocIdFieldForEntityIriProperty(property) != null;
+    }
+
+    private FieldDef findField(String property) {
+        FieldDef byIRI = mapping.findField(property);
+        return byIRI != null ? byIRI : mapping.findFieldByName(property);
+    }
+
+    /**
+     * Resolve a property that a filter clause cannot do without, or raise.
+     * <p>
+     * These clauses used to return a residual when the property named nothing usable, and
+     * every caller discards residuals with only a log line. The clause therefore vanished
+     * and the query answered with <em>more</em> rows than were asked for. A wrong answer
+     * is worse than a refused one, which is the same reasoning applied to spatial
+     * operators earlier.
+     */
+    private FieldDef requireField(String property, String clause) {
+        FieldDef field = findField(property);
+        if (field == null) {
+            throw new TextIndexException(
+                "CQL " + clause + " names unknown field '" + property
+                + "'. Use the field's canonical IRI or its idx:fieldName.");
+        }
+        if (!field.isIndexed()) {
+            throw new TextIndexException(
+                "CQL " + clause + " names field '" + property
+                + "', which is not indexed and so cannot be filtered on.");
+        }
+        return field;
     }
 
     /**
