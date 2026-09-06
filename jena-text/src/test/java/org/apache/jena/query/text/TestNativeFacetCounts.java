@@ -303,4 +303,29 @@ public class TestNativeFacetCounts {
         assertEquals("Smith", authorFacets.get(0).getValue());
         assertEquals(3, authorFacets.get(0).getCount());
     }
+
+    // ------------------------------------------------------------------
+    // Unresolvable facet specs (#171)
+    // ------------------------------------------------------------------
+
+    @Test
+    public void testUnknownFacetSpecThrows() {
+        // An unresolvable spec used to be passed through untouched, producing no buckets
+        // and no error, so a typo in a field name looked like a field with no values.
+        TextIndexException e = assertThrows(TextIndexException.class,
+            () -> textIndex.resolveFacetFieldNames(java.util.List.of("totally_made_up")));
+        assertTrue("Message should name the spec: " + e.getMessage(),
+            e.getMessage().contains("totally_made_up"));
+    }
+
+    @Test
+    public void testFacetSpecResolvesByIriAndByBareName() {
+        // Both spellings have always worked here; pinned so the filter path, which now
+        // accepts both too, cannot drift away from it again.
+        java.util.List<String> byIri = textIndex.resolveFacetFieldNames(
+            java.util.List.of("urn:jena:lucene:field#category"));
+        java.util.List<String> byName = textIndex.resolveFacetFieldNames(
+            java.util.List.of("category"));
+        assertEquals("Both spellings should resolve alike", byIri, byName);
+    }
 }
