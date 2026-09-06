@@ -552,4 +552,73 @@ public class TestCqlToLuceneCompiler {
             null,
             null);
     }
+
+    // ------------------------------------------------------------------
+    // Unresolvable and unusable field references (#172)
+    // ------------------------------------------------------------------
+
+    @Test
+    public void testComparisonByBareFieldNameResolves() {
+        // The facet path already accepts a bare name; the filter path must agree, or the
+        // same spelling works for faceting and is silently ignored for filtering.
+        CqlExpression expr = new CqlExpression.CqlComparison("=", "state", "WA");
+        CqlToLuceneCompiler.CompileResult r = compiler.compile(expr);
+
+        assertNotNull("A bare field name should resolve", r.pushed());
+        assertNull("and leave no residual", r.residual());
+    }
+
+    @Test
+    public void testComparisonOnUnknownFieldThrows() {
+        // Unresolvable meant a residual, and residuals are discarded, so the clause
+        // vanished and the query returned everything.
+        CqlExpression expr = new CqlExpression.CqlComparison("=", FP + "nosuchfield", "x");
+        TextIndexException e = assertThrows(TextIndexException.class, () -> compiler.compile(expr));
+        assertTrue("Message should name the property: " + e.getMessage(),
+            e.getMessage().contains("nosuchfield"));
+    }
+
+    @Test
+    public void testComparisonOnNonIndexedFieldThrows() {
+        // 'notes' is declared but not indexed, so it cannot be filtered on. Dropping the
+        // clause silently widens the result set just as an unknown field does.
+        CqlExpression expr = new CqlExpression.CqlComparison("=", FP + "notes", "x");
+        TextIndexException e = assertThrows(TextIndexException.class, () -> compiler.compile(expr));
+        assertTrue("Message should name the property: " + e.getMessage(),
+            e.getMessage().contains("notes"));
+    }
+
+    @Test
+    public void testInOnUnknownFieldThrows() {
+        CqlExpression expr = new CqlExpression.CqlIn(FP + "nosuchfield", List.of("a", "b"));
+        assertThrows(TextIndexException.class, () -> compiler.compile(expr));
+    }
+
+    @Test
+    public void testBetweenOnUnknownFieldThrows() {
+        CqlExpression expr = new CqlExpression.CqlBetween(FP + "nosuchfield", 1, 2);
+        assertThrows(TextIndexException.class, () -> compiler.compile(expr));
+    }
+
+    @Test
+    public void testLikeOnUnknownFieldThrows() {
+        CqlExpression expr = new CqlExpression.CqlLike(FP + "nosuchfield", "a%");
+        assertThrows(TextIndexException.class, () -> compiler.compile(expr));
+    }
+
+    @Test
+    public void testTextQueryOnUnknownFieldThrows() {
+        CqlExpression expr = new CqlExpression.CqlTextQuery(FP + "nosuchfield", "term");
+        assertThrows(TextIndexException.class, () -> compiler.compile(expr));
+    }
+
+    @Test
+    public void testUnknownFieldInsideAndThrows() {
+        // The AND fold keeps pushable siblings and drops the residual, so this used to
+        // return the state match unfiltered by the second clause.
+        CqlExpression expr = new CqlExpression.CqlAnd(List.of(
+            new CqlExpression.CqlComparison("=", FP + "state", "WA"),
+            new CqlExpression.CqlComparison("=", FP + "nosuchfield", "x")));
+        assertThrows(TextIndexException.class, () -> compiler.compile(expr));
+    }
 }
