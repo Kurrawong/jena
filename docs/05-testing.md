@@ -73,7 +73,23 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 
 ### Existing Tests (unchanged, verifying no regressions)
 
-The remaining suite covers text search, multilingual support, graph indexing, deletion, analyzers, property lists, spatial filtering, nested identifiers, and demo mining scenarios. The full `jena-text` module currently passes at 809 tests.
+The remaining suite covers text search, multilingual support, graph indexing, deletion, analyzers, property lists, spatial filtering, nested identifiers, and demo mining scenarios.
+
+`TestDemoExamples` is the one test that uses the demo's real files rather than a fixture
+built in Java. It parses `demo/test/config.ttl` with the production assembler, loads
+`demo/test/data/*.ttl`, indexes through `ShaclBulkIndexer` (the path `task index` runs, so
+external-source shapes are covered), then runs every saved search in `demo/test/tests.json`
+as a dynamic test.
+
+It asserts two things per example, and the second is the one that matters: the example
+clears its `minResults`, and a declared filter **actually changes the result set**. A
+filter that quietly does nothing passes a row-count floor, because an unfiltered query
+returns more rows rather than fewer. Several demo bugs presented exactly that way, so a
+floor alone is not enough.
+
+What it cannot reach is the browser's own pipeline: URL encoding, and the
+`parseCqlFilter`/`buildCqlFilter` round trip. `demo/testing/check-examples.mjs` covers
+those against a running server, via `task check-examples`.
 
 ---
 
