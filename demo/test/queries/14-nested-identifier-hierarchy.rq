@@ -1,5 +1,5 @@
 # Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
-# Nested identifier hierarchy counts for Borehole records.
+# Nested identifier hierarchy counts for MiningReport records.
 
 PREFIX luc: <urn:jena:lucene:index#>
 
