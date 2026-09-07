@@ -150,13 +150,13 @@ public class CqlToLuceneCompiler {
      */
     private CompileResult compileTextQuery(CqlExpression.CqlTextQuery tq) {
         if (isEntityIriProperty(tq.property())) {
-            return new CompileResult(null, tq);
+            throw unsupportedOnEntityIri("text_query");
         }
         FieldDef field = requireField(tq.property(), "text_query");
         FieldType ft = field.getFieldType();
         if (ft != FieldType.TEXT && ft != FieldType.KEYWORD) {
-            // text_query on a numeric/temporal/spatial field has no defined meaning
-            return new CompileResult(null, tq);
+            // text_query on a numeric, temporal or spatial field has no defined meaning.
+            throw unusableForType("text_query", tq.property(), ft, "TEXT or KEYWORD");
         }
         Query q = buildAnalyzedTextQuery(field, tq.text());
         return new CompileResult(maybeLiftToParent(field, q), null);
@@ -516,7 +516,8 @@ public class CqlToLuceneCompiler {
         }
 
         if (isEntityIriProperty(cmp.property())) {
-            return new CompileResult(null, cmp);
+            // '=' and '<>' were handled above by compileEntityIriComparison.
+            throw unsupportedOnEntityIri("comparison '" + cmp.op() + "'");
         }
         FieldDef field = requireField(cmp.property(), "comparison '" + cmp.op() + "'");
 
@@ -548,7 +549,8 @@ public class CqlToLuceneCompiler {
         };
 
         if (q == null) {
-            return new CompileResult(null, cmp);
+            throw unusableForType("comparison '" + cmp.op() + "'", cmp.property(),
+                field.getFieldType(), "a type this operator can order or match");
         }
         return new CompileResult(maybeLiftToParent(field, q), null);
     }
@@ -594,7 +596,7 @@ public class CqlToLuceneCompiler {
         }
 
         if (isEntityIriProperty(in.property())) {
-            return new CompileResult(null, in);
+            throw unsupportedOnEntityIri("'in'");
         }
         FieldDef field = requireField(in.property(), "'in'");
 
@@ -626,26 +628,27 @@ public class CqlToLuceneCompiler {
 
     private CompileResult compileBetween(CqlExpression.CqlBetween btw) {
         if (isEntityIriProperty(btw.property())) {
-            return new CompileResult(null, btw);
+            throw unsupportedOnEntityIri("'between'");
         }
         FieldDef field = requireField(btw.property(), "'between'");
 
         Query q = buildRangeQuery(field, btw.lower(), btw.upper(), true, true);
         if (q == null) {
-            return new CompileResult(null, btw);
+            throw unusableForType("'between'", btw.property(),
+                field.getFieldType(), "an orderable type");
         }
         return new CompileResult(maybeLiftToParent(field, q), null);
     }
 
     private CompileResult compileLike(CqlExpression.CqlLike like) {
         if (isEntityIriProperty(like.property())) {
-            return new CompileResult(null, like);
+            throw unsupportedOnEntityIri("'like'");
         }
         FieldDef field = requireField(like.property(), "'like'");
 
         FieldType ft = field.getFieldType();
         if (ft != FieldType.KEYWORD && ft != FieldType.TEXT) {
-            return new CompileResult(null, like);
+            throw unusableForType("'like'", like.property(), ft, "TEXT or KEYWORD");
         }
 
         // Convert CQL LIKE pattern (% and _) to Lucene WildcardQuery (* and ?)
@@ -1033,6 +1036,29 @@ public class CqlToLuceneCompiler {
     private FieldDef findField(String property) {
         FieldDef byIRI = mapping.findField(property);
         return byIRI != null ? byIRI : mapping.findFieldByName(property);
+    }
+
+    /**
+     * A clause the compiler cannot express as a Lucene query.
+     * <p>
+     * Every one of these used to return a residual, and residuals are discarded by every
+     * caller, so the clause vanished and the query answered with more rows than were
+     * asked for. From the caller's side that is indistinguishable from naming a field
+     * that does not exist: the filter was ignored either way. Raising makes the whole
+     * compiler hold one rule, that a filter is applied or the query is refused.
+     */
+    private static TextIndexException unusableForType(String clause, String property,
+                                                      FieldType actual, String expected) {
+        return new TextIndexException(
+            "CQL " + clause + " cannot be applied to field '" + property + "', which is "
+            + actual + ". Expected " + expected + ".");
+    }
+
+    /** The reserved entityIri property supports only equality and inequality. */
+    private static TextIndexException unsupportedOnEntityIri(String clause) {
+        return new TextIndexException(
+            "CQL " + clause + " is not supported on the reserved entityIri property. "
+            + "Only '=' and '<>' are defined for it.");
     }
 
     /**

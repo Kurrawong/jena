@@ -148,17 +148,27 @@ public class TestCqlToLuceneCompiler {
     }
 
     @Test
-    public void testAndPartialPush() {
-        // state=WA is pushable; 'like' on an INT field is not, so it stays a residual.
-        // A field that resolves to nothing now raises instead, so it cannot be used here.
+    public void testAndWithAnUnpushableClauseThrows() {
+        // An AND used to push its pushable half and hand back the rest as a residual,
+        // which callers discard. The result was a query filtered by one clause and
+        // silently not the other. Now the whole thing is refused.
         CqlExpression pushable = new CqlExpression.CqlComparison("=", FP + "state", "WA");
-        CqlExpression residual = new CqlExpression.CqlLike(FP + "year", "20%");
-        CqlExpression and = new CqlExpression.CqlAnd(List.of(pushable, residual));
+        CqlExpression unpushable = new CqlExpression.CqlLike(FP + "year", "20%");
+        CqlExpression and = new CqlExpression.CqlAnd(List.of(pushable, unpushable));
+
+        assertThrows(TextIndexException.class, () -> compiler.compile(and));
+    }
+
+    @Test
+    public void testAndOfPushableClausesPushesWhole() {
+        CqlExpression and = new CqlExpression.CqlAnd(List.of(
+            new CqlExpression.CqlComparison("=", FP + "state", "WA"),
+            new CqlExpression.CqlComparison("=", FP + "year", 2023)));
 
         CqlToLuceneCompiler.CompileResult r = compiler.compile(and);
 
-        assertNotNull("Should push part of AND", r.pushed());
-        assertNotNull("Should have residual for non-indexed field", r.residual());
+        assertNotNull("Both clauses push", r.pushed());
+        assertNull("and nothing is left over", r.residual());
     }
 
     @Test
@@ -186,15 +196,15 @@ public class TestCqlToLuceneCompiler {
     }
 
     @Test
-    public void testOrPartiallyPushableBecomesResidual() {
+    public void testOrWithAnUnpushableBranchThrows() {
+        // The worst of the old cases. One unpushable branch made the whole disjunction a
+        // residual, so every other branch was dropped too and the query returned rows that
+        // matched none of them.
         CqlExpression pushable = new CqlExpression.CqlComparison("=", FP + "state", "WA");
-        CqlExpression residual = new CqlExpression.CqlLike(FP + "year", "20%");
-        CqlExpression or = new CqlExpression.CqlOr(List.of(pushable, residual));
+        CqlExpression unpushable = new CqlExpression.CqlLike(FP + "year", "20%");
+        CqlExpression or = new CqlExpression.CqlOr(List.of(pushable, unpushable));
 
-        CqlToLuceneCompiler.CompileResult r = compiler.compile(or);
-
-        assertNull("OR with non-pushable child cannot push", r.pushed());
-        assertNotNull(r.residual());
+        assertThrows(TextIndexException.class, () -> compiler.compile(or));
     }
 
     @Test
@@ -210,14 +220,11 @@ public class TestCqlToLuceneCompiler {
     }
 
     @Test
-    public void testNotResidual() {
+    public void testNotOfAnUnpushableClauseThrows() {
         CqlExpression inner = new CqlExpression.CqlLike(FP + "year", "20%");
         CqlExpression not = new CqlExpression.CqlNot(inner);
 
-        CqlToLuceneCompiler.CompileResult r = compiler.compile(not);
-
-        assertNull(r.pushed());
-        assertNotNull(r.residual());
+        assertThrows(TextIndexException.class, () -> compiler.compile(not));
     }
 
     @Test
@@ -440,32 +447,26 @@ public class TestCqlToLuceneCompiler {
     }
 
     @Test
-    public void testEntityIriRangeFallsThroughToResidual() {
-        // Range operators don't make sense on IRIs; should not push down.
+    public void testEntityIriRangeThrows() {
+        // A range over an entity IRI is meaningless. It used to become a residual, which
+        // is discarded, so the constraint silently disappeared.
         CqlExpression expr = new CqlExpression.CqlComparison(">", ENTITY_IRI, SAMPLE_IRI);
-        CqlToLuceneCompiler.CompileResult r = compiler.compile(expr);
-
-        assertNull("Range on entityIri must not push", r.pushed());
-        assertNotNull("Range on entityIri must remain residual", r.residual());
+        TextIndexException e = assertThrows(TextIndexException.class, () -> compiler.compile(expr));
+        assertTrue("Message should say which operators are defined: " + e.getMessage(),
+            e.getMessage().contains("'=' and '<>'"));
     }
 
     @Test
-    public void testEntityIriBetweenFallsThroughToResidual() {
+    public void testEntityIriBetweenThrows() {
         CqlExpression btw = new CqlExpression.CqlBetween(ENTITY_IRI,
             "http://example.org/a", "http://example.org/z");
-        CqlToLuceneCompiler.CompileResult r = compiler.compile(btw);
-
-        assertNull(r.pushed());
-        assertNotNull(r.residual());
+        assertThrows(TextIndexException.class, () -> compiler.compile(btw));
     }
 
     @Test
-    public void testEntityIriLikeFallsThroughToResidual() {
+    public void testEntityIriLikeThrows() {
         CqlExpression like = new CqlExpression.CqlLike(ENTITY_IRI, "http://example.org/%");
-        CqlToLuceneCompiler.CompileResult r = compiler.compile(like);
-
-        assertNull(r.pushed());
-        assertNotNull(r.residual());
+        assertThrows(TextIndexException.class, () -> compiler.compile(like));
     }
 
     @Test
@@ -616,6 +617,26 @@ public class TestCqlToLuceneCompiler {
         CqlExpression expr = new CqlExpression.CqlAnd(List.of(
             new CqlExpression.CqlComparison("=", FP + "state", "WA"),
             new CqlExpression.CqlComparison("=", FP + "nosuchfield", "x")));
+        assertThrows(TextIndexException.class, () -> compiler.compile(expr));
+    }
+
+    @Test
+    public void testLikeOnANumericFieldThrows() {
+        CqlExpression like = new CqlExpression.CqlLike(FP + "year", "20%");
+        TextIndexException e = assertThrows(TextIndexException.class, () -> compiler.compile(like));
+        assertTrue("Message should name the type: " + e.getMessage(), e.getMessage().contains("INT"));
+    }
+
+    @Test
+    public void testTextQueryOnANumericFieldThrows() {
+        CqlExpression tq = new CqlExpression.CqlTextQuery(FP + "year", "2023");
+        assertThrows(TextIndexException.class, () -> compiler.compile(tq));
+    }
+
+    @Test
+    public void testRangeOnAKeywordFieldThrows() {
+        // A keyword has no ordering the range operators can use.
+        CqlExpression expr = new CqlExpression.CqlComparison(">", FP + "state", "WA");
         assertThrows(TextIndexException.class, () -> compiler.compile(expr));
     }
 }

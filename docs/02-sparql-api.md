@@ -538,8 +538,29 @@ The same rule applies to `luc:facet`: a spec matching no field and no hierarchy 
 raises rather than returning an empty bucket list, which was indistinguishable from a real
 field with no values.
 
-The reserved `urn:jena:lucene:index#entityIri` property is exempt, since it names no
-field. Operators it does not support still fall through as before.
+### A filter is applied, or the query is refused
+
+The rule is not limited to names that resolve to nothing. **Any** clause the compiler
+cannot turn into a Lucene query raises:
+
+| Clause | Why it cannot be pushed |
+|---|---|
+| `text_query` or `like` on a numeric, temporal or spatial field | no defined meaning |
+| a range operator on a `KEYWORD` field | no ordering to compare against |
+| any operator other than `=` and `<>` on `entityIri` | only those two are defined for it |
+| a property naming no field, or a field that is not indexed | nothing to filter on |
+
+All of these used to become a *residual*, and nothing evaluates residuals: every caller
+logs and discards them. The distinction between "no such field" and "this operator does
+not suit that field" never reached the caller, who saw the same thing either way, a filter
+that was ignored and a result set larger than it should be.
+
+Inside an `or` it was worse again. One unpushable branch made the whole disjunction a
+residual, so **every** branch was dropped and the query returned rows matching none of
+them.
+
+There is now one rule across the compiler: a filter is applied in full, or the query is
+refused with a message naming the clause.
 
 ## Graph Scoping
 
