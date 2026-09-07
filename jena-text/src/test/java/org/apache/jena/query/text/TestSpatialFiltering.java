@@ -340,4 +340,68 @@ public class TestSpatialFiltering {
 
         assertTrue("Invalid WKT should produce empty fields", fields.isEmpty());
     }
+
+    // ------------------------------------------------------------------
+    // GDA2020 / GDA94 axis order
+    // ------------------------------------------------------------------
+
+    @Test
+    public void testGda2020PointIsIndexed() {
+        // EPSG:7844 (GDA2020) is a lat/lon CRS, like EPSG:4326. Its coordinates must be
+        // swapped to x=lon, y=lat before indexing. Treating it as already-WGS84 skips
+        // that, and Lucene then rejects a longitude presented as a latitude, so the
+        // value is silently dropped and the entity becomes unfindable.
+        List<org.apache.lucene.index.IndexableField> fields =
+            ShaclTextIndexLucene.parseWktToLuceneFields("location",
+                "<http://www.opengis.net/def/crs/EPSG/0/7844> POINT(-31.20 121.66)", false);
+        assertFalse("A GDA2020 point must index", fields.isEmpty());
+    }
+
+    @Test
+    public void testGda94PointIsIndexed() {
+        List<org.apache.lucene.index.IndexableField> fields =
+            ShaclTextIndexLucene.parseWktToLuceneFields("location",
+                "<http://www.opengis.net/def/crs/EPSG/0/4283> POINT(-30.75 121.47)", false);
+        assertFalse("A GDA94 point must index", fields.isEmpty());
+    }
+
+    @Test
+    public void testGda2020PolygonIsIndexed() {
+        List<org.apache.lucene.index.IndexableField> fields =
+            ShaclTextIndexLucene.parseWktToLuceneFields("location",
+                "<http://www.opengis.net/def/crs/EPSG/0/7844> POLYGON((-31.00 121.20, "
+                + "-31.00 121.80, -30.40 121.80, -30.40 121.20, -31.00 121.20))", false);
+        assertFalse("A GDA2020 polygon must index", fields.isEmpty());
+    }
+
+    @Test
+    public void testGda2020AndCrs84AgreeOnLocation() {
+        // The same place written as GDA2020 (lat/lon, prefixed) and as bare CRS84
+        // (lon/lat) must land in the same spot. EPSG publishes the GDA2020 -> WGS 84
+        // transformation as a null transformation, so the coordinates pass through.
+        dataset.begin(ReadWrite.WRITE);
+        try {
+            Model model = dataset.getDefaultModel();
+            addSite(model, "gda2020-site", "GDA2020 Site",
+                "<http://www.opengis.net/def/crs/EPSG/0/7844> POINT(-31.20 121.66)");
+            addSite(model, "crs84-site", "CRS84 Site", "POINT(121.66 -31.20)");
+            dataset.commit();
+        } finally {
+            dataset.end();
+        }
+
+        CqlExpression filter = new CqlExpression.CqlSpatial("s_intersects", FP + "location",
+            "{\"bbox\":[121.64,-31.22,121.68,-31.18]}");
+        List<TextHit> results = textIndex.queryWithCql(
+            null, "*", filter, null, null, null, 100, null);
+        Set<String> uris = new HashSet<>();
+        for (TextHit hit : results) {
+            uris.add(hit.getNode().getURI());
+        }
+
+        assertTrue("The GDA2020 site should be found", uris.contains(NS + "gda2020-site"));
+        assertTrue("The CRS84 site should be found", uris.contains(NS + "crs84-site"));
+    }
+
+
 }

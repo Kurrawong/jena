@@ -40,9 +40,29 @@ Lucene indexes all coordinates in WGS84 (latitude/longitude in degrees). The ind
 |---|---|---|
 | Bare WKT (no prefix) | lon, lat (CRS84 default) | Automatic axis normalisation |
 | `<http://www.opengis.net/def/crs/EPSG/0/4326>` | lat, lon | Used directly |
-| `<http://www.opengis.net/def/crs/EPSG/0/4283>` (GDA94) | lat, lon | Used directly |
-| `<http://www.opengis.net/def/crs/EPSG/0/7844>` (GDA2020) | lat, lon | Used directly |
+| `<http://www.opengis.net/def/crs/EPSG/0/4283>` (GDA94) | lat, lon | Axes swapped, no datum transform |
+| `<http://www.opengis.net/def/crs/EPSG/0/7844>` (GDA2020) | lat, lon | Axes swapped, no datum transform |
 | Other CRS (e.g. EPSG:28350) | Varies | Transformed to WGS84 via Apache SIS |
+
+### Why GDA2020 and GDA94 get no datum transform
+
+EPSG publishes the GDA2020 to WGS 84 transformation as a **null transformation**: the
+coordinates are identical. WGS84 is defined only to about a metre, GDA2020 is ITRF2014 at
+epoch 2020.0, and Lucene quantises to roughly a centimetre, so applying a transform would
+be arithmetic with no effect. Both are treated as WGS84-equivalent and only the axis order
+is corrected.
+
+The axis swap is done explicitly rather than left to `GeometryWrapper`. Apache SIS as
+bundled does not recognise either CRS, so `getXYGeometry()` returns their lat/lon
+coordinates untouched. Before this was fixed, a longitude arrived where Lucene expects a
+latitude, failed the -90..90 check, and the geometry was discarded with only a warning —
+the entity indexed with no location and could never match a spatial filter.
+
+If you hold GDA2020 data, **keep the `<...EPSG/0/7844>` prefix** on `geo:asWKT`. Dropping
+it to make bare CRS84 asserts a datum your data is not in. To serve geometry to web
+clients, publish `geo:asGeoJSON` alongside: RFC 7946 fixes GeoJSON to WGS84 lon/lat with no
+CRS member, so every map library reads it natively and none has to understand the
+GeoSPARQL prefix. The WKT stays authoritative and is what this indexer reads.
 
 ### Examples in data
 
