@@ -591,6 +591,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         }
         List<String> resolved = new ArrayList<>(fieldIRIs.size());
         for (String spec : fieldIRIs) {
+            // A hierarchy is addressed by its dimension, which is its IRI when it has one
+            // and the name derived from its levels otherwise.
             if (hierarchyDimensions.contains(spec)) {
                 if (!resolved.contains(spec)) {
                     resolved.add(spec);

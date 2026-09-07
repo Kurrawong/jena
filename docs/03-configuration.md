@@ -150,7 +150,7 @@ it. Pointing `sh:property` straight at a field resource is the old form and is r
 | `sh:targetClass` | yes | Entity class this profile indexes. Repeatable |
 | `sh:property` | yes¹ | A root field occurrence |
 | `idx:nested` | yes¹ | A child collection — see [Nested Child Records](#nested-child-records) |
-| `idx:facetHierarchy` | no | Ordered list of fields forming one hierarchical facet dimension |
+| `idx:facetHierarchy` | no | Ordered list of fields forming one hierarchical facet dimension, or a resource carrying `idx:levels` (see below) |
 | `idx:docIdField` | no, default `"uri"` | Lucene field holding the entity IRI. Must be identical across every profile in one index |
 | `idx:discriminatorField` | no, default `"docType"` | Lucene field holding the target class's local name, so deletes stay scoped to one profile |
 
@@ -215,6 +215,44 @@ distinct names, or bind the one field in both shapes.
 
 Conflicting types for one name were already rejected. This closes the commoner case,
 where the types agree and everything else differs.
+
+### Naming a facet hierarchy
+
+A hierarchy may be written as a bare RDF list, or as a resource carrying its levels under
+`idx:levels`. Giving that resource an IRI lets queries address the dimension by IRI, like
+every other part of the query API:
+
+```turtle
+## Bare list: addressable only by the derived dimension name.
+idx:facetHierarchy ( field:identifierType field:identifierValueExact ) ;
+
+## Named: addressable by its IRI as well.
+idx:facetHierarchy [
+    a dim:identifierPath ;
+    idx:levels ( field:identifierType field:identifierValueExact )
+] ;
+```
+
+or, more usefully, with the IRI on the hierarchy itself:
+
+```turtle
+idx:facetHierarchy dim:identifierPath .
+
+dim:identifierPath idx:levels ( field:identifierType field:identifierValueExact ) .
+```
+
+A named hierarchy is addressed by its IRI, and that IRI **is** the taxonomy dimension. It
+has one identifier, not two, so the derived name no longer reaches it.
+
+A bare list has no IRI, so its dimension is the name derived by joining the level field
+names with `_`, here `identifierType_identifierValueExact`. That name appears in no
+configuration file, and a client has to reconstruct it from the level order to address the
+hierarchy at all. This is the one place the move to field IRIs had not reached, and naming
+the hierarchy is how you close it.
+
+> **Naming a hierarchy changes its on-disk key, so reindex after doing so.** The dimension
+> is written into the Lucene taxonomy, and a query against an index built under the old
+> derived name will not find it.
 
 ## Field Properties
 
