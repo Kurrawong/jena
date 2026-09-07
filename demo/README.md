@@ -89,6 +89,20 @@ Delta source CSV data/assays.csv + 1 delta(s) [data/assays-delta.csv]:
 
 See [docs/03-configuration.md](../docs/03-configuration.md#external-content-csvtsv).
 
+## Self-contained demo image
+
+`deploy/` is the same demo with no moving parts: in-memory dataset, in-memory index,
+built at startup, with Fuseki serving the app itself on one port.
+
+```bash
+docker run --rm -p 3030:3030 ghcr.io/kurrawong/fuseki-lucene-shacl-demo:latest
+# /       Fuseki UI
+# /demo   the faceted search app
+```
+
+Nothing to load, nothing to index, no volumes. It leaves out the borehole assays, which
+can only be built by the bulk indexer. See [deploy/README.md](deploy/README.md).
+
 ## Quick start (Docker)
 
 ```bash
@@ -206,8 +220,8 @@ authorName  "Prof Wei Chen"    2
 
 **Query 07** should return exactly 2 reports by Dr Sarah Jones:
 ```
-report-mia-2023  "Mount Isa Copper Resource Estimation 2023"
-report-od-2024   "Olympic Dam Expansion Feasibility Study"
+report-bro-2023  "Brolga Ridge Copper Resource Estimation 2023"
+report-spx-2024  "Spinifex Dome Expansion Feasibility Study"
 ```
 
 **Query 09** should return the demo report with `?matchRaw = "94130"` on every row,

@@ -101,6 +101,24 @@ tasks:
     cmds:
       - pkill -f "jena-fuseki-server" && echo "Server stopped" || echo "No server running"
 
+  # ── Deployed demo (in-memory, no database, no indexing step) ──────────────
+
+  serve-deployed:
+    desc: Run the deployed demo configuration from the local jar — search app and SPARQL on one port
+    dir: deploy
+    cmds:
+      - task: require-jar
+      # --base hands the app to Fuseki's own Jetty, so there is no proxy and the app is
+      # same-origin. Copy deploy/app-config.js over app-static/app-config.js to browse
+      # it this way, and remember `task app` writes the '/fuseki' version back.
+      #
+      # The search app is at the root here, not at /demo as in the image, and there is
+      # no Fuseki UI: setting a static file area is what makes FMod_UI stand down. The
+      # image assembles a tree holding both, which is more than a task wants to do to a
+      # source directory.
+      - echo "Serving app and SPARQL at http://localhost:{{.FUSEKI_PORT}}"
+      - java -jar ../{{.FUSEKI_JAR}} --port {{.FUSEKI_PORT}} --config config.ttl --base ../app-static
+
   # ── Data and index ───────────────────────────────────────
 
   load:
@@ -166,6 +184,14 @@ tasks:
             -H "Accept: text/tab-separated-values" \
             --data-binary @{{.ITEM}}
           echo ""
+
+  check-examples:
+    desc: Replay every tests.json example against a running server (catches inert filters)
+    dir: testing
+    # No fingerprinting: a check to re-run on demand, like `query`.
+    method: none
+    cmds:
+      - FUSEKI_PORT={{.FUSEKI_PORT}} node --test check-examples.mjs
 
   test:
     desc: Run Playwright screenshot tests and generate report

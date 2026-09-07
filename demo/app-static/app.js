@@ -1198,7 +1198,13 @@ LIMIT 100`);
          */
         async applyExample(ex) {
             this.activeExampleId = ex.id;
-            const qs = (ex.params || '').replace(/^\?/, '');
+            // Re-encoded, not pushed raw. A filter names its field by IRI —
+            // urn:jena:lucene:field#location — and that '#' starts the URL fragment, so
+            // the raw string arrives back truncated to invalid JSON. The app then drops
+            // the filter and runs an unfiltered search, which looks like a working
+            // example returning the whole corpus rather than like an error. Round-trips
+            // '+' correctly too: it is only ever an encoded space here (q=gold+mine).
+            const qs = new URLSearchParams((ex.params || '').replace(/^\?/, '')).toString();
             window.history.pushState({}, '', qs ? `?${qs}` : window.location.pathname);
             this.loadFromUrl();
             await this.executeSearch();

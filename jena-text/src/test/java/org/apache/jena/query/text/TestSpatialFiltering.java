@@ -108,24 +108,24 @@ public class TestSpatialFiltering {
         try {
             Model model = dataset.getDefaultModel();
 
-            // Mount Isa, QLD — EPSG:4326 (lat/lon order)
-            addSite(model, "mount-isa", "Mount Isa Mine",
+            // Brolga Ridge, QLD — EPSG:4326 (lat/lon order)
+            addSite(model, "mount-isa", "Brolga Ridge Mine",
                 "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-20.73 139.49)");
 
-            // Olympic Dam, SA — EPSG:4326
-            addSite(model, "olympic-dam", "Olympic Dam",
+            // Spinifex Dome, SA — EPSG:4326
+            addSite(model, "olympic-dam", "Spinifex Dome",
                 "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-30.43 136.88)");
 
-            // Boddington, WA — EPSG:4326
-            addSite(model, "boddington", "Boddington Gold Mine",
+            // Wattle Downs, WA — EPSG:4326
+            addSite(model, "boddington", "Wattle Downs Gold Mine",
                 "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-32.77 116.35)");
 
             // Multipart site in WA — two disjoint footprints stored as a MultiPolygon
-            addSite(model, "pilbara-cluster", "Pilbara Cluster Project",
+            addSite(model, "pilbara-cluster", "Redgum Cluster Project",
                 "<http://www.opengis.net/def/crs/EPSG/0/4326> MULTIPOLYGON(((-22.30 118.20, -22.30 118.30, -22.20 118.30, -22.20 118.20, -22.30 118.20)),((-22.45 118.45, -22.45 118.55, -22.35 118.55, -22.35 118.45, -22.45 118.45)))");
 
-            // Cadia Valley, NSW — CRS84 (bare WKT, lon/lat order)
-            addSite(model, "cadia-valley", "Cadia Valley Operations",
+            // Kurrajong Valley, NSW — CRS84 (bare WKT, lon/lat order)
+            addSite(model, "cadia-valley", "Kurrajong Valley Operations",
                 "POINT(148.99 -33.47)");
 
             // Auckland, NZ — outside Australia bbox (should be excluded)
@@ -179,10 +179,10 @@ public class TestSpatialFiltering {
         }
 
         // 4 Australian sites should match
-        assertTrue("Mount Isa should be in results", uris.contains(NS + "mount-isa"));
-        assertTrue("Olympic Dam should be in results", uris.contains(NS + "olympic-dam"));
-        assertTrue("Boddington should be in results", uris.contains(NS + "boddington"));
-        assertTrue("Cadia Valley should be in results", uris.contains(NS + "cadia-valley"));
+        assertTrue("Brolga Ridge should be in results", uris.contains(NS + "mount-isa"));
+        assertTrue("Spinifex Dome should be in results", uris.contains(NS + "olympic-dam"));
+        assertTrue("Wattle Downs should be in results", uris.contains(NS + "boddington"));
+        assertTrue("Kurrajong Valley should be in results", uris.contains(NS + "cadia-valley"));
         // Auckland is outside Australia
         assertFalse("Auckland should NOT be in results", uris.contains(NS + "auckland"));
     }
@@ -201,11 +201,11 @@ public class TestSpatialFiltering {
             uris.add(hit.getNode().getURI());
         }
 
-        // Only Boddington is in WA bbox
-        assertTrue("Boddington should be in results", uris.contains(NS + "boddington"));
-        assertTrue("Pilbara Cluster should be in results", uris.contains(NS + "pilbara-cluster"));
-        assertFalse("Mount Isa should NOT be in WA bbox", uris.contains(NS + "mount-isa"));
-        assertFalse("Olympic Dam should NOT be in WA bbox", uris.contains(NS + "olympic-dam"));
+        // Only Wattle Downs is in WA bbox
+        assertTrue("Wattle Downs should be in results", uris.contains(NS + "boddington"));
+        assertTrue("Redgum Cluster should be in results", uris.contains(NS + "pilbara-cluster"));
+        assertFalse("Brolga Ridge should NOT be in WA bbox", uris.contains(NS + "mount-isa"));
+        assertFalse("Spinifex Dome should NOT be in WA bbox", uris.contains(NS + "olympic-dam"));
     }
 
     @Test
@@ -221,9 +221,9 @@ public class TestSpatialFiltering {
             uris.add(hit.getNode().getURI());
         }
 
-        assertTrue("Pilbara Cluster should match when the bbox intersects one member polygon",
+        assertTrue("Redgum Cluster should match when the bbox intersects one member polygon",
             uris.contains(NS + "pilbara-cluster"));
-        assertFalse("Boddington should NOT be in the Pilbara bbox", uris.contains(NS + "boddington"));
+        assertFalse("Wattle Downs should NOT be in the Redgum bbox", uris.contains(NS + "boddington"));
     }
 
     @Test
@@ -240,18 +240,18 @@ public class TestSpatialFiltering {
             uris.add(hit.getNode().getURI());
         }
 
-        // "Mount Isa Mine" and "Boddington Gold Mine" contain "mine"
-        assertTrue("Mount Isa Mine should match", uris.contains(NS + "mount-isa"));
-        assertTrue("Boddington Gold Mine should match", uris.contains(NS + "boddington"));
-        // "Olympic Dam" doesn't contain "mine"
-        assertFalse("Olympic Dam should NOT match text 'mine'", uris.contains(NS + "olympic-dam"));
+        // "Brolga Ridge Mine" and "Wattle Downs Gold Mine" contain "mine"
+        assertTrue("Brolga Ridge Mine should match", uris.contains(NS + "mount-isa"));
+        assertTrue("Wattle Downs Gold Mine should match", uris.contains(NS + "boddington"));
+        // "Spinifex Dome" doesn't contain "mine"
+        assertFalse("Spinifex Dome should NOT match text 'mine'", uris.contains(NS + "olympic-dam"));
     }
 
     @Test
     public void testCrs84AxisSwap() {
-        // Cadia Valley was indexed with bare WKT (CRS84: lon/lat order).
+        // Kurrajong Valley was indexed with bare WKT (CRS84: lon/lat order).
         // Verify it's findable with a bbox around its location.
-        // Cadia is at ~(-33.47, 148.99) in lat/lon
+        // Kurrajong is at ~(-33.47, 148.99) in lat/lon
         CqlExpression filter = new CqlExpression.CqlSpatial(
             "s_intersects", FP + "location", "{\"bbox\":[148,-34,150,-33]}");
 
@@ -263,12 +263,12 @@ public class TestSpatialFiltering {
             uris.add(hit.getNode().getURI());
         }
 
-        assertTrue("Cadia Valley (CRS84) should be found in its bbox", uris.contains(NS + "cadia-valley"));
+        assertTrue("Kurrajong Valley (CRS84) should be found in its bbox", uris.contains(NS + "cadia-valley"));
     }
 
     @Test
     public void testEpsg4326NoSwap() {
-        // Mount Isa was indexed with EPSG:4326 (lat/lon order).
+        // Brolga Ridge was indexed with EPSG:4326 (lat/lon order).
         // Verify it's at the correct location: lat=-20.73, lon=139.49
         CqlExpression filter = new CqlExpression.CqlSpatial(
             "s_intersects", FP + "location", "{\"bbox\":[139,-21,140,-20]}");
@@ -281,7 +281,7 @@ public class TestSpatialFiltering {
             uris.add(hit.getNode().getURI());
         }
 
-        assertTrue("Mount Isa (EPSG:4326) should be found", uris.contains(NS + "mount-isa"));
+        assertTrue("Brolga Ridge (EPSG:4326) should be found", uris.contains(NS + "mount-isa"));
     }
 
     @Test

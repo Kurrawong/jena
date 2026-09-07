@@ -13,4 +13,10 @@ drillhole/run/
 test/DB/
 test/Lucene/
 test/run/
+test/Taxonomy/
 test/fuseki.log
+
+# Deployed-demo run area. Fuseki creates it beside the config on first start; the only
+# file in it that matters, shiro.ini, is committed at demo/deploy/shiro.ini and copied
+# in by the image build.
+deploy/run/

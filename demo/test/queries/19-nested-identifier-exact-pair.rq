@@ -9,7 +9,7 @@ WHERE {
         "default"
         "default"
         "*"
-        '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#identifierType"},"company"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#identifierValueExact"},"Newmont"]}]}'
+        '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#identifierType"},"company"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#identifierValueExact"},"Bellbird"]}]}'
         ""
         10
         0

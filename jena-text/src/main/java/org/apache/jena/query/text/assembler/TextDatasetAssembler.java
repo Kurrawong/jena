@@ -25,6 +25,7 @@ import static org.apache.jena.query.text.assembler.TextVocab.pDataset;
 import static org.apache.jena.query.text.assembler.TextVocab.pIndex;
 import static org.apache.jena.query.text.assembler.TextVocab.pIndexes;
 import static org.apache.jena.query.text.assembler.TextVocab.pIndexId;
+import static org.apache.jena.query.text.assembler.TextVocab.pBuildOnStartup;
 import static org.apache.jena.query.text.assembler.TextVocab.pTextDocProducer;
 import static org.apache.jena.query.text.assembler.TextVocab.textDataset;
 
@@ -32,6 +33,7 @@ import java.lang.reflect.Constructor;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.jena.assembler.Assembler;
@@ -100,6 +102,15 @@ public class TextDatasetAssembler extends DatasetAssembler implements Assembler 
 
         Dataset dst = TextDatasetFactory.create(ds, textIndex, true, textDocProducer);
         AssemblerUtils.mergeContext(root, dst.getContext());
+
+        if (buildOnStartup(root)) {
+            if (!(textIndex instanceof ShaclTextIndexLucene shaclIndex)) {
+                throw new TextIndexException(
+                    "text:buildOnStartup requires a SHACL index (text:TextIndexShacl); "
+                    + "use the 'textindexer' command for classic triple-per-document indexes");
+            }
+            bulkIndex(ds.asDatasetGraph(), shaclIndex, TextIndexRegistry.DEFAULT_ID);
+        }
         return dst;
     }
 
@@ -167,7 +178,55 @@ public class TextDatasetAssembler extends DatasetAssembler implements Assembler 
             ds.asDatasetGraph(), registry, true, compositeProducer);
         Dataset dst = org.apache.jena.query.DatasetFactory.wrap(dsg);
         AssemblerUtils.mergeContext(root, dst.getContext());
+
+        if (buildOnStartup(root)) {
+            boolean built = false;
+            for (Map.Entry<String, TextIndexLucene> entry : registry.allWithIds().entrySet()) {
+                if (entry.getValue() instanceof ShaclTextIndexLucene shaclIndex) {
+                    bulkIndex(ds.asDatasetGraph(), shaclIndex, entry.getKey());
+                    built = true;
+                } else {
+                    Log.warn(TextDatasetAssembler.class,
+                        "text:buildOnStartup skips index '" + entry.getKey()
+                        + "': not a SHACL index");
+                }
+            }
+            if (!built) {
+                throw new TextIndexException(
+                    "text:buildOnStartup requires at least one SHACL index (text:TextIndexShacl)");
+            }
+        }
         return dst;
+    }
+
+    /** {@code text:buildOnStartup} on the TextDataset node; absent means false. */
+    private static boolean buildOnStartup(Resource root) {
+        Statement stmt = root.getProperty(pBuildOnStartup);
+        if (stmt == null) {
+            return false;
+        }
+        RDFNode node = stmt.getObject();
+        if (!node.isLiteral()) {
+            throw new TextIndexException("text:buildOnStartup property must be a boolean : " + node);
+        }
+        return node.asLiteral().getBoolean();
+    }
+
+    /**
+     * Bulk-index {@code base} into {@code index} before the dataset is handed out.
+     * <p>
+     * Deliberately not stamped with the dataset identity the {@code shacltextindexer}
+     * command records: that stamp says "this persisted index was built from that
+     * database", a claim only a build that outlives its process can make. Here the build
+     * is repeated on every start, so there is nothing for a later run to check.
+     */
+    private static void bulkIndex(DatasetGraph base, ShaclTextIndexLucene index, String id) {
+        Log.info(TextDatasetAssembler.class, "text:buildOnStartup: indexing '" + id + "'");
+        ShaclBulkIndexer indexer = new ShaclBulkIndexer(base, index, index.getShaclMapping());
+        indexer.index();
+        Log.info(TextDatasetAssembler.class,
+            "text:buildOnStartup: index '" + id + "' built, "
+            + indexer.getEntityCount() + " entities");
     }
 
     private TextDocProducer resolveDocProducer(Assembler a, Resource textDocProducerNode,

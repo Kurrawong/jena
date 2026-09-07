@@ -227,8 +227,8 @@ FacetField("state_commodity", "WA", "Gold")
 
 Nested identifier example:
 ```
-FacetField("identifierType_identifierValueExact", "Company", "Glencore")
-FacetField("identifierType_identifierValueExact", "HoleNumber", "MIA-DDH-001")
+FacetField("identifierType_identifierValueExact", "Company", "Saltbush")
+FacetField("identifierType_identifierValueExact", "HoleNumber", "BRO-DDH-001")
 ```
 
 `FacetsConfig` is configured with `setHierarchical(true)` and `setMultiValued(true)` for each dimension.

@@ -16,5 +16,19 @@
 **/Lucene
 **/coverage
 **/*.log
+# The demo directory is excluded wholesale, then the four pieces the `demo` image
+# stage needs are re-included by name. Keeping the exclusion broad matters: demo/
+# accumulates build output — DB, Lucene, Taxonomy, run, node_modules, screenshots —
+# none of which belongs in an image, and all of which would otherwise arrive
+# silently the moment someone runs the local demo before building.
 demo/
+!demo/deploy/
+!demo/app-static/
+!demo/test/data/
+!demo/test/tests.json
+# app-static/tests.json is a symlink to ../test/tests.json that `task app` creates for
+# the local workflow. Copied into the image it stays a symlink, Jetty refuses to serve
+# a link that leaves its base directory, and the app's examples list 404s. Excluded
+# here so the Dockerfile can put the real file in its place.
+demo/app-static/tests.json
 docs/

@@ -481,12 +481,12 @@ For `idx:nested` child records (qualified identifiers, prov:qualifiedAttribution
   "op": "and",
   "args": [
     {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierType"},"company"]},
-    {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierValueExact"},"Newmont"]}
+    {"op":"=","args":[{"property":"urn:jena:lucene:field#identifierValueExact"},"Bellbird"]}
   ]
 }
 ```
 
-Returns only entities whose ONE identifier record has propertyID="company" AND value="Newmont" — no cross-child matching where one identifier supplies the type and a different identifier supplies the value.
+Returns only entities whose ONE identifier record has propertyID="company" AND value="Bellbird" — no cross-child matching where one identifier supplies the type and a different identifier supplies the value.
 
 **Identifier with text/typeahead** (KEYWORD type + edge-ngram value):
 

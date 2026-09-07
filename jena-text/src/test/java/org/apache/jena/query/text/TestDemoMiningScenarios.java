@@ -200,72 +200,72 @@ public class TestDemoMiningScenarios {
             addAuthor(m, "author-patel", "Dr Priya Patel");
 
             // Authored relationships (for inverse path)
-            addAuthored(m, "author-jones", "report-mia-2023");
-            addAuthored(m, "author-jones", "report-od-2024");
-            addAuthored(m, "author-chen", "report-mia-2021");
-            addAuthored(m, "author-chen", "report-bh-1985");
-            addAuthored(m, "author-williams", "report-pil-2024");
-            addAuthored(m, "author-williams", "report-pil-exploration");
-            addAuthored(m, "author-patel", "report-bod-2022");
-            addAuthored(m, "author-patel", "report-cad-2023");
+            addAuthored(m, "author-jones", "report-bro-2023");
+            addAuthored(m, "author-jones", "report-spx-2024");
+            addAuthored(m, "author-chen", "report-bro-2021");
+            addAuthored(m, "author-chen", "report-ech-1985");
+            addAuthored(m, "author-williams", "report-red-2024");
+            addAuthored(m, "author-williams", "report-red-exploration");
+            addAuthored(m, "author-patel", "report-wat-2022");
+            addAuthored(m, "author-patel", "report-kur-2023");
 
             // --- Sites ---
-            addSite(m, "site-mount-isa", "Mount Isa Mine",
+            addSite(m, "site-brolga-ridge", "Brolga Ridge Mine",
                 new String[]{"commodity/Copper", "commodity/Lead", "commodity/Zinc"},
                 "state/QLD", "status/Active");
-            addSite(m, "site-olympic-dam", "Olympic Dam",
+            addSite(m, "site-spinifex-dome", "Spinifex Dome",
                 new String[]{"commodity/Copper", "commodity/Uranium", "commodity/Gold"},
                 "state/SA", "status/Active");
-            addSite(m, "site-boddington", "Boddington Gold Mine",
+            addSite(m, "site-wattle-downs", "Wattle Downs Gold Mine",
                 new String[]{"commodity/Gold", "commodity/Copper"},
                 "state/WA", "status/Active");
-            addSite(m, "site-broken-hill", "Broken Hill Mine",
+            addSite(m, "site-echidna-hill", "Echidna Hill Mine",
                 new String[]{"commodity/Lead", "commodity/Zinc", "commodity/Silver"},
                 "state/NSW", "status/Historical");
-            addSite(m, "site-pilbara-iron", "Pilbara Iron Ore Hub",
+            addSite(m, "site-redgum-iron", "Redgum Iron Ore Hub",
                 new String[]{"commodity/Iron-Ore"},
                 "state/WA", "status/Active");
-            addSite(m, "site-ok-tedi", "Ok Tedi Mine",
+            addSite(m, "site-kanawa-ridge", "Kanawa Ridge Mine",
                 new String[]{"commodity/Copper", "commodity/Gold"},
                 "state/PNG", "status/Active");
 
             // --- Boreholes ---
-            addBorehole(m, "bh-mia-001", "MIA-DDH-001 Mount Isa Diamond Drill Hole",
+            addBorehole(m, "bh-bro-001", "BRO-DDH-001 Brolga Ridge Diamond Drill Hole",
                 new String[]{"commodity/Copper"}, "state/QLD", 450);
-            addBorehole(m, "bh-od-001", "OD-RC-001 Olympic Dam Reverse Circulation Hole",
+            addBorehole(m, "bh-spx-001", "SPX-RC-001 Spinifex Dome Reverse Circulation Hole",
                 new String[]{"commodity/Copper", "commodity/Uranium"}, "state/SA", 280);
-            addBorehole(m, "bh-bod-001", "BOD-DDH-001 Boddington Deep Diamond Hole",
+            addBorehole(m, "bh-wat-001", "WAT-DDH-001 Wattle Downs Deep Diamond Hole",
                 new String[]{"commodity/Gold"}, "state/WA", 600);
-            addBorehole(m, "bh-bh-001", "BHM-DDH-001 Broken Hill Legacy Drill Hole",
+            addBorehole(m, "bh-ech-001", "ECH-DDH-001 Echidna Hill Legacy Drill Hole",
                 new String[]{"commodity/Lead", "commodity/Silver"}, "state/NSW", 210);
-            addBorehole(m, "bh-pil-001", "PIL-RC-001 Pilbara Iron Ore Reverse Circulation",
+            addBorehole(m, "bh-red-001", "RED-RC-001 Redgum Iron Ore Reverse Circulation",
                 new String[]{"commodity/Iron-Ore"}, "state/WA", 150);
 
             // --- Reports (added last — depends on authors for sequence paths) ---
-            addReport(m, "report-mia-2023", "Mount Isa Copper Resource Estimation 2023",
-                new String[]{"commodity/Copper"}, "state/QLD", "operator/Glencore", "status/Current",
+            addReport(m, "report-bro-2023", "Brolga Ridge Copper Resource Estimation 2023",
+                new String[]{"commodity/Copper"}, "state/QLD", "operator/Saltbush", "status/Current",
                 "author-jones");
-            addReport(m, "report-mia-2021", "Mount Isa Lead-Zinc Exploration Summary",
-                new String[]{"commodity/Lead", "commodity/Zinc"}, "state/QLD", "operator/Glencore", "status/Current",
+            addReport(m, "report-bro-2021", "Brolga Ridge Lead-Zinc Exploration Summary",
+                new String[]{"commodity/Lead", "commodity/Zinc"}, "state/QLD", "operator/Saltbush", "status/Current",
                 "author-chen");
-            addReport(m, "report-od-2024", "Olympic Dam Expansion Feasibility Study",
-                new String[]{"commodity/Copper", "commodity/Uranium"}, "state/SA", "operator/BHP", "status/Current",
+            addReport(m, "report-spx-2024", "Spinifex Dome Expansion Feasibility Study",
+                new String[]{"commodity/Copper", "commodity/Uranium"}, "state/SA", "operator/Warrigal", "status/Current",
                 "author-jones");
-            addReport(m, "report-bod-2022", "Boddington Gold Production Report 2022",
-                new String[]{"commodity/Gold", "commodity/Copper"}, "state/WA", "operator/Newmont", "status/Current",
+            addReport(m, "report-wat-2022", "Wattle Downs Gold Production Report 2022",
+                new String[]{"commodity/Gold", "commodity/Copper"}, "state/WA", "operator/Bellbird", "status/Current",
                 "author-patel");
-            addReport(m, "report-bh-1985", "Broken Hill Lead-Zinc Historical Assessment",
+            addReport(m, "report-ech-1985", "Echidna Hill Lead-Zinc Historical Assessment",
                 new String[]{"commodity/Lead", "commodity/Zinc", "commodity/Silver"},
-                "state/NSW", "operator/BHP", "status/Historical",
+                "state/NSW", "operator/Warrigal", "status/Historical",
                 "author-chen");
-            addReport(m, "report-cad-2023", "Cadia Valley Gold-Copper Resource Update",
-                new String[]{"commodity/Gold", "commodity/Copper"}, "state/NSW", "operator/Newcrest", "status/Current",
+            addReport(m, "report-kur-2023", "Kurrajong Valley Gold-Copper Resource Update",
+                new String[]{"commodity/Gold", "commodity/Copper"}, "state/NSW", "operator/Quandong", "status/Current",
                 "author-patel");
-            addReport(m, "report-pil-2024", "Pilbara Iron Ore Reserves Statement 2024",
-                new String[]{"commodity/Iron-Ore"}, "state/WA", "operator/Rio-Tinto", "status/Current",
+            addReport(m, "report-red-2024", "Redgum Iron Ore Reserves Statement 2024",
+                new String[]{"commodity/Iron-Ore"}, "state/WA", "operator/Corvid-Metals", "status/Current",
                 "author-williams");
-            addReport(m, "report-pil-exploration", "Pilbara Greenfield Exploration Program Results",
-                new String[]{"commodity/Iron-Ore"}, "state/WA", "operator/Rio-Tinto", "status/Current",
+            addReport(m, "report-red-exploration", "Redgum Greenfield Exploration Program Results",
+                new String[]{"commodity/Iron-Ore"}, "state/WA", "operator/Corvid-Metals", "status/Current",
                 "author-williams");
 
             dataset.commit();
@@ -363,26 +363,26 @@ public class TestDemoMiningScenarios {
         Set<String> results = lucQuery("copper", null, 50);
         // "copper" appears in titles of multiple reports, boreholes, and sites
         assertFalse("Should find results for 'copper'", results.isEmpty());
-        assertTrue("Should find Mount Isa report",
-            results.contains(EX + "report-mia-2023"));
+        assertTrue("Should find Brolga Ridge report",
+            results.contains(EX + "report-bro-2023"));
     }
 
     @Test
     public void testSearchGold() {
         Set<String> results = lucQuery("gold", null, 50);
         assertFalse("Should find results for 'gold'", results.isEmpty());
-        assertTrue("Should find Boddington site",
-            results.contains(EX + "site-boddington"));
-        assertTrue("Should find Boddington report",
-            results.contains(EX + "report-bod-2022"));
+        assertTrue("Should find Wattle Downs site",
+            results.contains(EX + "site-wattle-downs"));
+        assertTrue("Should find Wattle Downs report",
+            results.contains(EX + "report-wat-2022"));
     }
 
     @Test
     public void testSearchIronOre() {
         Set<String> results = lucQuery("iron ore", null, 50);
         assertFalse("Should find results for 'iron ore'", results.isEmpty());
-        assertTrue("Should find Pilbara site",
-            results.contains(EX + "site-pilbara-iron"));
+        assertTrue("Should find Redgum site",
+            results.contains(EX + "site-redgum-iron"));
     }
 
     @Test
@@ -400,23 +400,23 @@ public class TestDemoMiningScenarios {
     public void testFilterByState() {
         String filter = "{\"op\":\"=\",\"args\":[{\"property\":\"" + FP + "state\"},\"" + EX + "state/QLD\"]}";
         Set<String> results = lucQuery("*", filter, 50);
-        // QLD entities: site-mount-isa, bh-mia-001, report-mia-2023, report-mia-2021, bh-mia-002 (not present)
-        assertTrue("Should find Mount Isa site", results.contains(EX + "site-mount-isa"));
-        assertTrue("Should find Mount Isa borehole", results.contains(EX + "bh-mia-001"));
-        assertTrue("Should find Mount Isa report 2023", results.contains(EX + "report-mia-2023"));
+        // QLD entities: site-brolga-ridge, bh-bro-001, report-bro-2023, report-bro-2021, bh-bro-002 (not present)
+        assertTrue("Should find Brolga Ridge site", results.contains(EX + "site-brolga-ridge"));
+        assertTrue("Should find Brolga Ridge borehole", results.contains(EX + "bh-bro-001"));
+        assertTrue("Should find Brolga Ridge report 2023", results.contains(EX + "report-bro-2023"));
         // WA entities should not appear
-        assertFalse("Boddington (WA) should not appear", results.contains(EX + "site-boddington"));
+        assertFalse("Wattle Downs (WA) should not appear", results.contains(EX + "site-wattle-downs"));
     }
 
     @Test
     public void testFilterByCommodity() {
         String filter = "{\"op\":\"=\",\"args\":[{\"property\":\"" + FP + "commodity\"},\"" + EX + "commodity/Gold\"]}";
         Set<String> results = lucQuery("*", filter, 50);
-        assertTrue("Should find Olympic Dam (has Gold)", results.contains(EX + "site-olympic-dam"));
-        assertTrue("Should find Boddington (has Gold)", results.contains(EX + "site-boddington"));
-        assertTrue("Should find Ok Tedi (has Gold)", results.contains(EX + "site-ok-tedi"));
-        assertFalse("Mount Isa (no Gold) should not appear", results.contains(EX + "site-mount-isa"));
-        assertFalse("Pilbara (Iron-Ore only) should not appear", results.contains(EX + "site-pilbara-iron"));
+        assertTrue("Should find Spinifex Dome (has Gold)", results.contains(EX + "site-spinifex-dome"));
+        assertTrue("Should find Wattle Downs (has Gold)", results.contains(EX + "site-wattle-downs"));
+        assertTrue("Should find Kanawa Ridge (has Gold)", results.contains(EX + "site-kanawa-ridge"));
+        assertFalse("Brolga Ridge (no Gold) should not appear", results.contains(EX + "site-brolga-ridge"));
+        assertFalse("Redgum (Iron-Ore only) should not appear", results.contains(EX + "site-redgum-iron"));
     }
 
     @Test
@@ -437,12 +437,12 @@ public class TestDemoMiningScenarios {
             "{\"op\":\"=\",\"args\":[{\"property\":\"" + FP + "state\"},\"" + EX + "state/WA\"]}" +
             "]}";
         Set<String> results = lucQuery("*", filter, 50);
-        assertTrue("Should find Boddington site (Gold in WA)",
-            results.contains(EX + "site-boddington"));
-        assertTrue("Should find Boddington borehole (Gold in WA)",
-            results.contains(EX + "bh-bod-001"));
-        assertFalse("Olympic Dam (SA) should not appear",
-            results.contains(EX + "site-olympic-dam"));
+        assertTrue("Should find Wattle Downs site (Gold in WA)",
+            results.contains(EX + "site-wattle-downs"));
+        assertTrue("Should find Wattle Downs borehole (Gold in WA)",
+            results.contains(EX + "bh-wat-001"));
+        assertFalse("Spinifex Dome (SA) should not appear",
+            results.contains(EX + "site-spinifex-dome"));
     }
 
     @Test
@@ -482,16 +482,16 @@ public class TestDemoMiningScenarios {
             "}";
 
         Map<String, Long> counts = facetCountMap(sparql);
-        // QLD: site-mount-isa, bh-mia-001, report-mia-2023, report-mia-2021 = 4
+        // QLD: site-brolga-ridge, bh-bro-001, report-bro-2023, report-bro-2021 = 4
         assertEquals("QLD should have 4 entities", Long.valueOf(4), counts.get(EX + "state/QLD"));
-        // WA: site-boddington, site-pilbara-iron, bh-bod-001, bh-pil-001,
-        //     report-bod-2022, report-pil-2024, report-pil-exploration = 7
+        // WA: site-wattle-downs, site-redgum-iron, bh-wat-001, bh-red-001,
+        //     report-wat-2022, report-red-2024, report-red-exploration = 7
         assertEquals("WA should have 7 entities", Long.valueOf(7), counts.get(EX + "state/WA"));
-        // NSW: site-broken-hill, bh-bh-001, report-bh-1985, report-cad-2023 = 4
+        // NSW: site-echidna-hill, bh-ech-001, report-ech-1985, report-kur-2023 = 4
         assertEquals("NSW should have 4 entities", Long.valueOf(4), counts.get(EX + "state/NSW"));
-        // SA: site-olympic-dam, bh-od-001, report-od-2024 = 3
+        // SA: site-spinifex-dome, bh-spx-001, report-spx-2024 = 3
         assertEquals("SA should have 3 entities", Long.valueOf(3), counts.get(EX + "state/SA"));
-        // PNG: site-ok-tedi = 1
+        // PNG: site-kanawa-ridge = 1
         assertEquals("PNG should have 1 entity", Long.valueOf(1), counts.get(EX + "state/PNG"));
     }
 
@@ -665,16 +665,16 @@ public class TestDemoMiningScenarios {
             "}";
 
         Map<String, Long> counts = facetCountMap(sparql);
-        // Dr Sarah Jones: report-mia-2023, report-od-2024 = 2
+        // Dr Sarah Jones: report-bro-2023, report-spx-2024 = 2
         assertEquals("Dr Sarah Jones should have 2 reports",
             Long.valueOf(2), counts.get("Dr Sarah Jones"));
-        // Prof Wei Chen: report-mia-2021, report-bh-1985 = 2
+        // Prof Wei Chen: report-bro-2021, report-ech-1985 = 2
         assertEquals("Prof Wei Chen should have 2 reports",
             Long.valueOf(2), counts.get("Prof Wei Chen"));
-        // James Williams: report-pil-2024, report-pil-exploration = 2
+        // James Williams: report-red-2024, report-red-exploration = 2
         assertEquals("James Williams should have 2 reports",
             Long.valueOf(2), counts.get("James Williams"));
-        // Dr Priya Patel: report-bod-2022, report-cad-2023 = 2
+        // Dr Priya Patel: report-wat-2022, report-kur-2023 = 2
         assertEquals("Dr Priya Patel should have 2 reports",
             Long.valueOf(2), counts.get("Dr Priya Patel"));
     }
@@ -684,8 +684,8 @@ public class TestDemoMiningScenarios {
         String filter = "{\"op\":\"=\",\"args\":[{\"property\":\"" + FP + "authorName\"},\"Dr Sarah Jones\"]}";
         Set<String> results = lucQuery("*", filter, 50);
         assertEquals("Dr Sarah Jones authored 2 reports", 2, results.size());
-        assertTrue(results.contains(EX + "report-mia-2023"));
-        assertTrue(results.contains(EX + "report-od-2024"));
+        assertTrue(results.contains(EX + "report-bro-2023"));
+        assertTrue(results.contains(EX + "report-spx-2024"));
     }
 
     // ================================================================
@@ -730,12 +730,12 @@ public class TestDemoMiningScenarios {
 
     @Test
     public void testMultiValuedCommodityFilter() {
-        // Olympic Dam has Copper, Uranium, Gold — filter by Uranium should find it
+        // Spinifex Dome has Copper, Uranium, Gold — filter by Uranium should find it
         String filter = "{\"op\":\"=\",\"args\":[{\"property\":\"" + FP + "commodity\"},\"" + EX + "commodity/Uranium\"]}";
         Set<String> results = lucQuery("*", filter, 50);
-        assertTrue("Should find Olympic Dam site", results.contains(EX + "site-olympic-dam"));
-        assertTrue("Should find Olympic Dam borehole", results.contains(EX + "bh-od-001"));
-        assertTrue("Should find Olympic Dam report", results.contains(EX + "report-od-2024"));
+        assertTrue("Should find Spinifex Dome site", results.contains(EX + "site-spinifex-dome"));
+        assertTrue("Should find Spinifex Dome borehole", results.contains(EX + "bh-spx-001"));
+        assertTrue("Should find Spinifex Dome report", results.contains(EX + "report-spx-2024"));
         // Nothing else has Uranium
         assertEquals("Only 3 entities have Uranium", 3, results.size());
     }

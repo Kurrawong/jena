@@ -38,6 +38,10 @@ public class TextVocab
     public static final Property pIndexes           = Vocab.property(NS, "indexes") ;
     public static final Property pIndexId           = Vocab.property(NS, "indexId") ;
     public static final Property pTextDocProducer   = Vocab.property(NS, "textDocProducer") ;
+    /** Bulk-index the base dataset while assembling, before the server accepts requests.
+     *  For data already in place when the dataset is wrapped — {@code ja:data}, or a TDB2
+     *  store filled by {@code tdb2.tdbloader} — which the change listener never sees. */
+    public static final Property pBuildOnStartup    = Vocab.property(NS, "buildOnStartup") ;
 
     public static final Resource textIndex          = Vocab.resource(NS, "TextIndex") ;
     public static final Resource textIndexLucene    = Vocab.resource(NS, "TextIndexLucene") ;

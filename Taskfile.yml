@@ -16,6 +16,15 @@ vars:
     sh: git rev-parse --short=7 HEAD 2>/dev/null || echo unknown
   RUNTIME_IMAGE_NAME: '{{.RUNTIME_IMAGE_NAME | default "fuseki-lucene-shacl"}}'
   IMAGE_NAME: '{{.IMAGE_NAME | default "fuseki-lucene-shacl-loader"}}'
+  # The demo image: the runtime plus the mining dataset, its configuration and the
+  # browser app, all served from one process with nothing on disk. CI publishes it on
+  # every push to main, so a deployment tracking :latest redeploys itself.
+  DEMO_IMAGE_NAME: '{{.DEMO_IMAGE_NAME | default "fuseki-lucene-shacl-demo"}}'
+  DEMO_PORT: '{{.DEMO_PORT | default "3030"}}'
+  # Applied by demo-run and matched by demo-stop. A run-time label, not an image LABEL:
+  # it survives a rebuild reassigning the tag, and the Dockerfile deliberately carries
+  # no LABEL of its own (CI applies the OCI set).
+  DEMO_LABEL: 'ai.kurrawong.jena.demo.port'
   IMAGE_TAG: '{{.IMAGE_TAG | default .VERSION}}'
   # Must be lowercase: Docker repository names reject uppercase, so "Kurrawong"
   # cannot be used verbatim.
@@ -70,6 +79,58 @@ tasks:
     cmds:
       - gh auth token | docker login ghcr.io -u {{.GHCR_OWNER}} --password-stdin
       - docker buildx build --builder {{.BUILDX_BUILDER}} --platform {{.PLATFORMS}} --target loader -f build-files/docker/Dockerfile -t ghcr.io/{{.GHCR_OWNER}}/{{.IMAGE_NAME}}:{{.IMAGE_TAG}} --push .
+
+  demo-build:
+    desc: Build the self-contained demo image (in-memory data and index, app included)
+    cmds:
+      - docker build --target demo -f build-files/docker/Dockerfile -t {{.DEMO_IMAGE_NAME}}:{{.IMAGE_TAG}} .
+
+  demo-run:
+    desc: "Run the demo image locally on http://localhost:3030 (foreground, no volumes)"
+    cmds:
+      # Free the port first. Rebuild-and-rerun is the whole loop for an image with no
+      # state, and without this every second run dies on "port is already allocated"
+      # from the container the first one left behind.
+      - task: demo-stop
+      # Named for the port, so a second run on a different DEMO_PORT is a second
+      # container rather than a name clash.
+      #
+      # The label is what demo-stop actually finds it by, and it is set here at run time
+      # rather than baked into the image with LABEL. A --filter ancestor= cannot do this
+      # job: it resolves the tag to an image ID, so the moment demo-build reassigns
+      # :{{.IMAGE_TAG}} to a new image, the container from the previous build stops
+      # matching — which is every rebuild-and-rerun, the one loop this has to survive.
+      # docker ps then reports that container's image as a bare ID, so matching on the
+      # image name fails there too.
+      - docker run --rm --name {{.DEMO_IMAGE_NAME}}-{{.DEMO_PORT}} --label {{.DEMO_LABEL}}={{.DEMO_PORT}} -p {{.DEMO_PORT}}:3030 {{.DEMO_IMAGE_NAME}}:{{.IMAGE_TAG}}
+
+  demo-stop:
+    desc: Stop a demo container running on DEMO_PORT, leaving anything else on that port alone
+    cmds:
+      # Matched by label and name — both set by demo-run — never by port alone.
+      # DEMO_PORT defaults to 3030, which is exactly where an unrelated Fuseki is a
+      # normal thing to have running, and "free the port" must never come to mean
+      # "stop whatever is using it".
+      #
+      # A container this task did not start is therefore reported rather than stopped:
+      # that is the honest answer, and it explains the "port is already allocated"
+      # failure before docker gets to produce it.
+      - |
+        ids="$(docker ps -q --filter label={{.DEMO_LABEL}}={{.DEMO_PORT}})
+        $(docker ps -q --filter name=^/{{.DEMO_IMAGE_NAME}}-{{.DEMO_PORT}}$)"
+        ids="$(echo $ids | tr -s ' \n' ' ' | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+        if [ -n "$(echo $ids | tr -d ' ')" ]; then
+          echo "Stopping demo container(s) on port {{.DEMO_PORT}}: $ids"
+          docker stop $ids > /dev/null
+        else
+          echo "No demo container of ours running on port {{.DEMO_PORT}}"
+        fi
+        other="$(docker ps -q --filter publish={{.DEMO_PORT}})"
+        if [ -n "$other" ]; then
+          echo "Port {{.DEMO_PORT}} is still held by a container this task did not start:"
+          docker ps --filter publish={{.DEMO_PORT}} --format 'table {{"{{"}}.Names{{"}}"}}\t{{"{{"}}.Image{{"}}"}}'
+          echo "Stop it yourself, or run with a different DEMO_PORT."
+        fi
 
   loader-acr-push:
     desc: "Build and push the multi-arch text-only SHACL indexer image to ACR (usage: task loader-acr-push ACR_NAME=gswadevacr)"

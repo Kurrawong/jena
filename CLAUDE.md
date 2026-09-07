@@ -33,6 +33,7 @@ repo to its new home:
 |-------|-------------------|
 | `ghcr.io/kurrawong/fuseki-lucene-shacl` | `runtime` |
 | `ghcr.io/kurrawong/fuseki-lucene-shacl-loader` | `loader` |
+| `ghcr.io/kurrawong/fuseki-lucene-shacl-demo` | `demo` |
 
 The owner is written as the **lowercase literal `kurrawong`**, not
 `${{ github.repository_owner }}`. That expression preserves the owner's casing —
@@ -93,6 +94,15 @@ mvn -pl :jena-text -am install
 # Skip license header checks during development
 mvn clean install -Drat.skip
 ```
+
+**Always `clean` when rebuilding `jena-fuseki-server`.** Without it the shade plugin
+re-shades the previous fat jar in `target/` and the freshly built module classes lose to
+the copies already inside it: the jar's timestamp updates, its size barely moves, and the
+server runs the *old* code. It fails as behaviour that is simply absent — a config
+property parsed as if unset, a new code path never entered — with no build warning
+anywhere. `demo/Taskfile.yml`'s `build-fast` skips the clean deliberately for speed;
+reach for plain `task build` the moment something you just changed appears to have no
+effect.
 
 ## Running Tests
 

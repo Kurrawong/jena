@@ -111,14 +111,14 @@ For example:
 
 ```turtle
 ex:b1 sdo:identifier _:i1, _:i2 .
-_:i1 sdo:propertyID ex:Company ;   sdo:value "BHP" .
+_:i1 sdo:propertyID ex:Company ;   sdo:value "Warrigal" .
 _:i2 sdo:propertyID ex:HoleNumber ; sdo:value "8412" .
 ```
 
 produces hierarchy paths equivalent to:
 
 ```text
-(Company, "BHP")
+(Company, "Warrigal")
 (HoleNumber, "8412")
 ```
 
@@ -126,7 +126,7 @@ and not the cartesian product:
 
 ```text
 (Company, "8412")
-(HoleNumber, "BHP")
+(HoleNumber, "Warrigal")
 ```
 
 ## What This Solves Now

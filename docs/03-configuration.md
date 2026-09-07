@@ -36,6 +36,51 @@ Notes:
 - `text:index` is legacy and should be avoided in new configs.
 - Duplicate `text:indexId` values are rejected.
 
+### `text:buildOnStartup`
+
+```turtle
+<#ds> a text:TextDataset ;
+    text:dataset <#baseDs> ;
+    text:indexes <#index> ;
+    text:buildOnStartup true .
+
+<#baseDs> a ja:MemoryDataset ;
+    ja:data <data/books.ttl> .
+
+<#index> a text:TextIndexShacl ;
+    text:directory "mem" ;
+    text:shapes ( <#BookShape> ) .
+```
+
+Bulk-index the base dataset while the dataset is being assembled, before the server
+accepts a request. Defaults to `false`.
+
+An index is normally filled one of two ways, and neither reaches data that is already in
+place when the dataset is wrapped:
+
+- the **change listener** sees triples as they are added, so it never sees a
+  `ja:data` load or a TDB2 store filled earlier by `tdb2.tdbloader`;
+- **`shacltextindexer`** is a separate process, so it cannot hand a
+  `text:directory "mem"` index to the server that needs it.
+
+`text:buildOnStartup` covers the gap between them. With it, an in-memory dataset and an
+in-memory index are a working configuration — the self-contained demo image is exactly
+that, and before this flag a `"mem"` SHACL index had no way to hold any content at all.
+
+The build cost is paid on every start and grows with the data, so this is for datasets
+small enough to index in the time you are willing to wait for a restart. For anything
+larger keep the loader/server split: `tdb2.tdbloader`, then `shacltextindexer`, then
+start the server on the finished index.
+
+The change listener stays attached — a startup build is not a read-only mode — and the
+index is not stamped with the dataset identity that `shacltextindexer` records. That
+stamp asserts "this persisted index was built from that database", which only a build
+outliving its own process can claim.
+
+Requires a SHACL index; with `text:TextIndexLucene` it is an error, since the classic
+mode has `textindexer` for the same job. In a multi-index configuration every SHACL
+index is built and any classic one is skipped with a warning.
+
 ## Index Resources
 
 ```turtle
