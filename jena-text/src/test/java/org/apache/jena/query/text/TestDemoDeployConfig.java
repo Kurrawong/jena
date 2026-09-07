@@ -36,6 +36,10 @@ import java.util.TreeSet;
 
 import org.apache.jena.assembler.Assembler;
 import org.apache.jena.query.Dataset;
+import org.apache.jena.query.QueryExecution;
+import org.apache.jena.query.QueryExecutionFactory;
+import org.apache.jena.query.QuerySolution;
+import org.apache.jena.query.ResultSet;
 import org.apache.jena.query.text.assembler.TextAssembler;
 import org.apache.jena.query.text.assembler.TextVocab;
 import org.apache.jena.rdf.model.Model;
@@ -153,6 +157,44 @@ public class TestDemoDeployConfig {
         List<FacetValue> states = facets.get("state");
         assertTrue(states != null && !states.isEmpty(), "no counts for the state facet");
         assertTrue(states.get(0).getCount() > 0, "state facet counted nothing");
+    }
+
+    /**
+     * The same facet counts through SPARQL, which is how the image's smoke test and the
+     * app itself ask for them.
+     * <p>
+     * {@link #deployedConfigProducesFacetCounts()} calls the index API directly and so
+     * says nothing about the property function's argument list. A {@code luc:facet} call
+     * with the wrong arity, or with {@code facetFields} written as an RDF list rather
+     * than a JSON array in a string literal, fails only here — and in the image build,
+     * eight minutes later.
+     */
+    @Test
+    public void deployedConfigProducesFacetCountsThroughSparql() {
+        dataset = assembleDeployed();
+
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n"
+            + "SELECT ?field ?value ?count WHERE {\n"
+            + "  (?field ?value ?low ?high ?count) luc:facet (\n"
+            + "    \"default\" \"default\" \"*\"\n"
+            + "    '[\"urn:jena:lucene:field#state\"]'\n"
+            + "    \"\" 20 0)\n"
+            + "}";
+
+        dataset.begin(org.apache.jena.query.ReadWrite.READ);
+        try (QueryExecution qexec = QueryExecutionFactory.create(sparql, dataset)) {
+            ResultSet rs = qexec.execSelect();
+            int rows = 0;
+            while (rs.hasNext()) {
+                QuerySolution qs = rs.next();
+                assertTrue(qs.getLiteral("count").getInt() > 0,
+                    "a facet row counted nothing");
+                rows++;
+            }
+            assertTrue(rows > 0, "luc:facet returned no rows for the state facet");
+        } finally {
+            dataset.end();
+        }
     }
 
     /**
