@@ -451,8 +451,13 @@ public class TestDemoMiningScenarios {
         String filter = "{\"op\":\"=\",\"args\":[{\"property\":\"" + FP + "state\"},\"" + EX + "state/QLD\"]}";
         Set<String> results = lucQuery("copper", filter, 50);
         for (String uri : results) {
-            // All results should be QLD entities that mention copper
-            assertFalse("No WA results", uri.contains("boddington") || uri.contains("pilbara"));
+            // All results should be QLD entities that mention copper. Named by their
+            // current slugs: the WA entities were renamed with the rest of the demo
+            // data, and this assertion went on passing because nothing could match
+            // "boddington" or "pilbara" any more.
+            for (String wa : List.of("wattle-downs", "redgum", "bh-wat-", "report-wat-")) {
+                assertFalse("No WA results, but got " + uri, uri.contains(wa));
+            }
         }
     }
 
