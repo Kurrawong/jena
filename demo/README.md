@@ -96,6 +96,8 @@ built at startup, with Fuseki serving the app itself on one port.
 
 ```bash
 docker run --rm -p 3030:3030 ghcr.io/kurrawong/fuseki-lucene-shacl-demo:latest
+# /       Fuseki UI
+# /demo   the faceted search app
 ```
 
 Nothing to load, nothing to index, no volumes. It leaves out the borehole assays, which

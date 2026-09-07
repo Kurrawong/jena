@@ -104,14 +104,18 @@ tasks:
   # ── Deployed demo (in-memory, no database, no indexing step) ──────────────
 
   serve-deployed:
-    desc: Run the deployed demo configuration from the local jar — app and SPARQL on one port
+    desc: Run the deployed demo configuration from the local jar — search app and SPARQL on one port
     dir: deploy
     cmds:
       - task: require-jar
-      # --base hands the app to Fuseki's own Jetty, so there is no proxy and the app
-      # is same-origin. That is why deploy/app-config.js sets fusekiBase to '' — copy
-      # it over app-static/app-config.js if you want to browse the app this way, and
-      # remember `task app` writes the '/fuseki' version back.
+      # --base hands the app to Fuseki's own Jetty, so there is no proxy and the app is
+      # same-origin. Copy deploy/app-config.js over app-static/app-config.js to browse
+      # it this way, and remember `task app` writes the '/fuseki' version back.
+      #
+      # The search app is at the root here, not at /demo as in the image, and there is
+      # no Fuseki UI: setting a static file area is what makes FMod_UI stand down. The
+      # image assembles a tree holding both, which is more than a task wants to do to a
+      # source directory.
       - echo "Serving app and SPARQL at http://localhost:{{.FUSEKI_PORT}}"
       - java -jar ../{{.FUSEKI_JAR}} --port {{.FUSEKI_PORT}} --config config.ttl --base ../app-static
 

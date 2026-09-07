@@ -7,8 +7,18 @@ in one process, with nothing on disk and no arguments to pass.
 
 ```bash
 docker run --rm -p 3030:3030 ghcr.io/kurrawong/fuseki-lucene-shacl-demo:latest
-# app and SPARQL: http://localhost:3030
 ```
+
+| URL | |
+|---|---|
+| `/` | Fuseki UI — query editor, dataset browser |
+| `/demo` | the faceted search app |
+| `/mining/query` | SPARQL |
+
+The Fuseki UI has to be the one at the root: it prefixes every API call with the path it
+was served from, so anywhere else it asks for `/somewhere/$/server` and gets a 404. The
+search app has no such constraint — relative assets, and its API base comes from
+`window.location.origin` — so it is the one that moves.
 
 From the repository, with rebuild-and-rerun as the loop:
 
@@ -21,7 +31,8 @@ task demo-stop DEMO_PORT=3040
 `demo-stop` matches on image *and* port, so pointing `DEMO_PORT` at a port some other
 Fuseki already holds will not stop it.
 
-Locally, from a built jar and without Docker:
+Locally, from a built jar and without Docker — the search app only, at the root, since
+assembling the two-front-end tree is the image build's job:
 
 ```bash
 task build            # from the repository root
@@ -37,7 +48,7 @@ task serve-deployed   # from demo/
 | Indexing | `text:buildOnStartup true` | Runs the bulk indexer as the dataset is assembled — 524 entities in about a second. See [docs/03-configuration.md](../../docs/03-configuration.md#textbuildonstartup) |
 | App | Fuseki's `--base` | Jetty serves `demo/app-static` itself, so the app is same-origin: no proxy, no CORS, no second process, one port |
 | Writes | none | Query endpoint only. The index is rebuilt from `ja:data` on every start, so a write would not survive a restart anyway |
-| Admin | `shiro.ini` | `/$/**` denied outright, `/$/ping` and `/$/config` opened by name |
+| Admin | `shiro.ini` | `/$/**` denied outright; `/$/ping`, `/$/config`, and the read-only `/$/server` and `/$/stats` the UI needs are opened by name. Create, delete and backup all live under `/$/datasets` and stay shut, so those UI pages report an error |
 
 Every start rebuilds from the Turtle baked into the image, which is what makes it safe to
 redeploy on each push and to run at scale-to-zero: there is no state a redeploy could

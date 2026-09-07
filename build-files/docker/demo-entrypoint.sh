@@ -12,7 +12,7 @@ set -e
 PORT="${PORT:-3030}"
 
 CONFIG="${CONFIG:-/demo/deploy/config.ttl}"
-STATIC_DIR="${STATIC_DIR:-/demo/app-static}"
+STATIC_DIR="${STATIC_DIR:-/demo/static}"
 
 # Heap. The whole dataset and index live in it, so the default (1/4 of container
 # memory) is fine on a 512 MiB instance — override JAVA_OPTS if the data grows.
@@ -29,8 +29,12 @@ fi
 # no matter what WORKDIR a derived image sets.
 export FUSEKI_BASE="${FUSEKI_BASE:-/demo/deploy/run}"
 
+# --ui rather than --base, though both end up setting the same static file area:
+# --ui goes through FMod_UI, which also registers the validators the UI links to
+# and enables /$/stats. --base sets the directory and stops there, leaving the UI
+# served but with those pages dead.
 exec java ${JAVA_VECTOR_OPTS} ${JAVA_OPTS} \
     -jar /fuseki/jena-fuseki-server.jar \
     --port "${PORT}" \
     --config "${CONFIG}" \
-    --base "${STATIC_DIR}"
+    --ui "${STATIC_DIR}"
