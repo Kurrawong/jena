@@ -233,24 +233,25 @@ public class ShaclIndexMapping {
         }
 
         /**
-         * @param dimensionName the Lucene taxonomy dimension, derived from the level field
-         *                      names. This is the on-disk key, so it stays derived even
-         *                      when the hierarchy carries an IRI: changing it would
-         *                      invalidate every existing index.
+         * @param dimensionName fallback dimension name, derived by joining the level field
+         *                      names. Used only when the hierarchy has no IRI.
          * @param dimensionIRI  optional IRI naming the hierarchy, from a resource-valued
-         *                      {@code idx:facetHierarchy}. Queries may address the
-         *                      dimension by this as well as by its name. Null for the
-         *                      plain RDF list form.
+         *                      {@code idx:facetHierarchy}. When present it <em>is</em> the
+         *                      taxonomy dimension, so the hierarchy has one identifier
+         *                      rather than two. Naming a hierarchy therefore changes its
+         *                      on-disk key and requires a reindex.
          */
         public HierarchyDef(String dimensionName, List<FieldDef> levels, Node dimensionIRI) {
-            this.dimensionName = Objects.requireNonNull(dimensionName);
+            Objects.requireNonNull(dimensionName);
             if (levels == null || levels.size() < 2) {
                 throw new IllegalArgumentException("Hierarchy must have at least 2 levels");
             }
             this.levels = Collections.unmodifiableList(new ArrayList<>(levels));
             this.dimensionIRI = dimensionIRI;
+            this.dimensionName = dimensionIRI != null ? dimensionIRI.getURI() : dimensionName;
         }
 
+        /** The taxonomy dimension: the hierarchy's IRI when it has one, else the derived name. */
         public String getDimensionName()     { return dimensionName; }
         /** IRI naming this hierarchy, or null when it was declared as a bare RDF list. */
         public Node getDimensionIRI()        { return dimensionIRI; }

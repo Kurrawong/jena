@@ -241,15 +241,18 @@ idx:facetHierarchy dim:identifierPath .
 dim:identifierPath idx:levels ( field:identifierType field:identifierValueExact ) .
 ```
 
-Both forms produce the same **taxonomy dimension name**, derived by joining the level
-field names with `_`, here `identifierType_identifierValueExact`. That name is the on-disk
-key, so it stays derived even for a named hierarchy: changing it would invalidate every
-existing index. The IRI is an additional address, not a replacement, and `luc:facet`
-accepts either.
+A named hierarchy is addressed by its IRI, and that IRI **is** the taxonomy dimension. It
+has one identifier, not two, so the derived name no longer reaches it.
 
-Without an IRI a client has to reconstruct the dimension name from the level order to
-address the hierarchy at all, which is the one place the move to field IRIs had not
-reached.
+A bare list has no IRI, so its dimension is the name derived by joining the level field
+names with `_`, here `identifierType_identifierValueExact`. That name appears in no
+configuration file, and a client has to reconstruct it from the level order to address the
+hierarchy at all. This is the one place the move to field IRIs had not reached, and naming
+the hierarchy is how you close it.
+
+> **Naming a hierarchy changes its on-disk key, so reindex after doing so.** The dimension
+> is written into the Lucene taxonomy, and a query against an index built under the old
+> derived name will not find it.
 
 ## Field Properties
 

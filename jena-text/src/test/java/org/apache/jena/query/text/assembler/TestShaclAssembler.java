@@ -756,10 +756,10 @@ public class TestShaclAssembler {
     // ------------------------------------------------------------------
 
     @Test
-    public void testNamedFacetHierarchyCarriesItsIRI() {
-        // A hierarchy declared as a resource with idx:levels can be addressed by its IRI.
-        // The taxonomy dimension name stays derived from the level field names, because it
-        // is the on-disk key: renaming it would invalidate every existing index.
+    public void testNamedFacetHierarchyIsAddressedByItsIRI() {
+        // A hierarchy declared as a resource with idx:levels is addressed by its IRI, and
+        // that IRI is the taxonomy dimension. One identifier, not two. Naming a hierarchy
+        // therefore changes its on-disk key and needs a reindex.
         Model model = createModel();
 
         Resource titleField = model.createResource("urn:jena:lucene:field#title")
@@ -804,13 +804,16 @@ public class TestShaclAssembler {
 
             assertNotNull("The hierarchy should carry its IRI", hier.getDimensionIRI());
             assertEquals(dimIRI, hier.getDimensionIRI().getURI());
-            assertEquals("The taxonomy dimension name stays derived from the levels",
-                "identifierType_identifierValueExact", hier.getDimensionName());
+            assertEquals("The IRI is the taxonomy dimension", dimIRI, hier.getDimensionName());
 
-            // Addressable both ways, resolving to the one taxonomy dimension.
-            assertEquals(java.util.List.of("identifierType_identifierValueExact"),
+            assertEquals(java.util.List.of(dimIRI),
                 index.resolveFacetFieldNames(java.util.List.of(dimIRI)));
-            assertEquals(java.util.List.of("identifierType_identifierValueExact"),
+
+            // The derived name is not an alias. A named hierarchy has one address, so the
+            // old name no longer reaches the dimension. (On a branch carrying #173 this
+            // raises; here it simply fails to resolve.)
+            assertNotEquals("The derived name must not still address the dimension",
+                java.util.List.of(dimIRI),
                 index.resolveFacetFieldNames(java.util.List.of("identifierType_identifierValueExact")));
         } finally {
             index.close();
