@@ -48,8 +48,15 @@ public class CqlParser {
     private static final Set<String> COMPARISON_OPS = Set.of("=", "<>", "<", ">", "<=", ">=");
     private static final Set<String> SPATIAL_OPS = Set.of(
         "s_intersects", "s_within", "s_contains", "s_disjoint",
-        "s_equals", "s_crosses", "s_overlaps", "s_touches"
+        "s_equals", "s_crosses", "s_overlaps", "s_touches",
+        "s_dwithin"
     );
+
+    /**
+     * The one spatial operator taking a third argument, a distance in metres. An
+     * extension: CQL2 1.0 defines no distance operator.
+     */
+    private static final String DISTANCE_OP = "s_dwithin";
 
     public static CqlExpression parse(String json) {
         JsonObject obj = JSON.parse(json);
@@ -161,13 +168,32 @@ public class CqlParser {
     }
 
     private static CqlExpression.CqlSpatial parseSpatial(String op, JsonArray args) {
-        if (args.size() != 2) {
-            throw new TextIndexException("CQL2 spatial op requires exactly 2 arguments, got " + args.size());
+        boolean isDistance = DISTANCE_OP.equals(op);
+        int expected = isDistance ? 3 : 2;
+        if (args.size() != expected) {
+            // A distance argument on a topological operator is rejected rather than
+            // ignored: silently dropping it answers a different question than was asked.
+            throw new TextIndexException("CQL2 '" + op + "' requires exactly " + expected
+                + " arguments, got " + args.size());
         }
         String property = extractProperty(args.get(0));
-        // geometry is stored as-is for future processing
+        // geometry is stored as-is for the compiler to interpret
         Object geometry = args.get(1).toString();
-        return new CqlExpression.CqlSpatial(op, property, geometry);
+
+        Double distanceMetres = null;
+        if (isDistance) {
+            JsonValue distance = args.get(2);
+            if (!distance.isNumber()) {
+                throw new TextIndexException(
+                    "CQL2 's_dwithin' distance must be a number of metres, got: " + distance);
+            }
+            distanceMetres = distance.getAsNumber().value().doubleValue();
+            if (!(distanceMetres > 0)) {
+                throw new TextIndexException(
+                    "CQL2 's_dwithin' distance must be positive, got " + distanceMetres);
+            }
+        }
+        return new CqlExpression.CqlSpatial(op, property, geometry, distanceMetres);
     }
 
     static String extractProperty(JsonValue val) {

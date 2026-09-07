@@ -47,6 +47,7 @@ import org.apache.lucene.document.IntPoint;
 import org.apache.lucene.document.LatLonShape;
 import org.apache.lucene.document.LongPoint;
 import org.apache.lucene.document.ShapeField;
+import org.apache.lucene.geo.Circle;
 import org.apache.lucene.geo.LatLonGeometry;
 import org.apache.lucene.geo.Line;
 import org.apache.lucene.geo.Polygon;
@@ -93,6 +94,13 @@ public class CqlToLuceneCompiler {
         "s_within",     ShapeField.QueryRelation.WITHIN,
         "s_contains",   ShapeField.QueryRelation.CONTAINS,
         "s_disjoint",   ShapeField.QueryRelation.DISJOINT);
+
+    /**
+     * Distance operator. Not in {@link #SPATIAL_RELATIONS} because it is not a
+     * topological relation: it compiles to a circle rather than taking a relation from
+     * the operator. An extension, since CQL2 1.0 defines no distance operator.
+     */
+    private static final String SPATIAL_DISTANCE_OP = "s_dwithin";
 
     /** Query geometry forms {@link #compileSpatial} understands, for error messages. */
     private static final String SUPPORTED_QUERY_GEOMETRIES =
@@ -671,11 +679,14 @@ public class CqlToLuceneCompiler {
     }
 
     private CompileResult compileSpatial(CqlExpression.CqlSpatial spatial) {
-        ShapeField.QueryRelation relation = SPATIAL_RELATIONS.get(spatial.op());
+        boolean isDistance = SPATIAL_DISTANCE_OP.equals(spatial.op());
+        ShapeField.QueryRelation relation = isDistance
+            ? ShapeField.QueryRelation.INTERSECTS
+            : SPATIAL_RELATIONS.get(spatial.op());
         if (relation == null) {
             throw new TextIndexException(
                 "Spatial operator '" + spatial.op() + "' is not supported. Supported: "
-                + String.join(", ", new java.util.TreeSet<>(SPATIAL_RELATIONS.keySet())) + ".");
+                + supportedSpatialOps() + ".");
         }
 
         FieldDef field = findField(spatial.property());
@@ -695,6 +706,10 @@ public class CqlToLuceneCompiler {
 
         try {
             JsonObject geomObj = JSON.parse(geomJson);
+
+            if (isDistance) {
+                return new CompileResult(compileDistanceQuery(fieldName, spatial, geomObj), null);
+            }
 
             List<LatLonGeometry> geometries = new ArrayList<>();
             addQueryGeometries(geometries, geomObj);
@@ -722,6 +737,40 @@ public class CqlToLuceneCompiler {
             }
         }
         return "with keys " + geomObj.keys();
+    }
+
+    /** Operator names accepted by {@link #compileSpatial}, sorted, for error messages. */
+    private static String supportedSpatialOps() {
+        Set<String> all = new java.util.TreeSet<>(SPATIAL_RELATIONS.keySet());
+        all.add(SPATIAL_DISTANCE_OP);
+        return String.join(", ", all);
+    }
+
+    /**
+     * Compile {@code s_dwithin} to a Lucene circle query.
+     * <p>
+     * The distance is in metres, always: {@code geo.Circle} takes metres, and a units
+     * argument would be a second parser and a second class of bug for no gain. The
+     * geometry must be a GeoJSON {@code Point} — a radius around anything else is not
+     * expressible as a single {@code Circle}.
+     */
+    private static Query compileDistanceQuery(String fieldName,
+                                              CqlExpression.CqlSpatial spatial,
+                                              JsonObject geomObj) {
+        if (spatial.distanceMetres() == null) {
+            throw new TextIndexException(
+                "Spatial operator 's_dwithin' requires a distance in metres as its third argument.");
+        }
+        if (!geomObj.hasKey("type") || !"Point".equals(geomObj.get("type").getAsString().value())) {
+            throw new TextIndexException(
+                "Spatial operator 's_dwithin' requires a GeoJSON Point geometry, got "
+                + describeQueryGeometry(geomObj) + ".");
+        }
+        JsonArray coord = geomObj.get("coordinates").getAsArray();
+        double lon = coord.get(0).getAsNumber().value().doubleValue();
+        double lat = coord.get(1).getAsNumber().value().doubleValue();
+        Circle circle = new Circle(lat, lon, spatial.distanceMetres());
+        return LatLonShape.newDistanceQuery(fieldName, ShapeField.QueryRelation.INTERSECTS, circle);
     }
 
     /**
