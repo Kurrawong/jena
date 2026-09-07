@@ -75,6 +75,7 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestTextMultilingualEnhancements02.class
 
     , TestNativeFacetCounts.class
+    , TestMultiValuedFieldSemantics.class
     , TestTextFacetPF.class
     , TestSearchExecution.class
 

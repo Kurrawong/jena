@@ -286,6 +286,28 @@ Numeric and temporal fields take their facet/sort docvalues from `idx:facetable`
 
 `idx:DateField` and `idx:DateTimeField` are accepted as deprecated aliases for `idx:TemporalField`.
 
+#### What a filter means on a multi-valued field
+
+A positive filter on a multi-valued field is **existential**: the entity matches if *any*
+one of its values matches. An entity with `commodity` of both Gold and Copper matches
+`commodity = "Gold"` and `commodity = "Copper"`, and one with depths 50 and 900 matches
+both a shallow and a deep range. The same holds for `in` and for a text query.
+
+Negation inverts the quantifier, which is also the reading people expect: `commodity <>
+"Gold"` means *no* value is Gold, so it excludes that entity rather than returning it on
+the strength of its Copper. `<>` compiles to `MatchAllDocs MUST_NOT <positive>`, so this
+follows from the positive form rather than being implemented separately.
+
+This is a property of the inverted index, not a choice, and it is why these fields need
+none of the work that `idx:LatLonField` does. A shape field is not an inverted index over
+values: Lucene evaluates `WITHIN`, `CONTAINS` and `DISJOINT` across every shape on the
+document at once, so those three are all-of on a multi-valued geometry, which diverges
+from GeoSPARQL. See [09-spatial.md](09-spatial.md) and issue #179. `s_intersects` is
+existential and unaffected.
+
+Pinned by `TestMultiValuedFieldSemantics`, with the contrasting geometry behaviour pinned
+by `testWithinOnMultiValuedFieldRequiresEveryShape` in `TestSpatialFiltering`.
+
 ### Occurrence properties
 
 An occurrence binds a canonical field to a path. It carries the path and any value
