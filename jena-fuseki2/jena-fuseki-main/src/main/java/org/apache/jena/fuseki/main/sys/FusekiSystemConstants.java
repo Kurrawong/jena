@@ -55,7 +55,7 @@ public class FusekiSystemConstants {
      * Setting for HttpConfiguration.setOutputBufferSize (set in
      * {@link JettyLib#httpConfiguration}).
      */
-    public static final int jettyOutputBufferSize = 5 * 1024 * 1024;
+    public static final int jettyOutputBufferSize = 2 * 1024 * 1024;
 
     /**
      * JettyrRequest header size.
@@ -78,4 +78,17 @@ public class FusekiSystemConstants {
      * support. (Jetty 12 default is 8k.)
      */
     public static final int jettyResponseHeaderSize = 16 * 1024;
+
+    // Jetty 9.4 and 12.0 : the Jetty default is max=200, min=8
+    // Fuseki operations are queries - expensive and longer lived - so limit the maximum resources by default.
+
+    /**
+     * Minimum Jetty server threads for the Jetty server of Fuseki.
+     */
+    public static final int jettyMinThreads = 4;
+
+    /**
+     * Maximum Jetty server threads for the Jetty server of Fuseki.
+     */
+    public static final int jettyMaxThreads = 20;
 }

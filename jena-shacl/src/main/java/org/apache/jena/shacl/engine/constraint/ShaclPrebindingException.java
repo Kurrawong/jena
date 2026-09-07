@@ -19,24 +19,12 @@
  *   SPDX-License-Identifier: Apache-2.0
  */
 
-package org.apache.jena.fuseki.mgt;
+package org.apache.jena.shacl.engine.constraint;
 
-public class FusekiAdmin {
-    /**
-     * Control whether to allow creating new dataservices by uploading a config file.
-     * See {@link ActionDatasets}.
-     *
-     */
-    public static final String allowConfigFileProperty = "fuseki:allowAddByConfigFile";
+import org.apache.jena.shacl.ShaclException;
 
-    /**
-     * Return whether to allow service configuration files to be uploaded as a file.
-     * See {@link ActionDatasets}.
-     */
-    public static boolean allowConfigFiles() {
-        String value = System.getProperty(allowConfigFileProperty);
-        if ( value != null )
-            return "true".equals(value);
-        return false;
+public class ShaclPrebindingException extends ShaclException {
+    public ShaclPrebindingException(String msg) {
+        super(msg);
     }
 }

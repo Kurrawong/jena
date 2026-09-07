@@ -50,12 +50,15 @@ import org.eclipse.jetty.ee11.servlet.FilterHolder;
 import org.eclipse.jetty.ee11.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee11.servlet.ServletHolder;
 import org.eclipse.jetty.http.MimeTypes;
+import org.eclipse.jetty.io.ArrayByteBufferPool;
+import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.security.SecurityHandler;
 import org.eclipse.jetty.server.*;
 import org.eclipse.jetty.server.handler.ErrorHandler;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.resource.Resource;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
+import org.eclipse.jetty.util.thread.Scheduler;
 import org.eclipse.jetty.util.thread.ThreadPool;
 import org.eclipse.jetty.xml.XmlConfiguration;
 import org.slf4j.Logger;
@@ -71,7 +74,6 @@ public class JettyServer {
     // Caution :
     //   there are small differences e.g. in building where order matters.
     //   Setting default (look for FusekiServerConstants)
-    //
 
     private static Logger LOG = LoggerFactory.getLogger("HTTP");
 
@@ -465,16 +467,24 @@ public class JettyServer {
 
     public static Server jettyServer(int minThreads, int maxThreads) {
         ThreadPool threadPool = null;
-        // Jetty 9.4 and 12.0 : the Jetty default is max=200, min=8
         if ( minThreads < 0 )
-            minThreads = 2;
+            minThreads = FusekiSystemConstants.jettyMinThreads;
         if ( maxThreads < 0 )
-            maxThreads = 20;
+            maxThreads = FusekiSystemConstants.jettyMaxThreads;
         maxThreads = Math.max(minThreads, maxThreads);
         // Args reversed: Jetty uses (max,min)
         threadPool = new QueuedThreadPool(maxThreads, minThreads);
-        Server server = new Server(threadPool);
+        // Server(ThreadPool) alone installs a default 64KB ArrayByteBufferPool; pass ours explicitly.
+        Server server = new Server(threadPool, (Scheduler)null, newByteBufferPool());
         return server;
+    }
+
+    /** ByteBufferPool sized so its maximum pooled buffer capacity is at least
+     * {@link FusekiSystemConstants#jettyOutputBufferSize}. */
+    private static ByteBufferPool newByteBufferPool() {
+        int maxCapacity = FusekiSystemConstants.jettyOutputBufferSize;
+        // int minCapacity, int factor, int maxCapacity, int maxBucketSize, long maxHeapMemory, long maxDirectMemory
+        return new ArrayByteBufferPool(0, -1, maxCapacity, -1, -1, -1);
     }
 
     private static void serverAddConnectors(Server server, int port,  boolean loopback) {
