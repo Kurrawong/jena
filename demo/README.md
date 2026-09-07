@@ -207,6 +207,36 @@ it finds entities that link *to* the report.
 | `23-nested-identifier-same-child-correlated.rq` | Same-child correlated filter on nested identifier records (issue #65) |
 | `24-nested-match-assay-records.rq` | `luc:nestedMatch` projecting the external CSV assay children that matched |
 | `25-nested-match-attribution-record.rq` | `luc:nestedMatch` projecting the graph-derived attribution child that matched |
+| `26-spatial-within.rq` | `s_within` — the indexed shape lies wholly inside the query box |
+| `27-spatial-contains.rq` | `s_contains` — the indexed shape encloses the query box |
+| `28-spatial-disjoint.rq` | `s_disjoint`, and why the unlocated prospect is still not returned |
+| `29-spatial-linestring-crosses-bbox.rq` | A LineString with both endpoints outside the box, crossing it |
+| `30-spatial-polygon-with-hole.rq` | A query polygon with an interior ring; the hole excludes a match |
+| `31-spatial-dwithin.rq` | `s_dwithin` — everything within a radius, in metres |
+| `32-spatial-crs-equivalence.rq` | GDA2020 and bare CRS84 written for the same place, matching one box |
+
+### Geometry on the map
+
+`geo:asWKT` literals are parsed in the browser by `app-static/wkt.js`. GeoSPARQL allows a
+CRS IRI prefix, `<crs> POINT(...)`, which no general-purpose WKT library understands, and
+the axis order depends on that CRS, so the demo strips and normalises it itself:
+
+| CRS | Axis order |
+|---|---|
+| bare WKT, or CRS84 | lon lat |
+| EPSG:4326 | lat lon |
+| EPSG:4283 (GDA94) | lat lon |
+| EPSG:7844 (GDA2020) | lat lon |
+
+Every geometry type is drawn, holes included. A projected CRS such as EPSG:28350 is
+skipped with a console warning rather than guessed, since drawing metres as degrees would
+put the shape in the Gulf of Guinea.
+
+Run the parser's tests with no extra dependencies:
+
+```bash
+node --test testing/wkt.test.mjs
+```
 
 ### Expected results for path queries
 

@@ -1,0 +1,19 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# Counts below are for the full demo dataset (mining.ttl + generated.ttl). The
+# generated sites and boreholes contribute additional matches; the named sites are
+# the ones placed deliberately to demonstrate the behaviour.
+# A LineString whose endpoints both sit OUTSIDE the query box, while the segment
+# crosses it. The haul road runs from lon 118.90 to 120.60 at lat -23.40; the box spans
+# lon 119.20 to 120.10.
+#
+# 9 rows. The one that matters is site-haul-road: its endpoints are outside the box on
+# longitude and only the segment crosses, so a match proves true segment intersection
+# rather than a vertex-in-box test. The others are generated points inside the box.
+PREFIX luc: <urn:jena:lucene:index#>
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score) luc:query ("default" "default" "*"
+    '{"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[119.20,-23.60,120.10,-23.20]}]}'
+    ""
+    20
+    0)
+}

@@ -1,0 +1,22 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# Counts below are for the full demo dataset (mining.ttl + generated.ttl). The
+# generated sites and boreholes contribute additional matches; the named sites are
+# the ones placed deliberately to demonstrate the behaviour.
+# A query polygon with an interior ring. Rings after the first are holes and they are
+# honoured, so a shape falling inside the hole does not match.
+#
+# The outer ring covers Kalgoorlie; the hole is drawn over the two Datum Demo points.
+#
+# 4 rows, including site-excised-tenement and site-legacy-survey, both in the ring body.
+# Absent: site-datum-gda2020 and site-datum-crs84, which sit inside the hole.
+#
+# Delete the second ring and re-run: 4 rows becomes 6, and the two Datum Demo sites
+# reappear. That contrast is the whole point of the query.
+PREFIX luc: <urn:jena:lucene:index#>
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score) luc:query ("default" "default" "*"
+    '{"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},{"type":"Polygon","coordinates":[[[121.40,-31.30],[121.80,-31.30],[121.80,-30.70],[121.40,-30.70],[121.40,-31.30]],[[121.60,-31.25],[121.72,-31.25],[121.72,-31.15],[121.60,-31.15],[121.60,-31.25]]]}]}'
+    ""
+    20
+    0)
+}

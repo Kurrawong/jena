@@ -929,43 +929,61 @@ async function loadTestCases() {
 }
 
 // ---------------------------------------------------------------------------
-// WKT parser — extracts Leaflet-compatible coordinates from WKT literals
+// Geometry for the map.
+//
+// geo:asWKT literals are parsed by wkt.js, which strips the GeoSPARQL "<crs-iri> "
+// prefix and normalises axis order to Leaflet's [lat, lon]. No general-purpose WKT
+// library understands that prefix, and the axis order depends on the CRS, so the
+// stripping has to happen here.
+//
+// Shapes come back in Leaflet's own shapes rather than an intermediate format:
+// a polygon's ring list maps straight onto L.polygon, which reads ring 0 as the
+// outline and the rest as holes.
 // ---------------------------------------------------------------------------
 
-function parseWktForLeaflet(wktString) {
-    let wkt = wktString.trim();
-    let isLatLon = false;
-
-    // Strip CRS prefix if present
-    if (wkt.startsWith('<')) {
-        const close = wkt.indexOf('>');
-        const crs = wkt.substring(1, close);
-        wkt = wkt.substring(close + 1).trim();
-        // EPSG:4326/4283/7844 use lat/lon axis order
-        if (crs.includes('4326') || crs.includes('4283') || crs.includes('7844')) {
-            isLatLon = true;
-        }
+/** Every drawable shape on a card, from its geo:asWKT values. */
+function cardShapes(card) {
+    var out = [];
+    for (const pv of (card.properties.asWKT || [])) {
+        out = out.concat(WKT.wktToShapes(pv.raw));
     }
-    // Bare WKT (no CRS prefix) defaults to CRS84 = lon/lat
+    return out;
+}
 
-    if (wkt.startsWith('POINT')) {
-        const m = wkt.match(/POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)/);
-        if (!m) return null;
-        const c1 = parseFloat(m[1]), c2 = parseFloat(m[2]);
-        return { type: 'point', lat: isLatLon ? c1 : c2, lon: isLatLon ? c2 : c1 };
-    }
-
-    if (wkt.startsWith('POLYGON')) {
-        const m = wkt.match(/POLYGON\s*\(\((.*?)\)\)/);
-        if (!m) return null;
-        const coords = m[1].split(',').map(pair => {
-            const [c1, c2] = pair.trim().split(/\s+/).map(Number);
-            return isLatLon ? [c1, c2] : [c2, c1]; // [lat, lon] for Leaflet
+/** Build a Leaflet layer for one parsed shape. */
+function shapeToLayer(shape) {
+    const stroke = { color: '#d4944c', weight: 2, opacity: 0.8 };
+    if (shape.kind === 'point') {
+        return L.circleMarker(shape.latlng, {
+            radius: 7, fillColor: '#d4944c', color: '#d4944c',
+            weight: 2, opacity: 1, fillOpacity: 0.6,
         });
-        return { type: 'polygon', coords };
     }
-
+    if (shape.kind === 'line') {
+        return L.polyline(shape.latlngs, stroke);
+    }
+    if (shape.kind === 'polygon') {
+        // Ring 0 is the outline, the rest are holes — Leaflet's own convention.
+        return L.polygon(shape.rings, Object.assign({
+            fillColor: '#d4944c', fillOpacity: 0.2,
+        }, stroke));
+    }
     return null;
+}
+
+/** A short label for a geometry, used on result cards. */
+function wktSummary(raw) {
+    const name = WKT.wktTypeName(raw) || 'Geometry';
+    const shapes = WKT.wktToShapes(raw);
+    const pts = WKT.shapeBounds(shapes);
+    if (name === 'Point' && pts.length === 1) {
+        return { value: name, displayValue: name,
+                 tooltip: pts[0][0].toFixed(4) + ', ' + pts[0][1].toFixed(4) };
+    }
+    if (!shapes.length) {
+        return { value: name, displayValue: name, tooltip: name + ', not drawable on this map' };
+    }
+    return { value: name, displayValue: name, tooltip: name + ', ' + pts.length + ' points' };
 }
 
 // ---------------------------------------------------------------------------
@@ -2405,16 +2423,7 @@ DESCRIBE <${uri}>`;
                     if (pred === 'asWKT') {
                         // One row holding every geometry, not a row each: rows are keyed by
                         // property name, and two rows both called 'location' would collide.
-                        const geometries = values
-                            .map(pv => parseWktForLeaflet(pv.raw))
-                            .filter(Boolean)
-                            .map(geo => ({
-                                value: geo.type === 'point' ? 'Point' : 'Polygon',
-                                displayValue: geo.type === 'point' ? 'Point' : 'Polygon',
-                                tooltip: geo.type === 'point'
-                                    ? `${geo.lat.toFixed(4)}, ${geo.lon.toFixed(4)}`
-                                    : geo.coords.map(c => `${c[0].toFixed(2)},${c[1].toFixed(2)}`).join(' '),
-                            }));
+                        const geometries = values.map(pv => wktSummary(pv.raw));
                         if (geometries.length > 0) {
                             card.rows.push({ property: 'location', values: geometries });
                         }
@@ -2722,25 +2731,11 @@ DESCRIBE <${uri}>`;
             let mapped = 0;
 
             for (const card of this.cards) {
-                const wktValues = card.properties.asWKT || [];
-                for (const pv of wktValues) {
-                    const geo = parseWktForLeaflet(pv.raw);
-                    if (!geo) continue;
-
-                    let layer;
-                    if (geo.type === 'point') {
-                        layer = L.circleMarker([geo.lat, geo.lon], {
-                            radius: 7, fillColor: '#d4944c', color: '#d4944c',
-                            weight: 2, opacity: 1, fillOpacity: 0.6,
-                        });
-                        bounds.push([geo.lat, geo.lon]);
-                    } else if (geo.type === 'polygon') {
-                        layer = L.polygon(geo.coords, {
-                            fillColor: '#d4944c', color: '#d4944c',
-                            weight: 2, opacity: 0.8, fillOpacity: 0.2,
-                        });
-                        bounds.push(...geo.coords);
-                    }
+                for (const shape of cardShapes(card)) {
+                    // One layer per shape, so a MultiPolygon or GeometryCollection draws
+                    // every member and a polygon keeps its holes.
+                    const layer = shapeToLayer(shape);
+                    bounds.push(...WKT.shapeBounds([shape]));
 
                     if (layer) {
                         const popup = `<strong>${escapeHtml(card.label)}</strong>`;

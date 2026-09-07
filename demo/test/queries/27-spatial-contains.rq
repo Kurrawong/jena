@@ -1,0 +1,17 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# Counts below are for the full demo dataset (mining.ttl + generated.ttl). The
+# generated sites and boreholes contribute additional matches; the named sites are
+# the ones placed deliberately to demonstrate the behaviour.
+# s_contains: the indexed shape encloses the query geometry.
+#
+# 1 row: site-excised-tenement, whose polygon encloses this small box.
+# Point-indexed sites are never returned by s_contains: a point encloses nothing,
+# which is why none of the generated point sites appear.
+PREFIX luc: <urn:jena:lucene:index#>
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score) luc:query ("default" "default" "*"
+    '{"op":"s_contains","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[121.25,-30.95,121.35,-30.85]}]}'
+    ""
+    20
+    0)
+}

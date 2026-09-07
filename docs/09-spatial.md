@@ -77,10 +77,14 @@ latitude, failed the -90..90 check, and the geometry was discarded with only a w
 the entity indexed with no location and could never match a spatial filter.
 
 If you hold GDA2020 data, **keep the `<...EPSG/0/7844>` prefix** on `geo:asWKT`. Dropping
-it to make bare CRS84 asserts a datum your data is not in. To serve geometry to web
-clients, publish `geo:asGeoJSON` alongside: RFC 7946 fixes GeoJSON to WGS84 lon/lat with no
-CRS member, so every map library reads it natively and none has to understand the
-GeoSPARQL prefix. The WKT stays authoritative and is what this indexer reads.
+it to make bare CRS84 asserts a datum your data is not in.
+
+Clients then have to strip that prefix themselves, because no general-purpose WKT library
+understands the `<crs-iri> GEOMETRY(...)` form and the axis order depends on the CRS. The
+demo does this in `demo/app-static/wkt.js`, which is a usable reference: it strips the
+prefix, maps EPSG:4326, 4283 and 7844 to lat/lon and bare or CRS84 literals to lon/lat,
+handles every geometry type including polygon holes, and returns nothing for a projected
+CRS rather than drawing metres as degrees.
 
 ### Examples in data
 

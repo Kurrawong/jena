@@ -33,6 +33,7 @@ state:SA   rdfs:label "SA" .
 state:WA   rdfs:label "WA" .
 state:NSW  rdfs:label "NSW" .
 state:PNG  rdfs:label "PNG" .
+state:NT   rdfs:label "NT" .
 
 operator:Saltbush  rdfs:label "Saltbush" .
 operator:Warrigal       rdfs:label "Warrigal" .
@@ -120,6 +121,106 @@ ex:site-kanawa-ridge a ex:Site ;
     ex:state state:PNG ;
     ex:status status:Active ;
     geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-5.20 141.13)"^^geo:wktLiteral .
+
+## --- Spatial demo sites ---
+## Every geometry type the indexer handles, across the three CRS forms it accepts.
+##
+## The WKT keeps its CRS prefix. The demo app strips that prefix and normalises axis
+## order in the browser (see app-static/wkt.js), which is what any client consuming
+## GeoSPARQL WKT has to do: no general-purpose WKT library understands the
+## "<crs-iri> GEOMETRY(...)" form, and the axis order depends on that CRS.
+##
+## GDA2020 (EPSG:7844) and GDA94 (EPSG:4283) are lat/lon and are treated as
+## WGS84-equivalent: EPSG publishes the GDA2020 -> WGS 84 transformation as a null
+## transformation, so the coordinates pass through unchanged.
+
+ex:site-haul-road a ex:Site ;
+    rdfs:label "Newman Haul Road" ;
+    ex:identifier "SITE-HAUL-001" ;
+    dct:description "Haul road corridor indexed as a LineString. Both endpoints sit outside the Pilbara search box while the segment crosses it, which is why a bounding-box query must test the segment rather than its vertices." ;
+    ex:commodity commodity:Iron-Ore ;
+    ex:state state:WA ;
+    ex:status status:Active ;
+    geo:asWKT "LINESTRING(118.90 -23.40, 120.60 -23.40)"^^geo:wktLiteral .
+
+ex:site-drill-collars a ex:Site ;
+    rdfs:label "Yandi Drill Collars" ;
+    ex:identifier "SITE-COLLAR-001" ;
+    dct:description "Drill collar positions indexed as a MultiPoint in GDA2020. Demonstrates that a single feature may carry several disjoint points and still match a box containing any one of them." ;
+    ex:commodity commodity:Iron-Ore ;
+    ex:state state:WA ;
+    ex:status status:Active ;
+    geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/7844> MULTIPOINT((-22.75 119.05), (-22.60 119.30))"^^geo:wktLiteral .
+
+ex:site-rail-spur a ex:Site ;
+    rdfs:label "Port Hedland Rail Spur" ;
+    ex:identifier "SITE-RAIL-001" ;
+    dct:description "Two disconnected rail alignments indexed as a MultiLineString in EPSG:4326." ;
+    ex:commodity commodity:Iron-Ore ;
+    ex:state state:WA ;
+    ex:status status:Active ;
+    geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/4326> MULTILINESTRING((-20.40 118.55, -20.90 118.70), (-21.20 118.90, -21.60 119.10))"^^geo:wktLiteral .
+
+ex:site-excised-tenement a ex:Site ;
+    rdfs:label "Kalgoorlie Excised Tenement" ;
+    ex:identifier "SITE-EXC-001" ;
+    dct:description "Tenement with an excision, indexed as a Polygon with an interior ring in GDA2020. A query polygon drawn inside the excision does not match it." ;
+    ex:commodity commodity:Gold ;
+    ex:state state:WA ;
+    ex:status status:Active ;
+    geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/7844> POLYGON((-31.00 121.20, -31.00 121.80, -30.40 121.80, -30.40 121.20, -31.00 121.20), (-30.80 121.40, -30.80 121.60, -30.60 121.60, -30.60 121.40, -30.80 121.40))"^^geo:wktLiteral .
+
+ex:site-mixed-project a ex:Site ;
+    rdfs:label "Tanami Mixed Project" ;
+    ex:identifier "SITE-MIX-001" ;
+    dct:description "Camp location and processing lease held as one feature, indexed as a GeometryCollection of a Point and a Polygon in bare CRS84." ;
+    ex:commodity commodity:Gold ;
+    ex:state state:NT ;
+    ex:status status:Active ;
+    geo:asWKT "GEOMETRYCOLLECTION(POINT(129.75 -20.10), POLYGON((130.10 -20.40, 130.50 -20.40, 130.50 -20.10, 130.10 -20.10, 130.10 -20.40)))"^^geo:wktLiteral .
+
+ex:site-legacy-survey a ex:Site ;
+    rdfs:label "Legacy Survey Marker" ;
+    ex:identifier "SITE-LEG-001" ;
+    dct:description "Historical survey point recorded against GDA94 (EPSG:4283), kept in its original datum rather than restated as WGS84." ;
+    ex:commodity commodity:Gold ;
+    ex:state state:WA ;
+    ex:status status:Historical ;
+    geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/4283> POINT(-30.75 121.47)"^^geo:wktLiteral .
+
+## The same physical location written two ways. site-datum-gda2020 keeps the GDA2020
+## prefix and lat/lon order; site-datum-crs84 is bare WKT, which GeoSPARQL defines as
+## CRS84 lon/lat. Both index to the same place, which is the point of the pair.
+
+ex:site-datum-gda2020 a ex:Site ;
+    rdfs:label "Datum Demo (GDA2020)" ;
+    ex:identifier "SITE-DAT-7844" ;
+    dct:description "Kambalda nickel prospect written in GDA2020 with an explicit CRS prefix and lat/lon axis order." ;
+    ex:commodity commodity:Copper ;
+    ex:state state:WA ;
+    ex:status status:Active ;
+    geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/7844> POINT(-31.20 121.66)"^^geo:wktLiteral .
+
+ex:site-datum-crs84 a ex:Site ;
+    rdfs:label "Datum Demo (CRS84)" ;
+    ex:identifier "SITE-DAT-CRS84" ;
+    dct:description "The same location as the GDA2020 site, written as bare WKT: no CRS prefix, lon/lat axis order. Both land in the same place." ;
+    ex:commodity commodity:Copper ;
+    ex:state state:WA ;
+    ex:status status:Active ;
+    geo:asWKT "POINT(121.66 -31.20)"^^geo:wktLiteral .
+
+## No geometry at all. Absent from every spatial result, s_disjoint included: GeoSPARQL's
+## query rewrite never binds a geometry for it, and CQL2 makes a predicate with a NULL
+## geometry evaluate to NULL.
+
+ex:site-no-geometry a ex:Site ;
+    rdfs:label "Unlocated Prospect" ;
+    ex:identifier "SITE-NOGEO-001" ;
+    dct:description "Prospect with no recorded coordinates. Demonstrates that an entity carrying no geometry is excluded from every spatial relation, including s_disjoint." ;
+    ex:commodity commodity:Gold ;
+    ex:state state:WA ;
+    ex:status status:Historical .
 
 ## --- Boreholes ---
 ## The schema:identifier records model the qualified-value pattern behind issue #39.

@@ -1,0 +1,21 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# Counts below are for the full demo dataset (mining.ttl + generated.ttl). The
+# generated sites and boreholes contribute additional matches; the named sites are
+# the ones placed deliberately to demonstrate the behaviour.
+# The same location written two ways: GDA2020 (EPSG:7844, lat/lon, explicit prefix) and
+# bare CRS84 (lon/lat, no prefix). Both index to the same place.
+#
+# EPSG publishes the GDA2020 -> WGS 84 transformation as a null transformation, so the
+# coordinates pass through unchanged and the two sites are indistinguishable to a
+# spatial query.
+#
+# Exactly 2 rows: site-datum-gda2020 and site-datum-crs84, from one tight box. No
+# generated data sits here, so this one is an exact result.
+PREFIX luc: <urn:jena:lucene:index#>
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score) luc:query ("default" "default" "*"
+    '{"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[121.64,-31.22,121.68,-31.18]}]}'
+    ""
+    20
+    0)
+}
