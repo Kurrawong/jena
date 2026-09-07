@@ -1576,7 +1576,11 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      *   <li>GDA94/GDA2020 (EPSG:4283/7844) — treated as WGS84-equivalent</li>
      *   <li>Other CRS — transformed to WGS84 via {@link GeometryWrapper#convertSRS}</li>
      * </ul>
-     * Supports Point, Polygon, and MultiPolygon geometries.
+     * Supports every JTS geometry type: Point, LineString, LinearRing, Polygon,
+     * MultiPoint, MultiLineString, MultiPolygon and GeometryCollection.
+     * <p>
+     * Note that Lucene does not split geometries at the antimeridian; a line or polygon
+     * spanning +/-180 degrees is indexed as Lucene reads it.
      */
     static List<IndexableField> parseWktToLuceneFields(String fieldName, String wktValue, boolean stored) {
         List<IndexableField> fields = new ArrayList<>();
@@ -1605,26 +1609,11 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 geom = swapAxisOrder(geom);
             }
 
-            if (geom instanceof Point point) {
-                double lat = point.getY();
-                double lon = point.getX();
-                Collections.addAll(fields, LatLonShape.createIndexableFields(fieldName, lat, lon));
-            } else if (geom instanceof org.locationtech.jts.geom.Polygon jtsPoly) {
-                org.apache.lucene.geo.Polygon lucenePoly = jtsPolygonToLucene(jtsPoly);
-                Collections.addAll(fields, LatLonShape.createIndexableFields(fieldName, lucenePoly));
-            } else if (geom instanceof MultiPolygon multiPolygon) {
-                for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
-                    org.locationtech.jts.geom.Polygon jtsPoly =
-                        (org.locationtech.jts.geom.Polygon) multiPolygon.getGeometryN(i);
-                    org.apache.lucene.geo.Polygon lucenePoly = jtsPolygonToLucene(jtsPoly);
-                    Collections.addAll(fields, LatLonShape.createIndexableFields(fieldName, lucenePoly));
-                }
-            } else {
-                log.warn("Unsupported geometry type for LATLON field '{}': {}", fieldName, geom.getGeometryType());
-                return fields;
-            }
+            addGeometryFields(fields, fieldName, geom);
 
-            if (stored) {
+            // Only store the literal if something was actually indexed, so a geometry we
+            // could not index is not left retrievable but unsearchable.
+            if (stored && !fields.isEmpty()) {
                 fields.add(new StoredField(fieldName, wktValue));
             }
         } catch (Exception e) {
@@ -1645,6 +1634,45 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     private static final Set<String> WGS84_EQUIVALENT_LATLON_CRS = Set.of(
         "http://www.opengis.net/def/crs/EPSG/0/4283",   // GDA94
         "http://www.opengis.net/def/crs/EPSG/0/7844");  // GDA2020
+
+    /**
+     * Append Lucene shape fields for {@code geom}, recursing into collections.
+     * <p>
+     * Four cases cover all eight JTS types: {@code LinearRing} is a {@code LineString},
+     * and {@code MultiPoint}, {@code MultiLineString} and {@code MultiPolygon} are all
+     * {@code GeometryCollection} subclasses. Coordinates arrive from
+     * {@code getXYGeometry()} as x=lon, y=lat.
+     */
+    private static void addGeometryFields(List<IndexableField> fields, String fieldName, Geometry geom) {
+        if (geom instanceof Point point) {
+            Collections.addAll(fields,
+                LatLonShape.createIndexableFields(fieldName, point.getY(), point.getX()));
+        } else if (geom instanceof LineString lineString) {
+            Collections.addAll(fields,
+                LatLonShape.createIndexableFields(fieldName, jtsLineToLucene(lineString)));
+        } else if (geom instanceof org.locationtech.jts.geom.Polygon jtsPoly) {
+            Collections.addAll(fields,
+                LatLonShape.createIndexableFields(fieldName, jtsPolygonToLucene(jtsPoly)));
+        } else if (geom instanceof GeometryCollection collection) {
+            for (int i = 0; i < collection.getNumGeometries(); i++) {
+                addGeometryFields(fields, fieldName, collection.getGeometryN(i));
+            }
+        } else {
+            log.warn("Unsupported geometry type for LATLON field '{}': {}", fieldName, geom.getGeometryType());
+        }
+    }
+
+    /** Convert a JTS LineString (x=lon, y=lat from getXYGeometry) to a Lucene Line. */
+    private static org.apache.lucene.geo.Line jtsLineToLucene(LineString lineString) {
+        Coordinate[] coords = lineString.getCoordinates();
+        double[] lats = new double[coords.length];
+        double[] lons = new double[coords.length];
+        for (int i = 0; i < coords.length; i++) {
+            lats[i] = coords[i].y;  // y = lat
+            lons[i] = coords[i].x;  // x = lon
+        }
+        return new org.apache.lucene.geo.Line(lats, lons);
+    }
 
     private static boolean isWgs84OrCrs84(String srsUri) {
         return SRS_URI.DEFAULT_WKT_CRS84.equals(srsUri)

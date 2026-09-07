@@ -26,11 +26,29 @@ field:location
 
 ## Supported geometry types
 
-- **Point** — `POINT(x y)`
-- **Polygon** — `POLYGON((x1 y1, x2 y2, ...))` (with optional holes)
-- **MultiPolygon** — `MULTIPOLYGON(((...)), ((...)), ...)` indexed as multiple polygons on the same Lucene field
+All eight JTS geometry types are indexed:
 
-Other geometry types (MultiPoint, LineString, etc.) are logged as warnings and skipped during indexing.
+| WKT | Notes |
+|---|---|
+| `POINT(x y)` | |
+| `LINESTRING(x1 y1, x2 y2, ...)` | a line has no interior, so a region strictly inside a closed ring drawn as a `LINESTRING` does not intersect it |
+| `POLYGON((...))` | interior rings (holes) are honoured |
+| `MULTIPOINT((x1 y1), (x2 y2), ...)` | |
+| `MULTILINESTRING((...), (...))` | |
+| `MULTIPOLYGON(((...)), ((...)))` | |
+| `GEOMETRYCOLLECTION(...)` | members are indexed recursively, so collections may nest |
+
+Members of a collection are indexed onto the same Lucene field, so an entity matches if
+any member matches. A geometry that cannot be indexed is logged as a warning and skipped,
+and in that case the WKT is **not** stored either — an entity is never left with a
+retrievable geometry that no spatial filter can find.
+
+### Antimeridian
+
+Lucene does not split geometries at the antimeridian. A line written from longitude 179
+to −179 is read as spanning the long way round the globe, not the two-degree short hop.
+Split such geometries into two parts before loading if the short crossing is what you
+mean.
 
 ## CRS handling
 
