@@ -220,8 +220,8 @@ authorName  "Prof Wei Chen"    2
 
 **Query 07** should return exactly 2 reports by Dr Sarah Jones:
 ```
-report-mia-2023  "Mount Isa Copper Resource Estimation 2023"
-report-od-2024   "Olympic Dam Expansion Feasibility Study"
+report-bro-2023  "Brolga Ridge Copper Resource Estimation 2023"
+report-spx-2024  "Spinifex Dome Expansion Feasibility Study"
 ```
 
 **Query 09** should return the demo report with `?matchRaw = "94130"` on every row,

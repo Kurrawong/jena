@@ -188,20 +188,20 @@ public class TestNestedMatchProjection {
             addAgent(m, "author-patel", "Dr Priya Patel");
             addAgent(m, "author-chen", "Prof Wei Chen");
 
-            addReport(m, "report-mia-2023", "Mount Isa Copper Resource Estimation 2023",
+            addReport(m, "report-bro-2023", "Brolga Ridge Copper Resource Estimation 2023",
                 new String[][] {
                     {"PrincipalInvestigator", "author-jones"},
                     {"Reviewer", "author-patel"}
                 });
 
             // Jones is only the Reviewer here.
-            addReport(m, "report-mia-2021", "Mount Isa Lead-Zinc Exploration Summary",
+            addReport(m, "report-bro-2021", "Brolga Ridge Lead-Zinc Exploration Summary",
                 new String[][] {
                     {"PrincipalInvestigator", "author-chen"},
                     {"Reviewer", "author-jones"}
                 });
 
-            addReport(m, "report-bod-2022", "Boddington Gold Production Report 2022",
+            addReport(m, "report-wat-2022", "Wattle Downs Gold Production Report 2022",
                 new String[][] {
                     {"PrincipalInvestigator", "author-patel"},
                     {"Reviewer", "author-chen"}
@@ -356,7 +356,7 @@ public class TestNestedMatchProjection {
     @Test
     public void testTwoMatchingChildrenAreProjectedAsSeparateRecords() {
         List<SearchHit> hits = search(PI_OR_REVIEWER);
-        SearchHit mia2023 = hitFor(hits, EX + "report-mia-2023");
+        SearchHit mia2023 = hitFor(hits, EX + "report-bro-2023");
         assertNotNull(mia2023, "mia-2023 matches both branches of the OR");
 
         List<NestedMatch> records = mia2023.getNestedMatches();
@@ -482,7 +482,7 @@ public class TestNestedMatchProjection {
             while (rs.hasNext()) {
                 QuerySolution sol = rs.next();
                 assertNotNull(sol.get("record"), "?record must be bound");
-                if (!sol.getResource("s").getURI().equals(EX + "report-mia-2023")) {
+                if (!sol.getResource("s").getURI().equals(EX + "report-bro-2023")) {
                     continue;
                 }
                 byRecord

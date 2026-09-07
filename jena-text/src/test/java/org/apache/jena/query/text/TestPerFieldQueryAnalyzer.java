@@ -133,7 +133,7 @@ public class TestPerFieldQueryAnalyzer {
         dataset.begin(ReadWrite.WRITE);
         try {
             Model model = dataset.getDefaultModel();
-            addSpecimen(model, "s1", "GSWA-12345-A", "Rock sample from Pilbara");
+            addSpecimen(model, "s1", "GSWA-12345-A", "Rock sample from Redgum");
             addSpecimen(model, "s2", "GSWA-67890-B", "Mineral specimen");
             addSpecimen(model, "s3", "WAM-R-54321", "Reptile specimen");
             addSpecimen(model, "s4", "WAM-M-11111", "Mammal specimen");
@@ -227,7 +227,7 @@ public class TestPerFieldQueryAnalyzer {
         String queryStr =
             "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s WHERE {\n" +
-            "  (?hit ?s ?score) luc:query (\"default\" '[\"urn:jena:lucene:field#label\"]' 'Pilbara' \"\" \"\" 10 0) .\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" '[\"urn:jena:lucene:field#label\"]' 'Redgum' \"\" \"\" 10 0) .\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
@@ -238,7 +238,7 @@ public class TestPerFieldQueryAnalyzer {
                 while (rs.hasNext()) {
                     results.add(rs.next().getResource("s").getURI());
                 }
-                assertEquals("Only s1 has 'Pilbara' in label", 1, results.size());
+                assertEquals("Only s1 has 'Redgum' in label", 1, results.size());
                 assertTrue(results.contains(NS + "s1"));
             }
         } finally {

@@ -27,20 +27,20 @@ class Region:
 
 
 REGIONS = [
-    Region("Pilbara", "WA", -23.5, -20.5, 116.0, 120.5, ["Iron Ore", "Manganese"], 18, "mix"),
-    Region("Goldfields-Esperance", "WA", -33.0, -29.0, 119.0, 124.0, ["Gold", "Nickel"], 14, "mix"),
-    Region("Kimberley", "WA", -18.5, -14.5, 124.0, 129.0, ["Gold"], 4, "point"),
-    Region("Mount Isa", "QLD", -22.0, -19.5, 138.0, 141.0, ["Copper", "Lead", "Zinc"], 10, "mix"),
-    Region("Bowen Basin", "QLD", -24.5, -21.0, 147.0, 150.0, ["Coal"], 10, "mix"),
-    Region("North Queensland", "QLD", -20.0, -16.5, 143.0, 147.0, ["Gold", "Copper"], 6, "point"),
-    Region("Hunter Valley", "NSW", -33.0, -32.0, 150.5, 151.5, ["Coal"], 6, "mix"),
-    Region("Broken Hill", "NSW", -32.5, -31.0, 141.0, 142.5, ["Lead", "Zinc", "Silver"], 5, "mix"),
-    Region("Lachlan Fold Belt", "NSW", -34.5, -32.5, 147.0, 149.5, ["Gold", "Copper"], 5, "mix"),
-    Region("Gawler Craton", "SA", -32.5, -29.5, 135.0, 138.0, ["Copper", "Uranium", "Gold"], 6, "mix"),
-    Region("Pine Creek", "NT", -14.5, -12.5, 131.0, 133.0, ["Gold", "Uranium"], 5, "point"),
-    Region("Tasmania", "TAS", -43.0, -41.0, 145.0, 148.0, ["Tin", "Zinc"], 4, "point"),
-    Region("Gippsland", "VIC", -38.5, -37.5, 145.5, 148.5, ["Coal", "Gold"], 4, "point"),
-    Region("Tanami", "NT", -21.5, -19.5, 129.0, 131.5, ["Gold"], 3, "point"),
+    Region("Redgum", "WA", -23.5, -20.5, 116.0, 120.5, ["Iron Ore", "Manganese"], 18, "mix"),
+    Region("Southern Goldfields", "WA", -33.0, -29.0, 119.0, 124.0, ["Gold", "Nickel"], 14, "mix"),
+    Region("Melaleuca", "WA", -18.5, -14.5, 124.0, 129.0, ["Gold"], 4, "point"),
+    Region("Brolga Ridge", "QLD", -22.0, -19.5, 138.0, 141.0, ["Copper", "Lead", "Zinc"], 10, "mix"),
+    Region("Mulga Basin", "QLD", -24.5, -21.0, 147.0, 150.0, ["Coal"], 10, "mix"),
+    Region("Northern Uplands", "QLD", -20.0, -16.5, 143.0, 147.0, ["Gold", "Copper"], 6, "point"),
+    Region("Wattle Valley", "NSW", -33.0, -32.0, 150.5, 151.5, ["Coal"], 6, "mix"),
+    Region("Echidna Hill", "NSW", -32.5, -31.0, 141.0, 142.5, ["Lead", "Zinc", "Silver"], 5, "mix"),
+    Region("Ironbark Fold Belt", "NSW", -34.5, -32.5, 147.0, 149.5, ["Gold", "Copper"], 5, "mix"),
+    Region("Coolibah Craton", "SA", -32.5, -29.5, 135.0, 138.0, ["Copper", "Uranium", "Gold"], 6, "mix"),
+    Region("Goanna Creek", "NT", -14.5, -12.5, 131.0, 133.0, ["Gold", "Uranium"], 5, "point"),
+    Region("Southern Ranges", "TAS", -43.0, -41.0, 145.0, 148.0, ["Tin", "Zinc"], 4, "point"),
+    Region("Fernvale", "VIC", -38.5, -37.5, 145.5, 148.5, ["Coal", "Gold"], 4, "point"),
+    Region("Banksia", "NT", -21.5, -19.5, 129.0, 131.5, ["Gold"], 3, "point"),
 ]
 
 REGION_WEIGHTS = [r.weight for r in REGIONS]
@@ -52,8 +52,8 @@ ALL_COMMODITIES = [
 ]
 
 OPERATORS = [
-    "BHP", "Rio Tinto", "Glencore", "Newmont", "Newcrest",
-    "Fortescue", "South32", "Mineral Resources", "IGO", "Pilbara Minerals",
+    "Warrigal", "Corvid Metals", "Saltbush", "Bellbird", "Quandong",
+    "Ironstone Group", "Thornbill", "Stonefish Industries", "Wirrina", "Mallee Lithium",
 ]
 
 STATUSES = ["Active", "Historical", "Care and Maintenance", "Exploration"]
@@ -68,8 +68,8 @@ SITE_ADJECTIVES = [
 SITE_NAMES = [
     "Wattle", "Mulga", "Ironbark", "Spinifex", "Coolibah", "Kurrajong",
     "Brolga", "Kookaburra", "Echidna", "Goanna", "Wedgetail", "Barramundi",
-    "Kakadu", "Uluru", "Tanami", "Kimberley", "Nullarbor", "Darling",
-    "Murray", "Cooper", "Fitzroy", "Mitchell", "Gilbert", "Palmer",
+    "Bunya", "Waratah", "Banksia", "Melaleuca", "Currawong", "Pardalote",
+    "Numbat", "Bilby", "Quokka", "Rosella", "Jarrah", "Karri",
 ]
 
 DRILL_TYPES = ["DDH", "RC", "AC", "RAB"]
@@ -94,14 +94,14 @@ AUTHOR_FAMILY_NAMES = [
 AUTHOR_TITLES = ["Dr", "Prof", ""]
 
 AFFILIATIONS = [
-    "CSIRO Mineral Resources",
-    "Geoscience Australia",
-    "BHP Technical Services",
-    "Rio Tinto Technical Services",
-    "South32 Geology",
-    "Mineral Resources Exploration",
-    "University of Queensland",
-    "Curtin Centre for Exploration Targeting",
+    "Federated Minerals Institute",
+    "National Geoscience Office",
+    "Warrigal Technical Services",
+    "Corvid Metals Technical Services",
+    "Thornbill Geology",
+    "Stonefish Industries Exploration",
+    "Riverbend University",
+    "Coolibah Centre for Exploration Targeting",
 ]
 
 STATE_CODE_TO_NAME = {

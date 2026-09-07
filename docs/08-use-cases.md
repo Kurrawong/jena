@@ -13,7 +13,7 @@ Search across entity fields using Lucene query syntax. Optionally narrow results
 ```mermaid
 flowchart LR
     User(["User query:<br/>'climate change'"])
-    Filter["+ filter:<br/>publisher = CSIRO"]
+    Filter["+ filter:<br/>publisher = Halden Institute"]
     Query["luc:query"]
     Results["Matching entities<br/>ranked by relevance"]
 
@@ -33,11 +33,11 @@ flowchart LR
 
 # Search narrowed to a publisher (CQL2-JSON filter)
 (?hit ?s ?score) luc:query ("default" "climate change"
-    '{"op":"=","args":[{"property":"urn:jena:lucene:field#publisher"},"CSIRO"]}') .
+    '{"op":"=","args":[{"property":"urn:jena:lucene:field#publisher"},"Halden Institute"]}') .
 
 # Multiple filters (AND across fields)
 (?hit ?s ?score) luc:query ("default" "climate"
-    '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#publisher"},"CSIRO"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Environment"]}]}') .
+    '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#publisher"},"Halden Institute"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Environment"]}]}') .
 ```
 
 **Where this applies:**
@@ -55,7 +55,7 @@ Get value counts for one or more fields across the result set. Shows how results
 flowchart LR
     Query["luc:facet<br/>'climate change'<br/>fields: category, publisher"]
     Cat["category:<br/>Environment (42)<br/>Policy (28)<br/>Science (15)"]
-    Pub["publisher:<br/>CSIRO (31)<br/>BOM (22)<br/>DCCEEW (12)"]
+    Pub["publisher:<br/>Halden Institute (31)<br/>Weather Office (22)<br/>Climate Department (12)"]
 
     Query --> Cat
     Query --> Pub
@@ -379,12 +379,12 @@ Standard faceted search UX. When a user filters by `category = Environment`, the
 flowchart LR
     subgraph current["Current: narrow counting"]
         F1c["category:<br/>Environment (42)"]
-        F1p["publisher:<br/>CSIRO (20)<br/>BOM (12)<br/>DCCEEW (10)"]
+        F1p["publisher:<br/>Halden Institute (20)<br/>Weather Office (12)<br/>Climate Department (10)"]
     end
 
     subgraph drill["With DrillSideways"]
         F2c["category:<br/>Environment (42) ✓<br/>Policy (28)<br/>Science (15)"]
-        F2p["publisher:<br/>CSIRO (20)<br/>BOM (12)<br/>DCCEEW (10)"]
+        F2p["publisher:<br/>Halden Institute (20)<br/>Weather Office (12)<br/>Climate Department (10)"]
     end
 
     style current fill:#f8f9fa,stroke:#999,color:#333
@@ -477,9 +477,9 @@ flowchart LR
     Query["luc:group<br/>'climate change'<br/>group by: publisher"]
 
     subgraph Groups["Grouped results"]
-        G1["CSIRO (31 results)<br/>· Coral Reef Report<br/>· Emissions Study<br/>· ..."]
-        G2["BOM (22 results)<br/>· Climate Data 2025<br/>· Rainfall Trends<br/>· ..."]
-        G3["DCCEEW (12 results)<br/>· National Assessment<br/>· Policy Framework<br/>· ..."]
+        G1["Halden Institute (31 results)<br/>· Coral Reef Report<br/>· Emissions Study<br/>· ..."]
+        G2["Weather Office (22 results)<br/>· Climate Data 2025<br/>· Rainfall Trends<br/>· ..."]
+        G3["Climate Department (12 results)<br/>· National Assessment<br/>· Policy Framework<br/>· ..."]
     end
 
     Query --> Groups

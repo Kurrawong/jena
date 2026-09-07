@@ -130,12 +130,12 @@ public class TestTypeaheadFieldConfigurations {
         dataset.begin(ReadWrite.WRITE);
         try {
             Model m = dataset.getDefaultModel();
-            addReport(m, "report-jones", "Mount Isa Copper Resource Estimation 2023",
+            addReport(m, "report-jones", "Brolga Ridge Copper Resource Estimation 2023",
                 "Dr Sarah Jones", "RPT-MIA-2023-001");
-            addReport(m, "report-chen", "Mount Isa Lead-Zinc Exploration Summary",
+            addReport(m, "report-chen", "Brolga Ridge Lead-Zinc Exploration Summary",
                 "Prof Wei Chen", "RPT-MIA-2021-001");
             // Shares a prefix with Jones — separates prefix matching from word matching.
-            addReport(m, "report-sanderson", "Olympic Dam Expansion Feasibility Study",
+            addReport(m, "report-sanderson", "Spinifex Dome Expansion Feasibility Study",
                 "Dr Sarah Sanderson", "RPT-OD-2024-001");
             dataset.commit();
         } finally {

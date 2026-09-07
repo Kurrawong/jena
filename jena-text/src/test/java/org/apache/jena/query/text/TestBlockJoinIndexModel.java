@@ -170,7 +170,7 @@ public class TestBlockJoinIndexModel {
     @Test
     public void testEntityWithNestedRecordsEmitsParentPlusChildBlock() throws Exception {
         addBorehole("bh1", "Site Alpha", new String[][] {
-            {"Company", "BHP"},
+            {"Company", "Warrigal"},
             {"HoleNumber", "8412"}
         });
 
@@ -220,7 +220,7 @@ public class TestBlockJoinIndexModel {
         // Add 1 entity with 3 child records. Index then has 1 parent + 3 child docs = 4 total.
         // countQuery with no filter must return 1 (parent doc count), not 4 (total doc count).
         addBorehole("bh1", "Site Alpha", new String[][] {
-            {"Company", "BHP"},
+            {"Company", "Warrigal"},
             {"Company", "Rio"},
             {"HoleNumber", "8412"}
         });
@@ -237,7 +237,7 @@ public class TestBlockJoinIndexModel {
     @Test
     public void testUpdatingAnEntityReplacesItsEntireBlock() throws Exception {
         addBorehole("bh1", "Site Alpha", new String[][] {
-            {"Company", "BHP"},
+            {"Company", "Warrigal"},
             {"HoleNumber", "8412"}
         });
 
@@ -274,7 +274,7 @@ public class TestBlockJoinIndexModel {
     @Test
     public void testDeletingTypeRemovesEntireBlock() throws Exception {
         addBorehole("bh1", "Site Alpha", new String[][] {
-            {"Company", "BHP"},
+            {"Company", "Warrigal"},
             {"HoleNumber", "8412"}
         });
 
@@ -308,7 +308,7 @@ public class TestBlockJoinIndexModel {
         // the parent doc. This is the Lucene block convention required for any
         // future ToParentBlockJoinQuery to work.
         addBorehole("bh1", "Alpha", new String[][] {
-            {"Company", "BHP"},
+            {"Company", "Warrigal"},
             {"HoleNumber", "8412"}
         });
         textIndex.commit();

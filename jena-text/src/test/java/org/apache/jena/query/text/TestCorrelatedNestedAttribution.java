@@ -182,7 +182,7 @@ public class TestCorrelatedNestedAttribution {
             addAgent(m, "author-chen", "Prof Wei Chen");
 
             // Jones is the PI here — the one report the demo filter should return.
-            addReport(m, "report-mia-2023", "Mount Isa Copper Resource Estimation 2023",
+            addReport(m, "report-bro-2023", "Brolga Ridge Copper Resource Estimation 2023",
                 new String[][] {
                     {"PrincipalInvestigator", "author-jones"},
                     {"Reviewer", "author-patel"}
@@ -190,14 +190,14 @@ public class TestCorrelatedNestedAttribution {
 
             // Jones appears, but only as Reviewer; Chen is the PI. A cross-child match
             // (role from one attribution, agent from another) would wrongly surface this.
-            addReport(m, "report-mia-2021", "Mount Isa Lead-Zinc Exploration Summary",
+            addReport(m, "report-bro-2021", "Brolga Ridge Lead-Zinc Exploration Summary",
                 new String[][] {
                     {"PrincipalInvestigator", "author-chen"},
                     {"Reviewer", "author-jones"}
                 });
 
             // No Jones at all.
-            addReport(m, "report-bod-2022", "Boddington Gold Production Report 2022",
+            addReport(m, "report-wat-2022", "Wattle Downs Gold Production Report 2022",
                 new String[][] {
                     {"PrincipalInvestigator", "author-patel"},
                     {"Reviewer", "author-chen"}
@@ -275,7 +275,7 @@ public class TestCorrelatedNestedAttribution {
     @Test
     public void testRoleAloneMatches() {
         assertEquals("every report has a Principal Investigator",
-            Set.of(EX + "report-mia-2023", EX + "report-mia-2021", EX + "report-bod-2022"),
+            Set.of(EX + "report-bro-2023", EX + "report-bro-2021", EX + "report-wat-2022"),
             query("""
                 {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionRole"},"Principal Investigator"]}
                 """));
@@ -283,8 +283,8 @@ public class TestCorrelatedNestedAttribution {
 
     @Test
     public void testAgentExactAloneMatches() {
-        assertEquals("Jones is attributed on both Mount Isa reports",
-            Set.of(EX + "report-mia-2023", EX + "report-mia-2021"),
+        assertEquals("Jones is attributed on both Brolga Ridge reports",
+            Set.of(EX + "report-bro-2023", EX + "report-bro-2021"),
             query("""
                 {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionAgentExact"},"Dr Sarah Jones"]}
                 """));
@@ -293,7 +293,7 @@ public class TestCorrelatedNestedAttribution {
     @Test
     public void testAgentTextPrefixAloneMatches() {
         assertEquals("EdgeNGram indexing makes 'Dr Sarah' a prefix of 'Dr Sarah Jones'",
-            Set.of(EX + "report-mia-2023", EX + "report-mia-2021"),
+            Set.of(EX + "report-bro-2023", EX + "report-bro-2021"),
             query("""
                 {"op":"text_query","args":[{"property":"urn:jena:lucene:field#attributionAgentText"},"Dr Sarah"]}
                 """));
@@ -305,7 +305,7 @@ public class TestCorrelatedNestedAttribution {
     @Test
     public void testRolePlusAgentExactCorrelatesOnSameAttribution() {
         assertEquals("only mia-2023 has Jones as the Principal Investigator",
-            Set.of(EX + "report-mia-2023"),
+            Set.of(EX + "report-bro-2023"),
             query("""
                 {"op":"and","args":[
                   {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionRole"},"Principal Investigator"]},
@@ -317,7 +317,7 @@ public class TestCorrelatedNestedAttribution {
     @Test
     public void testRolePlusAgentTextPrefixCorrelatesOnSameAttribution() {
         assertEquals("text_query folds with the sibling role clause onto one attribution child",
-            Set.of(EX + "report-mia-2023"),
+            Set.of(EX + "report-bro-2023"),
             query("""
                 {"op":"and","args":[
                   {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionRole"},"Principal Investigator"]},
@@ -334,7 +334,7 @@ public class TestCorrelatedNestedAttribution {
     @Test
     public void testDemoFilterShapeWithNestedAnd() {
         assertEquals("nested AND subtree still folds the same-scope pair",
-            Set.of(EX + "report-mia-2023"),
+            Set.of(EX + "report-bro-2023"),
             query("""
                 {"op":"and","args":[
                   {"op":"=","args":[{"property":"urn:jena:lucene:field#entityType"},"http://example.org/mining/MiningReport"]},
@@ -378,7 +378,7 @@ public class TestCorrelatedNestedAttribution {
     @Test
     public void testPerWordAgentTextMatchesTheDemoInputAndStaysCorrelated() {
         assertEquals("word-tokenized n-grams match a surname mid-label",
-            Set.of(EX + "report-mia-2023"),
+            Set.of(EX + "report-bro-2023"),
             query("""
                 {"op":"and","args":[
                   {"op":"=","args":[{"property":"urn:jena:lucene:field#entityType"},"http://example.org/mining/MiningReport"]},
@@ -399,7 +399,7 @@ public class TestCorrelatedNestedAttribution {
     @Test
     public void testPlainProseAgentFieldCorrelatesAndMatchesMultiWordInput() {
         assertEquals("StandardAnalyzer + phrase query reaches a name mid-label",
-            Set.of(EX + "report-mia-2023"),
+            Set.of(EX + "report-bro-2023"),
             query("""
                 {"op":"and","args":[
                   {"op":"=","args":[{"property":"urn:jena:lucene:field#entityType"},"http://example.org/mining/MiningReport"]},
@@ -415,7 +415,7 @@ public class TestCorrelatedNestedAttribution {
     @Test
     public void testPlainProseAgentFieldCorrelatesOnASurnameAlone() {
         assertEquals("Jones is PI only on mia-2023",
-            Set.of(EX + "report-mia-2023"),
+            Set.of(EX + "report-bro-2023"),
             query("""
                 {"op":"and","args":[
                   {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionRole"},"Principal Investigator"]},
@@ -424,10 +424,10 @@ public class TestCorrelatedNestedAttribution {
                 """));
     }
 
-    /** Without the role clause, both Mount Isa reports surface — the filter above is doing work. */
+    /** Without the role clause, both Brolga Ridge reports surface — the filter above is doing work. */
     @Test
     public void testPerWordAgentTextAloneMatchesBothMountIsaReports() {
-        assertEquals(Set.of(EX + "report-mia-2023", EX + "report-mia-2021"),
+        assertEquals(Set.of(EX + "report-bro-2023", EX + "report-bro-2021"),
             query("""
                 {"op":"text_query","args":[{"property":"urn:jena:lucene:field#attributionAgentWordText"},"Sarah Jones"]}
                 """));
