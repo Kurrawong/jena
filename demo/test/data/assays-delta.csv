@@ -1,7 +1,0 @@
-op,borehole,analyte,grade,units,below_detection
-DELETE,http://example.org/mining/bh-bod-001,Au,,,
-ADD,http://example.org/mining/bh-bod-001,Au,0.44,ppm,f
-ADD,http://example.org/mining/bh-cad-001,Cu,0.88,pct,f
-DELETE,http://example.org/mining/bh-mia-001,Ag,44.9,ppm,f
-ADD,http://example.org/mining/bh-mia-001,Ag,51.3,ppm,f
-DELETE,http://example.org/mining/bh-pil-001,Mn,,,

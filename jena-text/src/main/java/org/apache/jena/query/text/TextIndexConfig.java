@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import org.apache.jena.query.text.embedding.EmbeddingProvider;
 import org.apache.lucene.analysis.Analyzer;
 
 public class TextIndexConfig {
@@ -40,6 +41,11 @@ public class TextIndexConfig {
     List<String> facetFields = new ArrayList<>();
     int maxFacetHits = 0; // 0 = unlimited
     ShaclIndexMapping shaclMapping = null;
+    EmbeddingProvider embeddingProvider = null;
+    /** Default neighbours retrieved by a KNN search when {@code idx:knnTopK} is absent. */
+    public static final int DEFAULT_KNN_TOP_K = 100;
+
+    int knnTopK = DEFAULT_KNN_TOP_K;
 
     public TextIndexConfig(EntityDefinition entDef) {
         this.entDef = entDef;
@@ -156,5 +162,30 @@ public class TextIndexConfig {
 
     public boolean isShaclMode() {
         return shaclMapping != null;
+    }
+
+    /**
+     * Number of nearest neighbours a KNN search retrieves.
+     * <p>
+     * One value for the whole index, deliberately. Hits, facet counts and {@code ?totalHits}
+     * are computed by three separate searches, and if they used different k values they
+     * would describe three different result sets — facet counts that do not add up to a
+     * total that does not match the page. See {@code idx:knnTopK}.
+     */
+    public int getKnnTopK() {
+        return knnTopK;
+    }
+
+    public void setKnnTopK(int knnTopK) {
+        this.knnTopK = knnTopK;
+    }
+
+    /** The provider used to embed document and query text; null when no vector field is configured. */
+    public EmbeddingProvider getEmbeddingProvider() {
+        return embeddingProvider;
+    }
+
+    public void setEmbeddingProvider(EmbeddingProvider provider) {
+        this.embeddingProvider = provider;
     }
 }

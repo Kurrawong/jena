@@ -40,7 +40,39 @@ import org.apache.lucene.analysis.standard.StandardAnalyzer;
 public class ShaclIndexMapping {
 
     public enum FieldType {
-        TEXT, KEYWORD, INT, LONG, DOUBLE, TEMPORAL, LATLON
+        TEXT, KEYWORD, INT, LONG, DOUBLE, TEMPORAL, LATLON, VECTOR
+    }
+
+    /** Vector similarity functions, mirroring Lucene's {@code VectorSimilarityFunction}. */
+    public enum VectorSimilarity {
+        COSINE, DOT_PRODUCT, EUCLIDEAN, MAXIMUM_INNER_PRODUCT
+    }
+
+    /**
+     * The extra configuration a {@link FieldType#VECTOR} field carries.
+     * <p>
+     * A vector field is unlike every other field type in one structural way: it has no
+     * extraction path of its own. Its value is <em>derived</em> from other fields on the
+     * same entity — {@code sourceFieldIRIs} names them, in order — which are verbalised
+     * into one string and embedded. That is why the dimension and similarity live here
+     * rather than as generic {@code FieldDef} attributes: they are meaningless on a
+     * KEYWORD field and mandatory on this one.
+     *
+     * @param dimension       component count; must match the provider's, checked at assembly
+     * @param similarity      Lucene similarity function, fixed at index time
+     * @param sourceFieldIRIs field IRIs whose values are verbalised, in declaration order
+     */
+    public record VectorDef(int dimension,
+                            VectorSimilarity similarity,
+                            List<String> sourceFieldIRIs) {
+
+        public VectorDef {
+            if (dimension <= 0) {
+                throw new IllegalArgumentException("Vector dimension must be positive, got " + dimension);
+            }
+            similarity = similarity != null ? similarity : VectorSimilarity.COSINE;
+            sourceFieldIRIs = sourceFieldIRIs == null ? List.of() : List.copyOf(sourceFieldIRIs);
+        }
     }
 
     public enum NodeKindConstraint {
@@ -81,6 +113,8 @@ public class ShaclIndexMapping {
         /** Optional analyzer applied (via {@link Analyzer#normalize}) to a KEYWORD field's
          *  indexed term and sort key. Null = raw value (unchanged behaviour). */
         private final Analyzer normalizer;
+        /** VECTOR configuration; null for every other field type. */
+        private final VectorDef vectorDef;
 
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
                         boolean stored, boolean indexed, boolean facetable,
@@ -148,13 +182,25 @@ public class ShaclIndexMapping {
                 sortable, multiValued, defaultSearch, storeLiteralMetadata, fieldIRI, null);
         }
 
-        /** Canonical (widest) constructor. {@code normalizer} is the KEYWORD normalizer
-         *  (null for all other cases and for the many delegating constructors above). */
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
                         Analyzer queryAnalyzer,
                         boolean stored, boolean indexed, boolean facetable,
                         boolean sortable, boolean multiValued, boolean defaultSearch,
                         boolean storeLiteralMetadata, Node fieldIRI, Analyzer normalizer) {
+            this(fieldName, fieldType, analyzer, queryAnalyzer, stored, indexed, facetable,
+                sortable, multiValued, defaultSearch, storeLiteralMetadata, fieldIRI, normalizer, null);
+        }
+
+        /** Canonical (widest) constructor. {@code normalizer} is the KEYWORD normalizer and
+         *  {@code vectorDef} the VECTOR configuration; both are null for every other field
+         *  type and for the many delegating constructors above. */
+        public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
+                        Analyzer queryAnalyzer,
+                        boolean stored, boolean indexed, boolean facetable,
+                        boolean sortable, boolean multiValued, boolean defaultSearch,
+                        boolean storeLiteralMetadata, Node fieldIRI, Analyzer normalizer,
+                        VectorDef vectorDef) {
+            this.vectorDef = vectorDef;
             this.fieldName = Objects.requireNonNull(fieldName);
             this.fieldType = fieldType != null ? fieldType : FieldType.TEXT;
             this.analyzer = analyzer;
@@ -193,6 +239,8 @@ public class ShaclIndexMapping {
         public Analyzer getAnalyzer()        { return analyzer; }
         public Analyzer getQueryAnalyzer()   { return queryAnalyzer; }
         public Analyzer getNormalizer()      { return normalizer; }
+        public VectorDef getVectorDef()      { return vectorDef; }
+        public boolean isVector()            { return fieldType == FieldType.VECTOR; }
         public boolean isStored()            { return stored; }
         public boolean isIndexed()           { return indexed; }
         public boolean isFacetable()         { return facetable; }
@@ -697,6 +745,24 @@ public class ShaclIndexMapping {
         public List<FieldOccurrence> getRootOccurrences() { return rootOccurrences; }
         public List<HierarchyDef> getHierarchies() { return hierarchies; }
         public List<NestedDef> getNestedDefs()   { return nestedDefs; }
+
+        /**
+         * The profile's {@link FieldType#VECTOR} fields, in declaration order.
+         * <p>
+         * Derived from {@link #getFields()} rather than stored separately: a vector field
+         * is an ordinary member of the field list that happens to be populated from other
+         * fields instead of from an occurrence, and a second list would be one more thing
+         * for the two IndexProfile constructors to keep in step.
+         */
+        public List<FieldDef> getVectorFields() {
+            List<FieldDef> result = new ArrayList<>();
+            for (FieldDef field : fields) {
+                if (field.isVector()) {
+                    result.add(field);
+                }
+            }
+            return result;
+        }
 
         /** True when any nested block of this profile draws its children from an
          *  external source. Such a profile can only be built by {@link ShaclBulkIndexer};

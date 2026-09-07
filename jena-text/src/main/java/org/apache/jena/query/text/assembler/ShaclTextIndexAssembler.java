@@ -26,6 +26,9 @@ import static org.apache.jena.query.text.assembler.TextVocab.*;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.StringJoiner;
 
 import org.apache.jena.assembler.Assembler;
 import org.apache.jena.assembler.Mode;
@@ -33,12 +36,17 @@ import org.apache.jena.assembler.assemblers.AssemblerBase;
 import org.apache.jena.atlas.io.IO;
 import org.apache.jena.atlas.lib.IRILib;
 import org.apache.jena.query.text.*;
+import org.apache.jena.query.text.embedding.EmbeddingConfig;
+import org.apache.jena.query.text.embedding.EmbeddingProvider;
+import org.apache.jena.query.text.embedding.EmbeddingProviders;
 import org.apache.jena.rdf.model.RDFNode;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.Statement;
 import org.apache.jena.sparql.util.graph.GraphUtils;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.store.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Assembler for SHACL-mode text indexes ({@code text:TextIndexShacl}).
@@ -59,6 +67,7 @@ import org.apache.lucene.store.*;
  * {@code text:entityMap} for classic triple-per-document mode.
  */
 public class ShaclTextIndexAssembler extends AssemblerBase {
+    private static final Logger log = LoggerFactory.getLogger(ShaclTextIndexAssembler.class);
 
     @Override
     public TextIndex open(Assembler a, Resource root, Mode mode) {
@@ -123,6 +132,18 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
             config.setValueStored(storeValues);
             config.setShaclMapping(shaclMapping);
             config.setFacetFields(shaclMapping.getFacetFieldNames());
+            config.setEmbeddingProvider(resolveEmbeddingProvider(root, shaclMapping));
+
+            Statement knnTopKStatement = root.getProperty(IndexVocab.pKnnTopK);
+            if (knnTopKStatement != null) {
+                RDFNode kNode = knnTopKStatement.getObject();
+                if (!kNode.isLiteral())
+                    throw new TextIndexException("idx:knnTopK property must be an int : " + kNode);
+                int k = kNode.asLiteral().getInt();
+                if (k <= 0)
+                    throw new TextIndexException("idx:knnTopK must be positive, got : " + k);
+                config.setKnnTopK(k);
+            }
 
             // Optional maxFacetHits
             Statement maxFacetHitsStatement = root.getProperty(pMaxFacetHits);
@@ -138,6 +159,60 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
             IO.exception(e);
             return null;
         }
+    }
+
+    /**
+     * Build the embedding provider for this index, and check it against the vector fields
+     * the shapes declare.
+     * <p>
+     * Two mismatches are caught here rather than left to fail later, or worse, not fail at
+     * all: a vector field with no provider (the field would silently never be populated),
+     * and a provider whose dimension differs from the field's (Lucene fixes a KNN field's
+     * dimension at index time, so this is unrecoverable once documents exist).
+     *
+     * @return the provider, or null when nothing in the config needs one
+     */
+    private static EmbeddingProvider resolveEmbeddingProvider(Resource root, ShaclIndexMapping mapping) {
+        EmbeddingConfig embeddingConfig = ShaclIndexAssembler.parseEmbeddingConfig(root);
+
+        List<ShaclIndexMapping.FieldDef> vectorFields = new ArrayList<>();
+        for (ShaclIndexMapping.IndexProfile profile : mapping.getProfiles()) {
+            vectorFields.addAll(profile.getVectorFields());
+        }
+
+        if (vectorFields.isEmpty()) {
+            if (embeddingConfig != null) {
+                log.warn("idx:embedding is configured on {} but no shape declares an idx:vectorField;"
+                    + " no embeddings will be produced.", root);
+            }
+            return null;
+        }
+        if (embeddingConfig == null) {
+            throw new TextIndexException(
+                "Shapes declare vector field(s) " + fieldNames(vectorFields)
+                + " but " + root + " has no idx:embedding block naming a provider.");
+        }
+
+        EmbeddingProvider provider = EmbeddingProviders.create(embeddingConfig);
+        for (ShaclIndexMapping.FieldDef field : vectorFields) {
+            int declared = field.getVectorDef().dimension();
+            if (declared != provider.dimension()) {
+                throw new TextIndexException(
+                    "Vector field '" + field.getFieldName() + "' declares idx:dimension " + declared
+                    + " but embedding provider '" + embeddingConfig.provider() + "' (model "
+                    + provider.modelId() + ") produces " + provider.dimension() + "-dimensional vectors. "
+                    + "Lucene fixes a KNN field's dimension at index time, so these must match.");
+            }
+        }
+        return provider;
+    }
+
+    private static String fieldNames(List<ShaclIndexMapping.FieldDef> fields) {
+        StringJoiner joiner = new StringJoiner(", ");
+        for (ShaclIndexMapping.FieldDef field : fields) {
+            joiner.add("'" + field.getFieldName() + "'");
+        }
+        return joiner.toString();
     }
 
     /**

@@ -1,0 +1,23 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 3c — edge n-gram typeahead over the recipe code. The field declares
+# text:tokenized true, so ANY segment prefix-matches: "0042" reaches RCP-2019-0042.
+# Whole-value mode would only match from the start of the string.
+#
+# text_query, not "=" — "=" is raw term equality and applies no analyzer, so it would
+# match nothing here.
+
+PREFIX luc:  <urn:jena:lucene:index#>
+PREFIX schema:  <https://schema.org/>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX kt:   <http://example.org/kitchen/>
+
+SELECT ?entity ?name ?code
+WHERE {
+    (?hit ?entity) luc:query (
+        "default" "default" ""
+        '{"op":"text_query","args":[{"property":"urn:jena:lucene:field#codeText"},"2019"]}'
+        "" 20 0) .
+    ?entity rdfs:label|schema:name|dcterms:title ?name ; kt:code ?code .
+}
+ORDER BY ?code

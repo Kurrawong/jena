@@ -1,0 +1,26 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# Sort pushdown and paging. ?totalHits stays at the corpus count regardless of the page
+# window, and ?rank continues across pages — offset 5 starts at rank 5.
+#
+# Scoped to recipes with field:entityType, because the index also holds reviewers and they
+# have no prep time to sort on. That clause is exactly what the app's Recipes / Reviewers /
+# Both toggle sends.
+#
+# Under a sort, Lucene does not score, so ?score carries 1/(1+rank). Read ?rank for order.
+
+PREFIX luc:  <urn:jena:lucene:index#>
+PREFIX schema:  <https://schema.org/>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX kt:   <http://example.org/kitchen/>
+
+SELECT ?rank ?name ?prep ?totalHits
+WHERE {
+    (?hit ?entity ?score ?totalHits ?rank) luc:query (
+        "default" "default" "*"
+        '{"op":"=","args":[{"property":"urn:jena:lucene:field#entityType"},"http://example.org/kitchen/Recipe"]}'
+        '{"field":"urn:jena:lucene:field#prepMinutes","order":"asc"}'
+        5 5) .
+    ?entity rdfs:label|schema:name|dcterms:title ?name ; kt:prepMinutes ?prep .
+}
+ORDER BY ?rank

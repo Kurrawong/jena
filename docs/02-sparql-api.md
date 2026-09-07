@@ -62,7 +62,7 @@ Object arity is always exactly 7.
 |---|---|---|---|---|
 | 1 | `indexSelector` | string literal | Yes | Usually `"default"`; may also be a configured index id or index IRI |
 | 2 | `fieldSpec` | string literal | Yes | `"default"` or a JSON array of field IRIs |
-| 3 | `queryString` | string literal | Yes | Lucene query string |
+| 3 | `queryString` | string literal | Yes | Lucene query string — or, when `fieldSpec` names a vector field, plain text to embed |
 | 4 | `cqlFilter` | string literal | Yes | CQL2-JSON object, or `""` |
 | 5 | `sortSpec` | string literal | Yes | JSON sort object/array, or `""` |
 | 6 | `limit` | integer literal | Yes | Page size. Negative means unlimited |
@@ -218,6 +218,62 @@ Notes:
 - Lucene fetches `offset + limit` hits internally and the PF exposes only the slice. Very deep offsets therefore cost proportionally more.
 - When `luc:query` and `luc:facet` share a search (same selector, field spec, query string, filter, sort), the cached hit list grows to the largest window seen in the query; each caller gets its own slice.
 - A negative `offset` is a query error. A negative `limit` is still accepted and means unlimited (offset then has no effect beyond skipping).
+
+## Vector (semantic) search
+
+Naming an `idx:VectorField` in `fieldSpec` switches `luc:query` from full-text retrieval to
+nearest-neighbour search. Nothing else about the call changes:
+
+```sparql
+(?hit ?entity ?score) luc:query (
+    "default"
+    '["urn:jena:lucene:field#embedding"]'
+    "copper ore drilling in the goldfields"
+    '{"op":"=","args":[{"property":"urn:jena:lucene:field#state"},"WA"]}'
+    "" 10 0)
+```
+
+There is deliberately **no separate `luc:knn`** and no extra argument. Routing it through
+`fieldSpec` means CQL filters, sort specs, paging, `?totalHits` and `luc:facet` all keep
+working exactly as documented above, and the query arity is unchanged.
+
+`queryString` stops being a Lucene expression in this mode — wildcards, boolean operators
+and field prefixes are not parsed. It is text handed to the embedding model.
+
+### The filter is pushed into the search, not applied to its result
+
+The `cqlFilter` is passed to Lucene's `KnnFloatVectorQuery` as a filter, so it is applied
+**during** the HNSW graph traversal: the search returns k documents that already satisfy
+the filter.
+
+This is the whole reason to do vector search here rather than alongside a separate vector
+store. Post-filtering — running an unconstrained KNN and then intersecting with the filter
+— returns fewer than k results, and frequently zero, whenever the filter is selective.
+
+### What is rejected
+
+| Combination | Why |
+|---|---|
+| Two vector fields in one `fieldSpec` | No defined way to combine two independent similarity rankings |
+| A vector field mixed with text fields | This is hybrid retrieval. A boolean `SHOULD` would add a BM25 score to a cosine similarity — incomparable scales, where whichever is numerically larger wins. Reciprocal rank fusion is the correct treatment and is not implemented; issue separate `luc:query` patterns |
+| Empty `queryString`, or `"*"` | A similarity search has no match-all form — there is no point to be near |
+| Sorting on the vector field | A vector has no total order. Sorting on *other* fields works normally |
+
+### Facet counts and ?totalHits are scoped to the top-k
+
+This is a genuine difference from the contract stated elsewhere in this document, and it is
+not avoidable. `luc:facet` normally counts over the full matching set, but a KNN query
+returns top-k *by construction* — there is no "all matching documents" for a similarity
+search.
+
+Under a vector query:
+
+- `luc:facet` counts values **within the k nearest neighbours**, after filtering.
+- `?totalHits` is the number of neighbours returned, bounded by k — not a corpus count.
+
+A single per-index `idx:knnTopK` (default 100) drives hits, facets and totals alike, so all
+three describe the same result set. Raising it widens the counted set at proportional cost;
+paging past k returns nothing.
 
 ## luc:match
 

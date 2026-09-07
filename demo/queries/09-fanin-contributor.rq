@@ -1,0 +1,17 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 5 — one field fed by several SHACL paths. field:contributor has TWO occurrences
+# on the shape, sh:path kt:author and sh:path kt:testedBy, so "everyone involved" is a
+# single facet dimension. Each person's count is their authored plus their tested recipes.
+#
+# Filtering the same field finds a person in either role, with no UNION in the query.
+
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?value ?count
+WHERE {
+    (?field ?value ?low ?high ?count) luc:facet (
+        "default" "default" "*"
+        '["urn:jena:lucene:field#contributor"]'
+        "" 20 0)
+}
+ORDER BY DESC(?count) ?value

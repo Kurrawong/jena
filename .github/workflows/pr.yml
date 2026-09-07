@@ -14,8 +14,13 @@ on:
       - 'main'
     paths-ignore:
       ## Documentation and agent config cannot change build or image output.
-      ## Deliberately NOT ignored: demo/** (TestDemoDataParsing parses those
-      ## files), build-files/**, Taskfile.yml, and .github/** itself.
+      ## Deliberately NOT ignored: build-files/**, Taskfile.yml, and .github/** itself.
+      ##
+      ## demo/** is ignored here because nothing in this build reads it: no test parses
+      ## those files and the images do not copy them. It has its own check — see
+      ## demo.yml, which also runs on jena-text changes, so a library edit that breaks the
+      ## demo is still caught.
+      - 'demo/**'
       - 'docs/**'
       - '**/*.md'
       - '.claude/**'

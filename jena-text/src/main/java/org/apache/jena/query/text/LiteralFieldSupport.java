@@ -94,7 +94,9 @@ public final class LiteralFieldSupport {
                 lexical.contains("T")
                     ? org.apache.jena.datatypes.xsd.XSDDatatype.XSDdateTime
                     : org.apache.jena.datatypes.xsd.XSDDatatype.XSDdate);
-            case LATLON -> null;
+            // A vector is machine state, not a value a caller ever wants back as RDF, and
+            // it is never stored — so there is nothing to reconstruct. Same as LATLON.
+            case LATLON, VECTOR -> null;
         };
     }
 

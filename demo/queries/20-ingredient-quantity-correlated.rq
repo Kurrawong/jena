@@ -1,0 +1,42 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 7 (graph side) — same-child correlation on children that come from the RDF, with
+# no external file involved.
+#
+# Each recipe has kt:ingredient records carrying an item and a quantity. The question is
+# "100g or more OF CHILLI", and the whole point is that it is not the same question as
+# "has chilli" AND "has 100g of something":
+#
+#   has chilli at all                    Green Papaya Salad, Ceviche, Mole Poblano
+#   has any ingredient >= 100g           all ten recipes
+#   >= 100g OF CHILLI  (this query)      Mole Poblano, and only Mole Poblano
+#
+# The two rejected recipes are the point. Both satisfy each clause separately:
+#
+#   Green Papaya Salad   chilli 10g,  papaya 600g
+#   Ceviche              chilli  5g,  fish   500g
+#
+# Neither has a single ingredient record that is chilli AND is 100g or more, so neither
+# matches. Without the fold they both would, and "100g of chilli" would quietly mean
+# "some chilli, and 100g of anything".
+#
+# luc:nestedMatch then projects the record that satisfied it — chilli, 400g — which works
+# here because these fields are idx:stored true. The CSV review block next to them is
+# idx:stored false and projects nothing; query 12 covers that side.
+#
+# The reviews equivalent is 13-nested-correlation.rq. This one needs no CSV to explain.
+
+PREFIX luc:     <urn:jena:lucene:index#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX schema:  <https://schema.org/>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+
+SELECT ?name ?field ?value
+WHERE {
+    (?hit ?entity) luc:query (
+        "default" "default" ""
+        '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#ingredient"},"http://example.org/kitchen/ing-chilli"]},{"op":">=","args":[{"property":"urn:jena:lucene:field#ingredientGrams"},100]}]}'
+        "" 20 0) .
+    (?hit ?record ?field ?value) luc:nestedMatch () .
+    ?entity rdfs:label|schema:name|dcterms:title ?name .
+}
+ORDER BY ?name ?field

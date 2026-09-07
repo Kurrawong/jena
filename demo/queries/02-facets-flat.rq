@@ -1,0 +1,15 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 1 — flat facet counts over the whole corpus. "*" as the query string is a
+# match-all. Values of course/diet are IRIs; the app resolves them to labels through the
+# label cache, one cacheable GET per IRI.
+
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?field ?value ?count
+WHERE {
+    (?field ?value ?low ?high ?count) luc:facet (
+        "default" "default" "*"
+        '["urn:jena:lucene:field#course","urn:jena:lucene:field#diet","urn:jena:lucene:field#contributor"]'
+        "" 20 0)
+}
+ORDER BY ?field DESC(?count) ?value

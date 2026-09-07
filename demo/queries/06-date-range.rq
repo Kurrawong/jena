@@ -1,0 +1,19 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 2 — date range slicing on an idx:TemporalField, with CQL2-JSON "between",
+# sorted newest first. The bounds are inclusive.
+
+PREFIX luc:     <urn:jena:lucene:index#>
+PREFIX schema:  <https://schema.org/>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX kt:      <http://example.org/kitchen/>
+
+SELECT ?entity ?name ?published
+WHERE {
+    (?hit ?entity) luc:query (
+        "default" "default" "*"
+        '{"op":"between","args":[{"property":"urn:jena:lucene:field#publishedOn"},"2020-01-01","2022-12-31"]}'
+        '{"field":"urn:jena:lucene:field#publishedOn","order":"desc"}'
+        20 0) .
+    ?entity rdfs:label|schema:name|dcterms:title ?name ; kt:publishedOn ?published .
+}

@@ -1,0 +1,309 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+##
+## Ten made-up recipes. Small enough to hold in your head, so that when a facet count or a
+## search result looks wrong you can check it by eye.
+##
+## Summaries are written to avoid the words a searcher would type. "Slow-Braised Beef Shin"
+## says nothing about being warm, comforting or wintry — so a keyword search for
+## "comforting winter food" finds nothing, and only a real embedding model finds the stew.
+## That contrast is the point of the semantic-search panel.
+
+PREFIX kt:      <http://example.org/kitchen/>
+PREFIX rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX schema:  <https://schema.org/>
+PREFIX xsd:     <http://www.w3.org/2001/XMLSchema#>
+
+## --- The two entity classes, labelled so the kind toggle can show names ---
+
+kt:Recipe    rdfs:label "Recipe" .
+kt:Reviewer  rdfs:label "Reviewer" .
+
+## --- Vocabulary: regions ---
+
+kt:region-europe    rdfs:label "Europe" .
+kt:region-asia      rdfs:label "Asia" .
+kt:region-americas  rdfs:label "The Americas" .
+
+## --- Vocabulary: countries, each in exactly one region ---
+## kt:inRegion is the second step of the sequence path that feeds field:region.
+
+kt:country-france    rdfs:label "France"    ; kt:inRegion kt:region-europe .
+kt:country-italy     rdfs:label "Italy"     ; kt:inRegion kt:region-europe .
+kt:country-japan     rdfs:label "Japan"     ; kt:inRegion kt:region-asia .
+kt:country-thailand  rdfs:label "Thailand"  ; kt:inRegion kt:region-asia .
+kt:country-india     rdfs:label "India"     ; kt:inRegion kt:region-asia .
+kt:country-peru      rdfs:label "Peru"      ; kt:inRegion kt:region-americas .
+kt:country-mexico    rdfs:label "Mexico"    ; kt:inRegion kt:region-americas .
+
+
+## --- Ingredients vocabulary ---
+
+kt:ing-almond       rdfs:label "Almonds" .
+kt:ing-apple        rdfs:label "Apples" .
+kt:ing-beef         rdfs:label "Beef shin" .
+kt:ing-butter       rdfs:label "Butter" .
+kt:ing-carrot       rdfs:label "Carrot" .
+kt:ing-chicken      rdfs:label "Chicken" .
+kt:ing-chilli       rdfs:label "Chilli" .
+kt:ing-chocolate    rdfs:label "Chocolate" .
+kt:ing-cocoa        rdfs:label "Cocoa" .
+kt:ing-dashi        rdfs:label "Dashi" .
+kt:ing-egg          rdfs:label "Egg" .
+kt:ing-espresso     rdfs:label "Espresso" .
+kt:ing-fish         rdfs:label "White fish" .
+kt:ing-lime         rdfs:label "Lime" .
+kt:ing-mascarpone   rdfs:label "Mascarpone" .
+kt:ing-miso         rdfs:label "Miso paste" .
+kt:ing-noodles      rdfs:label "Noodles" .
+kt:ing-papaya       rdfs:label "Green papaya" .
+kt:ing-pastry       rdfs:label "Pastry" .
+kt:ing-peanut       rdfs:label "Peanuts" .
+kt:ing-pecorino     rdfs:label "Pecorino" .
+kt:ing-pepper       rdfs:label "Black pepper" .
+kt:ing-pork         rdfs:label "Pork bones" .
+kt:ing-redwine      rdfs:label "Red wine" .
+kt:ing-spaghetti    rdfs:label "Spaghetti" .
+kt:ing-tofu         rdfs:label "Tofu" .
+kt:ing-tomato       rdfs:label "Tomato" .
+kt:ing-yoghurt      rdfs:label "Yoghurt" .
+
+## --- Vocabulary: courses and diets ---
+
+kt:course-starter  rdfs:label "Starter" .
+kt:course-main     rdfs:label "Main" .
+kt:course-dessert  rdfs:label "Dessert" .
+
+kt:diet-vegetarian  rdfs:label "Vegetarian" .
+kt:diet-vegan       rdfs:label "Vegan" .
+kt:diet-glutenFree  rdfs:label "Gluten free" .
+
+## --- People ---
+## Reached by TWO different predicates (kt:author, kt:testedBy) that feed ONE index field.
+
+kt:person-ada    rdfs:label "Ada Fournier" .
+kt:person-bruno  rdfs:label "Bruno Vega" .
+kt:person-chika  rdfs:label "Chika Mori" .
+kt:person-dara   rdfs:label "Dara Singh" .
+
+## --- Reviewers: a SECOND entity type, indexed by a second shape ---
+##
+## Their names use schema:name; the recipes above spread theirs across rdfs:label,
+## schema:name and dcterms:title. All four paths feed the one index field, so a search for
+## a name finds it whatever predicate carries it and whatever kind of thing it is on.
+##
+## The names match the reviewer column of data/reviews.csv, so the same person appears both
+## as a searchable entity here and as an external child record on the recipes they rated —
+## from two entirely different sources.
+
+kt:reviewer-priya a kt:Reviewer ;
+    schema:name "Priya" ;
+    dcterms:description "Cooks almost entirely from pantry staples and reviews accordingly. Harsh on anything that needs a special trip." .
+
+kt:reviewer-noor a kt:Reviewer ;
+    schema:name "Noor" ;
+    dcterms:description "Spent a decade in restaurant kitchens and still judges a dish by how it would hold up on a Friday service." .
+
+kt:reviewer-tomas a kt:Reviewer ;
+    schema:name "Tomas" ;
+    dcterms:description "Bakes more than he cooks. Pastry, laminated dough and long fermentation are where his notes get enthusiastic." .
+
+kt:reviewer-yuki a kt:Reviewer ;
+    schema:name "Yuki" ;
+    dcterms:description "Interested in broths, stocks and anything simmered for longer than seems reasonable." .
+
+kt:reviewer-kwame a kt:Reviewer ;
+    schema:name "Kwame" ;
+    dcterms:description "Chases heat and acidity. Will tell you a dish is underseasoned before he tells you it is good." .
+
+kt:reviewer-ines a kt:Reviewer ;
+    schema:name "Ines" ;
+    dcterms:description "Reviews desserts and little else, on the grounds that life is short." .
+
+## --- The ten recipes ---
+
+kt:recipe-r01 a kt:Recipe ;
+    rdfs:label "Slow-Braised Beef Shin" ;
+    dcterms:description "Beef shin braised four hours in red wine with root vegetables until it falls from the bone." ;
+    kt:code "RCP-2019-0042" ;
+    kt:country kt:country-france ;
+    kt:course kt:course-main ;
+    kt:prepMinutes 240 ;
+    kt:publishedOn "2019-03-14"^^xsd:date ;
+    kt:author kt:person-ada ;
+    kt:testedBy kt:person-bruno;
+    kt:ingredient
+        [ kt:item kt:ing-beef ; kt:grams 1200 ] ,
+        [ kt:item kt:ing-redwine ; kt:grams 500 ] ,
+        [ kt:item kt:ing-carrot ; kt:grams 200 ].
+
+kt:recipe-r02 a kt:Recipe ;
+    rdfs:label "Tonkotsu Ramen" ;
+    dcterms:description "Pork bone broth simmered twelve hours, ladled over noodles with a soft egg." ;
+    kt:code "RCP-2019-0117" ;
+    kt:country kt:country-japan ;
+    kt:course kt:course-main ;
+    kt:prepMinutes 720 ;
+    kt:publishedOn "2019-11-02"^^xsd:date ;
+    kt:author kt:person-chika ;
+    kt:testedBy kt:person-ada;
+    kt:ingredient
+        [ kt:item kt:ing-pork ; kt:grams 900 ] ,
+        [ kt:item kt:ing-noodles ; kt:grams 400 ] ,
+        [ kt:item kt:ing-egg ; kt:grams 120 ].
+
+kt:recipe-r03 a kt:Recipe ;
+    rdfs:label "Green Papaya Salad" ;
+    dcterms:description "Shredded unripe papaya pounded with lime, chilli and peanuts. Sharp, crunchy and raw." ;
+    kt:code "RCP-2020-0088" ;
+    kt:country kt:country-thailand ;
+    kt:course kt:course-starter ;
+    kt:diet kt:diet-vegetarian , kt:diet-glutenFree ;
+    kt:prepMinutes 15 ;
+    kt:publishedOn "2020-01-20"^^xsd:date ;
+    kt:author kt:person-dara ;
+    kt:testedBy kt:person-chika;
+    kt:ingredient
+        [ kt:item kt:ing-papaya ; kt:grams 600 ] ,
+        [ kt:item kt:ing-peanut ; kt:grams 80 ] ,
+        [ kt:item kt:ing-chilli ; kt:grams 10 ].
+
+kt:recipe-r04 a kt:Recipe ;
+    schema:name "Chicken Tikka Masala" ;
+    dcterms:description "Yoghurt-marinated chicken grilled hard, then finished in a spiced tomato and cream sauce." ;
+    kt:code "RCP-2020-0203" ;
+    kt:country kt:country-india ;
+    kt:course kt:course-main ;
+    kt:prepMinutes 60 ;
+    kt:publishedOn "2020-08-05"^^xsd:date ;
+    kt:author kt:person-dara ;
+    kt:testedBy kt:person-bruno;
+    kt:ingredient
+        [ kt:item kt:ing-chicken ; kt:grams 800 ] ,
+        [ kt:item kt:ing-yoghurt ; kt:grams 200 ] ,
+        [ kt:item kt:ing-tomato ; kt:grams 400 ].
+
+kt:recipe-r05 a kt:Recipe ;
+    schema:name "Cacio e Pepe" ;
+    dcterms:description "Spaghetti tossed with pecorino and cracked black pepper. Four ingredients, no sauce to speak of." ;
+    kt:code "RCP-2021-0011" ;
+    kt:country kt:country-italy ;
+    kt:course kt:course-main ;
+    kt:diet kt:diet-vegetarian ;
+    kt:prepMinutes 20 ;
+    kt:publishedOn "2021-02-11"^^xsd:date ;
+    kt:author kt:person-bruno ;
+    kt:testedBy kt:person-ada;
+    kt:ingredient
+        [ kt:item kt:ing-spaghetti ; kt:grams 400 ] ,
+        [ kt:item kt:ing-pecorino ; kt:grams 150 ] ,
+        [ kt:item kt:ing-pepper ; kt:grams 8 ].
+
+kt:recipe-r06 a kt:Recipe ;
+    schema:name "Tiramisu" ;
+    dcterms:description "Savoiardi soaked in espresso, layered with mascarpone and dusted with cocoa." ;
+    kt:code "RCP-2021-0154" ;
+    kt:country kt:country-italy ;
+    kt:course kt:course-dessert ;
+    kt:diet kt:diet-vegetarian ;
+    kt:prepMinutes 30 ;
+    kt:publishedOn "2021-09-30"^^xsd:date ;
+    kt:author kt:person-bruno ;
+    kt:testedBy kt:person-chika;
+    kt:ingredient
+        [ kt:item kt:ing-mascarpone ; kt:grams 500 ] ,
+        [ kt:item kt:ing-espresso ; kt:grams 200 ] ,
+        [ kt:item kt:ing-cocoa ; kt:grams 20 ].
+
+kt:recipe-r07 a kt:Recipe ;
+    dcterms:title "Ceviche" ;
+    dcterms:description "Raw white fish cured in lime juice with red onion, coriander and a little chilli." ;
+    kt:code "RCP-2022-0006" ;
+    kt:country kt:country-peru ;
+    kt:course kt:course-starter ;
+    kt:diet kt:diet-glutenFree ;
+    kt:prepMinutes 25 ;
+    kt:publishedOn "2022-01-08"^^xsd:date ;
+    kt:author kt:person-ada ;
+    kt:testedBy kt:person-dara;
+    kt:ingredient
+        [ kt:item kt:ing-fish ; kt:grams 500 ] ,
+        [ kt:item kt:ing-lime ; kt:grams 150 ] ,
+        [ kt:item kt:ing-chilli ; kt:grams 5 ].
+
+kt:recipe-r08 a kt:Recipe ;
+    dcterms:title "Mole Poblano" ;
+    dcterms:description "Chillies, nuts and a little chocolate ground into a dark sauce and simmered slowly over turkey." ;
+    kt:code "RCP-2022-0271" ;
+    kt:country kt:country-mexico ;
+    kt:course kt:course-main ;
+    kt:prepMinutes 300 ;
+    kt:publishedOn "2022-10-19"^^xsd:date ;
+    kt:author kt:person-chika ;
+    kt:testedBy kt:person-dara;
+    kt:ingredient
+        [ kt:item kt:ing-chilli ; kt:grams 400 ] ,
+        [ kt:item kt:ing-almond ; kt:grams 150 ] ,
+        [ kt:item kt:ing-chocolate ; kt:grams 20 ].
+
+kt:recipe-r09 a kt:Recipe ;
+    rdfs:label "Tarte Tatin" ;
+    dcterms:description "Apples caramelised in butter and sugar under a pastry lid, then turned out upside down." ;
+    kt:code "RCP-2023-0044" ;
+    kt:country kt:country-france ;
+    kt:course kt:course-dessert ;
+    kt:diet kt:diet-vegetarian ;
+    kt:prepMinutes 90 ;
+    kt:publishedOn "2023-04-02"^^xsd:date ;
+    kt:author kt:person-ada ;
+    kt:testedBy kt:person-bruno;
+    kt:ingredient
+        [ kt:item kt:ing-apple ; kt:grams 900 ] ,
+        [ kt:item kt:ing-butter ; kt:grams 150 ] ,
+        [ kt:item kt:ing-pastry ; kt:grams 250 ].
+
+kt:recipe-r10 a kt:Recipe ;
+    dcterms:title "Miso Soup" ;
+    dcterms:description "Dashi whisked with fermented soybean paste, dropped with tofu cubes and sliced spring onion." ;
+    kt:code "RCP-2024-0130" ;
+    kt:country kt:country-japan ;
+    kt:course kt:course-starter ;
+    kt:diet kt:diet-vegetarian , kt:diet-vegan , kt:diet-glutenFree ;
+    kt:prepMinutes 10 ;
+    kt:publishedOn "2024-06-15"^^xsd:date ;
+    kt:author kt:person-chika ;
+    kt:testedBy kt:person-ada;
+    kt:ingredient
+        [ kt:item kt:ing-dashi ; kt:grams 700 ] ,
+        [ kt:item kt:ing-miso ; kt:grams 60 ] ,
+        [ kt:item kt:ing-tofu ; kt:grams 200 ].
+
+## --- Labels for the index fields themselves ---
+##
+## The app shows field names in chips ("Region: Europe") and in the "matched on" line of a
+## result card. Rather than title-casing idx:fieldName in JavaScript, the field IRIs get
+## rdfs:label like anything else, so ONE mechanism — the label cache — covers every IRI the
+## UI displays. These triples describe the index vocabulary, not recipes; no shape targets
+## them, so they add nothing to the index.
+
+PREFIX field: <urn:jena:lucene:field#>
+
+field:name         rdfs:label "Name" .
+field:entityType   rdfs:label "Kind" .
+field:summary      rdfs:label "Summary" .
+field:code         rdfs:label "Recipe code" .
+field:codeText     rdfs:label "Recipe code" .
+field:course       rdfs:label "Course" .
+field:country      rdfs:label "Country" .
+field:region       rdfs:label "Region" .
+field:diet         rdfs:label "Diet" .
+field:contributor  rdfs:label "Person" .
+field:prepMinutes  rdfs:label "Prep time" .
+field:publishedOn  rdfs:label "Published" .
+field:embedding    rdfs:label "Embedding" .
+field:ingredient       rdfs:label "Ingredient" .
+field:ingredientGrams  rdfs:label "Quantity" .
+field:reviewer     rdfs:label "Reviewer" .
+field:stars        rdfs:label "Stars" .
+field:reviewMonth  rdfs:label "Review month" .

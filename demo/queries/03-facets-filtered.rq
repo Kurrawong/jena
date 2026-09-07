@@ -1,0 +1,15 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 1 — the same facets, narrowed by a filter. This is the drill-down step: the
+# counts describe only the documents that survive the cqlFilter.
+
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?field ?value ?count
+WHERE {
+    (?field ?value ?low ?high ?count) luc:facet (
+        "default" "default" "*"
+        '["urn:jena:lucene:field#contributor","urn:jena:lucene:field#diet"]'
+        '{"op":"=","args":[{"property":"urn:jena:lucene:field#course"},"http://example.org/kitchen/course-main"]}'
+        20 0)
+}
+ORDER BY ?field DESC(?count) ?value

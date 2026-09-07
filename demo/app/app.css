@@ -1,0 +1,362 @@
+/* Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0 */
+
+:root {
+  --bg: #fbfbfa;
+  --panel: #ffffff;
+  --ink: #23211e;
+  --muted: #6d6862;
+  --line: #e3e0da;
+  --accent: #7a4b2a;
+  --accent-soft: #f3ece5;
+  --ok: #2f6f4f;
+  --warn: #9a5b1d;
+  --bad: #a33a3a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: .8rem 1.2rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+header h1 { font-size: 1.1rem; margin: 0; font-weight: 650; }
+header .sub { color: var(--muted); font-weight: 400; font-size: .85rem; margin-left: .4rem; }
+.status { margin-left: auto; font-size: .78rem; padding: .2rem .55rem; border-radius: 999px; background: var(--accent-soft); color: var(--muted); }
+.status.ok   { background: #e6f2ea; color: var(--ok); }
+.status.bad  { background: #f7e7e7; color: var(--bad); }
+.status.warn { background: #f8eee0; color: var(--warn); }
+
+.layout { display: grid; grid-template-columns: 300px minmax(0, 1fr) 430px; align-items: start; }
+
+/* The Turtle panel is the first thing to go when there is no room for three columns. */
+@media (max-width: 1180px) {
+  .layout { grid-template-columns: 300px minmax(0, 1fr); }
+  #rhs { display: none; }
+}
+
+#rhs {
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+  min-height: calc(100vh - 49px);
+  padding: .9rem 1rem 2rem;
+  position: sticky;
+  top: 0;
+}
+#rhs h3 {
+  font-size: .74rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); margin: 0 0 .45rem;
+}
+.tag.ttl { background: #e8f0e8; color: #3d6b45; text-transform: none; letter-spacing: 0; font-family: ui-monospace, monospace; }
+pre.ttl {
+  background: #2b2926; color: #e8e4dd; padding: .7rem; border-radius: 6px;
+  overflow: auto; max-height: calc(100vh - 240px);
+  font-size: .7rem; line-height: 1.5;
+  /* Not pre-wrap: Jena writes column-aligned Turtle, and wrapping it at this width breaks
+     values mid-token and destroys the alignment that makes it readable. Scroll instead. */
+  white-space: pre;
+}
+
+/* The left sidebar only — #rhs sets its own border on the other side. */
+aside:not(#rhs) {
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  min-height: calc(100vh - 49px);
+  padding-bottom: 2rem;
+}
+
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tab {
+  flex: 1; padding: .6rem; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: .85rem; color: var(--muted); border-bottom: 2px solid transparent;
+}
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+.panel { padding: .9rem 1rem; }
+.panel.hidden { display: none; }
+
+.facet-group { margin-bottom: 1.3rem; }
+.facet-group h3 {
+  font-size: .74rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); margin: 0 0 .45rem;
+}
+.facet-group ul { list-style: none; margin: 0; padding: 0; }
+.facet-group li { margin: .12rem 0; }
+
+.facet-group label.opt {
+  display: flex; gap: .45rem; align-items: baseline; cursor: pointer;
+  padding: .13rem .3rem; border-radius: 4px; font-size: .88rem;
+}
+.facet-group label.opt:hover { background: var(--accent-soft); }
+.facet-group .count { margin-left: auto; color: var(--muted); font-size: .78rem; font-variant-numeric: tabular-nums; }
+.facet-group .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* hierarchy */
+.hier-parent { display: flex; align-items: baseline; gap: .3rem; }
+.twisty {
+  border: 0; background: none; cursor: pointer; color: var(--muted);
+  font: inherit; width: 1.1rem; padding: 0; line-height: 1;
+}
+/* Needs to out-specify `.facet-group ul { margin: 0 }` above, or the child level renders
+   flush with its parent and the tree reads as one flat list. */
+.facet-group ul.hier-children,
+#facet-reviewer ul.hier-children {
+  margin: .1rem 0 .25rem 1.15rem;
+  border-left: 1px solid var(--line);
+  padding-left: .45rem;
+}
+
+.hint { font-size: .78rem; color: var(--muted); margin: .1rem 0 .5rem; }
+.daterow { display: flex; gap: .4rem; }
+.daterow label { font-size: .75rem; color: var(--muted); display: flex; flex-direction: column; gap: .15rem; }
+.daterow input { font: inherit; font-size: .82rem; padding: .2rem; border: 1px solid var(--line); border-radius: 4px; }
+label.inline { font-size: .82rem; display: flex; gap: .4rem; align-items: center; margin-bottom: .5rem; }
+select, input[type=search], button { font: inherit; }
+.linkish { border: 0; background: none; color: var(--accent); cursor: pointer; font-size: .76rem; padding: 0; text-decoration: underline; }
+
+.tag { font-size: .62rem; text-transform: uppercase; letter-spacing: .05em; padding: .1rem .3rem; border-radius: 3px; vertical-align: middle; }
+.tag.csv { background: #ede7f6; color: #5b3fa0; }
+
+main { padding: 1rem 1.4rem 3rem; min-width: 0; }
+
+.searchbar { display: flex; gap: .5rem; margin-bottom: .7rem; }
+.searchbar input[type=search] {
+  flex: 1; padding: .5rem .7rem; border: 1px solid var(--line); border-radius: 6px; background: #fff;
+}
+.searchbar select, .searchbar button {
+  padding: .5rem .6rem; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer;
+}
+
+.note { font-size: .82rem; padding: .5rem .7rem; border-radius: 6px; background: #f8eee0; color: #6b4415; margin-bottom: .7rem; }
+.note.hidden { display: none; }
+
+.chips { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .5rem; }
+.chip {
+  font-size: .78rem; background: var(--accent-soft); color: var(--accent);
+  padding: .18rem .5rem; border-radius: 999px; display: inline-flex; gap: .35rem; align-items: center;
+}
+.chip button { border: 0; background: none; cursor: pointer; color: inherit; padding: 0; font-size: .9rem; line-height: 1; }
+
+.summary { color: var(--muted); font-size: .82rem; margin-bottom: .6rem; }
+
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: .75rem .9rem; margin-bottom: .6rem;
+}
+.card h2 { font-size: 1rem; margin: 0 0 .1rem; font-weight: 620; }
+.card .code { font-size: .74rem; color: var(--muted); font-family: ui-monospace, monospace; }
+.card .desc { margin: .35rem 0 .5rem; color: #3d3934; font-size: .9rem; }
+.badges { display: flex; flex-wrap: wrap; gap: .3rem; }
+.badge {
+  font-size: .74rem; padding: .12rem .45rem; border-radius: 4px;
+  background: #f2f0ec; color: #4a4640; border: 1px solid var(--line);
+}
+.badge.k { background: #eef3f7; }
+.badge.people { background: #f3f0f8; }
+.badge.num { font-variant-numeric: tabular-nums; }
+
+.reviews { margin-top: .5rem; border-top: 1px dashed var(--line); padding-top: .4rem; }
+.reviews h4 { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 .25rem; }
+.review { font-size: .8rem; color: #4a4640; }
+.stars { color: #b7791f; letter-spacing: .05em; }
+
+.pager { display: flex; gap: .5rem; align-items: center; margin-top: .8rem; }
+.pager button { padding: .35rem .7rem; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; }
+.pager button[disabled] { opacity: .4; cursor: default; }
+
+#debug { margin-top: 1.5rem; font-size: .8rem; color: var(--muted); }
+#debug pre {
+  background: #2b2926; color: #e8e4dd; padding: .8rem; border-radius: 6px;
+  overflow: auto; font-size: .74rem; line-height: 1.45; white-space: pre-wrap;
+}
+
+/* Feature-test panel */
+#test-list { list-style: none; margin: 0; padding: 0; }
+#test-list li { margin-bottom: .18rem; }
+#test-list button {
+  width: 100%; text-align: left; border: 1px solid transparent; background: none;
+  padding: .3rem .4rem; border-radius: 5px; cursor: pointer; font-size: .82rem; color: var(--ink);
+}
+#test-list button:hover { background: var(--accent-soft); border-color: var(--line); }
+#test-list .num { color: var(--muted); font-family: ui-monospace, monospace; font-size: .74rem; margin-right: .3rem; }
+
+.testview pre.rq {
+  background: #2b2926; color: #e8e4dd; padding: .8rem; border-radius: 6px;
+  overflow: auto; font-size: .74rem; line-height: 1.45; white-space: pre-wrap;
+}
+table.res { border-collapse: collapse; width: 100%; font-size: .82rem; margin-top: .6rem; }
+table.res th, table.res td { border: 1px solid var(--line); padding: .28rem .45rem; text-align: left; vertical-align: top; }
+table.res th { background: #f4f2ee; font-weight: 600; }
+table.res td { font-family: ui-monospace, monospace; font-size: .76rem; word-break: break-all; }
+.empty { color: var(--muted); font-style: italic; padding: .8rem 0; }
+.error { color: var(--bad); background: #f9ecec; padding: .6rem .8rem; border-radius: 6px; font-size: .84rem; white-space: pre-wrap; }
+
+/* ── result card: content, plus the same record as it sits in the index ── */
+/* Even split: the rendered record on the left, the same record as RDF on the right.
+   minmax(0, …) on both, or the <pre> refuses to shrink below its longest line and pushes
+   the text column over. */
+.card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .9rem; align-items: start; }
+@media (max-width: 1500px) {
+  .card { grid-template-columns: minmax(0, 1fr); }
+}
+.card-ttl h4 {
+  font-size: .66rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); margin: 0 0 .25rem; font-weight: 600;
+}
+.card-ttl pre.ttl { max-height: 230px; font-size: .66rem; }
+
+/* why did this hit come back */
+.why { margin-top: .5rem; display: flex; flex-wrap: wrap; gap: .3rem; align-items: baseline; }
+.why-label {
+  font-size: .66rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); font-weight: 600; margin-right: .1rem;
+}
+.why-badge {
+  font-size: .72rem; padding: .1rem .4rem; border-radius: 4px;
+  background: #e9f0e9; color: #35603f; border: 1px solid #d3e2d5; cursor: help;
+}
+.why-badge.vec  { background: #ece8f7; color: #4c3c86; border-color: #ddd6f0; cursor: default; }
+.why-badge.none { background: #f2f0ec; color: var(--muted); border-color: var(--line); cursor: default; }
+
+/* hierarchy row: twisty and checkbox are separate controls */
+.hier-row { display: flex; align-items: baseline; gap: .1rem; }
+.hier-row .opt { flex: 1; min-width: 0; }
+.twisty {
+  border: 0; background: none; cursor: pointer; color: var(--muted);
+  font: inherit; font-size: .7rem; width: 1rem; padding: 0; line-height: 1.4; flex: none;
+}
+.twisty:hover { color: var(--accent); }
+
+.chip-field {
+  font-size: .66rem; text-transform: uppercase; letter-spacing: .04em;
+  opacity: .7; margin-right: .3rem;
+}
+
+/* ── published-date histogram with a two-handle range slider ── */
+.datehist { margin-top: .2rem; }
+
+.datehist .bars {
+  display: flex; align-items: flex-end; gap: 2px;
+  height: 54px; padding: 0 2px;
+}
+.datehist .bar {
+  flex: 1; border-radius: 2px 2px 0 0; position: relative;
+  background: var(--accent); opacity: .75; transition: opacity .12s, background .12s;
+  min-height: 3px; cursor: default;
+}
+.datehist .bar.off { background: var(--line); opacity: 1; }
+.datehist .bar span {
+  position: absolute; top: -13px; left: 0; right: 0; text-align: center;
+  font-size: .6rem; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Two native range inputs stacked on one track. The wrapper is the visible track; each
+ * input is transparent and only its thumb takes pointer events, which is what lets both
+ * handles be grabbed even where they overlap.
+ */
+.datehist .rangewrap { position: relative; height: 20px; margin-top: 2px; }
+.datehist .rangewrap::before {
+  content: ''; position: absolute; left: 2px; right: 2px; top: 9px; height: 2px;
+  background: var(--line); border-radius: 2px;
+}
+.datehist input[type=range] {
+  position: absolute; left: 0; width: 100%; margin: 0; top: 0; height: 20px;
+  -webkit-appearance: none; appearance: none; background: none; pointer-events: none;
+}
+.datehist input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; pointer-events: auto; cursor: grab;
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--panel); border: 2px solid var(--accent);
+}
+.datehist input[type=range]::-moz-range-thumb {
+  pointer-events: auto; cursor: grab;
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--panel); border: 2px solid var(--accent);
+}
+.datehist input[type=range]::-moz-range-track { background: none; }
+
+.datehist .axis {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.datehist .axis .muted { opacity: .55; }
+
+/* ── recipes / reviewers / both ── */
+.kinds { display: flex; align-items: center; gap: .35rem; margin-bottom: .6rem; }
+.kind-label {
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); font-weight: 600; margin-right: .2rem;
+}
+.kind {
+  border: 1px solid var(--line); background: #fff; cursor: pointer;
+  padding: .22rem .6rem; border-radius: 999px; font-size: .8rem; color: var(--ink);
+}
+.kind:hover { border-color: var(--accent); }
+.kind.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.kind-n { opacity: .6; font-variant-numeric: tabular-nums; margin-left: .15rem; }
+.kind.on .kind-n { opacity: .8; }
+.kind-tag {
+  font-size: .62rem; text-transform: uppercase; letter-spacing: .05em;
+  background: #eef3f7; color: #3f5a70; border: 1px solid var(--line);
+  border-radius: 3px; padding: .05rem .3rem; vertical-align: middle; font-weight: 500;
+}
+.kind[disabled] { opacity: .45; cursor: default; }
+.kind[disabled]:hover { border-color: var(--line); }
+.review.hit { font-weight: 600; }
+.review.hit::after { content: ' ← matched'; font-size: .68rem; color: var(--accent); font-weight: 500; }
+.reviews .tag.csv { text-transform: none; letter-spacing: 0; font-weight: 400; }
+
+/* ── the three source buttons and their overlay ── */
+.sources { display: flex; gap: .4rem; margin-left: 1.4rem; }
+.sources button {
+  padding: .35rem .9rem; border: 1px solid var(--line); border-radius: 6px;
+  background: #fff; cursor: pointer; font-size: .84rem; font-weight: 550; color: var(--ink);
+}
+.sources button:hover { border-color: var(--accent); color: var(--accent); }
+
+.overlay {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(35, 33, 30, .55);
+  display: flex; align-items: center; justify-content: center; padding: 2.5rem;
+}
+.overlay[hidden] { display: none; }
+.sheet {
+  background: var(--panel); border-radius: 10px; width: min(1100px, 100%);
+  max-height: 100%; display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0,0,0,.3);
+}
+.sheet > header {
+  display: flex; align-items: center; gap: 1rem;
+  padding: .7rem 1rem; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.sheet h2 { font-size: .95rem; margin: 0; font-weight: 620; font-family: ui-monospace, monospace; }
+.ov-tabs { display: flex; gap: .3rem; margin-left: auto; }
+.ov-tabs button {
+  border: 1px solid var(--line); background: #fff; border-radius: 6px; cursor: pointer;
+  padding: .3rem .6rem; font-size: .8rem; color: var(--ink); text-align: left;
+}
+.ov-tabs button span { display: block; font-size: .64rem; color: var(--muted); font-family: ui-monospace, monospace; }
+.ov-tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ov-tabs button.on span { color: rgba(255,255,255,.75); }
+#ov-close {
+  border: 0; background: none; font-size: 1.4rem; line-height: 1; cursor: pointer;
+  color: var(--muted); padding: 0 .2rem;
+}
+#ov-close:hover { color: var(--ink); }
+#ov-note { padding: .6rem 1rem 0; margin: 0; max-width: 78ch; }
+#ov-body {
+  margin: .6rem 1rem 1rem; padding: .8rem; border-radius: 6px;
+  background: #2b2926; color: #e8e4dd; overflow: auto; flex: 1;
+  font-size: .72rem; line-height: 1.5; white-space: pre;
+}

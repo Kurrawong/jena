@@ -1,0 +1,57 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 4 — a genuine multi-level drill-down. Nothing here is limited to two levels.
+#
+# The reviewer_stars_reviewMonth dimension has THREE levels, and drilling is a PATH: the
+# server returns the children of whatever path the "=" clauses describe. All three levels
+# are below, in one result set.
+#
+#   level 1   no filter                    -> the six reviewers
+#   level 2   = Priya                      -> the ratings Priya gave           (5,2,4,3)
+#   level 3   = Priya AND = 5              -> the months of her FIVE-star ones
+#
+# WHY THIS IS NOT TWO (OR THREE) FLAT FACETS
+#
+# The three recipes that "Priya AND 5 stars" selects carry NINE review rows between them:
+#
+#   Slow-Braised Beef Shin   Priya 5 (2024-02), Tomas 4 (2024-05), Noor 3 (2025-01)
+#   Cacio e Pepe             Priya 5 (2024-04), Ines  5 (2024-09), Yuki 4 (2025-03)
+#   Miso Soup                Priya 5 (2025-11), Noor  1 (2024-09), Kwame 4 (2025-10)
+#
+# A flat count of the month field over those recipes would return all nine months. Level 3
+# returns exactly three — 2024-02, 2024-04 and 2025-11 — because the taxonomy holds the
+# whole path per review row, so only rows that are Priya's AND five-star contribute.
+#
+# It could not be faked with flat facets in any case: a child-scoped field has no
+# entity-level flat facet at all, so field:reviewMonth on its own returns nothing.
+#
+# Contrast with the region_country dimension in 04/05, which is a real taxonomy dimension
+# but whose demo data is one country per recipe — so its counts happen to be identical to
+# "filter by region, flat-count country" and prove nothing on their own. This one is the
+# discriminating example.
+
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?level ?value ?count
+WHERE {
+    {
+        BIND(1 AS ?level)
+        (?f1 ?value ?lo1 ?hi1 ?count) luc:facet (
+            "default" "default" "*" '["reviewer_stars_reviewMonth"]' "" 50 0)
+    }
+    UNION
+    {
+        BIND(2 AS ?level)
+        (?f2 ?value ?lo2 ?hi2 ?count) luc:facet (
+            "default" "default" "*" '["reviewer_stars_reviewMonth"]'
+            '{"op":"=","args":[{"property":"urn:jena:lucene:field#reviewer"},"Priya"]}' 50 0)
+    }
+    UNION
+    {
+        BIND(3 AS ?level)
+        (?f3 ?value ?lo3 ?hi3 ?count) luc:facet (
+            "default" "default" "*" '["reviewer_stars_reviewMonth"]'
+            '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#reviewer"},"Priya"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#stars"},5]}]}'
+            50 0)
+    }
+}
+ORDER BY ?level DESC(?count) ?value

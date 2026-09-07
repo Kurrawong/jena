@@ -28,6 +28,7 @@ import org.apache.jena.graph.Graph;
 import org.apache.jena.graph.Node;
 import org.apache.jena.query.text.*;
 import org.apache.jena.query.text.ShaclIndexMapping.*;
+import org.apache.jena.query.text.embedding.EmbeddingConfig;
 import org.apache.jena.rdf.model.*;
 import org.apache.jena.sparql.path.*;
 import org.apache.jena.system.G;
@@ -116,15 +117,54 @@ public class ShaclIndexAssembler {
         List<FieldOccurrence> rootOccurrences = parseRootOccurrences(a, shape, canonicalFields, reachableFields);
         List<NestedDef> nestedDefs = parseNestedDefs(a, shape, canonicalFields, reachableFields);
         List<FieldDef> rootFields = distinctFields(rootOccurrences);
-        List<FieldDef> fields = new ArrayList<>(reachableFields.values());
 
         if (rootOccurrences.isEmpty() && nestedDefs.isEmpty()) {
             throw new TextIndexException("Shape " + shape + " has no field occurrences");
         }
 
+        // Parsed after the occurrences so that idx:embeddingSource can be validated against
+        // the fields this shape actually reaches — naming a source field the shape does not
+        // populate would otherwise embed the empty string for every entity.
+        parseVectorFields(a, shape, canonicalFields, reachableFields);
+        List<FieldDef> fields = new ArrayList<>(reachableFields.values());
+
         List<HierarchyDef> hierarchies = parseHierarchies(shape, rootFields);
         return new IndexProfile(shapeNode, targetClasses, docIdField, discriminatorField,
             fields, rootOccurrences, hierarchies, nestedDefs);
+    }
+
+    /**
+     * Parse {@code idx:vectorField} declarations on a shape and register them as reachable
+     * fields, checking that every {@code idx:embeddingSource} names a field this shape
+     * actually populates.
+     */
+    private static void parseVectorFields(Assembler a, Resource shape,
+                                          Map<String, CanonicalFieldSpec> canonicalFields,
+                                          Map<String, FieldDef> reachableFields) {
+        StmtIterator iter = shape.listProperties(IndexVocab.pVectorField);
+        while (iter.hasNext()) {
+            RDFNode node = iter.next().getObject();
+            if (!node.isResource()) {
+                throw new TextIndexException("idx:vectorField on " + shape + " must be a resource");
+            }
+            FieldDef field = resolveCanonicalField(a, node.asResource(), canonicalFields);
+            if (!field.isVector()) {
+                throw new TextIndexException(
+                    "idx:vectorField on " + shape + " references field '" + field.getFieldName()
+                    + "', which has type " + field.getFieldType()
+                    + ". Declare it with idx:fieldType idx:VectorField.");
+            }
+            for (String sourceIRI : field.getVectorDef().sourceFieldIRIs()) {
+                if (!reachableFields.containsKey(sourceIRI)) {
+                    throw new TextIndexException(
+                        "Vector field '" + field.getFieldName() + "' on " + shape
+                        + " lists idx:embeddingSource <" + sourceIRI + ">, which this shape does not"
+                        + " populate. Add an occurrence for it, or drop it from the source list —"
+                        + " otherwise every entity of this shape embeds the same empty text.");
+                }
+            }
+            reachableFields.put(field.getFieldIRI().getURI(), field);
+        }
     }
 
     private static void rejectLegacyShapeFieldList(Resource shape) {
@@ -564,7 +604,8 @@ public class ShaclIndexAssembler {
                 || existingField.isStoreLiteralMetadata() != parsedField.isStoreLiteralMetadata()
                 || !Objects.equals(existing.analyzerNode(), parsed.analyzerNode())
                 || !Objects.equals(existing.queryAnalyzerNode(), parsed.queryAnalyzerNode())
-                || !Objects.equals(existing.normalizerNode(), parsed.normalizerNode())) {
+                || !Objects.equals(existing.normalizerNode(), parsed.normalizerNode())
+                || !Objects.equals(existingField.getVectorDef(), parsedField.getVectorDef())) {
             throw new TextIndexException(
                 "Canonical field " + existingField.getFieldIRI().getURI()
                 + " is defined inconsistently across occurrences");
@@ -628,10 +669,16 @@ public class ShaclIndexAssembler {
         boolean defaultSearch = getOptionalBoolean(fieldRes, IndexVocab.pDefaultSearch, false);
         boolean storeLiteralMetadata = getOptionalBoolean(fieldRes, IndexVocab.pStoreLiteralMetadata, false);
 
+        ShaclIndexMapping.VectorDef vectorDef = parseVectorDef(fieldRes, fieldName, fieldType);
+        if (fieldType == FieldType.VECTOR) {
+            rejectInapplicableVectorAttributes(fieldRes, fieldName, facetable, sortable,
+                multiValued, defaultSearch, analyzer != null || queryAnalyzer != null);
+        }
+
         Node fieldIRI = fieldRes.isURIResource() ? fieldRes.asNode() : null;
         FieldDef fieldDef = new FieldDef(fieldName, fieldType, analyzer, queryAnalyzer,
             stored, indexed, facetable, sortable, multiValued, defaultSearch,
-            storeLiteralMetadata, fieldIRI, normalizer);
+            storeLiteralMetadata, fieldIRI, normalizer, vectorDef);
         log.debug("Parsed canonical field: {} type={} facetable={}", fieldDef.getFieldName(),
             fieldDef.getFieldType(), fieldDef.isFacetable());
         return new CanonicalFieldSpec(fieldDef, analyzerNode, queryAnalyzerNode, normalizerNode);
@@ -930,7 +977,163 @@ public class ShaclIndexAssembler {
         if (IndexVocab.DateField.getURI().equals(uri)) return FieldType.TEMPORAL;
         if (IndexVocab.DateTimeField.getURI().equals(uri)) return FieldType.TEMPORAL;
         if (IndexVocab.LatLonField.getURI().equals(uri)) return FieldType.LATLON;
+        if (IndexVocab.VectorField.getURI().equals(uri)) return FieldType.VECTOR;
         throw new TextIndexException("Unknown idx:fieldType: " + uri);
+    }
+
+    /**
+     * Parse the {@code idx:dimension} / {@code idx:similarity} / {@code idx:embeddingSource}
+     * block on a VECTOR field, and reject those terms on any other type.
+     * <p>
+     * The rejection matters more than it looks. {@code idx:dimension} on a TEXT field is
+     * silently meaningless, and a config that declares one is a config whose author
+     * believes they have configured a vector — exactly the mistake that surfaces later as
+     * "semantic search returns nothing" with no error anywhere to explain it.
+     */
+    private static ShaclIndexMapping.VectorDef parseVectorDef(Resource fieldRes, String fieldName,
+                                                              FieldType fieldType) {
+        boolean hasVectorTerms = fieldRes.hasProperty(IndexVocab.pDimension)
+            || fieldRes.hasProperty(IndexVocab.pSimilarity)
+            || fieldRes.hasProperty(IndexVocab.pEmbeddingSource);
+
+        if (fieldType != FieldType.VECTOR) {
+            if (hasVectorTerms) {
+                throw new TextIndexException(
+                    "idx:dimension, idx:similarity and idx:embeddingSource are only valid on "
+                    + "idx:VectorField; field '" + fieldName + "' has type " + fieldType + ".");
+            }
+            return null;
+        }
+
+        int dimension = getOptionalInt(fieldRes, IndexVocab.pDimension, 0);
+        if (dimension <= 0) {
+            throw new TextIndexException(
+                "Vector field '" + fieldName + "' must declare a positive idx:dimension. "
+                + "Lucene fixes a KNN field's dimension at index time, so it cannot be inferred later.");
+        }
+
+        ShaclIndexMapping.VectorSimilarity similarity = ShaclIndexMapping.VectorSimilarity.COSINE;
+        Statement simStmt = fieldRes.getProperty(IndexVocab.pSimilarity);
+        if (simStmt != null) {
+            similarity = parseVectorSimilarity(simStmt.getObject(), fieldName);
+        }
+
+        List<String> sourceFieldIRIs = new ArrayList<>();
+        Statement srcStmt = fieldRes.getProperty(IndexVocab.pEmbeddingSource);
+        if (srcStmt != null) {
+            RDFNode srcNode = srcStmt.getObject();
+            if (!srcNode.isResource() || !srcNode.canAs(RDFList.class)) {
+                throw new TextIndexException(
+                    "idx:embeddingSource on vector field '" + fieldName
+                    + "' must be an RDF list of field IRIs, e.g. ( field:title field:description ).");
+            }
+            for (RDFNode item : srcNode.as(RDFList.class).asJavaList()) {
+                if (!item.isURIResource()) {
+                    throw new TextIndexException(
+                        "idx:embeddingSource on vector field '" + fieldName
+                        + "' must list field IRIs, got: " + item);
+                }
+                sourceFieldIRIs.add(item.asResource().getURI());
+            }
+        }
+        if (sourceFieldIRIs.isEmpty()) {
+            throw new TextIndexException(
+                "Vector field '" + fieldName + "' must declare idx:embeddingSource — the fields "
+                + "whose values are verbalised and embedded. A vector field has no sh:path of its "
+                + "own; it is derived from other fields on the same entity.");
+        }
+
+        return new ShaclIndexMapping.VectorDef(dimension, similarity, sourceFieldIRIs);
+    }
+
+    /**
+     * Reject field attributes that cannot mean anything on a vector field.
+     * <p>
+     * All of these fail silently rather than loudly if allowed through — an
+     * {@code idx:facetable} vector produces no facet values, an {@code idx:defaultSearch}
+     * vector is skipped by the text query parser — so the config is refused instead.
+     */
+    private static void rejectInapplicableVectorAttributes(Resource fieldRes, String fieldName,
+                                                           boolean facetable, boolean sortable,
+                                                           boolean multiValued, boolean defaultSearch,
+                                                           boolean hasAnalyzer) {
+        if (facetable) {
+            throw new TextIndexException("Vector field '" + fieldName + "' cannot be idx:facetable — "
+                + "a vector has no discrete values to count.");
+        }
+        if (sortable) {
+            throw new TextIndexException("Vector field '" + fieldName + "' cannot be idx:sortable — "
+                + "a vector has no total order. Rank by similarity instead.");
+        }
+        if (multiValued) {
+            throw new TextIndexException("Vector field '" + fieldName + "' cannot be idx:multiValued — "
+                + "one entity carries exactly one embedding.");
+        }
+        if (defaultSearch) {
+            throw new TextIndexException("Vector field '" + fieldName + "' cannot be idx:defaultSearch — "
+                + "\"default\" selects fields for the text query parser. Name the field explicitly in "
+                + "the luc:query fieldSpec to search it.");
+        }
+        if (hasAnalyzer) {
+            throw new TextIndexException("Vector field '" + fieldName + "' cannot declare idx:analyzer or "
+                + "idx:queryAnalyzer — its text is tokenised by the embedding model, not by Lucene.");
+        }
+        if (fieldRes.hasProperty(IndexVocab.pStoreLiteralMetadata)) {
+            throw new TextIndexException("Vector field '" + fieldName
+                + "' cannot declare idx:storeLiteralMetadata — it holds no literal.");
+        }
+    }
+
+    private static ShaclIndexMapping.VectorSimilarity parseVectorSimilarity(RDFNode node, String fieldName) {
+        if (!node.isResource()) {
+            throw new TextIndexException("idx:similarity on '" + fieldName + "' must be a resource, got: " + node);
+        }
+        String uri = node.asResource().getURI();
+        if (IndexVocab.Cosine.getURI().equals(uri)) return ShaclIndexMapping.VectorSimilarity.COSINE;
+        if (IndexVocab.DotProduct.getURI().equals(uri)) return ShaclIndexMapping.VectorSimilarity.DOT_PRODUCT;
+        if (IndexVocab.Euclidean.getURI().equals(uri)) return ShaclIndexMapping.VectorSimilarity.EUCLIDEAN;
+        if (IndexVocab.MaximumInnerProduct.getURI().equals(uri)) {
+            return ShaclIndexMapping.VectorSimilarity.MAXIMUM_INNER_PRODUCT;
+        }
+        throw new TextIndexException("Unknown idx:similarity on '" + fieldName + "': " + uri);
+    }
+
+    /**
+     * Parse the index-level {@code idx:embedding} block into an {@link EmbeddingConfig}.
+     * Returns null when the index declares no embedding configuration.
+     */
+    public static EmbeddingConfig parseEmbeddingConfig(Resource indexRes) {
+        Statement stmt = indexRes.getProperty(IndexVocab.pEmbedding);
+        if (stmt == null) {
+            return null;
+        }
+        if (!stmt.getObject().isResource()) {
+            throw new TextIndexException("idx:embedding on " + indexRes + " must be a resource");
+        }
+        Resource embedRes = stmt.getObject().asResource();
+
+        String provider = getRequiredString(embedRes, IndexVocab.pProvider,
+            "idx:embedding block on " + indexRes + " is missing idx:provider");
+        String model = getOptionalString(embedRes, IndexVocab.pModel);
+        String modelPath = getOptionalString(embedRes, IndexVocab.pModelPath);
+        int dimension = getOptionalInt(embedRes, IndexVocab.pDimension, 0);
+
+        Map<String, String> options = new LinkedHashMap<>();
+        StmtIterator optionIter = embedRes.listProperties(IndexVocab.pOption);
+        while (optionIter.hasNext()) {
+            RDFNode optionNode = optionIter.next().getObject();
+            if (!optionNode.isResource()) {
+                throw new TextIndexException("idx:option on " + embedRes + " must be a resource");
+            }
+            Resource optionRes = optionNode.asResource();
+            String name = getRequiredString(optionRes, IndexVocab.pOptionName,
+                "idx:option on " + embedRes + " is missing idx:optionName");
+            String value = getRequiredString(optionRes, IndexVocab.pOptionValue,
+                "idx:option '" + name + "' on " + embedRes + " is missing idx:optionValue");
+            options.put(name, value);
+        }
+
+        return new EmbeddingConfig(provider, model, modelPath, dimension, options);
     }
 
     private static String getRequiredString(Resource resource, Property property, String errorMsg) {

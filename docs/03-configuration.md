@@ -152,6 +152,152 @@ Public API rule:
 
 `idx:fieldName` is not a public query-time identifier.
 
+## Vector Fields
+
+A vector field holds a dense embedding of the entity, searched by nearest-neighbour
+similarity. It is the one field kind that is **derived rather than extracted**: it has no
+`sh:path` of its own, and instead names the fields whose values are verbalised and
+embedded.
+
+```turtle
+field:embedding
+    idx:fieldName "embedding" ;
+    idx:fieldType idx:VectorField ;
+    idx:dimension 384 ;
+    idx:similarity idx:Cosine ;              # default; also DotProduct, Euclidean, MaximumInnerProduct
+    idx:embeddingSource ( field:title field:description ) .
+```
+
+Because it has no path, it attaches to a shape with `idx:vectorField` rather than through
+an `sh:property` occurrence:
+
+```turtle
+:MiningReportShape
+    sh:targetClass ex:MiningReport ;
+    sh:property [ idx:field field:title ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:description ; sh:path dcterms:description ] ;
+    idx:vectorField field:embedding .
+```
+
+Source values are joined in declaration order, separated by `". "`. Order matters: changing
+it changes every vector, and therefore requires a reindex.
+
+An entity with no text in any source field gets **no vector at all** rather than an
+embedding of the empty string. Lucene treats a missing KNN field as "not a candidate",
+which is the right answer for an entity with nothing to be similar to; embedding the empty
+string would instead place every such entity at one arbitrary point in the space, where
+they surface as neighbours of each other.
+
+### The embedding engine
+
+One block per index names the provider:
+
+```turtle
+:index rdf:type text:TextIndexShacl ;
+    # ...
+    idx:knnTopK 100 ;                        # optional; neighbours retrieved (default 100)
+    idx:embedding [
+        idx:provider "jlama" ;
+        idx:model "BAAI/bge-small-en-v1.5" ;
+        idx:modelPath "/models" ;
+        idx:option [ idx:optionName "queryPrefix" ; idx:optionValue "..." ] ;
+    ] .
+```
+
+| Provider | Ships in | Notes |
+|---|---|---|
+| `hashing` | `jena-text` | Deterministic, no model, no download. Measures **lexical overlap, not meaning** — for testing the plumbing and for offline demos only |
+| `onnx` | `jena-text-embeddings` (optional) | Real embeddings, via ONNX Runtime. **Use this one.** Any model with an ONNX export |
+| `jlama` | `jena-text-embeddings` (optional) | **Broken — do not use.** See below |
+
+#### `jlama` returns vectors that are not the model's output
+
+It loads `BAAI/bge-small-en-v1.5` without error and reports the right dimension, but the
+vectors are wrong. Against a reference BERT forward pass over the same `model.safetensors`
+and the same token ids from Jlama's own (correct) tokenizer, its vector for a given text has
+cosine **-0.06** with the correct one under its default `MODEL` pooling — 0.27 at best
+across its four pooling modes. Unrelated documents come out closer than related ones, so
+retrieval is noise.
+
+This is not a configuration problem: the tokenizer is right, the `F32`/`I8` and `F32`/`F32`
+working dtypes are bit-identical, every pooling mode is wrong, and the same weights behave
+correctly under both the numpy reference and ONNX Runtime. Nothing throws — it is exactly
+the silent "confident garbage" failure described under
+[Model identity is a correctness boundary](#model-identity-is-a-correctness-boundary),
+arriving through the engine rather than through a model mismatch.
+
+`TestOnnxEmbeddingProvider.embeddingsMatchTheReferenceForwardPass` pins the correct numbers.
+
+#### The `onnx` provider
+
+```turtle
+idx:embedding [
+    idx:provider "onnx" ;
+    idx:model "BAAI/bge-small-en-v1.5" ;
+    idx:modelPath "models" ;                      # downloaded here on first run, then reused
+    idx:option [ idx:optionName "pooling" ; idx:optionValue "cls" ] ;    # optional
+] .
+```
+
+ONNX Runtime runs the forward pass; tokenisation reuses Jlama's `BertTokenizer`, which is
+pure Java and was verified correct, so no second native dependency is needed. The runtime's
+native libraries ship inside its jar for linux/macOS/windows on x86_64 and aarch64, and
+**no `--add-modules jdk.incubator.vector` is required** — that was a Jlama constraint.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `pooling` | `cls` for `bge-*`, else `mean` | How token vectors collapse to one. Wrong value degrades retrieval silently |
+| `queryPrefix` / `documentPrefix` | inferred from the model name | The asymmetric instructions BGE and E5 expect |
+
+Model files are fetched from HuggingFace (`onnx/model.onnx` plus the tokenizer and config
+JSON) into `idx:modelPath`. A directory that already holds all four is used as-is with no
+network call, which is the intended production shape — bake the model into a derived image.
+Not every model publishes an ONNX export; a missing one fails at startup with the URL.
+
+Providers are discovered with `ServiceLoader`, so `jena-text` itself carries no ML
+dependency and adding an engine is a jar on the classpath, not a class name in RDF. An
+unknown provider name fails at startup listing the ones that are available.
+
+**Model choice is constrained by the engine.** Jlama loads encoder-only BERT models, which
+rules out the current leaders — Qwen3-Embedding (decoder), EmbeddingGemma (Gemma3 with
+bidirectional attention), and ModernBERT-based models such as granite-embedding-r2. Within
+BERT the practical options are `BAAI/bge-small-en-v1.5` (384-dim, the documented default),
+`Snowflake/snowflake-arctic-embed-s` and `intfloat/e5-small-v2`.
+
+### Model identity is a correctness boundary
+
+Index-time and query-time embeddings must come from the same model. A mismatch does not
+error — it returns plausible-looking garbage, which is worse. Two checks guard this:
+
+- `idx:dimension` is compared against what the provider reports, at assembly time. A
+  mismatch refuses to start.
+- Lucene fixes a KNN field's dimension at index time, so changing model means a **full
+  reindex** regardless.
+
+Note that matching dimensions do not prove matching models: two different 384-dim models
+will both pass the check and return nonsense. Keep the loader and server images pinned to
+the same model artifact.
+
+### Attributes that are refused on a vector field
+
+Each of these fails *silently* if allowed through, so the config is rejected instead:
+
+| Attribute | Why it is refused |
+|---|---|
+| `idx:facetable` | A vector has no discrete values to count |
+| `idx:sortable` | A vector has no total order |
+| `idx:multiValued` | One entity carries exactly one embedding |
+| `idx:defaultSearch` | `"default"` selects fields for the Lucene query parser, which a vector has no part in. Name the field explicitly in `fieldSpec` |
+| `idx:analyzer`, `idx:queryAnalyzer` | Tokenisation is the model's, not Lucene's |
+| `idx:storeLiteralMetadata` | There is no literal |
+
+`idx:dimension`, `idx:similarity` and `idx:embeddingSource` are likewise refused on any
+field that is *not* an `idx:VectorField` — a config declaring them elsewhere is a config
+whose author believes they have configured a vector.
+
+Every `idx:embeddingSource` entry must be a field the shape actually populates. Naming an
+unreachable field would otherwise mean every entity embeds the same partial text.
+
 ## Field Properties
 
 These go on the **canonical field**, never on an occurrence.
@@ -826,12 +972,18 @@ Every term the assembler reads, and where it is defined above:
 | `idx:externalSource` | `idx:nested` | [External Content](#external-content-csvtsv) |
 | `idx:format` `idx:location` `idx:subjectColumn` `idx:subjectColumnIndex` `idx:subjectPrefix` `idx:delimiter` `idx:headerless` `idx:onError` `idx:column` `idx:delta` `idx:opColumn` | `idx:externalSource` | [Source properties](#source-properties) |
 | `idx:columnName` `idx:columnIndex` | `idx:column` | [Source properties](#source-properties) |
+| `idx:vectorField` | shape | [Vector Fields](#vector-fields) |
+| `idx:dimension` `idx:similarity` `idx:embeddingSource` | canonical field (VECTOR only) | [Vector Fields](#vector-fields) |
+| `idx:embedding` `idx:knnTopK` | index | [The embedding engine](#the-embedding-engine) |
+| `idx:provider` `idx:model` `idx:modelPath` `idx:option` | `idx:embedding` | [The embedding engine](#the-embedding-engine) |
+| `idx:optionName` `idx:optionValue` | `idx:option` | [The embedding engine](#the-embedding-engine) |
 
 Resources rather than properties:
 
 | Term | Used as |
 |---|---|
-| `idx:TextField` `idx:KeywordField` `idx:IntField` `idx:LongField` `idx:DoubleField` `idx:TemporalField` `idx:LatLonField` | `idx:fieldType` value |
+| `idx:TextField` `idx:KeywordField` `idx:IntField` `idx:LongField` `idx:DoubleField` `idx:TemporalField` `idx:LatLonField` `idx:VectorField` | `idx:fieldType` value |
+| `idx:Cosine` `idx:DotProduct` `idx:Euclidean` `idx:MaximumInnerProduct` | `idx:similarity` value |
 | `idx:DateField` `idx:DateTimeField` | deprecated aliases for `idx:TemporalField` |
 | `idx:CsvFile` `idx:TsvFile` | `idx:format` value |
 

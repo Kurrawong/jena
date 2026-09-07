@@ -36,6 +36,7 @@ import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.text.assembler.IndexVocab;
 import org.apache.jena.query.text.cql.CqlExpression;
 import org.apache.jena.query.text.cql.CqlToLuceneCompiler;
+import org.apache.jena.query.text.embedding.EmbeddingProvider;
 import org.apache.lucene.document.*;
 import org.apache.lucene.facet.FacetField;
 import org.apache.lucene.facet.FacetResult;
@@ -70,6 +71,7 @@ import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.index.ReaderUtil;
 import org.apache.lucene.index.StoredFields;
 import org.apache.lucene.index.Term;
@@ -118,6 +120,10 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     static final String NESTED_SCOPE_FIELD = "_nestedScope";
 
     private final ShaclIndexMapping shaclMapping;
+    /** Embeds document and query text; null unless a vector field is configured. */
+    private final EmbeddingProvider embeddingProvider;
+    /** Neighbours retrieved by a KNN search — see {@link TextIndexConfig#getKnnTopK()}. */
+    private final int knnTopK;
     private final List<String> facetFields;
     private final FacetsConfig facetsConfig;
     private final int maxFacetHits;
@@ -241,6 +247,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         super(directory, config);
         this.shaclMapping = config.getShaclMapping();
         this.maxFacetHits = config.getMaxFacetHits();
+        this.embeddingProvider = config.getEmbeddingProvider();
+        this.knnTopK = config.getKnnTopK();
 
         this.facetFields = new ArrayList<>(config.getFacetFields());
         this.facetsConfig = new FacetsConfig();
@@ -659,6 +667,14 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * Uses MultiFieldQueryParser for multiple fields, standard QueryParser for single.
      */
     protected Query parseQueryForFields(String queryString, List<String> fields) throws ParseException {
+        // A vector field short-circuits the query parser entirely: the query string is text
+        // to embed, not a Lucene expression. Call sites that hold a compiled CQL filter call
+        // buildKnnQuery directly so the filter can be pushed into the graph traversal; this
+        // path serves the ones that have no filter to push.
+        ShaclIndexMapping.FieldDef vectorField = vectorFieldIn(fields);
+        if (vectorField != null) {
+            return buildKnnQuery(vectorField, queryString, null);
+        }
         if ("*".equals(queryString)) {
             return new MatchAllDocsQuery();
         }
@@ -734,6 +750,103 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     }
 
     /**
+     * Compile a CQL filter to the Lucene query that can be pushed into the index, or null
+     * when there is no filter. Residual (non-pushable) expressions are logged and dropped,
+     * matching the behaviour every call site already had.
+     */
+    private Query compileCqlFilter(CqlExpression cqlFilter) {
+        if (cqlFilter == null) {
+            return null;
+        }
+        CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig, getQueryAnalyzer());
+        CqlToLuceneCompiler.CompileResult result = compiler.compile(cqlFilter);
+        if (result.residual() != null) {
+            log.warn("CQL filter has residual expressions ignored: {}", result.residual().toCanonical());
+        }
+        return result.pushed();
+    }
+
+    // ---- Vector (KNN) search ----
+
+    /**
+     * The single VECTOR field among {@code resolvedFields}, or null if there is none.
+     * <p>
+     * Two combinations are refused rather than guessed at:
+     * <ul>
+     *   <li><b>Two vector fields.</b> There is no defined way to combine two independent
+     *       similarity rankings.</li>
+     *   <li><b>A vector field mixed with text fields.</b> This is hybrid retrieval, and
+     *       doing it as a boolean SHOULD would add a BM25 score to a cosine similarity —
+     *       two quantities on unrelated scales, where whichever happens to be numerically
+     *       larger dominates. Reciprocal rank fusion is the correct treatment and is not
+     *       implemented yet, so the query is refused instead of silently answered badly.</li>
+     * </ul>
+     */
+    private ShaclIndexMapping.FieldDef vectorFieldIn(List<String> resolvedFields) {
+        if (resolvedFields == null) {
+            return null;
+        }
+        ShaclIndexMapping.FieldDef vectorField = null;
+        List<String> textFields = new ArrayList<>();
+        for (String fieldName : resolvedFields) {
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
+            if (fd != null && fd.isVector()) {
+                if (vectorField != null) {
+                    throw new TextIndexException("Query names more than one vector field ('"
+                        + vectorField.getFieldName() + "', '" + fd.getFieldName()
+                        + "'). A KNN search ranks by one similarity measure.");
+                }
+                vectorField = fd;
+            } else {
+                textFields.add(fieldName);
+            }
+        }
+        if (vectorField != null && !textFields.isEmpty()) {
+            throw new TextIndexException("Query mixes vector field '" + vectorField.getFieldName()
+                + "' with text field(s) " + textFields + ". Hybrid dense/lexical retrieval needs "
+                + "rank fusion to combine incomparable scores and is not implemented; search them "
+                + "as separate luc:query patterns.");
+        }
+        return vectorField;
+    }
+
+    /**
+     * Build a filtered KNN query: embed {@code qs} and search {@code vectorField} for its
+     * nearest neighbours, restricted to documents matching {@code pushedFilter}.
+     * <p>
+     * The filter goes into the {@link KnnFloatVectorQuery} constructor rather than being
+     * ANDed with the result. That is the whole point of doing this in Lucene: the filter is
+     * applied <em>during</em> the HNSW graph traversal, so k documents that satisfy it are
+     * returned. Post-filtering a KNN result instead — which is what a boolean AND would do,
+     * and what pgvector is known for — can return far fewer than k, or none at all, when
+     * the filter is selective.
+     */
+    private Query buildKnnQuery(ShaclIndexMapping.FieldDef vectorField, String qs, Query pushedFilter) {
+        if (embeddingProvider == null) {
+            throw new TextIndexException("Vector field '" + vectorField.getFieldName()
+                + "' was queried but no embedding provider is configured");
+        }
+        if (qs == null || qs.isEmpty() || "*".equals(qs)) {
+            throw new TextIndexException("Vector field '" + vectorField.getFieldName()
+                + "' needs query text to embed; got " + (qs == null || qs.isEmpty() ? "an empty string" : "\"*\"")
+                + ". A similarity search has no match-all form — there is no point to be near.");
+        }
+        float[] target = embeddingProvider.embedQuery(qs);
+        int dimension = vectorField.getVectorDef().dimension();
+        if (target.length != dimension) {
+            throw new TextIndexException("Embedding provider returned a " + target.length
+                + "-dimensional query vector for field '" + vectorField.getFieldName()
+                + "', which was indexed with dimension " + dimension
+                + ". Index-time and query-time models must match.");
+        }
+        // The parent-doc restriction belongs inside the KNN filter, not around the result:
+        // vectors live only on parent docs, and filtering afterwards would waste graph
+        // traversal on children that can never match.
+        return new KnnFloatVectorQuery(vectorField.getFieldName(), target, knnTopK,
+            filterToParents(pushedFilter));
+    }
+
+    /**
      * Build a query with NamedMatches wrapping for field attribution.
      * For multi-field queries, each field gets a named sub-query so
      * we can later determine which field(s) matched each hit.
@@ -774,29 +887,29 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             String graphURI, String lang, int limit) {
         IndexSearcher searcher = acquireSearcher();
         try {
-            Query textQuery;
-            if (qs == null || qs.isEmpty()) {
-                textQuery = new MatchAllDocsQuery();
-            } else {
-                textQuery = buildNamedQuery(qs, resolvedFields);
-            }
+            Query pushedFilter = compileCqlFilter(cqlFilter);
+            ShaclIndexMapping.FieldDef vectorField = vectorFieldIn(resolvedFields);
 
+            Query textQuery;
             Query finalQuery;
-            if (cqlFilter != null) {
-                BooleanQuery.Builder combined = new BooleanQuery.Builder();
-                combined.add(textQuery, BooleanClause.Occur.MUST);
-                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig, getQueryAnalyzer());
-                CqlToLuceneCompiler.CompileResult result = compiler.compile(cqlFilter);
-                if (result.pushed() != null) {
-                    combined.add(result.pushed(), BooleanClause.Occur.MUST);
-                }
-                if (result.residual() != null) {
-                    log.warn("CQL filter has residual expressions ignored: {}",
-                        result.residual().toCanonical());
-                }
-                finalQuery = combined.build();
-            } else {
+            if (vectorField != null) {
+                // The filter is inside the KNN query, so there is nothing left to AND on.
+                textQuery = buildKnnQuery(vectorField, qs, pushedFilter);
                 finalQuery = textQuery;
+            } else {
+                if (qs == null || qs.isEmpty()) {
+                    textQuery = new MatchAllDocsQuery();
+                } else {
+                    textQuery = buildNamedQuery(qs, resolvedFields);
+                }
+                if (pushedFilter != null) {
+                    finalQuery = new BooleanQuery.Builder()
+                        .add(textQuery, BooleanClause.Occur.MUST)
+                        .add(pushedFilter, BooleanClause.Occur.MUST)
+                        .build();
+                } else {
+                    finalQuery = textQuery;
+                }
             }
 
             int maxHits = limit > 0 ? limit : MAX_N;
@@ -824,8 +937,10 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 }
             }
 
-            // Compute field matches using NamedMatches
-            if (!results.isEmpty() && !(textQuery instanceof MatchAllDocsQuery)) {
+            // Compute field matches using NamedMatches. A KNN query carries none — a vector
+            // hit has no matching term to attribute, only a distance — so skip the rewrite
+            // and weight pass entirely rather than run it for an empty result.
+            if (!results.isEmpty() && !(textQuery instanceof MatchAllDocsQuery) && vectorField == null) {
                 computeFieldMatches(searcher, textQuery, resolvedFields, results);
             }
 
@@ -1102,7 +1217,100 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         // Add hierarchical facet fields
         addHierarchyFacetFields(doc, entity, profile);
 
+        // Vectors last: they read the values the loop above just consumed, and they are the
+        // one field kind derived from other fields rather than extracted from the entity.
+        addVectorFields(doc, entity, profile);
+
         return doc;
+    }
+
+    /**
+     * Verbalise each vector field's source values and write the embedding.
+     * <p>
+     * An entity with no text in any source field is skipped rather than embedded: Lucene
+     * treats a missing KNN field as "not a candidate", which is the right answer for an
+     * entity with nothing to be semantically similar to. Embedding the empty string
+     * instead would put every such entity at one arbitrary point in the space, where they
+     * would surface as neighbours of each other and of whatever happens to be nearby.
+     */
+    private void addVectorFields(Document doc, Entity entity, ShaclIndexMapping.IndexProfile profile) {
+        List<ShaclIndexMapping.FieldDef> vectorFields = profile.getVectorFields();
+        if (vectorFields.isEmpty()) {
+            return;
+        }
+        if (embeddingProvider == null) {
+            // The assembler rejects this combination, so reaching here means the index was
+            // built through some other path (a hand-constructed TextIndexConfig in a test).
+            throw new TextIndexException("Profile " + profile.getShapeNode()
+                + " declares vector field(s) but no embedding provider is configured");
+        }
+
+        for (ShaclIndexMapping.FieldDef fieldDef : vectorFields) {
+            String text = verbaliseForEmbedding(entity, fieldDef.getVectorDef());
+            if (text.isEmpty()) {
+                log.debug("Entity '{}' has no text in the source fields of vector field '{}'; "
+                    + "no embedding written", entity.getId(), fieldDef.getFieldName());
+                continue;
+            }
+            float[] vector = embeddingProvider.embedDocument(text);
+            if (vector.length != fieldDef.getVectorDef().dimension()) {
+                throw new TextIndexException("Embedding provider returned a " + vector.length
+                    + "-dimensional vector for field '" + fieldDef.getFieldName()
+                    + "', which declares dimension " + fieldDef.getVectorDef().dimension());
+            }
+            doc.add(new KnnFloatVectorField(fieldDef.getFieldName(), vector,
+                luceneSimilarity(fieldDef.getVectorDef().similarity())));
+        }
+    }
+
+    /**
+     * Flatten the values of a vector field's source fields into the string that gets
+     * embedded.
+     * <p>
+     * Source fields are joined in their declared order, values within a field in index
+     * order, separated by ". " so the model sees sentence-ish boundaries rather than one
+     * run-on token stream. Declaration order is honoured because it is the one thing the
+     * config author controls about the verbalisation — and because changing it changes
+     * every vector, so it must not depend on map iteration order.
+     */
+    private String verbaliseForEmbedding(Entity entity, ShaclIndexMapping.VectorDef vectorDef) {
+        StringBuilder sb = new StringBuilder();
+        for (String sourceIRI : vectorDef.sourceFieldIRIs()) {
+            ShaclIndexMapping.FieldDef sourceField = shaclMapping.findField(sourceIRI);
+            if (sourceField == null) continue;
+            Object value = entity.get(sourceField.getFieldName());
+            if (value == null) continue;
+
+            if (value instanceof List<?> values) {
+                for (Object v : values) {
+                    appendVerbalisedValue(sb, v);
+                }
+            } else {
+                appendVerbalisedValue(sb, value);
+            }
+        }
+        return sb.toString();
+    }
+
+    private static void appendVerbalisedValue(StringBuilder sb, Object value) {
+        if (value == null) return;
+        String text = value instanceof Node node
+            ? (node.isLiteral() ? node.getLiteralLexicalForm() : node.toString())
+            : value.toString();
+        if (text.isBlank()) return;
+        if (sb.length() > 0) {
+            sb.append(". ");
+        }
+        sb.append(text);
+    }
+
+    private static VectorSimilarityFunction luceneSimilarity(ShaclIndexMapping.VectorSimilarity similarity) {
+        return switch (similarity) {
+            case COSINE -> VectorSimilarityFunction.COSINE;
+            case DOT_PRODUCT -> VectorSimilarityFunction.DOT_PRODUCT;
+            case EUCLIDEAN -> VectorSimilarityFunction.EUCLIDEAN;
+            case MAXIMUM_INNER_PRODUCT -> VectorSimilarityFunction.MAXIMUM_INNER_PRODUCT;
+        };
     }
 
     /**
@@ -1819,8 +2027,13 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             IndexReader indexReader = searcher.getIndexReader();
             List<String> resolved = resolveSearchFields(searchFields);
 
+            ShaclIndexMapping.FieldDef vectorField = vectorFieldIn(resolved);
             FacetsCollector fc = null;
-            if (queryString != null && !queryString.isEmpty()) {
+            if (vectorField != null) {
+                // Top-k-scoped counts, as in getFacetCountsWithCql.
+                fc = new FacetsCollector();
+                searcher.search(buildKnnQuery(vectorField, queryString, null), fc);
+            } else if (queryString != null && !queryString.isEmpty()) {
                 Query query = parseQueryForFields(queryString, resolved);
                 fc = new FacetsCollector();
                 searcher.search(filterToParents(query), fc);
@@ -2635,29 +2848,30 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             IndexReader indexReader = searcher.getIndexReader();
             List<String> resolved = resolveSearchFields(searchFields);
 
-            BooleanQuery.Builder combined = new BooleanQuery.Builder();
-
-            if (queryString != null && !queryString.isEmpty()) {
-                combined.add(parseQueryForFields(queryString, resolved), BooleanClause.Occur.MUST);
-            }
-
-            if (cqlFilter != null) {
-                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig, getQueryAnalyzer());
-                CqlToLuceneCompiler.CompileResult cr = compiler.compile(cqlFilter);
-                if (cr.pushed() != null) {
-                    combined.add(cr.pushed(), BooleanClause.Occur.MUST);
-                }
-                if (cr.residual() != null) {
-                    log.warn("CQL filter has residual expressions that cannot be pushed to Lucene and will be ignored: {}",
-                        cr.residual().toCanonical());
-                }
-            }
+            Query pushedFilter = compileCqlFilter(cqlFilter);
+            ShaclIndexMapping.FieldDef vectorField = vectorFieldIn(resolved);
 
             FacetsCollector fc = null;
-            BooleanQuery bq = combined.build();
-            if (!bq.clauses().isEmpty()) {
+            if (vectorField != null) {
+                // Facet counts over a KNN query are counts within the top-k, not over the
+                // whole matching set — a similarity search has no "all matching documents".
+                // Using the same knnTopK as the hit path keeps the counts consistent with
+                // the page the user is looking at. See docs/02-sparql-api.md.
                 fc = new FacetsCollector();
-                searcher.search(filterToParents(bq), fc);
+                searcher.search(buildKnnQuery(vectorField, queryString, pushedFilter), fc);
+            } else {
+                BooleanQuery.Builder combined = new BooleanQuery.Builder();
+                if (queryString != null && !queryString.isEmpty()) {
+                    combined.add(parseQueryForFields(queryString, resolved), BooleanClause.Occur.MUST);
+                }
+                if (pushedFilter != null) {
+                    combined.add(pushedFilter, BooleanClause.Occur.MUST);
+                }
+                BooleanQuery bq = combined.build();
+                if (!bq.clauses().isEmpty()) {
+                    fc = new FacetsCollector();
+                    searcher.search(filterToParents(bq), fc);
+                }
             }
 
             Facets facets = createCombinedFacets(indexReader, fc, facetFieldsToQuery);
@@ -2686,20 +2900,21 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         try {
             IndexReader indexReader = searcher.getIndexReader();
             List<String> resolved = resolveSearchFields(searchFields);
+            Query pushedFilter = compileCqlFilter(cqlFilter);
+            ShaclIndexMapping.FieldDef vectorField = vectorFieldIn(resolved);
+            if (vectorField != null) {
+                // Bounded by knnTopK by construction, so this is "how many neighbours came
+                // back", not "how many documents exist". ?totalHits therefore agrees with
+                // the facet counts and the hit page, all three describing the same top-k.
+                return searcher.count(buildKnnQuery(vectorField, queryString, pushedFilter));
+            }
+
             BooleanQuery.Builder bq = new BooleanQuery.Builder();
             if (queryString != null && !queryString.isEmpty()) {
                 bq.add(parseQueryForFields(queryString, resolved), BooleanClause.Occur.MUST);
             }
-            if (cqlFilter != null) {
-                CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig, getQueryAnalyzer());
-                CqlToLuceneCompiler.CompileResult cr = compiler.compile(cqlFilter);
-                if (cr.pushed() != null) {
-                    bq.add(cr.pushed(), BooleanClause.Occur.MUST);
-                }
-                if (cr.residual() != null) {
-                    log.warn("CQL filter has residual expressions that cannot be pushed to Lucene and will be ignored: {}",
-                        cr.residual().toCanonical());
-                }
+            if (pushedFilter != null) {
+                bq.add(pushedFilter, BooleanClause.Occur.MUST);
             }
             BooleanQuery query = bq.build();
             if (query.clauses().isEmpty()) {
@@ -2769,6 +2984,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 "Cannot sort on TEXT field '" + fieldIRI + "'. Use KEYWORD for sortable fields.");
             case LATLON -> throw new TextIndexException(
                 "Cannot sort on LATLON field '" + fieldIRI + "'.");
+            case VECTOR -> throw new TextIndexException(
+                "Cannot sort on VECTOR field '" + fieldIRI + "'. A vector has no total order; "
+                + "rank by similarity instead, by naming it in the luc:query fieldSpec.");
         };
     }
 
@@ -2869,7 +3087,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 case INT -> IntPoint.newExactQuery(fieldName, Integer.parseInt(value));
                 case LONG -> LongPoint.newExactQuery(fieldName, Long.parseLong(value));
                 case DOUBLE -> DoublePoint.newExactQuery(fieldName, Double.parseDouble(value));
-                case TEMPORAL, LATLON -> throw new TextIndexException(
+                case TEMPORAL, LATLON, VECTOR -> throw new TextIndexException(
                     "Sort selector field '" + fieldName + "' has unsupported type "
                         + selectorFd.getFieldType() + "; use a KEYWORD discriminator.");
             };

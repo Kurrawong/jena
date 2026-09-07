@@ -1,0 +1,25 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 8 — semantic search. Naming a vector field in the fieldSpec is the ONLY change:
+# the query string stops being a Lucene expression and becomes text to embed. Arity,
+# filters, sorting, paging and facets are all unchanged.
+#
+# Note what is NOT in the recipe: "coffee", "Italian" and "pudding" appear nowhere in
+# Tiramisu's title or summary, which say "espresso", "mascarpone" and "savoiardi". The same
+# string in Keyword mode does not return Tiramisu at all — it returns five unrelated
+# recipes. Try it: switch the app to Keyword and paste this query in.
+
+PREFIX luc:  <urn:jena:lucene:index#>
+PREFIX schema:  <https://schema.org/>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?entity ?name ?score
+WHERE {
+    (?hit ?entity ?score) luc:query (
+        "default"
+        '["urn:jena:lucene:field#embedding"]'
+        "a coffee flavoured Italian pudding"
+        "" "" 3 0) .
+    ?entity rdfs:label|schema:name|dcterms:title ?name .
+}
+ORDER BY DESC(?score)

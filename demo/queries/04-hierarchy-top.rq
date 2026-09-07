@@ -1,0 +1,25 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 4 — hierarchical faceting, top level.
+#
+# NOTE the facet target: "region_country", the hierarchy's DIMENSION NAME, not a field
+# IRI. This is the one place the public API is not addressed by field IRI — the dimension
+# name is derived by joining the levels' idx:fieldName values with "_". Asking for
+# field:region instead gives you region's FLAT counts, which happen to look the same here
+# and stop looking the same the moment you try to drill in (see 05).
+#
+# The app does not hardcode it: GET /$/config/effective reports it under
+# profiles[].hierarchies[].dimension.
+#
+# region is itself reached by a SEQUENCE path ( kt:country kt:inRegion ) — no recipe in
+# the data states its region directly.
+
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?field ?value ?count
+WHERE {
+    (?field ?value ?low ?high ?count) luc:facet (
+        "default" "default" "*"
+        '["region_country"]'
+        "" 20 0)
+}
+ORDER BY DESC(?count) ?value

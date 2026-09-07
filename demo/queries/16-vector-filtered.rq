@@ -1,0 +1,28 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 8 — the combination the feature exists for: the cqlFilter is pushed INTO the
+# HNSW graph traversal, so the search returns k neighbours that ALREADY satisfy the
+# filter. Post-filtering a top-k list — what a vector store bolted alongside a triplestore
+# does — returns fewer than k, and often zero, whenever the filter is selective.
+#
+# Same query as 15, restricted to mains. Tiramisu is a dessert and cannot appear; the
+# nearest MAIN COURSE to "a coffee flavoured Italian pudding" comes back instead.
+#
+# Facet counts and ?totalHits under a vector query are scoped to the k nearest neighbours:
+# a similarity search has no "all matching documents" to count.
+
+PREFIX luc:  <urn:jena:lucene:index#>
+PREFIX schema:  <https://schema.org/>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?entity ?name ?score
+WHERE {
+    (?hit ?entity ?score) luc:query (
+        "default"
+        '["urn:jena:lucene:field#embedding"]'
+        "a coffee flavoured Italian pudding"
+        '{"op":"=","args":[{"property":"urn:jena:lucene:field#course"},"http://example.org/kitchen/course-main"]}'
+        "" 3 0) .
+    ?entity rdfs:label|schema:name|dcterms:title ?name .
+}
+ORDER BY DESC(?score)

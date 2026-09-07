@@ -75,6 +75,9 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestTextMultilingualEnhancements02.class
 
     , TestNativeFacetCounts.class
+    , TestVectorSearch.class
+    , TestVectorAssembler.class
+    , TestVectorDimensionMismatch.class
     , TestTextFacetPF.class
     , TestSearchExecution.class
 
@@ -160,7 +163,6 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestLuceneQuerySyntax.class
 
     // Demo data validation
-    , TestDemoDataParsing.class
     , TestDemoMiningScenarios.class
 })
 

@@ -1,0 +1,33 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+#
+# Expected row count for every query in queries/, checked by `task check`.
+#
+# Exact counts, not "more than zero". Several of these queries exist to pin a NUMBER —
+# 13 returns three recipes and not five because the same-child fold rejects two of them,
+# and 12 returns NOTHING because its fields are idx:stored false. A "non-empty" check
+# would pass while either of those silently broke.
+#
+# When a count changes, decide which it is before editing this file: the demo data
+# changed, or the library did.
+#
+# query                                    rows
+01-search-bm25                             2
+02-facets-flat                             10
+03-facets-filtered                         5
+04-hierarchy-top                           3
+05-hierarchy-drill                         3
+06-date-range                              6
+07-range-facets                            4
+08-typeahead-ngram                         2
+09-fanin-contributor                       4
+10-keyword-iri-filter                      3
+11-match                                   2
+12-nested-match-reviews                    0
+13-nested-correlation                      3
+14-sort-and-page                           5
+15-vector-search                           3
+16-vector-filtered                         3
+17-nested-hierarchy-correlated             2
+18-one-field-many-paths-many-shapes        4
+19-three-level-drilldown                   13
+20-ingredient-quantity-correlated          2

@@ -237,7 +237,9 @@ public class TextFacetPF extends PropertyFunctionBase {
             case DOUBLE  -> NodeFactory.createLiteralDT(value, XSDDatatype.XSDdouble);
             case TEMPORAL -> NodeFactory.createLiteralDT(value,
                 value.contains("T") ? XSDDatatype.XSDdateTime : XSDDatatype.XSDdate);
-            case LATLON  -> NodeFactory.createLiteralString(value);
+            // Neither is facetable — a vector field is rejected at assembly time if it
+            // declares idx:facetable — so this arm exists only to keep the switch total.
+            case LATLON, VECTOR -> NodeFactory.createLiteralString(value);
         };
     }
 

@@ -1,0 +1,14 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 1 + 3d — numeric range facets over an INT field. A null boundary is open-ended.
+# ?value is unbound on a range row; ?low / ?high carry the bucket instead.
+
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?field ?low ?high ?count
+WHERE {
+    (?field ?value ?low ?high ?count) luc:facet (
+        "default" "default" "*"
+        '[{"field":"urn:jena:lucene:field#prepMinutes","ranges":[null,20,60,240,null]}]'
+        "" 20 0)
+}
+ORDER BY ?low

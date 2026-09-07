@@ -1,0 +1,115 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+name: Demo smoke check
+
+## The demo is the only end-to-end exercise of the SHACL index: twenty queries covering
+## facets, three-level drill-down, same-child correlation, external CSV children, typeahead
+## and vector search, each asserting an exact row count.
+##
+## It therefore runs on library changes as well as demo changes. A jena-text edit can break
+## it with every unit test still green — adding a level to a hierarchy renames its dimension,
+## and a query naming the old name returns nothing rather than erroring, which is exactly the
+## kind of thing this catches and nothing else does.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'demo/**'
+      - 'jena-text/**'
+      - 'jena-text-embeddings/**'
+      - '.github/workflows/demo.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'demo/**'
+      - 'jena-text/**'
+      - 'jena-text-embeddings/**'
+      - '.github/workflows/demo.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  ## Kept in step with demo/config.ttl. If that changes model, change this, or the cache
+  ## key stops describing what is cached.
+  MODEL: BAAI/bge-small-en-v1.5
+  MODEL_DIR: demo/models/BAAI_bge-small-en-v1.5-onnx
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5.6.0
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      ## ~130MB, and unchanging for a given model. Keyed on the model id rather than on a
+      ## lockfile: nothing in the repo changes when the model does except config.ttl, and a
+      ## content hash of that would miss the cache on every unrelated edit.
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.MODEL_DIR }}
+          key: onnx-${{ env.MODEL }}
+
+      - name: Build the server jar and the embeddings module
+        run: |
+          mvn -B -q -pl jena-fuseki2/jena-fuseki-server -am -DskipTests -Drat.skip install
+          mvn -B -q -pl jena-text-embeddings -am -DskipTests -Drat.skip install
+          mvn -B -q -pl jena-text-embeddings dependency:build-classpath \
+              -Dmdep.outputFile=$PWD/demo/.embeddings-cp
+
+      - name: Fetch the embedding model
+        working-directory: demo
+        run: |
+          if [ -s "$GITHUB_WORKSPACE/$MODEL_DIR/model.onnx" ]; then
+            echo "cache hit; nothing to download"
+          else
+            base="https://huggingface.co/$MODEL/resolve/main"
+            mkdir -p "$GITHUB_WORKSPACE/$MODEL_DIR"
+            for f in onnx/model.onnx tokenizer.json tokenizer_config.json config.json; do
+              curl -sSL --retry 3 --fail \
+                -o "$GITHUB_WORKSPACE/$MODEL_DIR/$(basename $f)" "$base/$f"
+            done
+          fi
+
+      - name: Load and index
+        working-directory: demo
+        run: |
+          VERSION=$(grep -m1 '<version>' ../pom.xml | sed 's/.*<version>\(.*\)<\/version>.*/\1/')
+          JAR=../jena-fuseki2/jena-fuseki-server/target/jena-fuseki-server-$VERSION.jar
+          echo "CP=$JAR:$(cat .embeddings-cp):../jena-text-embeddings/target/classes" >> "$GITHUB_ENV"
+          java -cp "$JAR" tdb2.tdbloader --loc=DB data/kitchen.ttl
+          java -cp "$JAR:$(cat .embeddings-cp):../jena-text-embeddings/target/classes" \
+              org.apache.jena.query.text.cmd.shacltextindexer --desc=config.ttl
+
+      - name: Start the server
+        working-directory: demo
+        run: |
+          nohup java -cp "$CP" org.apache.jena.fuseki.main.cmds.FusekiServerCmd \
+              --port 3040 --config config.ttl > fuseki.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf 'http://localhost:3040/$/ping' >/dev/null && exit 0
+            sleep 1
+          done
+          echo "Fuseki did not start"; cat fuseki.log; exit 1
+
+      - name: Check every query returns the expected rows
+        working-directory: demo
+        run: ./check.sh
+
+      ## The log is where a silently-dropped CQL clause or a swallowed search error shows
+      ## up — the query still returns 200, so a red check may need this to explain itself.
+      - name: Server log
+        if: always()
+        working-directory: demo
+        run: cat fuseki.log

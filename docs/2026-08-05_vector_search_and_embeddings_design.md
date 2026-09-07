@@ -7,19 +7,57 @@ date: "2026-08-05"
 
 ## Status
 
-**Designed, not built.** Nothing in this note is implemented. No `VECTOR` field type
-exists, no vector is written to any Lucene document, and there is no embedding code in
-the tree.
+**Partly built, 2026-08-10.** The text-embedding path described here is implemented; the
+external-source (CSV) path and every structural-embedding idea remain design-only.
 
-Two prerequisites *are* already in place and were verified while writing this note (see
-[Vector API state](#vector-api-state)). A third — the loader image running without the
-Vector API — was found while writing it and **is fixed** in the same change as this note;
-that gap would have blocked the chosen engine.
+| Part of this note | State |
+|---|---|
+| `FieldType.VECTOR`, `KnnFloatVectorField` on the entity doc | **Built** |
+| Filtered KNN via `luc:query`'s `fieldSpec` | **Built** |
+| Facets and `?totalHits` scoped to top-k | **Built**, see [Facet semantics](#facet-semantics-change-under-knn) |
+| Tier 1 — query-time embedding in process | **Built** |
+| Tier 2 — document embedding at index time | **Built**, synchronously, not deferred as this note proposed |
+| `EmbeddingProvider` SPI + `jena-text-embeddings` module | **Built** |
+| Jlama provider | **Built, unverified against a real model** |
+| Tier 0 — vectors supplied via CSV / external row sources | Not built |
+| graph2vec, RDF2Vec, node2vec and friends | Rejected, see below |
+| Hybrid retrieval / RRF | Not built; mixed vector+text `fieldSpec` is refused rather than answered badly |
 
-The decision recorded here is **Jlama as the embedding engine**, with ONNX Runtime via
-LangChain4j as the documented fallback if Jlama does not hold up. The reasoning is in
-[Engine choice](#engine-choice) and the fallback is deliberately kept cheap by putting
-both behind one interface.
+Three decisions changed in the building:
+
+**Tier 2 was not deferred.** This note argued for the loader owning document embedding,
+on the pgvector precedent that nobody does synchronous in-transaction embedding. In
+practice the change listener already rebuilds the whole entity document on any relevant
+triple change, and embedding is one more field construction in that path. The async queue
+and stale-vector marker are still the right answer at scale, and are still unbuilt — the
+cost is currently paid synchronously on commit.
+
+**Verbalisation is explicit config, not convention.** The open question below asked which
+properties feed the embedded text. The answer is `idx:embeddingSource`, an ordered list of
+field IRIs on the vector field. Order is part of the contract because changing it changes
+every vector.
+
+**No `luc:knn`, and no new argument.** The other open question. Naming a vector field in
+the existing `fieldSpec` was chosen: it leaves the arity alone and every existing feature —
+CQL filters, sort, paging, facets — keeps working with no per-feature plumbing.
+
+### The engine choice needs revisiting
+
+**Jlama is implemented but has not been run against a real model** — the environment the
+work was done in has no route to HuggingFace. Everything downstream of the provider is
+tested against a deterministic hashing provider; the Jlama forward pass is not.
+
+More importantly, the constraint that drove this note's comparison table turns out to bite
+harder than expected: **Jlama's embedding path loads encoder-only BERT models**. That
+excludes every 2025–26 leader — Qwen3-Embedding (decoder), EmbeddingGemma (Gemma3 with
+bidirectional attention), granite-embedding-r2 (ModernBERT). The best available choice is
+therefore a 2023–24 BERT model (`bge-small-en-v1.5`), not because it is the best embedding
+model available in 2026 but because it is the best one this engine can load.
+
+That is a real argument for the ONNX/LangChain4j fallback, and the reason the
+`EmbeddingProvider` SPI exists: `jena-text` knows only the interface and a `ServiceLoader`
+name, so a second engine is a new module and a changed config string, with no change to
+the index or query code.
 
 ## Summary
 
@@ -356,15 +394,26 @@ mitigate rather than solve it. And Postgres has no facet engine at all; you hand
 
 ## Open questions
 
-- Which verbalisation? Which SHACL-declared properties feed the embedded text, in what
-  order, and is that a per-shape config term or a convention?
-- Does `luc:query` gain a vector argument, or is there a separate `luc:knn`? The hybrid/RRF
-  case argues for extending `luc:query`.
+Resolved in the build:
+
+- ~~Which verbalisation?~~ `idx:embeddingSource`, an ordered list of field IRIs.
+- ~~`luc:knn` or an argument on `luc:query`?~~ Neither: the existing `fieldSpec`.
+- ~~Confirm Jlama's coordinates and licence.~~ `com.github.tjake:jlama-core:0.8.4`,
+  Apache 2.0, needs `--add-modules jdk.incubator.vector`. Embedding API is
+  `ModelSupport.loadEmbeddingModel(...)` then `model.embed(text, PoolingType)`.
+
+Still open:
+
 - Does the CSV/external-source path carry vectors as base64 or as comma-separated floats?
   Base64 float32 is roughly half the bytes and parses faster; 768 comma-separated floats is
   ~8KB of text per row, which matters at millions of entities.
-- Confirm Jlama's current embedding-model coverage, Maven coordinates, licence, and
-  required JVM flags before committing to it.
+- **Is Jlama the right engine at all**, given it cannot load any model newer than the BERT
+  generation? See [The engine choice needs revisiting](#the-engine-choice-needs-revisiting).
+- Should document embedding move off the commit path onto a queue, as this note originally
+  proposed? It is synchronous today.
+- Should `idx:knnTopK` be per-query rather than per-index? One value per index is what makes
+  hits, facets and `?totalHits` describe the same set; a per-query override would need those
+  three to agree some other way.
 
 ## Related
 

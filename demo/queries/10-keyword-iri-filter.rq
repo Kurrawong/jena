@@ -1,0 +1,18 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 3b — KEYWORD equality on an IRI value. The whole IRI is one term, so "=" is
+# exact and no analyzer is involved. This is what a facet checkbox sends.
+
+PREFIX luc:  <urn:jena:lucene:index#>
+PREFIX schema:  <https://schema.org/>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?entity ?name
+WHERE {
+    (?hit ?entity) luc:query (
+        "default" "default" "*"
+        '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#course"},"http://example.org/kitchen/course-main"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#contributor"},"http://example.org/kitchen/person-ada"]}]}'
+        "" 20 0) .
+    ?entity rdfs:label|schema:name|dcterms:title ?name .
+}
+ORDER BY ?name

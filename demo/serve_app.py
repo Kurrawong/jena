@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Serve the demo app and proxy Fuseki requests through the same origin."""
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+"""Serve the demo app and proxy Fuseki requests through the same origin.
+
+Copied from ../demo/serve_app.py. Two things here are load-bearing rather than
+incidental: the Cache-Control rewrite that makes per-IRI label lookups actually cacheable,
+and the ADMIN_ALLOWED gate, which stops this proxy from laundering Fuseki's
+localhost-only admin check.
+"""
 
 from __future__ import annotations
 

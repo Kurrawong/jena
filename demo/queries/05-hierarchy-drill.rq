@@ -1,0 +1,18 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 4 — drilling in. An "=" filter on the parent level turns the same facet request
+# into a request for that parent's CHILDREN: the countries within Asia, not the regions.
+# The drill path is inferred from the filter; there is no separate drill-down argument.
+#
+# Expect japan 2, thailand 1, india 1.
+
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?field ?value ?count
+WHERE {
+    (?field ?value ?low ?high ?count) luc:facet (
+        "default" "default" "*"
+        '["region_country"]'
+        '{"op":"=","args":[{"property":"urn:jena:lucene:field#region"},"http://example.org/kitchen/region-asia"]}'
+        20 0)
+}
+ORDER BY DESC(?count) ?value

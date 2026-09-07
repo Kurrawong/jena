@@ -767,6 +767,9 @@ public class CqlToLuceneCompiler {
                 LiteralFieldSupport.epochField(fieldName),
                 toEpochMillis(ft, value));
             case LATLON -> throw new TextIndexException("Equality queries not supported on LATLON field '" + fieldName + "'");
+            case VECTOR -> throw new TextIndexException("Equality queries not supported on VECTOR field '"
+                + fieldName + "'. A vector is matched by similarity, not equality — name it in the "
+                + "luc:query fieldSpec instead of filtering on it.");
         };
     }
 
@@ -805,6 +808,7 @@ public class CqlToLuceneCompiler {
             }
             case KEYWORD, TEXT -> null; // Range queries on keywords not supported
             case LATLON -> null; // Range queries not applicable to spatial fields
+            case VECTOR -> null; // A vector has no order to range over
         };
     }
 

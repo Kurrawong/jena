@@ -51,6 +51,7 @@ COPY jena-shex/ jena-shex/
 COPY jena-tdb1/ jena-tdb1/
 COPY jena-tdb2/ jena-tdb2/
 COPY jena-text/ jena-text/
+COPY jena-text-embeddings/ jena-text-embeddings/
 
 # -Pcomplete is required because `apache-jena` — the binary distribution the
 # loader's tdb2.xloader script comes from — is only a module in that profile.

@@ -1,0 +1,16 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 3a — TEXT / BM25. fieldSpec "default" searches every idx:defaultSearch field
+# (title, summary). ?rank is the position in the whole result set; ?totalHits is the
+# corpus-wide match count, independent of limit/offset.
+
+PREFIX luc:  <urn:jena:lucene:index#>
+PREFIX schema:  <https://schema.org/>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?rank ?entity ?name ?score ?totalHits
+WHERE {
+    (?hit ?entity ?score ?totalHits ?rank) luc:query ("default" "default" "chilli" "" "" 10 0) .
+    ?entity rdfs:label|schema:name|dcterms:title ?name .
+}
+ORDER BY ?rank

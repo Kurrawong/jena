@@ -1,0 +1,57 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 4 + 7 — an idx:facetHierarchy INSIDE an idx:nested block has levels that are
+# correlated PER CHILD RECORD. Drilling one level does not cross-produce with the other
+# level's values from a different child.
+#
+# The whole demonstration is one recipe. Tonkotsu Ramen (RCP-2019-0117) has exactly two
+# reviews in data/reviews.csv:
+#
+#     Noor  gave it 5
+#     Priya gave it 2
+#
+# Both queries below drill the reviewer_stars dimension on that one recipe, changing only
+# WHICH reviewer. Each returns exactly one rating — the one that reviewer actually gave:
+#
+#     Priya -> 2
+#     Noor  -> 5
+#
+# If the levels were cross-produced instead of correlated, each reviewer would offer BOTH
+# ratings — Priya/5 and Noor/2 would be on offer, and neither is in the data. Drilling into
+# Priya would promise a five-star review that does not exist, and the children would
+# out-count the parent.
+#
+# This is what idx:facetHierarchy buys inside idx:nested. Declaring reviewer and stars as
+# ROOT occurrences instead would read each level independently from the entity and emit the
+# cartesian product of the two — see 03-configuration.md, "Pattern 4".
+#
+# The same guarantee on the filtering side is 13-nested-correlation.rq, and 19 drills the
+# same dimension a level deeper.
+#
+# NOTE the dimension name: it is "reviewer_stars_reviewMonth", the levels' idx:fieldName
+# values joined with "_". Adding a level to a hierarchy therefore RENAMES its dimension,
+# which is a real gotcha — a query naming the old name silently returns nothing rather than
+# erroring. The app reads the current names from /$/config/effective for exactly this reason.
+
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?reviewer ?stars ?recipes
+WHERE {
+    {
+        BIND("Priya" AS ?reviewer)
+        (?field ?stars ?low ?high ?recipes) luc:facet (
+            "default" "default" "*"
+            '["reviewer_stars_reviewMonth"]'
+            '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#code"},"RCP-2019-0117"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#reviewer"},"Priya"]}]}'
+            50 0)
+    }
+    UNION
+    {
+        BIND("Noor" AS ?reviewer)
+        (?field ?stars ?low ?high ?recipes) luc:facet (
+            "default" "default" "*"
+            '["reviewer_stars_reviewMonth"]'
+            '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#code"},"RCP-2019-0117"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#reviewer"},"Noor"]}]}'
+            50 0)
+    }
+}
+ORDER BY ?reviewer

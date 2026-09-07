@@ -1,16 +1,6 @@
-jena-fuseki-server.jar
-app-static/config.ttl
-*.zip
-
-# Drillhole data (large files)
-drillhole/*.nq
-drillhole/*.nt
-drillhole/DB/
-drillhole/Lucene/
-drillhole/run/
-
-# Test mining data
-test/DB/
-test/Lucene/
-test/run/
-test/fuseki.log
+DB/
+Lucene/
+Taxonomy/
+fuseki.log
+models/
+.embeddings-cp

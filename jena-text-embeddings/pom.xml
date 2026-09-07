@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one or more
+  contributor license agreements.  See the NOTICE file distributed with
+  this work for additional information regarding copyright ownership.
+  The ASF licenses this file to You under the Apache License, Version 2.0
+  (the "License"); you may not use this file except in compliance with
+  the License.  You may obtain a copy of the License at
+
+      https://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <artifactId>jena-text-embeddings</artifactId>
+  <packaging>jar</packaging>
+  <name>Apache Jena - Text Search Embeddings</name>
+  <description>
+    Optional embedding engines for jena-text vector fields. Deliberately separate from
+    jena-text so that an ML runtime is never a default dependency of the text index.
+  </description>
+
+  <parent>
+    <groupId>org.apache.jena</groupId>
+    <artifactId>jena</artifactId>
+    <version>6.2.0-SNAPSHOT</version>
+  </parent>
+
+  <properties>
+    <automatic.module.name>org.apache.jena.text.embeddings</automatic.module.name>
+    <ver.jlama>0.8.4</ver.jlama>
+    <ver.onnxruntime>1.20.0</ver.onnxruntime>
+    <ver.jackson>2.15.2</ver.jackson>
+    <ver.jspecify>1.0.0</ver.jspecify>
+  </properties>
+
+  <!--
+    Jlama pulls Jackson through two paths at different versions (jackson-databind directly,
+    and an older set via com.hubspot.jinjava), plus two jspecify versions. The build enforces
+    DependencyConvergence, so the versions are pinned here rather than the rule relaxed —
+    converging on the newer of each pair, which is what Maven's nearest-wins would have
+    selected silently anyway.
+  -->
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>com.fasterxml.jackson</groupId>
+        <artifactId>jackson-bom</artifactId>
+        <version>${ver.jackson}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.jspecify</groupId>
+        <artifactId>jspecify</artifactId>
+        <version>${ver.jspecify}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+
+    <dependency>
+      <groupId>org.apache.jena</groupId>
+      <artifactId>jena-text</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
+    <!--
+      Jlama is pure Java (no native libraries), which keeps the UBI images clean and
+      makes arm64 free. It requires the Vector API: see build-files/docker for the
+      JAVA_VECTOR_OPTS the loader and runtime pass.
+
+      NOTE: its embedding forward pass is BROKEN for BERT models — see the class comment
+      on OnnxEmbeddingProvider for the measurements. It is retained for two reasons: its
+      BertTokenizer is correct and pure Java, and the ONNX provider uses it; and removing
+      a published provider name is a separate decision from adding a working one.
+    -->
+    <dependency>
+      <groupId>com.github.tjake</groupId>
+      <artifactId>jlama-core</artifactId>
+      <version>${ver.jlama}</version>
+    </dependency>
+
+    <!--
+      ONNX Runtime is the working forward pass. It ships native libraries for
+      linux/macOS/windows on x86_64 and aarch64 inside this one jar, so there is nothing
+      to install, but it is the reason this module stays optional and out of the Fuseki
+      server jar.
+    -->
+    <dependency>
+      <groupId>com.microsoft.onnxruntime</groupId>
+      <artifactId>onnxruntime</artifactId>
+      <version>${ver.onnxruntime}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+  </dependencies>
+
+</project>

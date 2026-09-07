@@ -69,3 +69,7 @@ jena-benchmarks/jena-benchmarks-jmh/*.json
 
 # Docker image vulnerability scan reports (task scan)
 build-files/docker/scan-reports/
+
+# Demo: generated classpath for the optional embeddings module, and downloaded models
+demo/test/.embeddings-cp
+demo/test/models/

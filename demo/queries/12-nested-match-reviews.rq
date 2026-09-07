@@ -1,0 +1,44 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 7 — what `idx:stored false` costs, and what it does not.
+#
+# THIS QUERY RETURNS NO ROWS, AND THAT IS THE ASSERTION.
+#
+# The three review fields are declared `idx:stored false`, so the index holds enough to
+# find, correlate, count and sort on them, but keeps no values to hand back. luc:nestedMatch
+# therefore projects nothing — an indexed-but-unstored field can be filtered on and has
+# nothing to return.
+#
+# Note what still works, on exactly the same data:
+#
+#     13-nested-correlation.rq          filters same-child on reviewer + stars   -> 3 rows
+#     17-nested-hierarchy-correlated.rq drills the reviewer_stars hierarchy      -> 2 rows
+#     the sidebar's Reviews panel        counts every reviewer and their ratings
+#
+# So the knowledge graph and the index are the FILTER; the values live in the source of
+# truth. data/reviews.csv is never loaded into the graph and its values are not in the
+# index either — the app fetches that file directly and renders the rows itself, which is
+# why a result card can show a reviewer and a rating that this query cannot produce.
+#
+# The trade is display staleness against index size: what the app shows is always the
+# current file, and the index carries no copy of it. It does NOT buy filter freshness —
+# the index is still a snapshot and must be rebuilt when the source moves.
+#
+# Set `idx:stored true` on field:reviewer, field:stars and field:reviewMonth in config.ttl,
+# reindex, and this query starts returning three fields per matching review with no other
+# change.
+
+PREFIX luc:     <urn:jena:lucene:index#>
+PREFIX schema:  <https://schema.org/>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?name ?record ?field ?value
+WHERE {
+    (?hit ?entity) luc:query (
+        "default" "default" ""
+        '{"op":">=","args":[{"property":"urn:jena:lucene:field#stars"},5]}'
+        "" 20 0) .
+    (?hit ?record ?field ?value) luc:nestedMatch () .
+    ?entity rdfs:label|schema:name|dcterms:title ?name .
+}
+ORDER BY ?name ?record ?field

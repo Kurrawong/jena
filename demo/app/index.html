@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<!-- Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>demo-mini — SHACL faceted search</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header>
+  <h1>demo-mini <span class="sub">ten recipes, six reviewers, every feature once</span></h1>
+  <nav class="sources">
+    <button data-src="rdf">RDF</button>
+    <button data-src="config">Index config</button>
+    <button data-src="reviews">Reviews CSV</button>
+  </nav>
+  <div id="index-status" class="status" title="from GET /$/config/effective">checking index…</div>
+</header>
+
+<!-- One overlay, three sources, switchable while open: the three inputs the index is
+     built from, so what is being searched is never a black box. -->
+<div id="overlay" class="overlay" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="ov-title">
+    <header>
+      <h2 id="ov-title">Sources</h2>
+      <nav class="ov-tabs">
+        <button data-src="rdf">RDF <span>data/kitchen.ttl</span></button>
+        <button data-src="config">Index config <span>GET /$/config</span></button>
+        <button data-src="reviews">Reviews CSV <span>data/reviews.csv</span></button>
+      </nav>
+      <button id="ov-close" title="close (Esc)">×</button>
+    </header>
+    <p id="ov-note" class="hint"></p>
+    <pre id="ov-body">…</pre>
+  </div>
+</div>
+
+<div class="layout">
+
+  <!-- ── Left-hand column: facets, and the raw feature tests ── -->
+  <aside>
+    <nav class="tabs">
+      <button class="tab active" data-tab="facets">Facets</button>
+      <button class="tab" data-tab="tests">Feature tests</button>
+    </nav>
+
+    <section id="panel-facets" class="panel">
+      <div class="facet-group" id="group-published">
+        <h3>Published</h3>
+        <p class="hint">A range facet on the <code>idx:TemporalField</code> — so you can see
+          where the data is before choosing a window.</p>
+        <div id="datehist" class="datehist"></div>
+      </div>
+
+      <div class="facet-group" id="group-reviews">
+        <h3>Reviews <span class="tag csv">from CSV</span></h3>
+        <p class="hint">Both clauses must be satisfied by <em>one</em> review row.</p>
+        <label class="inline">min stars
+          <select id="min-stars">
+            <option value="">any</option>
+            <option value="5">5</option><option value="4">4+</option>
+            <option value="3">3+</option><option value="2">2+</option>
+          </select>
+        </label>
+        <div id="facet-reviewer"></div>
+      </div>
+
+      <div id="facets"></div>
+
+      <p id="facets-empty" class="hint" hidden>
+        No facets apply. Every facetable field in this index belongs to the recipe shape —
+        a reviewer has a name and a description and nothing else to count. Fields belong to
+        the shapes that populate them, so nothing here had to be made nullable for the
+        shape that does not use it.
+      </p>
+    </section>
+
+    <section id="panel-tests" class="panel hidden">
+      <p class="hint">Each runs the exact <code>.rq</code> file from <code>queries/</code>.</p>
+      <ul id="test-list"></ul>
+    </section>
+  </aside>
+
+  <!-- ── Main column ── -->
+  <main>
+    <div id="kinds" class="kinds"></div>
+
+    <div class="searchbar">
+      <select id="mode" title="what the search box does">
+        <option value="bm25">Keyword (BM25)</option>
+        <option value="semantic">Semantic (vector)</option>
+        <option value="code">Code typeahead (edge n-gram)</option>
+      </select>
+      <input type="search" id="q" placeholder="try: chilli — or switch to Semantic" autocomplete="off">
+      <select id="sort">
+        <option value="">Sort: relevance</option>
+        <option value="prepMinutes:asc">Quickest first</option>
+        <option value="prepMinutes:desc">Slowest first</option>
+        <option value="publishedOn:desc">Newest first</option>
+        <option value="publishedOn:asc">Oldest first</option>
+      </select>
+      <button id="reset">Reset</button>
+    </div>
+
+    <div id="mode-note" class="note hidden"></div>
+    <div id="chips" class="chips"></div>
+    <div id="summary" class="summary"></div>
+    <div id="results"></div>
+    <div id="pager" class="pager"></div>
+
+    <details id="debug">
+      <summary>SPARQL for this view</summary>
+      <pre id="debug-sparql"></pre>
+    </details>
+  </main>
+
+  <!-- ── Right-hand column: what the index actually matched ── -->
+  <aside id="rhs">
+    <h3>Index view <span class="tag ttl">text/turtle</span></h3>
+    <p class="hint">
+      A <code>CONSTRUCT</code> over the same search, returned as Turtle. Field IRIs are used
+      as predicates, so each hit shows <em>which indexed field matched and with what value</em>
+      — <code>luc:match</code> for the text query, <code>luc:matchedRecord</code> for the CSV
+      rows a filter selected. It shares one Lucene execution with the results and facets.
+      A graph has no order, which is why <code>luc:rank</code> is carried explicitly.
+    </p>
+    <pre id="turtle" class="ttl">…</pre>
+  </aside>
+</div>
+
+<script src="labels.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

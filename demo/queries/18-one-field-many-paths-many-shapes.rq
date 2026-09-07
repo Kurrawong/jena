@@ -1,0 +1,50 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# FEATURE 5, at full stretch — ONE index field fed by THREE predicates across TWO shapes.
+#
+# field:name is populated by:
+#
+#     RecipeShape    sh:path rdfs:label      (r01, r02, r03, r09)
+#     RecipeShape    sh:path schema:name     (r04, r05, r06)
+#     RecipeShape    sh:path dcterms:title   (r07, r08, r10)
+#     ReviewerShape  sh:path schema:name     (all six reviewers)
+#
+# The demo data is deliberately untidy that way, because real data is. What the index does
+# about it is the point: one search over one field finds a name whatever predicate carries
+# it and whatever KIND of thing it is on. No UNION, no per-predicate field, no
+# per-entity-type query.
+#
+# Each row below names the source predicate so the spread is visible. Expect four rows —
+# three recipes reached by three different predicates, and one reviewer — every one of them
+# found through the single field:name.
+#
+# field:entityType, fed from rdf:type on both shapes, is what lets the app's
+# Recipes / Reviewers / Both toggle narrow to one kind. With only two shapes, "both" is
+# simply the absence of that filter.
+
+PREFIX luc:     <urn:jena:lucene:index#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX schema:  <https://schema.org/>
+
+SELECT ?entity ?kind ?name ?predicate
+WHERE {
+    VALUES ?term { "Tiramisu" "Ceviche" "Ramen" "Priya" }
+
+    (?hit ?entity) luc:query (
+        "default"
+        '["urn:jena:lucene:field#name"]'
+        ?term
+        "" "" 5 0) .
+
+    ?entity a ?kind .
+
+    # Report which predicate actually carried the name on each hit.
+    {
+        ?entity rdfs:label ?name . BIND(rdfs:label AS ?predicate)
+    } UNION {
+        ?entity schema:name ?name . BIND(schema:name AS ?predicate)
+    } UNION {
+        ?entity dcterms:title ?name . BIND(dcterms:title AS ?predicate)
+    }
+}
+ORDER BY ?kind ?name
