@@ -111,23 +111,23 @@ public class TestSpatialFiltering {
             Model model = dataset.getDefaultModel();
 
             // Brolga Ridge, QLD — EPSG:4326 (lat/lon order)
-            addSite(model, "mount-isa", "Brolga Ridge Mine",
+            addSite(model, "brolga-ridge", "Brolga Ridge Mine",
                 "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-20.73 139.49)");
 
             // Spinifex Dome, SA — EPSG:4326
-            addSite(model, "olympic-dam", "Spinifex Dome",
+            addSite(model, "spinifex-dome", "Spinifex Dome",
                 "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-30.43 136.88)");
 
             // Wattle Downs, WA — EPSG:4326
-            addSite(model, "boddington", "Wattle Downs Gold Mine",
+            addSite(model, "wattle-downs", "Wattle Downs Gold Mine",
                 "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-32.77 116.35)");
 
             // Multipart site in WA — two disjoint footprints stored as a MultiPolygon
-            addSite(model, "pilbara-cluster", "Redgum Cluster Project",
+            addSite(model, "redgum-cluster", "Redgum Cluster Project",
                 "<http://www.opengis.net/def/crs/EPSG/0/4326> MULTIPOLYGON(((-22.30 118.20, -22.30 118.30, -22.20 118.30, -22.20 118.20, -22.30 118.20)),((-22.45 118.45, -22.45 118.55, -22.35 118.55, -22.35 118.45, -22.45 118.45)))");
 
             // Kurrajong Valley, NSW — CRS84 (bare WKT, lon/lat order)
-            addSite(model, "cadia-valley", "Kurrajong Valley Operations",
+            addSite(model, "kurrajong-valley", "Kurrajong Valley Operations",
                 "POINT(148.99 -33.47)");
 
             // Auckland, NZ — outside Australia bbox (should be excluded)
@@ -232,10 +232,10 @@ public class TestSpatialFiltering {
         }
 
         // 4 Australian sites should match
-        assertTrue("Brolga Ridge should be in results", uris.contains(NS + "mount-isa"));
-        assertTrue("Spinifex Dome should be in results", uris.contains(NS + "olympic-dam"));
-        assertTrue("Wattle Downs should be in results", uris.contains(NS + "boddington"));
-        assertTrue("Kurrajong Valley should be in results", uris.contains(NS + "cadia-valley"));
+        assertTrue("Brolga Ridge should be in results", uris.contains(NS + "brolga-ridge"));
+        assertTrue("Spinifex Dome should be in results", uris.contains(NS + "spinifex-dome"));
+        assertTrue("Wattle Downs should be in results", uris.contains(NS + "wattle-downs"));
+        assertTrue("Kurrajong Valley should be in results", uris.contains(NS + "kurrajong-valley"));
         // Auckland is outside Australia
         assertFalse("Auckland should NOT be in results", uris.contains(NS + "auckland"));
     }
@@ -255,10 +255,10 @@ public class TestSpatialFiltering {
         }
 
         // Only Wattle Downs is in WA bbox
-        assertTrue("Wattle Downs should be in results", uris.contains(NS + "boddington"));
-        assertTrue("Redgum Cluster should be in results", uris.contains(NS + "pilbara-cluster"));
-        assertFalse("Brolga Ridge should NOT be in WA bbox", uris.contains(NS + "mount-isa"));
-        assertFalse("Spinifex Dome should NOT be in WA bbox", uris.contains(NS + "olympic-dam"));
+        assertTrue("Wattle Downs should be in results", uris.contains(NS + "wattle-downs"));
+        assertTrue("Redgum Cluster should be in results", uris.contains(NS + "redgum-cluster"));
+        assertFalse("Brolga Ridge should NOT be in WA bbox", uris.contains(NS + "brolga-ridge"));
+        assertFalse("Spinifex Dome should NOT be in WA bbox", uris.contains(NS + "spinifex-dome"));
     }
 
     @Test
@@ -275,8 +275,8 @@ public class TestSpatialFiltering {
         }
 
         assertTrue("Redgum Cluster should match when the bbox intersects one member polygon",
-            uris.contains(NS + "pilbara-cluster"));
-        assertFalse("Wattle Downs should NOT be in the Redgum bbox", uris.contains(NS + "boddington"));
+            uris.contains(NS + "redgum-cluster"));
+        assertFalse("Wattle Downs should NOT be in the Redgum bbox", uris.contains(NS + "wattle-downs"));
     }
 
     @Test
@@ -294,10 +294,10 @@ public class TestSpatialFiltering {
         }
 
         // "Brolga Ridge Mine" and "Wattle Downs Gold Mine" contain "mine"
-        assertTrue("Brolga Ridge Mine should match", uris.contains(NS + "mount-isa"));
-        assertTrue("Wattle Downs Gold Mine should match", uris.contains(NS + "boddington"));
+        assertTrue("Brolga Ridge Mine should match", uris.contains(NS + "brolga-ridge"));
+        assertTrue("Wattle Downs Gold Mine should match", uris.contains(NS + "wattle-downs"));
         // "Spinifex Dome" doesn't contain "mine"
-        assertFalse("Spinifex Dome should NOT match text 'mine'", uris.contains(NS + "olympic-dam"));
+        assertFalse("Spinifex Dome should NOT match text 'mine'", uris.contains(NS + "spinifex-dome"));
     }
 
     @Test
@@ -316,7 +316,7 @@ public class TestSpatialFiltering {
             uris.add(hit.getNode().getURI());
         }
 
-        assertTrue("Kurrajong Valley (CRS84) should be found in its bbox", uris.contains(NS + "cadia-valley"));
+        assertTrue("Kurrajong Valley (CRS84) should be found in its bbox", uris.contains(NS + "kurrajong-valley"));
     }
 
     @Test
@@ -334,7 +334,7 @@ public class TestSpatialFiltering {
             uris.add(hit.getNode().getURI());
         }
 
-        assertTrue("Brolga Ridge (EPSG:4326) should be found", uris.contains(NS + "mount-isa"));
+        assertTrue("Brolga Ridge (EPSG:4326) should be found", uris.contains(NS + "brolga-ridge"));
     }
 
     @Test
@@ -371,7 +371,7 @@ public class TestSpatialFiltering {
         // The AND fold keeps pushable siblings and drops the residual, so this used to
         // return the title match unfiltered by geometry.
         CqlExpression filter = new CqlExpression.CqlAnd(Arrays.asList(
-            new CqlExpression.CqlComparison("=", FP + "title", "Boddington Gold Mine"),
+            new CqlExpression.CqlComparison("=", FP + "title", "Wattle Downs Gold Mine"),
             new CqlExpression.CqlSpatial("s_touches", FP + "location",
                 "{\"bbox\":[112,-44,154,-10]}")));
 
@@ -384,7 +384,7 @@ public class TestSpatialFiltering {
         // The OR fold abandons the whole disjunction when any branch is unpushable, so
         // this used to drop every arm of the OR, not just the spatial one.
         CqlExpression filter = new CqlExpression.CqlOr(Arrays.asList(
-            new CqlExpression.CqlComparison("=", FP + "title", "Boddington Gold Mine"),
+            new CqlExpression.CqlComparison("=", FP + "title", "Wattle Downs Gold Mine"),
             new CqlExpression.CqlSpatial("s_touches", FP + "location",
                 "{\"bbox\":[112,-44,154,-10]}")));
 
@@ -667,7 +667,7 @@ public class TestSpatialFiltering {
         }
 
         assertFalse("Wattle Downs sits in the hole and must not match",
-            uris.contains(NS + "boddington"));
+            uris.contains(NS + "wattle-downs"));
         assertTrue("A site in the ring body must still match",
             uris.contains(NS + "ring-body"));
     }
@@ -692,7 +692,7 @@ public class TestSpatialFiltering {
             uris.add(hit.getNode().getURI());
         }
 
-        assertFalse("Wattle Downs sits in the first hole", uris.contains(NS + "boddington"));
+        assertFalse("Wattle Downs sits in the first hole", uris.contains(NS + "wattle-downs"));
         assertFalse("Ring-body site sits in the second hole", uris.contains(NS + "ring-body"));
     }
 
@@ -717,19 +717,19 @@ public class TestSpatialFiltering {
 
     @Test
     public void testWithinMatchesShapeInsideQueryGeometry() {
-        // Boddington (116.35, -32.77) is inside a generous WA box.
+        // Wattle Downs (116.35, -32.77) is inside a generous WA box.
         Set<String> uris = urisForOp("s_within", bboxJson(115, -34, 118, -31));
-        assertTrue("Boddington is within the box", uris.contains(NS + "boddington"));
-        assertFalse("Cadia Valley is in NSW, not within the WA box",
-            uris.contains(NS + "cadia-valley"));
+        assertTrue("Wattle Downs is within the box", uris.contains(NS + "wattle-downs"));
+        assertFalse("Kurrajong Valley is in NSW, not within the WA box",
+            uris.contains(NS + "kurrajong-valley"));
     }
 
     @Test
     public void testDisjointMatchesShapesOutsideQueryGeometry() {
         Set<String> uris = urisForOp("s_disjoint", bboxJson(115, -34, 118, -31));
-        assertFalse("Boddington is inside the box, so not disjoint from it",
-            uris.contains(NS + "boddington"));
-        assertTrue("Cadia Valley is far away and disjoint", uris.contains(NS + "cadia-valley"));
+        assertFalse("Wattle Downs is inside the box, so not disjoint from it",
+            uris.contains(NS + "wattle-downs"));
+        assertTrue("Kurrajong Valley is far away and disjoint", uris.contains(NS + "kurrajong-valley"));
     }
 
     @Test
@@ -737,7 +737,7 @@ public class TestSpatialFiltering {
         // big-area spans lat -27..-23, lon 120..125. The query box sits well inside it.
         Set<String> uris = urisForOp("s_contains", bboxJson(121.0, -26.0, 122.0, -25.0));
         assertTrue("The indexed polygon contains the query box", uris.contains(NS + "big-area"));
-        assertFalse("A point cannot contain a box", uris.contains(NS + "boddington"));
+        assertFalse("A point cannot contain a box", uris.contains(NS + "wattle-downs"));
     }
 
     // --- spec-derived semantics -------------------------------------------------
@@ -779,14 +779,14 @@ public class TestSpatialFiltering {
         // DE-9IM sfWithin (T*F**F***) needs a non-empty interior-interior intersection,
         // so a point exactly on the query boundary is NOT within. Lucene agrees, which
         // is worth pinning because it is easy to assume the opposite.
-        String edgeBox = bboxJson(116.35, -34.0, 118.0, -31.0);  // west edge on Boddington's lon
+        String edgeBox = bboxJson(116.35, -34.0, 118.0, -31.0);  // west edge on Wattle Downs's lon
         assertFalse("A point on the query boundary is not within it",
-            urisForOp("s_within", edgeBox).contains(NS + "boddington"));
+            urisForOp("s_within", edgeBox).contains(NS + "wattle-downs"));
 
         // Move the edge west so the point is strictly inside, and it matches.
         String insetBox = bboxJson(116.30, -34.0, 118.0, -31.0);
         assertTrue("A point strictly inside is within",
-            urisForOp("s_within", insetBox).contains(NS + "boddington"));
+            urisForOp("s_within", insetBox).contains(NS + "wattle-downs"));
     }
 
     // --- GeoJSON query geometry types ------------------------------------------
@@ -808,11 +808,11 @@ public class TestSpatialFiltering {
 
     @Test
     public void testQueryGeometryMultiPoint() {
-        // One point inside big-area, one inside the pilbara-cluster multipolygon.
+        // One point inside big-area, one inside the redgum-cluster multipolygon.
         String multiPoint = "{\"type\":\"MultiPoint\",\"coordinates\":[[122.0,-25.0],[118.25,-22.25]]}";
         Set<String> uris = urisForOp("s_intersects", multiPoint);
         assertTrue("Should match big-area", uris.contains(NS + "big-area"));
-        assertTrue("Should match pilbara-cluster", uris.contains(NS + "pilbara-cluster"));
+        assertTrue("Should match redgum-cluster", uris.contains(NS + "redgum-cluster"));
     }
 
     @Test
@@ -821,7 +821,7 @@ public class TestSpatialFiltering {
             + "[[[121.0,-25.0],[124.0,-25.0]],[[118.21,-22.25],[118.29,-22.25]]]}";
         Set<String> uris = urisForOp("s_intersects", multiLine);
         assertTrue("First line crosses big-area", uris.contains(NS + "big-area"));
-        assertTrue("Second line crosses pilbara-cluster", uris.contains(NS + "pilbara-cluster"));
+        assertTrue("Second line crosses redgum-cluster", uris.contains(NS + "redgum-cluster"));
     }
 
     @Test
@@ -832,19 +832,19 @@ public class TestSpatialFiltering {
         // query geometries (bbox, Polygon) match point data as expected.
         //
         // Pinned because it is a silent empty result, not an error.
-        String pointOnBoddington = "{\"type\":\"Point\",\"coordinates\":[116.35,-32.77]}";
+        String pointOnWattleDowns = "{\"type\":\"Point\",\"coordinates\":[116.35,-32.77]}";
         assertFalse("A Point query does not match POINT-indexed data",
-            urisForOp("s_intersects", pointOnBoddington).contains(NS + "boddington"));
+            urisForOp("s_intersects", pointOnWattleDowns).contains(NS + "wattle-downs"));
 
-        String lineThroughBoddington =
+        String lineThroughWattleDowns =
             "{\"type\":\"LineString\",\"coordinates\":[[115.0,-32.77],[118.0,-32.77]]}";
         assertFalse("A LineString query does not match POINT-indexed data",
-            urisForOp("s_intersects", lineThroughBoddington).contains(NS + "boddington"));
+            urisForOp("s_intersects", lineThroughWattleDowns).contains(NS + "wattle-downs"));
 
         // The areal equivalent of the same query does match.
         assertTrue("A small bbox over the same point does match",
             urisForOp("s_intersects", bboxJson(116.34, -32.78, 116.36, -32.76))
-                .contains(NS + "boddington"));
+                .contains(NS + "wattle-downs"));
     }
 
     @Test
@@ -853,8 +853,8 @@ public class TestSpatialFiltering {
             + "[[[116.0,-33.0],[116.7,-33.0],[116.7,-32.5],[116.0,-32.5],[116.0,-33.0]]],"
             + "[[[148.5,-33.7],[149.5,-33.7],[149.5,-33.2],[148.5,-33.2],[148.5,-33.7]]]]}";
         Set<String> uris = urisForOp("s_intersects", multiPolygon);
-        assertTrue("First polygon covers Boddington", uris.contains(NS + "boddington"));
-        assertTrue("Second polygon covers Cadia Valley", uris.contains(NS + "cadia-valley"));
+        assertTrue("First polygon covers Wattle Downs", uris.contains(NS + "wattle-downs"));
+        assertTrue("Second polygon covers Kurrajong Valley", uris.contains(NS + "kurrajong-valley"));
     }
 
     @Test
@@ -864,7 +864,7 @@ public class TestSpatialFiltering {
             + "{\"bbox\":[148.5,-33.7,149.5,-33.2]}]}";
         Set<String> uris = urisForOp("s_intersects", collection);
         assertTrue("Point member matches big-area", uris.contains(NS + "big-area"));
-        assertTrue("bbox member matches Cadia Valley", uris.contains(NS + "cadia-valley"));
+        assertTrue("bbox member matches Kurrajong Valley", uris.contains(NS + "kurrajong-valley"));
     }
 
     @Test
@@ -875,14 +875,14 @@ public class TestSpatialFiltering {
             + "[[[116.0,-33.0],[116.7,-33.0],[116.7,-32.5],[116.0,-32.5],[116.0,-33.0]]],"
             + "[[[148.5,-33.7],[149.5,-33.7],[149.5,-33.2],[148.5,-33.2],[148.5,-33.7]]]]}";
         Set<String> uris = urisForOp("s_within", multiPolygon);
-        assertTrue("Boddington is within the first member", uris.contains(NS + "boddington"));
-        assertTrue("Cadia Valley is within the second member", uris.contains(NS + "cadia-valley"));
+        assertTrue("Wattle Downs is within the first member", uris.contains(NS + "wattle-downs"));
+        assertTrue("Kurrajong Valley is within the second member", uris.contains(NS + "kurrajong-valley"));
     }
 
     @Test
     public void testQueryPolygonHoleAppliesToWithinToo() {
-        assertFalse("Boddington is in the hole, so not within the donut",
-            urisForOp("s_within", DONUT_AROUND_WATTLE_DOWNS).contains(NS + "boddington"));
+        assertFalse("Wattle Downs is in the hole, so not within the donut",
+            urisForOp("s_within", DONUT_AROUND_WATTLE_DOWNS).contains(NS + "wattle-downs"));
     }
 
     // --- still unsupported ------------------------------------------------------
@@ -920,19 +920,19 @@ public class TestSpatialFiltering {
 
     @Test
     public void testDwithinSmallRadiusMatchesOnlyTheNearestSite() {
-        // 20 km around Boddington. The next nearest fixture, ring-body, is ~56 km away.
+        // 20 km around Wattle Downs. The next nearest fixture, ring-body, is ~56 km away.
         Set<String> uris = urisForCqlJson(dwithin(116.35, -32.77, 20000));
-        assertTrue("Boddington is at the centre", uris.contains(NS + "boddington"));
+        assertTrue("Wattle Downs is at the centre", uris.contains(NS + "wattle-downs"));
         assertFalse("Ring-body is ~56 km away and outside 20 km", uris.contains(NS + "ring-body"));
-        assertFalse("Cadia Valley is in NSW", uris.contains(NS + "cadia-valley"));
+        assertFalse("Kurrajong Valley is in NSW", uris.contains(NS + "kurrajong-valley"));
     }
 
     @Test
     public void testDwithinLargeRadiusSpansTheContinentButNotBeyond() {
         Set<String> uris = urisForCqlJson(dwithin(116.35, -32.77, 4000000));
-        assertTrue("Cadia Valley is ~3000 km away, inside 4000 km",
-            uris.contains(NS + "cadia-valley"));
-        assertTrue("Mount Isa is inside 4000 km", uris.contains(NS + "mount-isa"));
+        assertTrue("Kurrajong Valley is ~3000 km away, inside 4000 km",
+            uris.contains(NS + "kurrajong-valley"));
+        assertTrue("Brolga Ridge is inside 4000 km", uris.contains(NS + "brolga-ridge"));
         assertFalse("Auckland is ~5300 km away and outside", uris.contains(NS + "auckland"));
     }
 
@@ -1122,14 +1122,14 @@ public class TestSpatialFiltering {
         // form would query the bounding box instead of the shape -- a wider result set,
         // silently.
         //
-        // The coordinates here are over Indonesia; the bbox is over Boddington. Only a
+        // The coordinates here are over Indonesia; the bbox is over Wattle Downs. Only a
         // reading that honours the coordinates gets this right.
         String polygonElsewhere =
             "{\"type\":\"Polygon\",\"bbox\":[116.3,-32.8,116.4,-32.7],\"coordinates\":"
             + "[[[100.0,0.0],[101.0,0.0],[101.0,1.0],[100.0,1.0],[100.0,0.0]]]}";
 
         assertFalse("The bbox member must not stand in for the polygon",
-            urisForOp("s_intersects", polygonElsewhere).contains(NS + "boddington"));
+            urisForOp("s_intersects", polygonElsewhere).contains(NS + "wattle-downs"));
     }
 
     @Test
@@ -1145,8 +1145,8 @@ public class TestSpatialFiltering {
 
         assertEquals("An optional bbox member should not change the result",
             urisForOp("s_intersects", withoutBbox), urisForOp("s_intersects", withBbox));
-        assertTrue("and Boddington is inside that polygon",
-            urisForOp("s_intersects", withBbox).contains(NS + "boddington"));
+        assertTrue("and Wattle Downs is inside that polygon",
+            urisForOp("s_intersects", withBbox).contains(NS + "wattle-downs"));
     }
 
     @Test
@@ -1154,6 +1154,6 @@ public class TestSpatialFiltering {
         // The CQL2 bbox form has no "type", and must keep working.
         assertTrue("A bare bbox is still the CQL2 bbox form",
             urisForOp("s_intersects", "{\"bbox\":[116.3,-32.8,116.4,-32.7]}")
-                .contains(NS + "boddington"));
+                .contains(NS + "wattle-downs"));
     }
 }
