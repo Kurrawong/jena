@@ -181,6 +181,14 @@ tasks:
             --data-binary @{{.ITEM}}
           echo ""
 
+  check-examples:
+    desc: Replay every tests.json example against a running server (catches inert filters)
+    dir: testing
+    # No fingerprinting: a check to re-run on demand, like `query`.
+    method: none
+    cmds:
+      - FUSEKI_PORT={{.FUSEKI_PORT}} node --test check-examples.mjs
+
   test:
     desc: Run Playwright screenshot tests and generate report
     dir: testing

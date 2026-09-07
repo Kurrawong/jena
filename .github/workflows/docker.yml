@@ -314,7 +314,17 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' \
             'http://localhost:3030/$/config')" = "200"
 
-          docker rm -f demo
+      ## Every example the app offers, replayed against that container: parameters
+      ## through the URL and back, then the query itself. curl cannot see this class of
+      ## bug — a filter lost between the address bar and the query still returns results,
+      ## just the wrong ones, and the page reads like a working search. Two shipped that
+      ## way before this existed.
+      - name: Replay the demo app's examples
+        run: FUSEKI_PORT=3030 node --test demo/testing/check-examples.mjs
+
+      - name: Stop the demo container
+        if: always()
+        run: docker rm -f demo || true
 
       - name: Push fuseki-lucene-shacl-demo (multi-arch)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
