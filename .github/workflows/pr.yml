@@ -12,17 +12,12 @@ on:
       - reopened
     branches:
       - 'main'
-    paths-ignore:
-      ## Documentation and agent config cannot change build or image output.
-      ## Deliberately NOT ignored: demo/** (TestDemoDataParsing parses those
-      ## files), build-files/**, Taskfile.yml, and .github/** itself.
-      - 'docs/**'
-      - '**/*.md'
-      - '.claude/**'
-      - 'LICENSE'
-      - 'NOTICE'
-      - '.gitignore'
-      - '.gitattributes'
+    ## No paths-ignore here, deliberately. `pr-gate` is the only check the `main`
+    ## ruleset requires, and a workflow filtered out by paths-ignore never runs, so
+    ## it never reports — leaving a documentation-only PR permanently "Expected —
+    ## waiting for status to be reported" with nothing that can ever report it.
+    ## PR #163 sat in exactly that state. The skip now lives in the `changes` job
+    ## below, which lets `pr-gate` run and pass while `build-pr` is skipped.
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -32,11 +27,51 @@ permissions:
   contents: read
 
 jobs:
-      
+
+  ## Does this PR touch anything that can change build or image output?
+  ##
+  ## Documentation and agent config cannot. Deliberately NOT ignored: demo/**
+  ## (TestDemoDataParsing parses those files), build-files/**, Taskfile.yml, and
+  ## .github/** itself.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Classify the changed paths
+        id: filter
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          changed="$(git diff --name-only "$base" "$HEAD_SHA")"
+          echo "$changed"
+          code=false
+          ## Read from a here-string, not a pipe: `... | while` runs the loop in a
+          ## subshell, so `code=true` would not survive it.
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            case "$f" in
+              docs/*|*.md|.claude/*|LICENSE|NOTICE|.gitignore|.gitattributes) ;;
+              *) code=true; break ;;
+            esac
+          done <<< "$changed"
+          echo "code is $code"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
   build-pr:
     ## Dependabot only
     ## if: github.actor == 'dependabot[bot]'
-    
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+
     strategy:
       fail-fast: false
       matrix:
@@ -65,7 +100,7 @@ jobs:
   ## jobs above report as "build-pr (temurin, ubuntu-latest, 25)", which changes
   ## name whenever the matrix changes; this one does not.
   pr-gate:
-    needs: build-pr
+    needs: [changes, build-pr]
     ## `always()` so a skipped/cancelled dependency fails the gate rather than
     ## silently skipping it (a skipped required check never turns green).
     if: always()
@@ -73,6 +108,16 @@ jobs:
     steps:
       - name: Check build result
         run: |
+          if [ "${{ needs.changes.result }}" != "success" ]; then
+            echo "changes result: ${{ needs.changes.result }}"
+            exit 1
+          fi
+          ## A documentation-only PR skips build-pr on purpose. The gate still has to
+          ## report, or the required check never arrives and the PR cannot merge.
+          if [ "${{ needs.changes.outputs.code }}" != "true" ]; then
+            echo "documentation only, no build required"
+            exit 0
+          fi
           if [ "${{ needs.build-pr.result }}" != "success" ]; then
             echo "build-pr result: ${{ needs.build-pr.result }}"
             exit 1
