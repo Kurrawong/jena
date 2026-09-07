@@ -138,7 +138,7 @@ TextIndexLucene index = (TextIndexLucene) Assembler.general().open(indexSpec);
 
 - All SPARQL argument forms for `luc:query` and `luc:facet`
 - JSON filter parsing and semantics (OR within field, AND across fields)
-- All field types: TEXT, KEYWORD, INT, LONG, DOUBLE, TEMPORAL (`TestDateLiteralRoundTrip`), LATLON (`TestSpatialFiltering`)
+- All field types: TEXT, KEYWORD, INT, LONG, DOUBLE, TEMPORAL (`TestDateLiteralRoundTrip` at root scope, `TestNestedTemporalField` inside `idx:nested`), LATLON (`TestSpatialFiltering`)
 - Multi-valued fields
 - Entity lifecycle: create, update (add field), delete (remove type)
 - Assembler config parsing (valid and error cases)
