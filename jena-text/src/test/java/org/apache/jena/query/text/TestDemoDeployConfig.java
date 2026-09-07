@@ -198,6 +198,60 @@ public class TestDemoDeployConfig {
     }
 
     /**
+     * Which shape each graph-driven nested block hangs off, keyed by its join path.
+     * <p>
+     * Blocks with no {@code idx:joinPath} are fed by an {@code idx:externalSource} and
+     * keyed by {@code idx:nestedName} instead; the assay block is the only one, and the
+     * deployed configuration leaves it out on purpose, so it is not comparable.
+     */
+    private static Map<String, String> nestedJoinPathsByShape(Path configFile) {
+        Model model = RDFDataMgr.loadModel(configFile.toString());
+        Property nested = ResourceFactory.createProperty("urn:jena:lucene:index#nested");
+        Property joinPath = ResourceFactory.createProperty("urn:jena:lucene:index#joinPath");
+        Map<String, String> byJoinPath = new java.util.TreeMap<>();
+        StmtIterator it = model.listStatements(null, nested, (RDFNode) null);
+        while (it.hasNext()) {
+            var stmt = it.nextStatement();
+            Resource block = stmt.getObject().asResource();
+            if (!block.hasProperty(joinPath)) {
+                continue;
+            }
+            byJoinPath.put(block.getProperty(joinPath).getObject().toString(),
+                stmt.getSubject().getLocalName());
+        }
+        return byJoinPath;
+    }
+
+    /**
+     * A nested block has to hang off the same shape in both configurations.
+     * <p>
+     * {@link #deployedConfigIndexesTheSameFieldsAsTheWorkingOne()} compares field names
+     * only, and a nested block moving from one shape to another changes no field name at
+     * all. That is exactly what happened: the correlated identifier records moved from
+     * BoreholeShape to MiningReportShape in the working configuration, the deployed copy
+     * kept indexing them against boreholes while the data attached them to reports, and
+     * six of the app's examples silently returned nothing. The field-name comparison
+     * passed throughout, and only the image's example replay caught it.
+     */
+    @Test
+    public void deployedConfigHangsNestedBlocksOffTheSameShapes() {
+        Path demo = demoDir();
+        assumeTrue(demo != null, "demo/ not found from the working directory");
+
+        Map<String, String> working = nestedJoinPathsByShape(demo.resolve("test/config.ttl"));
+        Map<String, String> deployed = nestedJoinPathsByShape(demo.resolve("deploy/config.ttl"));
+
+        assertFalse(working.isEmpty(), "no nested blocks found; update this test");
+        for (Map.Entry<String, String> e : working.entrySet()) {
+            String shape = deployed.get(e.getKey());
+            assertEquals(e.getValue(), shape,
+                "nested block " + e.getKey() + " hangs off a different shape in "
+                    + "demo/deploy/config.ttl");
+        }
+        assertEquals(working, deployed, "demo/deploy/config.ttl nested blocks have drifted");
+    }
+
+    /**
      * The deployed configuration indexes the same fields as the working one, less the
      * four the assay CSV feeds.
      */
