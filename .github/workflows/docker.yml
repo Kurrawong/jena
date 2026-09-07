@@ -297,21 +297,35 @@ jobs:
           echo "state facet values: $facets"
           test "$facets" -gt 0
 
+          ## Fetch, then match in the shell -- no pipe. `curl ... | grep -q` is a race
+          ## under pipefail: grep exits the moment it matches, curl dies on EPIPE, and
+          ## the pipeline reports failure on an assertion that succeeded. It cost a red
+          ## build on a passing image. Piping into grep from anything, printf included,
+          ## has the same race, so this matches with a case statement and no subprocess.
+          contains() {  # contains <needle> <haystack> <description>
+            case "$2" in
+              *"$1"*) ;;
+              *) echo "expected '$1' in $3"; exit 1 ;;
+            esac
+          }
+
           echo "--- the Fuseki UI is at the root ---"
           ## It has to be: the UI prefixes every API call with the path it was served
           ## from, so anywhere else it asks for /somewhere/$/server and gets a 404.
-          curl -sf http://localhost:3030/ | grep -q "Apache Jena Fuseki"
+          contains "Apache Jena Fuseki" "$(curl -sf http://localhost:3030/)" "the root page"
 
           echo "--- the search app is at /demo, served from the same origin ---"
-          curl -sf http://localhost:3030/demo/ | grep -q "Search Tester"
+          contains "Search Tester" "$(curl -sf http://localhost:3030/demo/)" "/demo/"
           curl -sf http://localhost:3030/demo/app.js >/dev/null
-          curl -sf http://localhost:3030/demo/tests.json | head -c 1 | grep -q '\['
+          tests_json="$(curl -sf http://localhost:3030/demo/tests.json)"
+          test "${tests_json:0:1}" = "["
           ## Not `fusekiBase: ''` — app.js reads the base with `||`, so an empty string
           ## is discarded for its hardcoded localhost:3030 default and the app talks to
           ## whatever else is on that port. The deployed config takes the origin from
           ## the browser instead, which is also what lets it work from /demo rather than
           ## from the root.
-          curl -sf http://localhost:3030/demo/app-config.js | grep -q "fusekiBase: window.location.origin"
+          contains "fusekiBase: window.location.origin" \
+            "$(curl -sf http://localhost:3030/demo/app-config.js)" app-config.js
 
           echo "--- read-only, and the admin space is closed apart from what the UI reads ---"
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST \
