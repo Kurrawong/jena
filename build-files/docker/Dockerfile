@@ -18,7 +18,7 @@
 # entrypoint. The two images stay separate so the runtime is not gated on CVEs
 # in the distribution's bundled lib/ jars, which it never executes.
 
-FROM --platform=linux/amd64 maven:3.9.9-eclipse-temurin-21 AS builder
+FROM --platform=linux/amd64 maven:3.9.15-eclipse-temurin-26 AS builder
 
 WORKDIR /build
 
