@@ -605,8 +605,12 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 fd = shaclMapping.findFieldByName(spec);
             }
             if (fd == null) {
-                resolved.add(spec);
-                continue;
+                // Passing it through produced no buckets and no error, so a typo in a
+                // field or dimension name looked exactly like a field with no values.
+                throw new TextIndexException(
+                    "Facet field or hierarchy dimension not found: '" + spec
+                    + "'. Use a field's canonical IRI, its idx:fieldName, or a hierarchy"
+                    + " dimension name.");
             }
             if (!fd.isFacetable()) {
                 throw new TextIndexException("Facet field is not facetable: " + spec);

@@ -810,11 +810,12 @@ public class TestShaclAssembler {
                 index.resolveFacetFieldNames(java.util.List.of(dimIRI)));
 
             // The derived name is not an alias. A named hierarchy has one address, so the
-            // old name no longer reaches the dimension. (On a branch carrying #173 this
-            // raises; here it simply fails to resolve.)
-            assertNotEquals("The derived name must not still address the dimension",
-                java.util.List.of(dimIRI),
+            // old name no longer reaches the dimension — and now that an unresolvable
+            // facet spec raises rather than being dropped, that is how it reports.
+            TextIndexException e = assertThrows(TextIndexException.class, () ->
                 index.resolveFacetFieldNames(java.util.List.of("identifierType_identifierValueExact")));
+            assertTrue("Message should name the spec it could not resolve: " + e.getMessage(),
+                e.getMessage().contains("identifierType_identifierValueExact"));
         } finally {
             index.close();
         }
