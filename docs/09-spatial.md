@@ -144,15 +144,36 @@ pinned by a test.
 These follow from DE-9IM, which both CQL2 (via OGC Simple Features clause 6.1.15) and
 GeoSPARQL 1.1 (Table 2) require. Lucene agrees on all of them.
 
-**A multi-valued field behaves as one geometry collection.** GeoSPARQL evaluates relations
-through `geo:hasDefaultGeometry`, does not restrict its cardinality, and calls a feature
-with several default geometries an application-specific modelling error producing
-"logically inconsistent results" — so the intended model is one geometry per feature, with
-multi-part features written as `MULTI*` or `GEOMETRYCOLLECTION`. Under DE-9IM on a
-collection, `within` holds only if the whole collection is inside and `disjoint` only if
-every part is. That is exactly Lucene's per-document rule. An entity with a WA point and
-an NSW point therefore *intersects* a WA box but is not *within* it and is not *disjoint*
-from it.
+**A multi-valued field is evaluated as one collection, which is a divergence from
+GeoSPARQL.** Lucene indexes every value of a field into one document, and `WITHIN`,
+`CONTAINS` and `DISJOINT` then require *every* shape on that document to satisfy the
+relation. An entity with a WA point and an NSW point *intersects* a WA box but is not
+*within* it and is not *disjoint* from it.
+
+GeoSPARQL says otherwise. Its query-rewrite rule is a graph pattern:
+
+```sparql
+?f1 geo:hasDefaultGeometry ?g1 . ?f2 geo:hasDefaultGeometry ?g2 . ?g1 geo:sfWithin ?g2
+```
+
+With several geometries bound to `?g1` that is **existential**: the feature matches if
+*any* of its geometries is within. So the spec-aligned answer for a feature carrying
+several separate geometry literals is any-of, and Lucene gives all-of.
+
+The distinction that matters is between one literal and several. A single
+`MULTIPOLYGON` is one geometry, and DE-9IM on it genuinely does require the whole thing to
+be inside; all-of is right there. Several separate `geo:asWKT` literals are several
+geometries, and any-of is right. Lucene cannot tell them apart, because both end up as
+shapes on one document.
+
+`s_intersects` is unaffected, since any-of and all-of coincide for intersection. The
+divergence is limited to `s_within`, `s_contains` and `s_disjoint`.
+
+It matters most when a field aggregates geometries from *related* resources, for example
+an `sh:path` with an inverse step pulling in the positions of every borehole attached to a
+report. Requiring all of them to fall inside a search box is almost never what is meant.
+Until this is addressed, prefer `s_intersects` on a multi-valued geometry field, or model
+the geometries as a nested scope so each gets its own document.
 
 **An entity with no geometry matches no relation, including `s_disjoint`.** GeoSPARQL's
 query-rewrite rule must bind a geometry before the relation function runs, and CQL2 makes
