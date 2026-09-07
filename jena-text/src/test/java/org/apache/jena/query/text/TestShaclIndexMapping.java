@@ -271,4 +271,65 @@ public class TestShaclIndexMapping {
             null,
             null);
     }
+
+    // ------------------------------------------------------------------
+    // One idx:fieldName may not be claimed by two field IRIs (#141)
+    // ------------------------------------------------------------------
+
+    private static IndexProfile profileWith(String shape, FieldDef field) {
+        return new IndexProfile(
+            NodeFactory.createURI(NS + shape),
+            Collections.singleton(BOOK_CLASS),
+            "uri", "docType",
+            Collections.singletonList(field),
+            Collections.singletonList(occurrence(field, TITLE_PRED)),
+            Collections.emptyList(),
+            Collections.emptyList());
+    }
+
+    @Test
+    public void testTwoFieldIrisSharingAFieldNameIsRejected() {
+        // Both write to the Lucene field "author", and a lookup by name returns whichever
+        // shape parsed first, so the second definition is silently ignored. Same type, so
+        // the old conflicting-type check did not catch it.
+        FieldDef first = new FieldDef("author", FieldType.KEYWORD, null,
+            true, true, false, false, false, false,
+            NodeFactory.createURI("urn:jena:lucene:field#authorName"));
+        FieldDef second = new FieldDef("author", FieldType.KEYWORD, null,
+            true, true, false, false, false, false,
+            NodeFactory.createURI("urn:jena:lucene:field#reviewerName"));
+
+        TextIndexException e = assertThrows(TextIndexException.class,
+            () -> new ShaclIndexMapping(Arrays.asList(
+                profileWith("BookShape", first), profileWith("ArticleShape", second))));
+        assertTrue("Message should name the field: " + e.getMessage(),
+            e.getMessage().contains("author"));
+        assertTrue("Message should name both IRIs: " + e.getMessage(),
+            e.getMessage().contains("authorName") && e.getMessage().contains("reviewerName"));
+    }
+
+    @Test
+    public void testOneFieldSharedAcrossProfilesIsStillAllowed() {
+        // The ordinary case: one field definition bound in several shapes. Same IRI, so
+        // there is no ambiguity to reject.
+        FieldDef shared = new FieldDef("author", FieldType.KEYWORD, null,
+            true, true, false, false, false, false,
+            NodeFactory.createURI("urn:jena:lucene:field#authorName"));
+
+        ShaclIndexMapping mapping = new ShaclIndexMapping(Arrays.asList(
+            profileWith("BookShape", shared), profileWith("ArticleShape", shared)));
+        assertEquals(2, mapping.getProfiles().size());
+    }
+
+    @Test
+    public void testConflictingTypesForOneNameStillRejected() {
+        FieldDef asKeyword = new FieldDef("author", FieldType.KEYWORD, null,
+            true, true, false, false, false, false);
+        FieldDef asInt = new FieldDef("author", FieldType.INT, null,
+            true, true, false, false, false, false);
+
+        assertThrows(TextIndexException.class,
+            () -> new ShaclIndexMapping(Arrays.asList(
+                profileWith("BookShape", asKeyword), profileWith("ArticleShape", asInt))));
+    }
 }

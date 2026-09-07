@@ -1048,15 +1048,38 @@ public class ShaclIndexMapping {
         }
     }
 
+    /**
+     * One {@code idx:fieldName} may be bound in many shapes, but only by one field.
+     * <p>
+     * The name is the Lucene field, so two definitions sharing it write to the same place,
+     * and every lookup that goes name to definition returns whichever shape happened to
+     * parse first. The second definition is then silently ignored: its analyzer, its
+     * facetability, its whole configuration. Checking only for conflicting types let the
+     * commonest case through, two same-typed fields differing in everything else.
+     */
     private void validateFieldNameUniqueness() {
-        Map<String, FieldType> seen = new HashMap<>();
+        Map<String, FieldDef> seen = new HashMap<>();
         for (IndexProfile profile : profiles) {
             for (FieldDef field : profile.getFields()) {
-                FieldType prev = seen.put(field.getFieldName(), field.getFieldType());
-                if (prev != null && prev != field.getFieldType()) {
+                FieldDef prev = seen.putIfAbsent(field.getFieldName(), field);
+                if (prev == null) {
+                    continue;
+                }
+                if (prev.getFieldType() != field.getFieldType()) {
                     throw new TextIndexException(
                         "Field name '" + field.getFieldName()
-                        + "' has conflicting types: " + prev + " vs " + field.getFieldType());
+                        + "' has conflicting types: " + prev.getFieldType()
+                        + " vs " + field.getFieldType());
+                }
+                String previousIRI = prev.getFieldIRI().getURI();
+                String currentIRI = field.getFieldIRI().getURI();
+                if (!previousIRI.equals(currentIRI)) {
+                    throw new TextIndexException(
+                        "idx:fieldName '" + field.getFieldName() + "' is claimed by two field IRIs: "
+                        + previousIRI + " and " + currentIRI
+                        + ". Both write to one Lucene field, and a lookup by name returns whichever "
+                        + "shape parsed first, so one definition would be silently ignored. Give them "
+                        + "distinct idx:fieldName values, or bind the one field in both shapes.");
                 }
             }
         }

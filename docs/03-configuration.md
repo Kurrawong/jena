@@ -197,6 +197,25 @@ Public API rule:
 
 `idx:fieldName` is not a public query-time identifier.
 
+### One idx:fieldName, one field
+
+`idx:fieldName` is the Lucene field. The same field may be bound in as many shapes as you
+like, but two different field IRIs may not share a name:
+
+```turtle
+## Rejected: one Lucene field, two definitions
+field:authorName   idx:fieldName "author" ; idx:fieldType idx:KeywordField .
+field:reviewerName idx:fieldName "author" ; idx:fieldType idx:KeywordField .
+```
+
+Both would write to `author`, and every lookup that goes from name to definition returns
+whichever shape parsed first. The second definition is then ignored entirely: its
+analyzer, its facetability, its whole configuration, with nothing to say so. Give them
+distinct names, or bind the one field in both shapes.
+
+Conflicting types for one name were already rejected. This closes the commoner case,
+where the types agree and everything else differs.
+
 ## Field Properties
 
 These go on the **canonical field**, never on an occurrence.
