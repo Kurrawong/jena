@@ -28,6 +28,7 @@ import java.util.*;
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.text.ShaclIndexMapping;
+import org.apache.jena.query.text.TextIndexException;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
@@ -318,13 +319,27 @@ public class TestCqlToLuceneCompiler {
     }
 
     @Test
-    public void testSpatialPolygonByFieldNameIsResidual() {
+    public void testSpatialPolygonByBareFieldNameThrows() {
+        // Query APIs take field IRIs, not bare field names. A bare name resolves to no
+        // field, which used to yield a residual — and residuals are discarded, so the
+        // spatial filter silently vanished and the query returned unfiltered rows.
         String polygon = "{\"type\":\"Polygon\",\"coordinates\":[[[118.2,-22.3],[118.3,-22.3],[118.3,-22.2],[118.2,-22.2],[118.2,-22.3]]]}";
         CqlExpression spatial = new CqlExpression.CqlSpatial("s_intersects", "location", polygon);
-        CqlToLuceneCompiler.CompileResult r = compiler.compile(spatial);
 
-        assertNull(r.pushed());
-        assertNotNull(r.residual());
+        TextIndexException e = assertThrows(TextIndexException.class, () -> compiler.compile(spatial));
+        assertTrue("Message should name the unresolved field: " + e.getMessage(),
+            e.getMessage().contains("location"));
+    }
+
+    @Test
+    public void testSpatialOnNonSpatialFieldThrows() {
+        // A spatial operator against a non-spatial field cannot be pushed; it must not be dropped.
+        CqlExpression spatial = new CqlExpression.CqlSpatial(
+            "s_intersects", FP + "state", "{\"bbox\":[118.2,-22.3,118.3,-22.2]}");
+
+        TextIndexException e = assertThrows(TextIndexException.class, () -> compiler.compile(spatial));
+        assertTrue("Message should name the field type: " + e.getMessage(),
+            e.getMessage().contains("KEYWORD"));
     }
 
     @Test

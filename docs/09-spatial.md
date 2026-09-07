@@ -142,6 +142,20 @@ SELECT ?entity ?score WHERE {
 
 ## Current limitations
 
-- Only `s_intersects` with `bbox` geometry is supported (MVP). Other spatial operators (`s_within`, `s_contains`, `s_disjoint`, etc.) and GeoJSON geometry types will be added incrementally.
-- Unsupported spatial operators are treated as residual (logged as a warning, not applied as a filter).
+- Only `s_intersects` with `bbox` or GeoJSON `Polygon` geometry is supported. Other spatial operators (`s_within`, `s_contains`, `s_disjoint`, etc.) and the remaining GeoJSON geometry types will be added incrementally.
 - Distance queries are not yet supported.
+
+## Unsupported spatial filters raise
+
+A spatial filter that cannot be pushed to Lucene raises `TextIndexException`; it is
+never ignored. This covers an unsupported operator, an unsupported query geometry, a
+property that names no field, and a property whose field is not a `LatLonField`.
+
+The alternative would be to drop the filter, which is what earlier versions did. A
+dropped spatial filter is not applied anywhere — nothing re-evaluates it in ARQ — so the
+query silently returns **more** rows than were asked for. Inside an `or` it is worse: the
+whole disjunction is abandoned, so every other branch is dropped too. Raising turns a
+wrong answer into a refused one.
+
+Note that query APIs take **field IRIs**, not bare field names. A bare name resolves to
+no field and now raises rather than silently dropping the filter.

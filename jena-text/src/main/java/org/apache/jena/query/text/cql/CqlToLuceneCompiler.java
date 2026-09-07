@@ -33,6 +33,7 @@ import java.util.Set;
 import org.apache.jena.atlas.json.JSON;
 import org.apache.jena.atlas.json.JsonArray;
 import org.apache.jena.atlas.json.JsonObject;
+import org.apache.jena.atlas.json.JsonValue;
 import org.apache.jena.query.text.LiteralFieldSupport;
 import org.apache.jena.query.text.ShaclIndexMapping;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
@@ -59,6 +60,10 @@ import org.apache.lucene.util.BytesRef;
  * Expressions referencing indexed fields are pushed down to Lucene;
  * non-indexed fields or unsupported operations become residual CQL
  * for post-processing.
+ * <p>
+ * Spatial expressions are the exception: callers discard residuals rather than
+ * evaluating them, so an unpushable spatial filter would silently widen the result
+ * set. {@link #compileSpatial} therefore raises instead of returning a residual.
  */
 public class CqlToLuceneCompiler {
 
@@ -68,6 +73,17 @@ public class CqlToLuceneCompiler {
      *  no analyzer of their own — without it such a field is searched by raw term and a
      *  differently-cased or multi-word input silently matches nothing. */
     private final Analyzer defaultQueryAnalyzer;
+
+    /**
+     * Spatial operators this compiler can push to Lucene. Anything outside this set
+     * raises rather than becoming a residual: a dropped residual is not applied as a
+     * filter, so silently ignoring a spatial operator returns <em>more</em> rows than
+     * were asked for. A wrong answer is worse than a refused one.
+     */
+    private static final Set<String> SUPPORTED_SPATIAL_OPS = Set.of("s_intersects");
+
+    /** Query geometry forms {@link #compileSpatial} understands, for error messages. */
+    private static final String SUPPORTED_QUERY_GEOMETRIES = "bbox, Polygon";
 
     public record CompileResult(Query pushed, CqlExpression residual) {}
 
@@ -642,14 +658,22 @@ public class CqlToLuceneCompiler {
     }
 
     private CompileResult compileSpatial(CqlExpression.CqlSpatial spatial) {
-        // Only s_intersects is supported for now
-        if (!"s_intersects".equals(spatial.op())) {
-            return new CompileResult(null, spatial);
+        if (!SUPPORTED_SPATIAL_OPS.contains(spatial.op())) {
+            throw new TextIndexException(
+                "Spatial operator '" + spatial.op() + "' is not supported. Supported: "
+                + String.join(", ", new java.util.TreeSet<>(SUPPORTED_SPATIAL_OPS)) + ".");
         }
 
         FieldDef field = findField(spatial.property());
-        if (field == null || field.getFieldType() != FieldType.LATLON) {
-            return new CompileResult(null, spatial);
+        if (field == null) {
+            throw new TextIndexException(
+                "Spatial operator '" + spatial.op() + "' names unknown field '"
+                + spatial.property() + "'.");
+        }
+        if (field.getFieldType() != FieldType.LATLON) {
+            throw new TextIndexException(
+                "Spatial operator '" + spatial.op() + "' requires a LatLonField, but field '"
+                + spatial.property() + "' is " + field.getFieldType() + ".");
         }
 
         String fieldName = field.getFieldName();
@@ -679,12 +703,25 @@ public class CqlToLuceneCompiler {
                 return new CompileResult(q, null);
             }
 
-            return new CompileResult(null, spatial);
+            throw new TextIndexException(
+                "Spatial query geometry " + describeQueryGeometry(geomObj)
+                + " is not supported. Supported: " + SUPPORTED_QUERY_GEOMETRIES + ".");
         } catch (TextIndexException e) {
             throw e;
         } catch (Exception e) {
             throw new TextIndexException("Failed to parse spatial geometry JSON: " + e.getMessage(), e);
         }
+    }
+
+    /** Name an unsupported query geometry for an error message, without assuming it is well formed. */
+    private static String describeQueryGeometry(JsonObject geomObj) {
+        if (geomObj.hasKey("type")) {
+            JsonValue type = geomObj.get("type");
+            if (type.isString()) {
+                return "'" + type.getAsString().value() + "'";
+            }
+        }
+        return "with keys " + geomObj.keys();
     }
 
     /**

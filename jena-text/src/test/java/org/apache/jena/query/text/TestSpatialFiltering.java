@@ -312,17 +312,58 @@ public class TestSpatialFiltering {
     }
 
     @Test
-    public void testUnsupportedSpatialOpIsResidual() {
-        // s_within is not yet supported — should produce residual, not error
+    public void testUnsupportedSpatialOpThrows() {
+        // An operator we cannot push to Lucene must fail loudly. Dropping it silently
+        // widens the result set, which is a wrong answer rather than a missing one.
         CqlExpression filter = new CqlExpression.CqlSpatial(
-            "s_within", FP + "location", "{\"bbox\":[112,-44,154,-10]}");
+            "s_touches", FP + "location", "{\"bbox\":[112,-44,154,-10]}");
 
-        // Should not throw — residual ops are logged as warnings and ignored
-        List<TextHit> results = textIndex.queryWithCql(
-            null, "*", filter, null, null, null, 100, null);
+        TextIndexException e = assertThrows(TextIndexException.class, () ->
+            textIndex.queryWithCql(null, "*", filter, null, null, null, 100, null));
 
-        // All entities returned (no spatial filter applied, just text *)
-        assertTrue("Should return results when spatial op is residual", results.size() >= 4);
+        assertTrue("Message should name the offending operator: " + e.getMessage(),
+            e.getMessage().contains("s_touches"));
+    }
+
+    @Test
+    public void testUnsupportedQueryGeometryThrows() {
+        // Second silent-drop path: a supported operator with a query geometry the
+        // compiler does not understand also produced a dropped residual.
+        CqlExpression filter = new CqlExpression.CqlSpatial(
+            "s_intersects", FP + "location",
+            "{\"type\":\"Point\",\"coordinates\":[116.35,-32.77]}");
+
+        TextIndexException e = assertThrows(TextIndexException.class, () ->
+            textIndex.queryWithCql(null, "*", filter, null, null, null, 100, null));
+
+        assertTrue("Message should name the offending geometry type: " + e.getMessage(),
+            e.getMessage().contains("Point"));
+    }
+
+    @Test
+    public void testUnsupportedSpatialOpInsideAndThrows() {
+        // The AND fold keeps pushable siblings and drops the residual, so this used to
+        // return the title match unfiltered by geometry.
+        CqlExpression filter = new CqlExpression.CqlAnd(Arrays.asList(
+            new CqlExpression.CqlComparison("=", FP + "title", "Boddington Gold Mine"),
+            new CqlExpression.CqlSpatial("s_touches", FP + "location",
+                "{\"bbox\":[112,-44,154,-10]}")));
+
+        assertThrows(TextIndexException.class, () ->
+            textIndex.queryWithCql(null, "*", filter, null, null, null, 100, null));
+    }
+
+    @Test
+    public void testUnsupportedSpatialOpInsideOrThrows() {
+        // The OR fold abandons the whole disjunction when any branch is unpushable, so
+        // this used to drop every arm of the OR, not just the spatial one.
+        CqlExpression filter = new CqlExpression.CqlOr(Arrays.asList(
+            new CqlExpression.CqlComparison("=", FP + "title", "Boddington Gold Mine"),
+            new CqlExpression.CqlSpatial("s_touches", FP + "location",
+                "{\"bbox\":[112,-44,154,-10]}")));
+
+        assertThrows(TextIndexException.class, () ->
+            textIndex.queryWithCql(null, "*", filter, null, null, null, 100, null));
     }
 
     @Test
