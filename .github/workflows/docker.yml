@@ -52,6 +52,7 @@ env:
   ## with: invalid tag "ghcr.io/Kurrawong/...": repository name must be lowercase
   FUSEKI_IMAGE: ghcr.io/kurrawong/fuseki-lucene-shacl
   LOADER_IMAGE: ghcr.io/kurrawong/fuseki-lucene-shacl-loader
+  DEMO_IMAGE: ghcr.io/kurrawong/fuseki-lucene-shacl-demo
 
 jobs:
   build-and-push:
@@ -100,6 +101,17 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.FUSEKI_IMAGE }}
+          tags: |
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+
+      - name: Docker metadata (demo)
+        id: meta-demo
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.DEMO_IMAGE }}
           tags: |
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
@@ -222,5 +234,99 @@ jobs:
           tags: ${{ steps.meta-loader.outputs.tags }}
           labels: ${{ steps.meta-loader.outputs.labels }}
           annotations: ${{ steps.meta-loader.outputs.annotations }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ─── fuseki-lucene-shacl-demo: build amd64 (load), smoke-test, push multi-arch ──
+      #
+      # Not scanned. It is `FROM runtime` with Turtle, JSON and static assets copied
+      # on top — no packages, no jars, nothing trivy could find that the runtime scan
+      # above did not already cover on the same layers.
+
+      - name: Build fuseki-lucene-shacl-demo (amd64, load for smoke test)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: build-files/docker/Dockerfile
+          target: demo
+          platforms: linux/amd64
+          load: true
+          tags: fuseki-lucene-shacl-demo:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      ## The demo's whole claim is that one container, started with no arguments and no
+      ## volumes, comes up serving a populated index and the app that reads it. Each
+      ## assertion below is a way that has silently failed in development: an index
+      ## that builds but stays empty, an app whose examples list 404s because a symlink
+      ## was copied, an admin space left reachable.
+      - name: Smoke-test fuseki-lucene-shacl-demo
+        run: |
+          set -euo pipefail
+          docker run -d --name demo -p 3030:3030 fuseki-lucene-shacl-demo:smoke
+
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3030/\$/ping >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -sf http://localhost:3030/\$/ping >/dev/null
+
+          echo "--- the index has content ---"
+          hits=$(curl -sf -X POST http://localhost:3030/mining/query \
+            -H 'Content-Type: application/sparql-query' \
+            -H 'Accept: text/csv' \
+            --data-binary 'PREFIX luc: <urn:jena:lucene:index#>
+              SELECT (COUNT(*) AS ?n) WHERE {
+                (?hit ?entity ?score) luc:query ("default" "default" "copper" "" "" 1000 0)
+              }' | tail -n 1 | tr -d '\r')
+          echo "copper hits: $hits"
+          test "$hits" -gt 0
+
+          echo "--- facets, which need the taxonomy the in-memory index builds ---"
+          facets=$(curl -sf -X POST http://localhost:3030/mining/query \
+            -H 'Content-Type: application/sparql-query' \
+            -H 'Accept: text/csv' \
+            --data-binary 'PREFIX luc: <urn:jena:lucene:index#>
+              PREFIX field: <urn:jena:lucene:field#>
+              SELECT (COUNT(*) AS ?n) WHERE {
+                (?field ?value ?low ?high ?count) luc:facet
+                  ("default" "default" "" "" (field:state) 20)
+              }' | tail -n 1 | tr -d '\r')
+          echo "state facet values: $facets"
+          test "$facets" -gt 0
+
+          echo "--- the app is served from the same origin ---"
+          curl -sf http://localhost:3030/index.html | grep -q "Search Tester"
+          curl -sf http://localhost:3030/app.js >/dev/null
+          curl -sf http://localhost:3030/tests.json | head -c 1 | grep -q '\['
+          ## Not `fusekiBase: ''` — app.js reads the base with `||`, so an empty string
+          ## is discarded for its hardcoded localhost:3030 default and the app talks to
+          ## whatever else is on that port. The deployed config takes the origin from
+          ## the browser instead.
+          curl -sf http://localhost:3030/app-config.js | grep -q "fusekiBase: window.location.origin"
+
+          echo "--- read-only, and the admin space is closed ---"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            http://localhost:3030/mining/update --data-urlencode \
+            'update=INSERT DATA { <urn:a> <urn:b> <urn:c> }')" = "405"
+          test "$(curl -s -o /dev/null -w '%{http_code}' \
+            'http://localhost:3030/$/datasets')" = "401"
+          test "$(curl -s -o /dev/null -w '%{http_code}' \
+            'http://localhost:3030/$/config')" = "200"
+
+          docker rm -f demo
+
+      - name: Push fuseki-lucene-shacl-demo (multi-arch)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: build-files/docker/Dockerfile
+          target: demo
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-demo.outputs.tags }}
+          labels: ${{ steps.meta-demo.outputs.labels }}
+          annotations: ${{ steps.meta-demo.outputs.annotations }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -101,6 +101,20 @@ tasks:
     cmds:
       - pkill -f "jena-fuseki-server" && echo "Server stopped" || echo "No server running"
 
+  # ── Deployed demo (in-memory, no database, no indexing step) ──────────────
+
+  serve-deployed:
+    desc: Run the deployed demo configuration from the local jar — app and SPARQL on one port
+    dir: deploy
+    cmds:
+      - task: require-jar
+      # --base hands the app to Fuseki's own Jetty, so there is no proxy and the app
+      # is same-origin. That is why deploy/app-config.js sets fusekiBase to '' — copy
+      # it over app-static/app-config.js if you want to browse the app this way, and
+      # remember `task app` writes the '/fuseki' version back.
+      - echo "Serving app and SPARQL at http://localhost:{{.FUSEKI_PORT}}"
+      - java -jar ../{{.FUSEKI_JAR}} --port {{.FUSEKI_PORT}} --config config.ttl --base ../app-static
+
   # ── Data and index ───────────────────────────────────────
 
   load:

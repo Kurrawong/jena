@@ -103,6 +103,7 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , org.apache.jena.query.text.external.TestSortingRowSource.class
     , org.apache.jena.query.text.assembler.TestExternalSourceAssembler.class
     , org.apache.jena.query.text.assembler.TestTaxonomyDirectoryAssembler.class
+    , org.apache.jena.query.text.assembler.TestBuildOnStartupAssembler.class
 
     // CQL and multi-index tests
     , TestCqlParser.class
@@ -161,6 +162,7 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
 
     // Demo data validation
     , TestDemoDataParsing.class
+    , TestDemoDeployConfig.class
     , TestDemoMiningScenarios.class
 })
 

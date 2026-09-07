@@ -119,3 +119,44 @@ COPY --from=dist /jq-${TARGETARCH} /usr/local/bin/jq
 COPY --from=dist /build/apache-jena-dist /fuseki/apache-jena
 
 ENTRYPOINT ["/fuseki/entrypoint.sh"]
+
+# ─── fuseki-lucene-shacl-demo: the mining demo, self-contained ────────────────
+#
+# The runtime image plus the demo's data, configuration and browser app. No
+# volumes, no database, no separate indexing step and no second process: the
+# dataset is an in-memory ja:MemoryDataset loaded from ja:data, the Lucene index
+# is `text:directory "mem"` built at assembly time by text:buildOnStartup, and
+# Fuseki's own Jetty serves the app via --base. One port, same origin, so the app
+# needs no proxy and no CORS.
+#
+# Stateless by construction — every start rebuilds the index from the Turtle in
+# the image — which is what makes it safe to redeploy on every push and to run at
+# scale-to-zero.
+
+FROM runtime AS demo
+
+# Mirrors the repository layout under /demo, because config.ttl reaches its data
+# with <../test/data/mining.ttl>. That is a relative IRI resolved against the
+# config file's own location, not the working directory, so the two directories
+# must keep the same relationship they have in the source tree.
+COPY demo/deploy/config.ttl /demo/deploy/config.ttl
+COPY demo/test/data/mining.ttl demo/test/data/generated.ttl /demo/test/data/
+COPY demo/app-static/ /demo/app-static/
+
+# The real file in place of the symlink `task app` leaves in app-static (excluded in
+# .dockerignore). A copied symlink pointing out of the static base is one Jetty
+# refuses to follow, and the app's examples list would 404.
+COPY demo/test/tests.json /demo/app-static/tests.json
+
+# Deny-by-default for /$/, read by Fuseki from FUSEKI_BASE. The bundled default
+# only checks the socket address, which a proxy in front of the server defeats.
+COPY demo/deploy/shiro.ini /demo/deploy/run/shiro.ini
+
+# Same-origin app configuration, replacing the checked-in one that points at the
+# local serve_app.py proxy.
+COPY demo/deploy/app-config.js /demo/app-static/app-config.js
+
+COPY build-files/docker/demo-entrypoint.sh /demo/entrypoint.sh
+
+EXPOSE 3030
+ENTRYPOINT ["/demo/entrypoint.sh"]

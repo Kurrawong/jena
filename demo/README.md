@@ -89,6 +89,18 @@ Delta source CSV data/assays.csv + 1 delta(s) [data/assays-delta.csv]:
 
 See [docs/03-configuration.md](../docs/03-configuration.md#external-content-csvtsv).
 
+## Self-contained demo image
+
+`deploy/` is the same demo with no moving parts: in-memory dataset, in-memory index,
+built at startup, with Fuseki serving the app itself on one port.
+
+```bash
+docker run --rm -p 3030:3030 ghcr.io/kurrawong/fuseki-lucene-shacl-demo:latest
+```
+
+Nothing to load, nothing to index, no volumes. It leaves out the borehole assays, which
+can only be built by the bulk indexer. See [deploy/README.md](deploy/README.md).
+
 ## Quick start (Docker)
 
 ```bash
