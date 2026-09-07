@@ -165,6 +165,7 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestDemoDataParsing.class
     , TestDemoDeployConfig.class
     , TestDemoMiningScenarios.class
+    , TestDemoExamples.class
 })
 
 public class TS_Text

@@ -544,12 +544,20 @@ function extractCorrelatedFilterState(clause, fieldIRIs, correlated) {
  * Parse a CQL2-JSON filter string back into app state.
  * Returns { selected: {field: [values]}, bbox, polygon }.
  */
+/**
+ * CQL2 spatial operators. Only `s_intersects` with a plain bbox or a single-ring polygon
+ * maps onto the map's drawing controls; every other spatial clause is carried through
+ * verbatim so the query still means what it said.
+ */
+const SPATIAL_OPS = ['s_intersects', 's_within', 's_contains', 's_disjoint', 's_dwithin'];
+
 function parseCqlFilter(cqlString, fieldIRIs) {
     const selected = {};
     let bbox = null;
     let polygon = null;
+    let spatialRaw = null;
     const correlated = emptyCorrelatedFilterState();
-    if (!cqlString) return { selected, bbox, polygon, correlated };
+    if (!cqlString) return { selected, bbox, polygon, spatialRaw, correlated };
 
     // Build reverse map: IRI → field name
     const iriToName = {};
@@ -563,7 +571,7 @@ function parseCqlFilter(cqlString, fieldIRIs) {
     const resolve = (prop) => iriToName[prop] || iriToName[shortName(prop)] || prop;
 
     let cql;
-    try { cql = JSON.parse(cqlString); } catch { return { selected, bbox, polygon, correlated }; }
+    try { cql = JSON.parse(cqlString); } catch { return { selected, bbox, polygon, spatialRaw, correlated }; }
 
     function addSelected(field, value) {
         if (!selected[field]) selected[field] = [];
@@ -606,18 +614,29 @@ function parseCqlFilter(cqlString, fieldIRIs) {
             addSelected(field, `__RANGE__${low}|${high}`);
             return;
         }
-        if (clause.op === 's_intersects') {
+        if (SPATIAL_OPS.includes(clause.op)) {
             const geom = clause.args[1];
-            if (geom?.bbox) {
+            const drawableBbox = clause.op === 's_intersects' && geom?.bbox;
+            const drawablePolygon = clause.op === 's_intersects'
+                && geom?.type === 'Polygon' && geom.coordinates
+                && geom.coordinates.length === 1;   // a hole cannot be drawn or replayed
+
+            if (drawableBbox) {
                 bbox = geom.bbox;
-            } else if (geom?.type === 'Polygon' && geom.coordinates) {
+            } else if (drawablePolygon) {
                 polygon = geom.coordinates[0];
+            } else {
+                // s_within, s_contains, s_disjoint, s_dwithin, or a polygon with holes.
+                // The drawing controls cannot express these, and decomposing them into
+                // bbox/polygon state would silently rebuild the clause as s_intersects
+                // and drop any interior rings. Keep the clause as written.
+                spatialRaw = clause;
             }
         }
     }
 
     visit(cql);
-    return { selected, bbox, polygon, correlated };
+    return { selected, bbox, polygon, spatialRaw, correlated };
 }
 
 // ---------------------------------------------------------------------------
@@ -1039,6 +1058,8 @@ function searchApp() {
         attributionRoleOptions: [],
         spatialBbox: null,
         spatialPolygon: null,
+        // A spatial clause the drawing controls cannot represent, replayed verbatim.
+        spatialRaw: null,
         drawingBbox: false,
         _drawRect: null,
         _drawStart: null,
@@ -1100,22 +1121,12 @@ function searchApp() {
             await this.executeSearch();
             await this.loadAttributionOptions();
 
-            // Auto-expand hierarchy drill-down if specified in URL
-            const drillParam = new URLSearchParams(window.location.search).get('drillDown');
-            if (drillParam) {
-                const sep = drillParam.indexOf(':');
-                if (sep > 0) {
-                    const dim = drillParam.substring(0, sep);
-                    const value = drillParam.substring(sep + 1);
-                    if (this.hierarchyDimensions.has(dim)) {
-                        await this.toggleHierarchy(dim, value);
-                    }
-                }
-            }
+            await this.applyDrillDownFromUrl();
 
             window.addEventListener('popstate', async () => {
                 this.loadFromUrl();
                 await this.executeSearch();
+                await this.applyDrillDownFromUrl();
             });
 
             // Initialize map when visible, invalidateSize on toggle
@@ -1226,6 +1237,7 @@ LIMIT 100`);
             window.history.pushState({}, '', qs ? `?${qs}` : window.location.pathname);
             this.loadFromUrl();
             await this.executeSearch();
+            await this.applyDrillDownFromUrl();
         },
 
         /**
@@ -1387,7 +1399,7 @@ LIMIT 100`);
             const sort = parseSortParam(params.get('sort'), this.fieldIRIs);
             this.sortField = sort.field;
             this.sortDirection = sort.direction;
-            const { selected, bbox, polygon, correlated } = parseCqlFilter(params.get('filter'), this.fieldIRIs);
+            const { selected, bbox, polygon, spatialRaw, correlated } = parseCqlFilter(params.get('filter'), this.fieldIRIs);
             const fieldNames = new Set([...this.facetFields, ...Object.keys(selected)]);
             this.selected = {};
             for (const f of fieldNames) {
@@ -1397,7 +1409,30 @@ LIMIT 100`);
             this.hierarchySelected = this.inferHierarchySelections(this.selected);
             this.spatialBbox = bbox;
             this.spatialPolygon = polygon;
+            this.spatialRaw = spatialRaw;
             this.currentPage = Math.max(1, parseInt(params.get('page'), 10) || 1);
+        },
+
+        /**
+         * Expand a hierarchy drill-down named in the URL.
+         *
+         * Must run after executeSearch, since it needs the buckets that search produced.
+         * Called from every path that changes the URL — first load, an example, and the
+         * back button — because this used to live inline in init() and so fired only on
+         * first load. Clicking a drill-down example therefore ran its filter and expanded
+         * nothing, and since the three drill-down examples share one filter with
+         * "Boreholes only", all four showed the same rows and the page looked stuck.
+         */
+        async applyDrillDownFromUrl() {
+            const drillParam = new URLSearchParams(window.location.search).get('drillDown');
+            if (!drillParam) return;
+            const sep = drillParam.indexOf(':');
+            if (sep <= 0) return;
+            const dim = drillParam.substring(0, sep);
+            const value = drillParam.substring(sep + 1);
+            if (this.hierarchyDimensions.has(dim)) {
+                await this.toggleHierarchy(dim, value);
+            }
         },
 
         // --- Actions ---
@@ -1459,6 +1494,7 @@ LIMIT 100`);
 
         hasActiveFilters() {
             return this.spatialBbox != null || this.spatialPolygon != null ||
+                this.spatialRaw != null ||
                 this.correlatedFiltersActive() ||
                 Object.values(this.selected).some(values => (values || []).length > 0) ||
                 Object.values(this.hierarchySelected || {}).some(parents =>
@@ -2100,6 +2136,9 @@ SELECT ?value ?count WHERE {
                 ...this.buildHierarchyParentClauses(excludedDim),
                 ...this.correlatedIdentifierClauses(),
                 ...this.correlatedAttributionClauses(),
+                // Carried through untouched. Drawing a box or polygon replaces it, so
+                // the two cannot both apply.
+                ...(this.spatialRaw ? [this.spatialRaw] : []),
             ];
         },
 
@@ -2548,6 +2587,9 @@ DESCRIBE <${uri}>`;
             if (this.spatialBbox) {
                 filters.push('bbox [' + this.spatialBbox.map(n => n.toFixed(1)).join(', ') + ']');
             }
+            if (this.spatialRaw) {
+                filters.push(this.spatialRaw.op);
+            }
             if (this.spatialPolygon) {
                 filters.push('polygon [' + this.spatialPolygon.length + ' vertices]');
             }
@@ -2832,6 +2874,7 @@ DESCRIBE <${uri}>`;
         },
 
         clearBbox() {
+            this.spatialRaw = null;
             this.spatialBbox = null;
             if (this._bboxOverlay && this._map) {
                 this._map.removeLayer(this._bboxOverlay);

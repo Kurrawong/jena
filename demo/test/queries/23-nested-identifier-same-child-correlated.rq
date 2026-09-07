@@ -12,7 +12,7 @@
 # Both clauses live in the same CqlAnd subtree and both target the
 # `identifier` idx:nested scope. The compiler's same-scope fold combines
 # them into ONE inner BooleanQuery wrapped in ONE ToParentBlockJoinQuery so
-# that a borehole surfaces only when ONE identifier record satisfies BOTH
+# that a report surfaces only when ONE identifier record satisfies BOTH
 # constraints — type=anumber AND value matching the "A-94" n-gram.
 
 PREFIX luc: <urn:jena:lucene:index#>

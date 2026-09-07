@@ -785,7 +785,13 @@ public class CqlToLuceneCompiler {
      * [swLon, swLat, neLon, neLat].
      */
     private static void addQueryGeometries(List<LatLonGeometry> out, JsonObject geomObj) {
-        if (geomObj.hasKey("bbox")) {
+        // RFC 7946 allows an optional "bbox" member on any GeoJSON object, where it is
+        // metadata describing the geometry rather than the geometry itself, and GIS
+        // exports emit it routinely. So a "bbox" key alone does not mean CQL2's bbox
+        // form: only treat it that way when there is no "type" saying otherwise.
+        // Reading it as the query shape would silently substitute the bounding box for
+        // the geometry, widening the result set.
+        if (geomObj.hasKey("bbox") && !geomObj.hasKey("type")) {
             JsonArray bbox = geomObj.get("bbox").getAsArray();
             if (bbox.size() != 4) {
                 throw new TextIndexException("bbox must have exactly 4 values [swLon, swLat, neLon, neLat], got " + bbox.size());

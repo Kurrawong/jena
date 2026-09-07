@@ -187,7 +187,7 @@ it finds entities that link *to* the report.
 | `03-facet-counts.rq` | Facet counts across commodity, state, operator |
 | `04-facet-filtered.rq` | Drill-down: facets for "gold" in WA only |
 | `05-combined.rq` | Search + facets in one query (UNION pattern) |
-| `06-sequence-path-facet.rq` | Facet counts on `authorName` (sequence path field) |
+| `06-sequence-path-facet.rq` | Facet counts on `authorName`, whose values come from `ex:authoredBy`/`ex:name` on a linked Author |
 | `07-filter-by-author.rq` | Filter results by `authorName` = "Dr Sarah Jones" |
 | `08-spatial-bbox.rq` | Bounding box spatial search |
 | `09-matchraw-multivalue.rq` | Multi-valued identifier search showing `?matchRaw` on dirty identifier data |
@@ -235,8 +235,30 @@ put the shape in the Gulf of Guinea.
 Run the parser's tests with no extra dependencies:
 
 ```bash
-node --test testing/wkt.test.mjs
+task test-wkt
 ```
+
+### Checking the examples still work
+
+```bash
+task FUSEKI_PORT=3031 check-examples
+```
+
+Replays every example in `test/tests.json` and asserts three things, the last of which
+is the one that matters: the parameters survive the URL round trip byte for byte, the
+query returns at least the example's declared `minResults`, and the filter **actually
+removes something**.
+
+Several demo bugs have shared one symptom — an example that looked fine and quietly
+returned the whole corpus. A '#' in a field IRI truncating the URL at the fragment, and
+an empty base URL falling through a `||` to a hardcoded default. A check that only
+asserts the query succeeds passes in both cases, and so does a `minResults` floor,
+because an unfiltered query clears it comfortably.
+
+The filter is measured against the whole corpus rather than against the same search
+term: `q=réserves` matches one document, which is already a `MiningReport`, so an
+`entityType` filter has nothing left to remove — and that is a working example, not an
+ignored filter.
 
 ### Expected results for path queries
 

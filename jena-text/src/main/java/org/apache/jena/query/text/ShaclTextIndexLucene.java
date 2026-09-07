@@ -85,6 +85,7 @@ import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.NumericUtils;
 import org.locationtech.jts.geom.*;
 import org.locationtech.jts.geom.util.AffineTransformation;
+import org.locationtech.jts.io.geojson.GeoJsonReader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -1416,7 +1417,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
             case LATLON: {
                 String wktValue = value.toString();
-                List<IndexableField> spatialFields = parseWktToLuceneFields(fieldName, wktValue, fieldDef.isStored());
+                List<IndexableField> spatialFields = parseGeometryToLuceneFields(fieldName, wktValue, fieldDef.isStored());
                 for (IndexableField f : spatialFields) {
                     doc.add(f);
                 }
@@ -1483,7 +1484,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             case DOUBLE -> addDoubleLiteralField(doc, fieldDef, lexical);
             case TEMPORAL -> addTemporalLiteralField(doc, fieldDef, lexical);
             case LATLON -> {
-                List<IndexableField> spatialFields = parseWktToLuceneFields(fieldName, lexical, fieldDef.isStored());
+                List<IndexableField> spatialFields = parseGeometryToLuceneFields(fieldName, lexical, fieldDef.isStored());
                 for (IndexableField f : spatialFields) {
                     doc.add(f);
                 }
@@ -1568,6 +1569,59 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             doc.add(new SortedNumericDocValuesField(epochFieldName, epoch));
         }
     }
+
+    /**
+     * Parse a geometry literal into Lucene indexable fields, accepting either
+     * serialisation a {@code LatLonField} may be bound to.
+     * <p>
+     * The two are told apart by their first character: a GeoJSON geometry is a JSON
+     * object, a WKT literal is either a {@code <crs-iri>} prefix or a type keyword.
+     * Sniffing the lexical form rather than the datatype means a literal typed only as
+     * {@code xsd:string} still works, which is common in data converted from GIS
+     * exports.
+     *
+     * @param fieldName Lucene field to write
+     * @param lexical   the literal's lexical form, WKT or GeoJSON
+     * @param stored    whether to keep the literal retrievable
+     */
+    static List<IndexableField> parseGeometryToLuceneFields(String fieldName, String lexical, boolean stored) {
+        if (lexical != null && lexical.stripLeading().startsWith("{")) {
+            return parseGeoJsonToLuceneFields(fieldName, lexical, stored);
+        }
+        return parseWktToLuceneFields(fieldName, lexical, stored);
+    }
+
+    /**
+     * Parse a GeoJSON geometry into Lucene indexable fields.
+     * <p>
+     * RFC 7946 fixes GeoJSON to WGS84 longitude/latitude and forbids a CRS member, so
+     * unlike WKT there is no prefix to strip and no axis order to decide. JTS reads
+     * coordinates as x=lon, y=lat, which is what {@link #addGeometryFields} expects, so
+     * the geometry goes straight through the same path as WKT and gets the same
+     * geometry-type coverage.
+     * <p>
+     * A {@code Feature} or {@code FeatureCollection} wrapper is accepted as well as a
+     * bare geometry, because that is what a GIS export usually produces. JTS reads both:
+     * a {@code FeatureCollection} becomes a {@code GeometryCollection} of every member's
+     * geometry, so nothing is dropped.
+     */
+    static List<IndexableField> parseGeoJsonToLuceneFields(String fieldName, String geoJson, boolean stored) {
+        List<IndexableField> fields = new ArrayList<>();
+        try {
+            Geometry geom = new GeoJsonReader().read(geoJson);
+            if (geom == null || geom.isEmpty()) {
+                return fields;
+            }
+            addGeometryFields(fields, fieldName, geom);
+            if (stored && !fields.isEmpty()) {
+                fields.add(new StoredField(fieldName, geoJson));
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse GeoJSON for field '{}': {} — {}", fieldName, geoJson, e.getMessage());
+        }
+        return fields;
+    }
+
 
     /**
      * Parse a WKT literal into Lucene indexable fields for spatial queries.

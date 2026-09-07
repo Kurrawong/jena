@@ -293,6 +293,18 @@ field:belowDetection
     sh:property [ idx:field field:authorName ; sh:path ( ex:authoredBy ex:name ) ] ;
     sh:property [ idx:field field:authorNameText ; sh:path ( ex:authoredBy ex:name ) ] ;
     sh:property [ idx:field field:authoredByUri ; sh:path [ sh:inversePath ex:authored ] ] ;
+    ## Correlated identifier records: company, anumber and mnumber on one report.
+    ## Lives here rather than on BoreholeShape so it is exercised by the change
+    ## listener. BoreholeShape is rebuild-only because of its external assay source,
+    ## which would tie this feature's tests to that one.
+    idx:nested [
+        idx:joinPath schema:identifier ;
+        idx:property [ idx:field field:identifierType ; sh:path schema:propertyID ] ;
+        idx:property [ idx:field field:identifierValueExact ; sh:path schema:value ] ;
+        idx:property [ idx:field field:identifierValueText ; sh:path schema:value ] ;
+        idx:facetHierarchy ( field:identifierType field:identifierValueExact ) ;
+    ] ;
+
     idx:nested [
         idx:joinPath prov:qualifiedAttribution ;
         idx:property [ idx:field field:attributionRole ; sh:path ( prov:hadRole rdfs:label ) ] ;
@@ -311,13 +323,6 @@ field:belowDetection
     sh:property [ idx:field field:state ; sh:path ex:state ] ;
     sh:property [ idx:field field:depth ; sh:path ex:depth ] ;
     sh:property [ idx:field field:location ; sh:path <http://www.opengis.net/ont/geosparql#asWKT> ] ;
-    idx:nested [
-        idx:joinPath schema:identifier ;
-        idx:property [ idx:field field:identifierType ; sh:path schema:propertyID ] ;
-        idx:property [ idx:field field:identifierValueExact ; sh:path schema:value ] ;
-        idx:property [ idx:field field:identifierValueText ; sh:path schema:value ] ;
-        idx:facetHierarchy ( field:identifierType field:identifierValueExact ) ;
-    ] ;
 
     ## Assay results from a CSV that is never loaded into the graph. One child
     ## document per row, joined on the borehole IRI at index time — so a single

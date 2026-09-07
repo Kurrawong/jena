@@ -137,11 +137,11 @@ ex:site-kanawa-ridge a ex:Site ;
 ex:site-haul-road a ex:Site ;
     rdfs:label "Newman Haul Road" ;
     ex:identifier "SITE-HAUL-001" ;
-    dct:description "Haul road corridor indexed as a LineString. Both endpoints sit outside the Pilbara search box while the segment crosses it, which is why a bounding-box query must test the segment rather than its vertices." ;
+    dct:description "Haul road corridor indexed as a LineString, with bends so the shape reads as a line on the map. Every vertex sits outside the Pilbara search box and only one span crosses it, which is why a bounding-box query must test the segments rather than the vertices." ;
     ex:commodity commodity:Iron-Ore ;
     ex:state state:WA ;
     ex:status status:Active ;
-    geo:asWKT "LINESTRING(118.90 -23.40, 120.60 -23.40)"^^geo:wktLiteral .
+    geo:asWKT "LINESTRING(118.60 -23.95, 118.85 -23.70, 119.05 -23.90, 118.95 -23.45, 120.35 -23.35, 120.55 -23.65, 120.80 -23.30, 121.00 -23.55)"^^geo:wktLiteral .
 
 ex:site-drill-collars a ex:Site ;
     rdfs:label "Yandi Drill Collars" ;
@@ -223,9 +223,9 @@ ex:site-no-geometry a ex:Site ;
     ex:status status:Historical .
 
 ## --- Boreholes ---
-## The schema:identifier records model the qualified-value pattern behind issue #39.
-## Each borehole carries three correlated blank-node identifier records:
-## company, anumber, and mnumber.
+## Boreholes are indexed from an external CSV assay source, so they are rebuild-only.
+## The correlated schema:identifier records live on the reports instead, where the
+## change listener maintains them and they can be tested on their own.
 
 ex:bh-bro-001 a ex:Borehole ;
     rdfs:label "BRO-DDH-001 Brolga Ridge Diamond Drill Hole" ;
@@ -234,10 +234,6 @@ ex:bh-bro-001 a ex:Borehole ;
     ex:commodity commodity:Copper ;
     ex:state state:QLD ;
     ex:depth 450 ;
-    schema:identifier
-        [ schema:propertyID "company" ; schema:value "Saltbush" ],
-        [ schema:propertyID "anumber" ; schema:value "A9412" ],
-        [ schema:propertyID "mnumber" ; schema:value "BRO-DDH-001" ] ;
     geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-20.74 139.50)"^^geo:wktLiteral .
 
 ex:bh-bro-002 a ex:Borehole ;
@@ -246,11 +242,7 @@ ex:bh-bro-002 a ex:Borehole ;
     dct:description "Exploration hole in the northern lead-zinc zone targeting Urquhart Shale stratigraphy. Encountered sphalerite and galena mineralisation between 210m and 290m." ;
     ex:commodity commodity:Lead, commodity:Zinc ;
     ex:state state:QLD ;
-    ex:depth 320 ;
-    schema:identifier
-        [ schema:propertyID "company" ; schema:value "Saltbush" ],
-        [ schema:propertyID "anumber" ; schema:value "A9413" ],
-        [ schema:propertyID "mnumber" ; schema:value "BRO-DDH-002" ] .
+    ex:depth 320 .
 
 ex:bh-spx-001 a ex:Borehole ;
     rdfs:label "SPX-RC-001 Spinifex Dome Reverse Circulation Hole" ;
@@ -258,11 +250,7 @@ ex:bh-spx-001 a ex:Borehole ;
     dct:description "Reverse circulation hole drilled into the Spinifex Dome breccia complex. Targeted the hematite-quartz breccia unit hosting copper-uranium mineralisation." ;
     ex:commodity commodity:Copper, commodity:Uranium ;
     ex:state state:SA ;
-    ex:depth 280 ;
-    schema:identifier
-        [ schema:propertyID "company" ; schema:value "Warrigal" ],
-        [ schema:propertyID "anumber" ; schema:value "A1208" ],
-        [ schema:propertyID "mnumber" ; schema:value "SPX-RC-001" ] .
+    ex:depth 280 .
 
 ex:bh-wat-001 a ex:Borehole ;
     rdfs:label "WAT-DDH-001 Wattle Downs Deep Diamond Hole" ;
@@ -271,10 +259,6 @@ ex:bh-wat-001 a ex:Borehole ;
     ex:commodity commodity:Gold ;
     ex:state state:WA ;
     ex:depth 600 ;
-    schema:identifier
-        [ schema:propertyID "company" ; schema:value "Bellbird" ],
-        [ schema:propertyID "anumber" ; schema:value "A3301" ],
-        [ schema:propertyID "mnumber" ; schema:value "WAT-DDH-001" ] ;
     geo:asWKT "POINT(116.36 -32.78)"^^geo:wktLiteral .
 
 ex:bh-ech-001 a ex:Borehole ;
@@ -283,11 +267,7 @@ ex:bh-ech-001 a ex:Borehole ;
     dct:description "Historical diamond drill hole from the Echidna Hill main lode. Part of the 1970s exploration campaign that delineated the southern extension of the orebody." ;
     ex:commodity commodity:Lead, commodity:Silver ;
     ex:state state:NSW ;
-    ex:depth 210 ;
-    schema:identifier
-        [ schema:propertyID "company" ; schema:value "Legacy Co" ],
-        [ schema:propertyID "anumber" ; schema:value "A4402" ],
-        [ schema:propertyID "mnumber" ; schema:value "ECH-DDH-001" ] .
+    ex:depth 210 .
 
 ex:bh-kur-001 a ex:Borehole ;
     rdfs:label "KUR-DDH-001 Kurrajong Deep Exploration Hole" ;
@@ -295,11 +275,7 @@ ex:bh-kur-001 a ex:Borehole ;
     dct:description "Deep exploration hole targeting the Kurrajong East porphyry at depth. Intersected a thick zone of sheeted quartz-sulphide veins with elevated gold and copper grades from 620m." ;
     ex:commodity commodity:Gold, commodity:Copper ;
     ex:state state:NSW ;
-    ex:depth 850 ;
-    schema:identifier
-        [ schema:propertyID "company" ; schema:value "Quandong" ],
-        [ schema:propertyID "anumber" ; schema:value "A5507" ],
-        [ schema:propertyID "mnumber" ; schema:value "KUR-DDH-001" ] .
+    ex:depth 850 .
 
 ex:bh-red-001 a ex:Borehole ;
     rdfs:label "RED-RC-001 Redgum Iron Ore Reverse Circulation" ;
@@ -308,10 +284,6 @@ ex:bh-red-001 a ex:Borehole ;
     ex:commodity commodity:Iron-Ore ;
     ex:state state:WA ;
     ex:depth 150 ;
-    schema:identifier
-        [ schema:propertyID "company" ; schema:value "Corvid Metals" ],
-        [ schema:propertyID "anumber" ; schema:value "A6609" ],
-        [ schema:propertyID "mnumber" ; schema:value "RED-RC-001" ] ;
     geo:asWKT "<http://www.opengis.net/def/crs/EPSG/0/4326> POINT(-22.35 118.60)"^^geo:wktLiteral .
 
 ## --- Authors ---
@@ -359,6 +331,10 @@ ex:report-bro-2023 a ex:MiningReport ;
     ex:qaPassed true ;
     ex:confidenceScore "0.94"^^xsd:double ;
     ex:authoredBy ex:author-jones ;
+    schema:identifier
+        [ schema:propertyID "company" ; schema:value "Saltbush" ],
+        [ schema:propertyID "anumber" ; schema:value "A9412" ],
+        [ schema:propertyID "mnumber" ; schema:value "BRO-DDH-001" ] ;
     prov:qualifiedAttribution
         [ prov:hadRole ex:PrincipalInvestigator ; prov:agent ex:author-jones ],
         [ prov:hadRole ex:Reviewer ; prov:agent ex:author-patel ] .
@@ -378,6 +354,10 @@ ex:report-bro-2021 a ex:MiningReport ;
     ex:qaPassed true ;
     ex:confidenceScore "0.81"^^xsd:double ;
     ex:authoredBy ex:author-chen ;
+    schema:identifier
+        [ schema:propertyID "company" ; schema:value "Saltbush" ],
+        [ schema:propertyID "anumber" ; schema:value "A9413" ],
+        [ schema:propertyID "mnumber" ; schema:value "BRO-DDH-002" ] ;
     prov:qualifiedAttribution
         [ prov:hadRole ex:PrincipalInvestigator ; prov:agent ex:author-chen ],
         [ prov:hadRole ex:Reviewer ; prov:agent ex:author-jones ] .
@@ -397,6 +377,10 @@ ex:report-spx-2024 a ex:MiningReport ;
     ex:qaPassed true ;
     ex:confidenceScore "0.97"^^xsd:double ;
     ex:authoredBy ex:author-jones ;
+    schema:identifier
+        [ schema:propertyID "company" ; schema:value "Warrigal" ],
+        [ schema:propertyID "anumber" ; schema:value "A1208" ],
+        [ schema:propertyID "mnumber" ; schema:value "SPX-RC-001" ] ;
     prov:qualifiedAttribution
         [ prov:hadRole ex:PrincipalInvestigator ; prov:agent ex:author-chen ],
         [ prov:hadRole ex:Reviewer ; prov:agent ex:author-jones ] .
@@ -416,6 +400,10 @@ ex:report-wat-2022 a ex:MiningReport ;
     ex:qaPassed true ;
     ex:confidenceScore "0.89"^^xsd:double ;
     ex:authoredBy ex:author-patel ;
+    schema:identifier
+        [ schema:propertyID "company" ; schema:value "Bellbird" ],
+        [ schema:propertyID "anumber" ; schema:value "A3301" ],
+        [ schema:propertyID "mnumber" ; schema:value "WAT-DDH-001" ] ;
     prov:qualifiedAttribution
         [ prov:hadRole ex:PrincipalInvestigator ; prov:agent ex:author-patel ],
         [ prov:hadRole ex:DataSteward ; prov:agent ex:author-jones ] .
@@ -435,6 +423,10 @@ ex:report-ech-1985 a ex:MiningReport ;
     ex:qaPassed false ;
     ex:confidenceScore "0.58"^^xsd:double ;
     ex:authoredBy ex:author-chen ;
+    schema:identifier
+        [ schema:propertyID "company" ; schema:value "Legacy Co" ],
+        [ schema:propertyID "anumber" ; schema:value "A4402" ],
+        [ schema:propertyID "mnumber" ; schema:value "ECH-DDH-001" ] ;
     prov:qualifiedAttribution
         [ prov:hadRole ex:Reviewer ; prov:agent ex:author-chen ] .
 
@@ -453,6 +445,10 @@ ex:report-kur-2023 a ex:MiningReport ;
     ex:qaPassed true ;
     ex:confidenceScore "0.93"^^xsd:double ;
     ex:authoredBy ex:author-patel ;
+    schema:identifier
+        [ schema:propertyID "company" ; schema:value "Quandong" ],
+        [ schema:propertyID "anumber" ; schema:value "A5507" ],
+        [ schema:propertyID "mnumber" ; schema:value "KUR-DDH-001" ] ;
     prov:qualifiedAttribution
         [ prov:hadRole ex:PrincipalInvestigator ; prov:agent ex:author-patel ],
         [ prov:hadRole ex:Reviewer ; prov:agent ex:author-jones ] .
@@ -472,6 +468,10 @@ ex:report-red-2024 a ex:MiningReport ;
     ex:qaPassed true ;
     ex:confidenceScore "0.96"^^xsd:double ;
     ex:authoredBy ex:author-williams ;
+    schema:identifier
+        [ schema:propertyID "company" ; schema:value "Corvid Metals" ],
+        [ schema:propertyID "anumber" ; schema:value "A6609" ],
+        [ schema:propertyID "mnumber" ; schema:value "RED-RC-001" ] ;
     prov:qualifiedAttribution
         [ prov:hadRole ex:PrincipalInvestigator ; prov:agent ex:author-williams ],
         [ prov:hadRole ex:Reviewer ; prov:agent ex:author-jones ] .

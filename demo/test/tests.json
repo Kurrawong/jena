@@ -34,9 +34,9 @@
   { "label": "Reports sorted by publishedOn desc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}&sort=publishedOn:desc", "minResults": 5 },
 
   { "group": "Nested Sort" },
-  { "label": "Boreholes by nested anumber asc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&sort=urn:jena:lucene:field#identifierValueExact@anumber:asc", "minResults": 5 },
-  { "label": "Boreholes by nested anumber desc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&sort=urn:jena:lucene:field#identifierValueExact@anumber:desc", "minResults": 5 },
-  { "label": "Boreholes by nested company asc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&sort=urn:jena:lucene:field#identifierValueExact@company:asc", "minResults": 5 },
+  { "label": "Reports by nested anumber asc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}&sort=urn:jena:lucene:field#identifierValueExact@anumber:asc", "minResults": 5 },
+  { "label": "Reports by nested anumber desc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}&sort=urn:jena:lucene:field#identifierValueExact@anumber:desc", "minResults": 5 },
+  { "label": "Reports by nested company asc", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}&sort=urn:jena:lucene:field#identifierValueExact@company:asc", "minResults": 5 },
 
   { "group": "Entity Types" },
   { "label": "Sites only", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Site\"]}", "minResults": 5 },
@@ -44,8 +44,12 @@
   { "label": "Reports only", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}", "minResults": 5 },
 
   { "group": "Sequence Path (Author)" },
-  { "label": "Author: Dr Sarah Jones", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"authorName\"},\"Dr Sarah Jones\"]}", "minResults": 1 },
-  { "label": "Author: James Williams", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"authorName\"},\"James Williams\"]}", "minResults": 1 },
+
+
+  { "label": "Two hops: reports whose Author is named Prof Wei Chen", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#authorName\"},\"Prof Wei Chen\"]}", "minResults": 5 },
+  { "label": "Two authors at once, in on the same two-hop field", "params": "?filter={\"op\":\"in\",\"args\":[{\"property\":\"urn:jena:lucene:field#authorName\"},[\"Prof Wei Chen\",\"Dr Priya Patel\"]]}", "minResults": 20 },
+  { "label": "Two-hop author facet composed with a plain one (state = QLD)", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#authorName\"},\"Prof Wei Chen\"]},{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#state\"},\"http://example.org/mining/state/QLD\"]}]}", "minResults": 3 },
+  { "label": "Free text plus the two-hop author filter", "params": "?q=copper&filter={\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#authorName\"},\"Prof Wei Chen\"]}", "minResults": 1 },
 
   { "group": "Temporal Filters" },
   { "label": "Reports published in 2024", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]},{\"op\":\"between\",\"args\":[{\"property\":\"publishedOn\"},\"2024-01-01\",\"2024-12-31\"]}]}", "minResults": 2 },
@@ -57,14 +61,14 @@
   { "label": "French review note", "params": "?q=réserves&filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]}", "minResults": 1 },
 
   { "group": "Nested Identifier Hierarchy" },
-  { "label": "Boreholes only (identifier drill-down visible)", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}", "minResults": 5, "scrollToText": "identifiers" },
-  { "label": "Drill-down: company identifiers", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&drillDown=identifierType_identifierValueExact:company", "minResults": 5, "scrollToText": "identifiers" },
-  { "label": "Drill-down: anumber identifiers", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&drillDown=identifierType_identifierValueExact:anumber", "minResults": 5, "scrollToText": "identifiers" },
-  { "label": "Drill-down: mnumber identifiers", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]}&drillDown=identifierType_identifierValueExact:mnumber", "minResults": 5, "scrollToText": "identifiers" },
-  { "label": "Exact pair: company = Bellbird", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]},{\"op\":\"=\",\"args\":[{\"property\":\"identifierType\"},\"company\"]},{\"op\":\"=\",\"args\":[{\"property\":\"identifierValueExact\"},\"Bellbird\"]}]}", "minResults": 1, "scrollToText": "identifiers" },
+  { "label": "Reports carrying correlated identifier records", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#entityType\"},\"http://example.org/mining/MiningReport\"]},{\"op\":\"in\",\"args\":[{\"property\":\"urn:jena:lucene:field#identifierType\"},[\"company\",\"anumber\",\"mnumber\"]]}]}", "minResults": 5, "scrollToText": "identifiers" },
+  { "label": "Drill-down: company identifiers", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#entityType\"},\"http://example.org/mining/MiningReport\"]},{\"op\":\"in\",\"args\":[{\"property\":\"urn:jena:lucene:field#identifierType\"},[\"company\",\"anumber\",\"mnumber\"]]}]}&drillDown=identifierType_identifierValueExact:company", "minResults": 5, "scrollToText": "identifiers" },
+  { "label": "Drill-down: anumber identifiers", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#entityType\"},\"http://example.org/mining/MiningReport\"]},{\"op\":\"in\",\"args\":[{\"property\":\"urn:jena:lucene:field#identifierType\"},[\"company\",\"anumber\",\"mnumber\"]]}]}&drillDown=identifierType_identifierValueExact:anumber", "minResults": 5, "scrollToText": "identifiers" },
+  { "label": "Drill-down: mnumber identifiers", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#entityType\"},\"http://example.org/mining/MiningReport\"]},{\"op\":\"in\",\"args\":[{\"property\":\"urn:jena:lucene:field#identifierType\"},[\"company\",\"anumber\",\"mnumber\"]]}]}&drillDown=identifierType_identifierValueExact:mnumber", "minResults": 5, "scrollToText": "identifiers" },
+  { "label": "Exact pair: company = Bellbird", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#entityType\"},\"http://example.org/mining/MiningReport\"]},{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#identifierType\"},\"company\"]},{\"op\":\"=\",\"args\":[{\"property\":\"urn:jena:lucene:field#identifierValueExact\"},\"Bellbird\"]}]}", "minResults": 1, "scrollToText": "identifiers" },
 
   { "group": "Correlated Nested Filters" },
-  { "label": "Identifier typeahead: anumber contains A94", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/Borehole\"]},{\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"identifierType\"},\"anumber\"]},{\"op\":\"text_query\",\"args\":[{\"property\":\"identifierValueText\"},\"A94\"]}]}]}", "minResults": 2, "scrollToText": "identifiers" },
+  { "label": "Identifier typeahead: anumber contains A94", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]},{\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"identifierType\"},\"anumber\"]},{\"op\":\"text_query\",\"args\":[{\"property\":\"identifierValueText\"},\"A94\"]}]}]}", "minResults": 2, "scrollToText": "identifiers" },
   { "label": "Qualified attribution: PI + Sarah Jones", "params": "?filter={\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"entityType\"},\"http://example.org/mining/MiningReport\"]},{\"op\":\"and\",\"args\":[{\"op\":\"=\",\"args\":[{\"property\":\"attributionRole\"},\"Principal Investigator\"]},{\"op\":\"text_query\",\"args\":[{\"property\":\"attributionAgentText\"},\"Sarah Jones\"]}]}]}", "minResults": 1, "scrollToText": "identifiers" },
 
   { "group": "Spatial: Bbox Filter" },
