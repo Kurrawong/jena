@@ -96,7 +96,7 @@ RUN mkdir -p /ui && cd /ui && \
 
 # ─── fuseki-ai: serving Fuseki ───────────────────────────────────────────────
 
-FROM eclipse-temurin:21-jre-ubi10-minimal AS runtime
+FROM eclipse-temurin:25-jre-ubi10-minimal AS runtime
 
 # No LABEL here on purpose. CI applies the full OCI label set — source,
 # revision, version, created — via docker/metadata-action, which derives them
