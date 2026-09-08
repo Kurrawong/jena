@@ -207,12 +207,37 @@ What to call in pass 2, by predicate:
 | touches | `geof:sfTouches` |
 | crosses | `geof:sfCrosses` |
 | overlaps | `geof:sfOverlaps` |
+| within | `geof:sfWithin` |
+| contains | `geof:sfContains` |
 | equals | `geof:relate(?a, ?b, "T*F**FFF*")` — **not** `geof:sfEquals` |
-| covers | `geof:relate(?a, ?b, "T*****FF*")` |
-| covered by | `geof:relate(?a, ?b, "T*F**F***")` |
+| covers | a disjunction, below |
+| covered by | a disjunction, below |
 
-`sfTouches`, `sfCrosses` and `sfOverlaps` delegate to the JTS predicate of the same name
-and are correct. GeoSPARQL's simple-features set has no `sfCovers`, hence the pattern.
+`sfTouches`, `sfCrosses`, `sfOverlaps`, `sfWithin` and `sfContains` delegate to the JTS
+predicate of the same name and are correct.
+
+**`covers` and `coveredBy` cannot be written as one pattern.** Each is a disjunction of
+four, and GeoSPARQL's simple-features set has no `sfCovers`:
+
+```sparql
+# A covers B
+FILTER(geof:relate(?a, ?b, "T*****FF*") || geof:relate(?a, ?b, "*T****FF*")
+    || geof:relate(?a, ?b, "***T**FF*") || geof:relate(?a, ?b, "****T*FF*"))
+
+# A is covered by B
+FILTER(geof:relate(?a, ?b, "T*F**F***") || geof:relate(?a, ?b, "*TF**F***")
+    || geof:relate(?a, ?b, "**FT*F***") || geof:relate(?a, ?b, "**F*TF***"))
+```
+
+Do not reach for the single first pattern of either. `T*****FF*` alone is **`contains`**,
+and `T*F**F***` alone is **`within`** — and those are *not* boundary-neutral, which is the
+whole reason you would want `covers` instead. A line lying exactly along a polygon's edge
+is `coveredBy` that polygon but not `within` it. Verified against JTS `covers()` and
+`coveredBy()` across seven cases in `testCoversNeedsAPatternDisjunction`.
+
+Nor is `geof:ehCovers` the answer. Egenhofer's eight relations are mutually **exclusive**,
+so a polygon does not `ehCovers` itself — it `ehEquals` itself. `geof:ehCovers` returns
+`false` for identical geometries.
 
 **Do not use `geof:sfEquals` on points.** It is the one function in that set implemented
 as a fixed DE-9IM pattern rather than a JTS predicate, and the pattern is `TFFFTFFFT`,

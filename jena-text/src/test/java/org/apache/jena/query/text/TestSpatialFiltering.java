@@ -897,6 +897,56 @@ public class TestSpatialFiltering {
             poly.relate(samePoly, "TFFFTFFFT"));
     }
 
+    private static final String[] COVERS =
+        { "T*****FF*", "*T****FF*", "***T**FF*", "****T*FF*" };
+    private static final String[] COVERED_BY =
+        { "T*F**F***", "*TF**F***", "**FT*F***", "**F*TF***" };
+
+    private static boolean anyPattern(GeometryWrapper a, GeometryWrapper b, String[] patterns)
+            throws Exception {
+        for (String p : patterns) {
+            if (a.relate(b, p)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * {@code covers} and {@code coveredBy} need all four DE-9IM patterns, not the first.
+     * <p>
+     * The single patterns {@code T*****FF*} and {@code T*F**F***} are {@code contains} and
+     * {@code within}, which are not boundary-neutral -- the very reason to want
+     * {@code covers}. A line along a polygon's edge is covered by it but not within it.
+     * Checked against JTS, which has both predicates directly.
+     */
+    @Test
+    public void testCoversNeedsAPatternDisjunction() throws Exception {
+        GeometryWrapper poly = WKTDatatype.INSTANCE.parse("POLYGON((0 0,2 0,2 2,0 2,0 0))");
+        GeometryWrapper same = WKTDatatype.INSTANCE.parse("POLYGON((0 0,2 0,2 2,0 2,0 0))");
+        GeometryWrapper edge = WKTDatatype.INSTANCE.parse("LINESTRING(0 0,2 0)");
+        GeometryWrapper inner =
+            WKTDatatype.INSTANCE.parse("POLYGON((0.5 0.5,1.5 0.5,1.5 1.5,0.5 1.5,0.5 0.5))");
+        GeometryWrapper away = WKTDatatype.INSTANCE.parse("POLYGON((5 5,6 5,6 6,5 6,5 5))");
+
+        // the disjunction agrees with JTS
+        assertTrue(anyPattern(poly, edge, COVERS));
+        assertTrue(poly.getXYGeometry().covers(edge.getXYGeometry()));
+        assertTrue(anyPattern(poly, inner, COVERS));
+        assertTrue(anyPattern(poly, same, COVERS));
+        assertFalse(anyPattern(poly, away, COVERS));
+        assertTrue(anyPattern(edge, poly, COVERED_BY));
+        assertTrue(anyPattern(inner, poly, COVERED_BY));
+        assertFalse(anyPattern(poly, inner, COVERED_BY));
+
+        // and the first pattern alone is not enough: it is contains/within, which the
+        // boundary case fails
+        assertFalse("T*****FF* alone is contains, and misses the boundary case",
+            poly.relate(edge, "T*****FF*"));
+        assertFalse("T*F**F*** alone is within, and misses the boundary case",
+            edge.relate(poly, "T*F**F***"));
+    }
+
     @Test
     public void testZeroAreaQueryGeometryDoesNotMatchPointIndexedData() {
         // Lucene computes shape relations against indexed triangles. When neither side
