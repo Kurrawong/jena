@@ -195,6 +195,13 @@ SELECT ?entity WHERE {
 }
 ```
 
+**Pass 2 needs the geometry datatype.** `geof:` functions require `geo:wktLiteral` (or
+`geo:geoJSONLiteral`); given an `xsd:string` or a plain literal they return *unbound*, and
+an unbound value in a `FILTER` is silently false. So a geometry that indexes happily —
+this index accepts an untyped literal, see [GeoJSON literals](#geojson-literals) — can
+still match in pass 1 and then vanish in pass 2, with no error anywhere. If your geometry
+literals are not typed, fix the data before relying on two passes.
+
 Pass 2 is not pushed down: `geof:` functions are filter functions, evaluated per binding
 with no index behind them. That is fine here precisely because pass 1 is selective — these
 predicates only hold for geometries that already intersect. It is not fine for a query
