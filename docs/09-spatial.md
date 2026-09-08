@@ -129,7 +129,7 @@ ex:site-b geo:asWKT "POINT(151.21 -33.87)"^^geo:wktLiteral .
 
 ## Operators
 
-| CQL2 operator | Lucene relation | Meaning |
+| CQL2 operator | `lucene-core` relation | Meaning |
 |---|---|---|
 | `s_intersects` | `INTERSECTS` | the indexed shape and the query geometry share any point |
 | `s_within` | `WITHIN` | the indexed shape lies inside the query geometry |
@@ -137,8 +137,116 @@ ex:site-b geo:asWKT "POINT(151.21 -33.87)"^^geo:wktLiteral .
 | `s_disjoint` | `DISJOINT` | the indexed shape and the query geometry share no point |
 
 CQL2 argument order is `op(property, geometry)`, so `s_within` reads as *property within
-geometry*. `s_equals`, `s_crosses`, `s_overlaps` and `s_touches` are parsed but have no
-Lucene relation, so they raise rather than being silently dropped.
+geometry*.
+
+### Which module this uses, and what that leaves out
+
+Spatial filtering is built on **`lucene-core`** — `LatLonShape` fields, queried through
+`ShapeField.QueryRelation`. That enum has exactly four constants, `INTERSECTS`, `WITHIN`,
+`CONTAINS` and `DISJOINT`, and they are the four rows above. `s_dwithin` is not one of
+them; it compiles to a circle query (see [Distance queries](#distance-queries)).
+
+The four CQL2 operators with no counterpart there are **`s_equals`, `s_touches`,
+`s_crosses` and `s_overlaps`**. They are parsed and then **raise**, rather than being
+silently dropped.
+
+Lucene's other spatial module, **`lucene-spatial-extras`**, does define a richer
+`SpatialOperation` set — eight operations including `IsEqualTo` and `Overlaps`, plus
+`BBoxIntersects` and `BBoxWithin`. Its `IsWithin` and `Contains` are also documented as
+*boundary-neutral* (OGC `CoveredBy` and `Covers`), which `lucene-core`'s are not — see
+[Coincident geometry](#coincident-geometry-is-not-within-or-contains).
+
+We do not use it, for four reasons:
+
+- it is not a dependency, and pulls in Spatial4j;
+- it would index the geometry field a second way, as prefix-tree cells plus serialised
+  geometry doc values, rather than reusing the existing BKD field;
+- exact predicates there are evaluated by `SerializedDVStrategy`, whose own javadoc says
+  it is *"not at all fast; designed to be used in conjunction with another index based
+  SpatialStrategy that is approximated"*;
+- `CompositeSpatialStrategy`, the strategy that combines the two, excludes `Disjoint` and
+  the `BBox` operations — so adopting it would **lose `s_disjoint`**, which works today.
+
+Its own design is therefore the two-pass shape described below: an approximate index to
+narrow, exact geometry to refine. That is available already, without the dependency.
+
+### Getting equals, covers, touches, crosses or overlaps: use two passes
+
+Every one of these predicates *implies* intersection, so `s_intersects` is a sound
+superset filter for all of them. Narrow with Lucene, then refine on the geometry:
+
+```sparql
+PREFIX luc:  <urn:jena:lucene:index#>
+PREFIX geo:  <http://www.opengis.net/ont/geosparql#>
+PREFIX geof: <http://www.opengis.net/def/function/geosparql/>
+
+SELECT ?entity WHERE {
+  # pass 1 — indexed, and facets and paging still work
+  (?hit ?entity ?score) luc:query (
+    "default" "default" "*"
+    '{"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},
+                                  {"bbox":[115,-34,118,-31]}]}'
+    "" 1000 0)
+
+  # pass 2 — exact, on the geometry itself
+  ?entity geo:hasGeometry/geo:asWKT ?wkt .
+  FILTER(geof:relate(?wkt, "POLYGON((115 -34,118 -34,118 -31,115 -31,115 -34))"^^geo:wktLiteral,
+                     "T*F**FFF*"))
+}
+```
+
+Pass 2 is not pushed down: `geof:` functions are filter functions, evaluated per binding
+with no index behind them. That is fine here precisely because pass 1 is selective — these
+predicates only hold for geometries that already intersect. It is not fine for a query
+whose first pass matches most of the corpus.
+
+What to call in pass 2, by predicate:
+
+| predicate | pass 2 |
+|---|---|
+| touches | `geof:sfTouches` |
+| crosses | `geof:sfCrosses` |
+| overlaps | `geof:sfOverlaps` |
+| equals | `geof:relate(?a, ?b, "T*F**FFF*")` — **not** `geof:sfEquals` |
+| covers | `geof:relate(?a, ?b, "T*****FF*")` |
+| covered by | `geof:relate(?a, ?b, "T*F**F***")` |
+
+`sfTouches`, `sfCrosses` and `sfOverlaps` delegate to the JTS predicate of the same name
+and are correct. GeoSPARQL's simple-features set has no `sfCovers`, hence the pattern.
+
+**Do not use `geof:sfEquals` on points.** It is the one function in that set implemented
+as a fixed DE-9IM pattern rather than a JTS predicate, and the pattern is `TFFFTFFFT`,
+which requires boundary-to-boundary intersection. A point has an empty boundary, so it
+can never match: `geof:sfEquals` returns `false` for two **identical** points, while
+`geof:relate(..., "T*F**FFF*")` correctly returns `true`. Polygons and linestrings are
+unaffected, because they have boundaries. Measured against jena-geosparql 4.10.0 and
+6.2.0-SNAPSHOT, and pinned by `testJenaSfEqualsMissesIdenticalPoints` so the advice
+changes if upstream fixes it.
+
+Note that `touches` is a *disjunction* of three DE-9IM patterns in OGC, and which one
+applies depends on the dimensions involved — two polygons sharing an edge match
+`F***T****`, a line meeting a point at its endpoint matches `F**T*****`. Use
+`geof:sfTouches` rather than picking a pattern.
+
+### Coincident geometry is not `within` or `contains`
+
+`lucene-core`'s `WITHIN` and `CONTAINS` are not boundary-neutral. An indexed geometry
+**identical to the query geometry** satisfies neither:
+
+| indexed vs identical query polygon | result | DE-9IM |
+|---|---|---|
+| `s_intersects` | matches | correct |
+| `s_disjoint` | does not match | correct |
+| `s_within` | **does not match** | DE-9IM says it should |
+| `s_contains` | **does not match** | DE-9IM says it should |
+
+So an entity whose footprint exactly equals the search polygon is absent from an
+`s_within` result. This is the same root cause as `s_equals` being unavailable: a shared
+edge is classified as boundary contact rather than containment. It also generalises
+[boundary contact](#relation-semantics) — that is not a point-on-edge quirk but the rule.
+
+If exact-match entities matter, use the two-pass form above. Pinned by
+`testCoincidentGeometryIsNotWithinOrContains`.
 
 ## Query geometries
 
@@ -293,7 +401,10 @@ SELECT ?entity ?score WHERE {
 
 ## Current limitations
 
-- `s_equals`, `s_crosses`, `s_overlaps` and `s_touches` have no Lucene equivalent and raise.
+- `s_equals`, `s_crosses`, `s_overlaps` and `s_touches` have no `lucene-core` relation and
+  raise. See [two passes](#getting-equals-covers-touches-crosses-or-overlaps-use-two-passes).
+- An indexed geometry identical to the query geometry does not satisfy `s_within` or
+  `s_contains`; see [Coincident geometry](#coincident-geometry-is-not-within-or-contains).
 - A zero-area query geometry does not match point-indexed data; see "Query geometries" below.
 
 ## Unsupported spatial filters raise

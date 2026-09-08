@@ -37,6 +37,8 @@ import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
 import org.apache.jena.sparql.path.Path;
 import org.apache.jena.sparql.path.PathFactory;
+import org.apache.jena.geosparql.implementation.GeometryWrapper;
+import org.apache.jena.geosparql.implementation.datatype.WKTDatatype;
 import org.apache.jena.query.text.cql.CqlExpression;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
@@ -822,6 +824,77 @@ public class TestSpatialFiltering {
         Set<String> uris = urisForOp("s_intersects", multiLine);
         assertTrue("First line crosses big-area", uris.contains(NS + "big-area"));
         assertTrue("Second line crosses redgum-cluster", uris.contains(NS + "redgum-cluster"));
+    }
+
+    // ------------------------------------------------------------------
+    // Coincident geometry, and the two-pass recipe the docs recommend
+    // ------------------------------------------------------------------
+
+    @Test
+    public void testCoincidentGeometryIsNotWithinOrContains() {
+        // lucene-core's WITHIN and CONTAINS are not boundary-neutral: an indexed geometry
+        // identical to the query geometry satisfies neither, though DE-9IM says both hold.
+        // A shared edge is read as boundary contact, not containment. Same root cause as
+        // s_equals being unavailable, so the "use two passes" advice in 09-spatial.md
+        // depends on this staying true.
+        String wa = "{\"type\":\"Polygon\",\"coordinates\":[[[112.0,-36.0],[129.0,-36.0],"
+            + "[129.0,-13.0],[112.0,-13.0],[112.0,-36.0]]]}";
+
+        dataset.begin(ReadWrite.WRITE);
+        try {
+            addSite(dataset.getDefaultModel(), "exact-box", "Exact Box",
+                "POLYGON((112.0 -36.0, 129.0 -36.0, 129.0 -13.0, 112.0 -13.0, 112.0 -36.0))");
+            dataset.commit();
+        } finally {
+            dataset.end();
+        }
+
+        assertTrue("s_intersects matches a coincident geometry",
+            urisForOp("s_intersects", wa).contains(NS + "exact-box"));
+        assertFalse("s_disjoint does not, which agrees with s_intersects",
+            urisForOp("s_disjoint", wa).contains(NS + "exact-box"));
+        assertFalse("s_within does NOT match a coincident geometry, though DE-9IM says it should",
+            urisForOp("s_within", wa).contains(NS + "exact-box"));
+        assertFalse("s_contains does NOT match a coincident geometry either",
+            urisForOp("s_contains", wa).contains(NS + "exact-box"));
+    }
+
+    /**
+     * The DE-9IM patterns 09-spatial.md tells people to use for pass two.
+     * <p>
+     * Advice in a document that nothing exercises goes stale silently. This pins the
+     * three patterns in that table, and the one function in GeoSPARQL's simple-features
+     * set that cannot be used in their place.
+     */
+    @Test
+    public void testJenaSfEqualsMissesIdenticalPoints() throws Exception {
+        GeometryWrapper point = WKTDatatype.INSTANCE.parse("POINT(1 1)");
+        GeometryWrapper samePoint = WKTDatatype.INSTANCE.parse("POINT(1 1)");
+        GeometryWrapper poly = WKTDatatype.INSTANCE.parse("POLYGON((0 0,2 0,2 2,0 2,0 0))");
+        GeometryWrapper samePoly = WKTDatatype.INSTANCE.parse("POLYGON((0 0,2 0,2 2,0 2,0 0))");
+        GeometryWrapper inner = WKTDatatype.INSTANCE.parse("POLYGON((0.5 0.5,1.5 0.5,1.5 1.5,0.5 1.5,0.5 0.5))");
+
+        // equals
+        assertTrue("relate equals matches identical points",
+            point.relate(samePoint, "T*F**FFF*"));
+        assertTrue("relate equals matches identical polygons",
+            poly.relate(samePoly, "T*F**FFF*"));
+        assertFalse("relate equals rejects different polygons",
+            poly.relate(inner, "T*F**FFF*"));
+
+        // covers / covered by
+        assertTrue("relate covers", poly.relate(inner, "T*****FF*"));
+        assertFalse("covers is directional", inner.relate(poly, "T*****FF*"));
+        assertTrue("relate covered by", inner.relate(poly, "T*F**F***"));
+
+        // Jena's SfEqualsFF uses the fixed pattern TFFFTFFFT, which requires
+        // boundary-to-boundary intersection. A point has no boundary, so it never matches.
+        // If this assertion starts failing, upstream has fixed it and 09-spatial.md should
+        // stop steering people away from geof:sfEquals.
+        assertFalse("jena-geosparql's sfEquals pattern misses identical points",
+            point.relate(samePoint, "TFFFTFFFT"));
+        assertTrue("but it is right for polygons, which do have boundaries",
+            poly.relate(samePoly, "TFFFTFFFT"));
     }
 
     @Test
