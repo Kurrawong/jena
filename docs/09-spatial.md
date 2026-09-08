@@ -424,8 +424,28 @@ divergence is limited to `s_within`, `s_contains` and `s_disjoint`.
 It matters most when a field aggregates geometries from *related* resources, for example
 an `sh:path` with an inverse step pulling in the positions of every borehole attached to a
 report. Requiring all of them to fall inside a search box is almost never what is meant.
-Until this is addressed, prefer `s_intersects` on a multi-valued geometry field, or model
-the geometries as a nested scope so each gets its own document.
+**Why all-of, when any-of is what you want:** it is not a choice made here. Lucene tessellates
+every value of a field into triangles in one BKD field on one document, and keeps no record
+of which triangles came from which value. So a query relation is evaluated over all of them
+at once — the document carries one composite geometry, and there is nothing to quantify
+*over*. `s_intersects` is unaffected only because a collection intersects a box exactly when
+some member does, so the two readings coincide. For `WITHIN` and `DISJOINT` they do not.
+
+Note that all-of is *correct* for a single `MULTIPOINT` or `MULTIPOLYGON` literal — DE-9IM
+does require the whole collection to be inside. The divergence is that Lucene cannot tell
+that case apart from several separate `geo:asWKT` literals, where GeoSPARQL's reading is
+existential.
+
+Until this is addressed, **prefer `s_intersects` on a multi-valued geometry field.** For an
+exact answer, use the [two-pass form](#getting-equals-covers-touches-crosses-or-overlaps-use-two-passes):
+refining per stored value in SPARQL gives any-of, since the filter is applied to each
+geometry in turn.
+
+Nesting each geometry into its own child document would give any-of structurally, and does
+not work today: a spatial filter on a nested-scoped field matches **nothing at all**, not
+even an entity whose every part satisfies the relation. `compileSpatial` is the one clause
+builder that never calls `maybeLiftToParent`, so the query is evaluated against the child
+documents and never lifted to the parent. Pinned by `TestNestedGeometryScope`.
 
 **An entity with no geometry matches no relation, including `s_disjoint`.** GeoSPARQL's
 query-rewrite rule must bind a geometry before the relation function runs, and CQL2 makes
