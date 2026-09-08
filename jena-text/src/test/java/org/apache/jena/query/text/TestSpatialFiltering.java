@@ -1026,6 +1026,29 @@ public class TestSpatialFiltering {
             poly.relate(samePoly, "TFFFTFFFT"));
     }
 
+    /**
+     * A mistyped {@code geof:relate} pattern of the right length silently matches nothing.
+     * <p>
+     * Wrong length raises, which is fine. But nine characters that are not DE-9IM symbols,
+     * or one transposed symbol, return {@code false} for every pair -- a filter that
+     * quietly excludes everything. That is the reason 09-spatial.md steers people to the
+     * named {@code sf*} functions wherever one exists, and hand-written patterns only for
+     * equals and covers.
+     */
+    @Test
+    public void testMistypedRelatePatternIsSilentlyFalse() throws Exception {
+        GeometryWrapper a = WKTDatatype.INSTANCE.parse("POINT(1 1)");
+        GeometryWrapper b = WKTDatatype.INSTANCE.parse("POINT(1 1)");
+
+        assertTrue("the correct equals pattern matches", a.relate(b, "T*F**FFF*"));
+        assertFalse("nine characters of nonsense are simply false", a.relate(b, "NONSENSE!"));
+        assertFalse("and so is one transposed symbol", a.relate(b, "T*F**FFG*"));
+
+        // A length error does raise, so only same-length typos are dangerous.
+        assertThrows(IllegalArgumentException.class, () -> a.relate(b, "T*F"));
+        assertThrows(IllegalArgumentException.class, () -> a.relate(b, "T*F**FFF*X"));
+    }
+
     private static final String[] COVERS =
         { "T*****FF*", "*T****FF*", "***T**FF*", "****T*FF*" };
     private static final String[] COVERED_BY =

@@ -240,7 +240,14 @@ What to call in pass 2, by predicate:
 | covered by | a disjunction, below |
 
 `sfTouches`, `sfCrosses`, `sfOverlaps`, `sfWithin` and `sfContains` delegate to the JTS
-predicate of the same name and are correct.
+predicate of the same name and are correct. Prefer them: a hand-written pattern is a
+nine-character string with no spell check.
+
+**A mistyped pattern of the right length silently matches nothing.** `geof:relate` rejects
+a pattern that is not nine characters — `IllegalArgumentException`, "Should be length 9" —
+but nine characters that are not DE-9IM symbols, or one transposed symbol, return `false`
+for every pair. `T*F**FFG*` filters everything out and reports nothing. Pinned by
+`testMistypedRelatePatternIsSilentlyFalse`.
 
 **`covers` and `coveredBy` cannot be written as one pattern.** Each is a disjunction of
 four, and GeoSPARQL's simple-features set has no `sfCovers`:
