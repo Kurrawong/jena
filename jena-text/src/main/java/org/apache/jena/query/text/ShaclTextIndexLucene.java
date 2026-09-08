@@ -23,8 +23,11 @@ package org.apache.jena.query.text;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.jena.geosparql.implementation.GeometryWrapper;
+import org.apache.jena.geosparql.implementation.datatype.GMLDatatype;
+import org.apache.jena.geosparql.implementation.datatype.GeoJSONDatatype;
 import org.apache.jena.geosparql.implementation.datatype.WKTDatatype;
 import org.apache.jena.geosparql.implementation.parsers.wkt.WKTReader;
 import org.apache.jena.geosparql.implementation.vocabulary.SRS_URI;
@@ -1488,7 +1491,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             case DOUBLE -> addDoubleLiteralField(doc, fieldDef, lexical);
             case TEMPORAL -> addTemporalLiteralField(doc, fieldDef, lexical);
             case LATLON -> {
-                List<IndexableField> spatialFields = parseGeometryToLuceneFields(fieldName, lexical, fieldDef.isStored());
+                List<IndexableField> spatialFields = parseGeometryToLuceneFields(
+                    fieldName, lexical, node.getLiteralDatatypeURI(), fieldDef.isStored());
                 for (IndexableField f : spatialFields) {
                     doc.add(f);
                 }
@@ -1588,11 +1592,89 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * @param lexical   the literal's lexical form, WKT or GeoJSON
      * @param stored    whether to keep the literal retrievable
      */
+    /** Fields whose untyped geometry has already been reported, so it is said once. */
+    private static final Set<String> UNTYPED_GEOMETRY_REPORTED = ConcurrentHashMap.newKeySet();
+
+    /**
+     * No literal datatype available — an external source such as a CSV column, where the
+     * value is a bare string and no datatype could exist. Sniffs without complaining.
+     */
     static List<IndexableField> parseGeometryToLuceneFields(String fieldName, String lexical, boolean stored) {
-        if (lexical != null && lexical.stripLeading().startsWith("{")) {
+        return parseGeometryToLuceneFields(fieldName, lexical, null, stored);
+    }
+
+    /**
+     * Parse a geometry literal, dispatching on its datatype where it declares one.
+     * <p>
+     * The datatype is authoritative when it is a GeoSPARQL geometry datatype: a
+     * {@code geo:wktLiteral} is read as WKT and a {@code geo:geoJSONLiteral} as GeoJSON,
+     * whatever the lexical form looks like. Only an untyped value is sniffed, by testing
+     * whether it starts with {@code &#123;}.
+     * <p>
+     * Sniffing an untyped value is kept because data converted from GIS exports routinely
+     * arrives as {@code xsd:string}, and refusing to index it would leave the field
+     * silently empty. It is reported once per field, though, because such a value is
+     * invisible to every {@code geof:} function — those require a geometry datatype and
+     * return unbound without one, and an unbound value in a {@code FILTER} is silently
+     * false. See docs/09-spatial.md.
+     * <p>
+     * Nothing here throws. Document building has no per-entity error handling in
+     * {@code ShaclBulkIndexer}, so one bad literal would abort an entire index build and
+     * lose everything since the last batch commit. Every other unparseable value in this
+     * class is warned about and skipped, and these follow suit.
+     */
+    static List<IndexableField> parseGeometryToLuceneFields(String fieldName, String lexical,
+                                                            String datatypeURI, boolean stored) {
+        boolean looksLikeJson = lexical != null && lexical.stripLeading().startsWith("{");
+
+        if (GMLDatatype.URI.equals(datatypeURI)) {
+            log.warn("GML is not supported for LATLON field '{}', so this value is not indexed and "
+                + "the entity will not match any spatial filter. Convert it to WKT or GeoJSON. Value: {}",
+                fieldName, abbreviateGeometry(lexical));
+            return new ArrayList<>();
+        }
+
+        if (WKTDatatype.URI.equals(datatypeURI)) {
+            if (looksLikeJson) {
+                log.warn("Field '{}' has a value typed geo:wktLiteral whose lexical form is a JSON "
+                    + "object. The datatype is taken as authoritative, so this is a data error rather "
+                    + "than GeoJSON to be sniffed; the value is not indexed. Value: {}",
+                    fieldName, abbreviateGeometry(lexical));
+                return new ArrayList<>();
+            }
+            return parseWktToLuceneFields(fieldName, lexical, stored);
+        }
+
+        if (GeoJSONDatatype.URI.equals(datatypeURI)) {
+            if (!looksLikeJson) {
+                log.warn("Field '{}' has a value typed geo:geoJSONLiteral whose lexical form is not a "
+                    + "JSON object. The datatype is taken as authoritative, so this is a data error "
+                    + "rather than WKT to be sniffed; the value is not indexed. Value: {}",
+                    fieldName, abbreviateGeometry(lexical));
+                return new ArrayList<>();
+            }
             return parseGeoJsonToLuceneFields(fieldName, lexical, stored);
         }
-        return parseWktToLuceneFields(fieldName, lexical, stored);
+
+        if (datatypeURI != null && UNTYPED_GEOMETRY_REPORTED.add(fieldName)) {
+            log.warn("Field '{}' carries geometry typed <{}> rather than geo:wktLiteral or "
+                + "geo:geoJSONLiteral. The serialisation is being inferred from the lexical form and "
+                + "the value indexes, but GeoSPARQL geof: functions return unbound for it, so a "
+                + "SPARQL FILTER over it is silently false. Reported once per field.",
+                fieldName, datatypeURI);
+        }
+
+        return looksLikeJson
+            ? parseGeoJsonToLuceneFields(fieldName, lexical, stored)
+            : parseWktToLuceneFields(fieldName, lexical, stored);
+    }
+
+    /** Keep a warning readable when the offending value is a whole polygon. */
+    private static String abbreviateGeometry(String lexical) {
+        if (lexical == null) {
+            return "null";
+        }
+        return lexical.length() <= 120 ? lexical : lexical.substring(0, 120) + "...";
     }
 
     /**

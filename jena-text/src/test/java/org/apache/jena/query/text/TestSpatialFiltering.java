@@ -827,6 +827,135 @@ public class TestSpatialFiltering {
     }
 
     // ------------------------------------------------------------------
+    // The datatype decides the serialisation; the lexical form is a fallback
+    // ------------------------------------------------------------------
+
+    private static final String WKT_DT = "http://www.opengis.net/ont/geosparql#wktLiteral";
+    private static final String GEOJSON_DT = "http://www.opengis.net/ont/geosparql#geoJSONLiteral";
+    private static final String GML_DT = "http://www.opengis.net/ont/geosparql#gmlLiteral";
+    private static final String STRING_DT = "http://www.w3.org/2001/XMLSchema#string";
+
+    private static final String A_POINT_WKT = "POINT(121.66 -31.20)";
+    private static final String A_POINT_GEOJSON = "{\"type\":\"Point\",\"coordinates\":[121.66,-31.20]}";
+
+    @Test
+    public void testDeclaredDatatypeDecidesTheSerialisation() {
+        assertFalse("geo:wktLiteral is read as WKT",
+            ShaclTextIndexLucene.parseGeometryToLuceneFields(
+                "location", A_POINT_WKT, WKT_DT, false).isEmpty());
+        assertFalse("geo:geoJSONLiteral is read as GeoJSON",
+            ShaclTextIndexLucene.parseGeometryToLuceneFields(
+                "location", A_POINT_GEOJSON, GEOJSON_DT, false).isEmpty());
+    }
+
+    @Test
+    public void testDatatypeContradictingTheLexicalFormIsNotIndexed() {
+        // The declaration wins. Sniffing would silently index a value as the opposite
+        // serialisation from the one the data says it is, which hides a data error.
+        assertTrue("JSON typed as geo:wktLiteral is a data error, not GeoJSON to sniff",
+            ShaclTextIndexLucene.parseGeometryToLuceneFields(
+                "location-a", A_POINT_GEOJSON, WKT_DT, false).isEmpty());
+        assertTrue("WKT typed as geo:geoJSONLiteral is a data error, not WKT to sniff",
+            ShaclTextIndexLucene.parseGeometryToLuceneFields(
+                "location-b", A_POINT_WKT, GEOJSON_DT, false).isEmpty());
+    }
+
+    /**
+     * Collect what {@link ShaclTextIndexLucene} logs while {@code body} runs.
+     * <p>
+     * Needed because two of the datatype branches change only the message. GML was always
+     * left unindexed; what changed is that it now says so, instead of reporting a WKT
+     * parse failure.
+     */
+    private static List<String> captureLogs(Runnable body) {
+        org.apache.logging.log4j.core.Logger logger =
+            (org.apache.logging.log4j.core.Logger) org.apache.logging.log4j.LogManager
+                .getLogger(ShaclTextIndexLucene.class);
+        List<String> messages = Collections.synchronizedList(new java.util.ArrayList<>());
+        org.apache.logging.log4j.core.appender.AbstractAppender appender =
+            new org.apache.logging.log4j.core.appender.AbstractAppender(
+                    "capture-" + System.nanoTime(), null, null, true, null) {
+                @Override
+                public void append(org.apache.logging.log4j.core.LogEvent event) {
+                    messages.add(event.getMessage().getFormattedMessage());
+                }
+            };
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            body.run();
+        } finally {
+            logger.removeAppender(appender);
+            appender.stop();
+        }
+        return messages;
+    }
+
+    private static boolean anyMentions(List<String> messages, String... needles) {
+        for (String m : messages) {
+            boolean all = true;
+            for (String n : needles) {
+                if (!m.contains(n)) {
+                    all = false;
+                    break;
+                }
+            }
+            if (all) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Test
+    public void testGmlIsDeclinedByNameRatherThanAsAWktParseFailure() {
+        // GML went unindexed before this too -- it starts with '<', so the WKT reader took
+        // it and failed. What changed is the report: "Failed to parse WKT" named neither
+        // the cause nor the fix. So the message is the assertion here.
+        String gml = "<gml:Point srsName=\"urn:ogc:def:crs:EPSG::4326\">"
+            + "<gml:pos>-31.20 121.66</gml:pos></gml:Point>";
+        List<String> logs = captureLogs(() ->
+            assertTrue("GML is not supported and is not indexed",
+                ShaclTextIndexLucene.parseGeometryToLuceneFields("location-gml", gml, GML_DT, false)
+                    .isEmpty()));
+
+        assertTrue("the warning should name GML and the field: " + logs,
+            anyMentions(logs, "GML", "location-gml"));
+        assertFalse("and should not blame WKT parsing: " + logs,
+            anyMentions(logs, "Failed to parse WKT"));
+    }
+
+    @Test
+    public void testUntypedGeometryIsReportedOncePerField() {
+        // The value indexes, but it is invisible to geof: functions, so it is worth saying
+        // -- once, not once per row.
+        List<String> logs = captureLogs(() -> {
+            for (int i = 0; i < 5; i++) {
+                ShaclTextIndexLucene.parseGeometryToLuceneFields(
+                    "location-once", A_POINT_WKT, STRING_DT, false);
+            }
+        });
+        long mentions = logs.stream().filter(m -> m.contains("location-once")).count();
+        assertEquals("five untyped values, one warning", 1, mentions);
+    }
+
+    @Test
+    public void testUntypedGeometryStillIndexesBySniffing() {
+        // GIS exports routinely land as xsd:string. Refusing these would leave the field
+        // silently empty, so they are still indexed -- both serialisations.
+        assertFalse("xsd:string WKT still indexes",
+            ShaclTextIndexLucene.parseGeometryToLuceneFields(
+                "location-c", A_POINT_WKT, STRING_DT, false).isEmpty());
+        assertFalse("xsd:string GeoJSON still indexes",
+            ShaclTextIndexLucene.parseGeometryToLuceneFields(
+                "location-d", A_POINT_GEOJSON, STRING_DT, false).isEmpty());
+        // and an external source, which has no datatype at all, is unaffected
+        assertFalse("a CSV column value has no datatype and still indexes",
+            ShaclTextIndexLucene.parseGeometryToLuceneFields(
+                "location-e", A_POINT_WKT, false).isEmpty());
+    }
+
+    // ------------------------------------------------------------------
     // Coincident geometry, and the two-pass recipe the docs recommend
     // ------------------------------------------------------------------
 

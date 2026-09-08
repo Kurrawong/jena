@@ -62,10 +62,29 @@ uses:
     sh:property [ idx:field field:location ; sh:path geo:asGeoJSON ] .
 ```
 
-The two serialisations are told apart by the lexical form, not the datatype: a GeoJSON
-geometry is a JSON object and a WKT literal is not. Sniffing the value means a literal
-typed only as `xsd:string` still indexes, which is common in data converted from GIS
-exports.
+### How the serialisation is decided
+
+**The datatype decides, when the value declares one.** A `geo:wktLiteral` is read as WKT
+and a `geo:geoJSONLiteral` as GeoJSON. The declaration is authoritative — a value typed
+`geo:wktLiteral` whose lexical form is a JSON object is treated as a data error and is not
+indexed, rather than being quietly taken as GeoJSON. `geo:gmlLiteral` is declined by name:
+GML is not supported, and the log says so rather than reporting a WKT parse failure.
+
+**An untyped value is sniffed**, by testing whether it starts with `{`. So a geometry
+typed only `xsd:string` — routine in data converted from GIS exports — still indexes, and
+so does a value from an external CSV source, which has no datatype at all. Refusing these
+would leave the field silently empty, which is the failure this index tries hardest to
+avoid.
+
+There is a catch worth knowing when you sniff, reported once per field in the log:
+
+> a geometry with no GeoSPARQL datatype is **invisible to every `geof:` function**
+
+Those functions require `geo:wktLiteral` or `geo:geoJSONLiteral` and return *unbound*
+without one, and an unbound value in a `FILTER` is silently false. So an `xsd:string`
+geometry filters fine through `luc:query` and then silently matches nothing in SPARQL.
+If you plan to use the [two-pass form](#getting-equals-covers-touches-crosses-or-overlaps-use-two-passes),
+type your literals.
 
 GeoJSON is simpler than WKT here because RFC 7946 fixes it to WGS84 longitude/latitude
 and forbids a CRS member, so there is no prefix to strip and no axis order to decide.
