@@ -1049,6 +1049,45 @@ public class TestSpatialFiltering {
         assertThrows(IllegalArgumentException.class, () -> a.relate(b, "T*F**FFF*X"));
     }
 
+    /**
+     * The relate patterns 09-spatial.md gives, against the named functions they replace.
+     * <p>
+     * {@code within} and {@code contains} are equivalent to their patterns, so callers
+     * should use the named function. {@code equals} is the exception, and the safer
+     * substitute is the two named functions rather than the pattern, since a mistyped
+     * pattern is silently false.
+     */
+    @Test
+    public void testEqualsEquivalences() throws Exception {
+        String[][] pairs = {
+            { "POINT(1 1)", "POINT(1 1)", "true" },
+            { "POLYGON((0 0,2 0,2 2,0 2,0 0))", "POLYGON((0 0,2 0,2 2,0 2,0 0))", "true" },
+            { "LINESTRING(0 0,2 2)", "LINESTRING(0 0,2 2)", "true" },
+            { "POLYGON((0.5 0.5,1.5 0.5,1.5 1.5,0.5 1.5,0.5 0.5))",
+              "POLYGON((0 0,2 0,2 2,0 2,0 0))", "false" },
+            { "POINT(9 9)", "POINT(1 1)", "false" },
+        };
+        for (String[] pair : pairs) {
+            GeometryWrapper a = WKTDatatype.INSTANCE.parse(pair[0]);
+            GeometryWrapper b = WKTDatatype.INSTANCE.parse(pair[1]);
+            boolean expected = Boolean.parseBoolean(pair[2]);
+            String where = pair[0] + " vs " + pair[1];
+
+            // equals == within AND contains, and that identity holds here, unlike in Lucene
+            boolean substitute = a.getXYGeometry().within(b.getXYGeometry())
+                && a.getXYGeometry().contains(b.getXYGeometry());
+            assertEquals("within AND contains is equals for " + where, expected, substitute);
+            assertEquals("and agrees with the pattern for " + where,
+                expected, a.relate(b, "T*F**FFF*"));
+
+            // the named within/contains agree with the patterns the doc lists for them
+            assertEquals("sfWithin equals its pattern for " + where,
+                a.getXYGeometry().within(b.getXYGeometry()), a.relate(b, "T*F**F***"));
+            assertEquals("sfContains equals its pattern for " + where,
+                a.getXYGeometry().contains(b.getXYGeometry()), a.relate(b, "T*****FF*"));
+        }
+    }
+
     private static final String[] COVERS =
         { "T*****FF*", "*T****FF*", "***T**FF*", "****T*FF*" };
     private static final String[] COVERED_BY =

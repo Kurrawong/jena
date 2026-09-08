@@ -222,7 +222,15 @@ still match in pass 1 and then vanish in pass 2, with no error anywhere. If your
 literals are not typed, fix the data before relying on two passes.
 
 Pass 2 is not pushed down: `geof:` functions are filter functions, evaluated per binding
-with no index behind them. That is fine here precisely because pass 1 is selective — these
+with no index behind them.
+
+GeoSPARQL also has *property* functions for these relations — `geo:sfWithin` and friends,
+plus `spatial:nearby` and the box functions. Those are a different mechanism: they belong
+to the query-rewrite path and are served by jena-geosparql's own STRtree spatial index,
+not by this one. They are not a substitute for pass 2. If `geosparql:queryRewrite` is
+false, or the spatial index was built over a dataset whose geometry does not hang off
+`geo:hasGeometry`, a property function finds nothing to compute and **silently returns
+zero rows**. That is fine here precisely because pass 1 is selective — these
 predicates only hold for geometries that already intersect. It is not fine for a query
 whose first pass matches most of the corpus.
 
@@ -271,6 +279,24 @@ is `coveredBy` that polygon but not `within` it. Verified against JTS `covers()`
 Nor is `geof:ehCovers` the answer. Egenhofer's eight relations are mutually **exclusive**,
 so a polygon does not `ehCovers` itself — it `ehEquals` itself. `geof:ehCovers` returns
 `false` for identical geometries.
+
+For **equals**, prefer two named functions over the pattern:
+
+```sparql
+FILTER(geof:sfWithin(?a, ?b) && geof:sfContains(?a, ?b))
+```
+
+`equals` is `within` and `contains` together, and that identity does hold in JTS. It
+agrees with `geof:relate(?a, ?b, "T*F**FFF*")` on identical points, polygons and lines,
+and on inner/outer and disjoint pairs — with nothing to mistype. (The same identity
+collapses to nothing in Lucene, where both relations fail on coincident geometry, which is
+why any of this needs two passes at all.) Pinned by `testEqualsEquivalences`.
+
+`geof:relate` earns its place for one thing the named functions cannot do: the pattern may
+be a **bound variable**, so a single query can take the predicate as data —
+`VALUES (?pattern) { ... } BIND(geof:relate(?a, ?b, ?pattern) AS ?ok)`. SPARQL has no way
+to parameterise a function URI, and there is no `RelatePF`, so this is filter-function
+only.
 
 **Do not use `geof:sfEquals` on points.** It is the one function in that set implemented
 as a fixed DE-9IM pattern rather than a JTS predicate, and the pattern is `TFFFTFFFT`,
