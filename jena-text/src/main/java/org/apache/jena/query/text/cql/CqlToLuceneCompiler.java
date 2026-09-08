@@ -87,7 +87,13 @@ public class CqlToLuceneCompiler {
      * CQL2 argument order is {@code op(property, geometry)}, so {@code s_within} means
      * <em>indexed shape within query geometry</em>, which is Lucene's {@code WITHIN}
      * with no inversion. {@code s_equals}, {@code s_crosses}, {@code s_overlaps} and
-     * {@code s_touches} have no Lucene relation and are deliberately absent.
+     * {@code s_touches} have no counterpart in {@link ShapeField.QueryRelation}, which
+     * offers only these four, so they are deliberately absent and raise.
+     * <p>
+     * "No counterpart in lucene-core", not "not in Lucene": the separate
+     * lucene-spatial-extras module does define {@code IsEqualTo} and {@code Overlaps},
+     * with boundary-neutral {@code IsWithin}/{@code Contains}. We do not use it. See
+     * docs/09-spatial.md for why, and for the two-pass alternative.
      */
     private static final Map<String, ShapeField.QueryRelation> SPATIAL_RELATIONS = Map.of(
         "s_intersects", ShapeField.QueryRelation.INTERSECTS,

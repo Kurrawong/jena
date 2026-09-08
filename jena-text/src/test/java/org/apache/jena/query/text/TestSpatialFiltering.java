@@ -37,6 +37,8 @@ import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
 import org.apache.jena.sparql.path.Path;
 import org.apache.jena.sparql.path.PathFactory;
+import org.apache.jena.geosparql.implementation.GeometryWrapper;
+import org.apache.jena.geosparql.implementation.datatype.WKTDatatype;
 import org.apache.jena.query.text.cql.CqlExpression;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
@@ -822,6 +824,318 @@ public class TestSpatialFiltering {
         Set<String> uris = urisForOp("s_intersects", multiLine);
         assertTrue("First line crosses big-area", uris.contains(NS + "big-area"));
         assertTrue("Second line crosses redgum-cluster", uris.contains(NS + "redgum-cluster"));
+    }
+
+    // ------------------------------------------------------------------
+    // The datatype decides the serialisation; the lexical form is a fallback
+    // ------------------------------------------------------------------
+
+    private static final String WKT_DT = "http://www.opengis.net/ont/geosparql#wktLiteral";
+    private static final String GEOJSON_DT = "http://www.opengis.net/ont/geosparql#geoJSONLiteral";
+    private static final String GML_DT = "http://www.opengis.net/ont/geosparql#gmlLiteral";
+    private static final String STRING_DT = "http://www.w3.org/2001/XMLSchema#string";
+
+    private static final String A_POINT_WKT = "POINT(121.66 -31.20)";
+    private static final String A_POINT_GEOJSON = "{\"type\":\"Point\",\"coordinates\":[121.66,-31.20]}";
+
+    @Test
+    public void testDeclaredDatatypeDecidesTheSerialisation() {
+        assertFalse("geo:wktLiteral is read as WKT",
+            ShaclTextIndexLucene.parseGeometryToLuceneFields(
+                "location", A_POINT_WKT, WKT_DT, false).isEmpty());
+        assertFalse("geo:geoJSONLiteral is read as GeoJSON",
+            ShaclTextIndexLucene.parseGeometryToLuceneFields(
+                "location", A_POINT_GEOJSON, GEOJSON_DT, false).isEmpty());
+    }
+
+    @Test
+    public void testDatatypeContradictingTheLexicalFormIsNotIndexed() {
+        // The declaration wins. Sniffing would silently index a value as the opposite
+        // serialisation from the one the data says it is, which hides a data error.
+        assertTrue("JSON typed as geo:wktLiteral is a data error, not GeoJSON to sniff",
+            ShaclTextIndexLucene.parseGeometryToLuceneFields(
+                "location-a", A_POINT_GEOJSON, WKT_DT, false).isEmpty());
+        assertTrue("WKT typed as geo:geoJSONLiteral is a data error, not WKT to sniff",
+            ShaclTextIndexLucene.parseGeometryToLuceneFields(
+                "location-b", A_POINT_WKT, GEOJSON_DT, false).isEmpty());
+    }
+
+    /**
+     * Collect what {@link ShaclTextIndexLucene} logs while {@code body} runs.
+     * <p>
+     * Needed because two of the datatype branches change only the message. GML was always
+     * left unindexed; what changed is that it now says so, instead of reporting a WKT
+     * parse failure.
+     */
+    private static List<String> captureLogs(Runnable body) {
+        org.apache.logging.log4j.core.Logger logger =
+            (org.apache.logging.log4j.core.Logger) org.apache.logging.log4j.LogManager
+                .getLogger(ShaclTextIndexLucene.class);
+        List<String> messages = Collections.synchronizedList(new java.util.ArrayList<>());
+        org.apache.logging.log4j.core.appender.AbstractAppender appender =
+            new org.apache.logging.log4j.core.appender.AbstractAppender(
+                    "capture-" + System.nanoTime(), null, null, true, null) {
+                @Override
+                public void append(org.apache.logging.log4j.core.LogEvent event) {
+                    messages.add(event.getMessage().getFormattedMessage());
+                }
+            };
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            body.run();
+        } finally {
+            logger.removeAppender(appender);
+            appender.stop();
+        }
+        return messages;
+    }
+
+    private static boolean anyMentions(List<String> messages, String... needles) {
+        for (String m : messages) {
+            boolean all = true;
+            for (String n : needles) {
+                if (!m.contains(n)) {
+                    all = false;
+                    break;
+                }
+            }
+            if (all) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Test
+    public void testGmlIsDeclinedByNameRatherThanAsAWktParseFailure() {
+        // GML went unindexed before this too -- it starts with '<', so the WKT reader took
+        // it and failed. What changed is the report: "Failed to parse WKT" named neither
+        // the cause nor the fix. So the message is the assertion here.
+        String gml = "<gml:Point srsName=\"urn:ogc:def:crs:EPSG::4326\">"
+            + "<gml:pos>-31.20 121.66</gml:pos></gml:Point>";
+        List<String> logs = captureLogs(() ->
+            assertTrue("GML is not supported and is not indexed",
+                ShaclTextIndexLucene.parseGeometryToLuceneFields("location-gml", gml, GML_DT, false)
+                    .isEmpty()));
+
+        assertTrue("the warning should name GML and the field: " + logs,
+            anyMentions(logs, "GML", "location-gml"));
+        assertFalse("and should not blame WKT parsing: " + logs,
+            anyMentions(logs, "Failed to parse WKT"));
+    }
+
+    @Test
+    public void testUntypedGeometryIsReportedOncePerField() {
+        // The value indexes, but it is invisible to geof: functions, so it is worth saying
+        // -- once, not once per row.
+        List<String> logs = captureLogs(() -> {
+            for (int i = 0; i < 5; i++) {
+                ShaclTextIndexLucene.parseGeometryToLuceneFields(
+                    "location-once", A_POINT_WKT, STRING_DT, false);
+            }
+        });
+        long mentions = logs.stream().filter(m -> m.contains("location-once")).count();
+        assertEquals("five untyped values, one warning", 1, mentions);
+    }
+
+    @Test
+    public void testUntypedGeometryStillIndexesBySniffing() {
+        // GIS exports routinely land as xsd:string. Refusing these would leave the field
+        // silently empty, so they are still indexed -- both serialisations.
+        assertFalse("xsd:string WKT still indexes",
+            ShaclTextIndexLucene.parseGeometryToLuceneFields(
+                "location-c", A_POINT_WKT, STRING_DT, false).isEmpty());
+        assertFalse("xsd:string GeoJSON still indexes",
+            ShaclTextIndexLucene.parseGeometryToLuceneFields(
+                "location-d", A_POINT_GEOJSON, STRING_DT, false).isEmpty());
+        // and an external source, which has no datatype at all, is unaffected
+        assertFalse("a CSV column value has no datatype and still indexes",
+            ShaclTextIndexLucene.parseGeometryToLuceneFields(
+                "location-e", A_POINT_WKT, false).isEmpty());
+    }
+
+    // ------------------------------------------------------------------
+    // Coincident geometry, and the two-pass recipe the docs recommend
+    // ------------------------------------------------------------------
+
+    @Test
+    public void testCoincidentGeometryIsNotWithinOrContains() {
+        // lucene-core's WITHIN and CONTAINS are not boundary-neutral: an indexed geometry
+        // identical to the query geometry satisfies neither, though DE-9IM says both hold.
+        // A shared edge is read as boundary contact, not containment. Same root cause as
+        // s_equals being unavailable, so the "use two passes" advice in 09-spatial.md
+        // depends on this staying true.
+        String wa = "{\"type\":\"Polygon\",\"coordinates\":[[[112.0,-36.0],[129.0,-36.0],"
+            + "[129.0,-13.0],[112.0,-13.0],[112.0,-36.0]]]}";
+
+        dataset.begin(ReadWrite.WRITE);
+        try {
+            addSite(dataset.getDefaultModel(), "exact-box", "Exact Box",
+                "POLYGON((112.0 -36.0, 129.0 -36.0, 129.0 -13.0, 112.0 -13.0, 112.0 -36.0))");
+            dataset.commit();
+        } finally {
+            dataset.end();
+        }
+
+        assertTrue("s_intersects matches a coincident geometry",
+            urisForOp("s_intersects", wa).contains(NS + "exact-box"));
+        assertFalse("s_disjoint does not, which agrees with s_intersects",
+            urisForOp("s_disjoint", wa).contains(NS + "exact-box"));
+        assertFalse("s_within does NOT match a coincident geometry, though DE-9IM says it should",
+            urisForOp("s_within", wa).contains(NS + "exact-box"));
+        assertFalse("s_contains does NOT match a coincident geometry either",
+            urisForOp("s_contains", wa).contains(NS + "exact-box"));
+    }
+
+    /**
+     * The DE-9IM patterns 09-spatial.md tells people to use for pass two.
+     * <p>
+     * Advice in a document that nothing exercises goes stale silently. This pins the
+     * three patterns in that table, and the one function in GeoSPARQL's simple-features
+     * set that cannot be used in their place.
+     */
+    @Test
+    public void testJenaSfEqualsMissesIdenticalPoints() throws Exception {
+        GeometryWrapper point = WKTDatatype.INSTANCE.parse("POINT(1 1)");
+        GeometryWrapper samePoint = WKTDatatype.INSTANCE.parse("POINT(1 1)");
+        GeometryWrapper poly = WKTDatatype.INSTANCE.parse("POLYGON((0 0,2 0,2 2,0 2,0 0))");
+        GeometryWrapper samePoly = WKTDatatype.INSTANCE.parse("POLYGON((0 0,2 0,2 2,0 2,0 0))");
+        GeometryWrapper inner = WKTDatatype.INSTANCE.parse("POLYGON((0.5 0.5,1.5 0.5,1.5 1.5,0.5 1.5,0.5 0.5))");
+
+        // equals
+        assertTrue("relate equals matches identical points",
+            point.relate(samePoint, "T*F**FFF*"));
+        assertTrue("relate equals matches identical polygons",
+            poly.relate(samePoly, "T*F**FFF*"));
+        assertFalse("relate equals rejects different polygons",
+            poly.relate(inner, "T*F**FFF*"));
+
+        // covers / covered by
+        assertTrue("relate covers", poly.relate(inner, "T*****FF*"));
+        assertFalse("covers is directional", inner.relate(poly, "T*****FF*"));
+        assertTrue("relate covered by", inner.relate(poly, "T*F**F***"));
+
+        // Jena's SfEqualsFF uses the fixed pattern TFFFTFFFT, which requires
+        // boundary-to-boundary intersection. A point has no boundary, so it never matches.
+        // If this assertion starts failing, upstream has fixed it and 09-spatial.md should
+        // stop steering people away from geof:sfEquals.
+        assertFalse("jena-geosparql's sfEquals pattern misses identical points",
+            point.relate(samePoint, "TFFFTFFFT"));
+        assertTrue("but it is right for polygons, which do have boundaries",
+            poly.relate(samePoly, "TFFFTFFFT"));
+    }
+
+    /**
+     * A mistyped {@code geof:relate} pattern of the right length silently matches nothing.
+     * <p>
+     * Wrong length raises, which is fine. But nine characters that are not DE-9IM symbols,
+     * or one transposed symbol, return {@code false} for every pair -- a filter that
+     * quietly excludes everything. That is the reason 09-spatial.md steers people to the
+     * named {@code sf*} functions wherever one exists, and hand-written patterns only for
+     * equals and covers.
+     */
+    @Test
+    public void testMistypedRelatePatternIsSilentlyFalse() throws Exception {
+        GeometryWrapper a = WKTDatatype.INSTANCE.parse("POINT(1 1)");
+        GeometryWrapper b = WKTDatatype.INSTANCE.parse("POINT(1 1)");
+
+        assertTrue("the correct equals pattern matches", a.relate(b, "T*F**FFF*"));
+        assertFalse("nine characters of nonsense are simply false", a.relate(b, "NONSENSE!"));
+        assertFalse("and so is one transposed symbol", a.relate(b, "T*F**FFG*"));
+
+        // A length error does raise, so only same-length typos are dangerous.
+        assertThrows(IllegalArgumentException.class, () -> a.relate(b, "T*F"));
+        assertThrows(IllegalArgumentException.class, () -> a.relate(b, "T*F**FFF*X"));
+    }
+
+    /**
+     * The relate patterns 09-spatial.md gives, against the named functions they replace.
+     * <p>
+     * {@code within} and {@code contains} are equivalent to their patterns, so callers
+     * should use the named function. {@code equals} is the exception, and the safer
+     * substitute is the two named functions rather than the pattern, since a mistyped
+     * pattern is silently false.
+     */
+    @Test
+    public void testEqualsEquivalences() throws Exception {
+        String[][] pairs = {
+            { "POINT(1 1)", "POINT(1 1)", "true" },
+            { "POLYGON((0 0,2 0,2 2,0 2,0 0))", "POLYGON((0 0,2 0,2 2,0 2,0 0))", "true" },
+            { "LINESTRING(0 0,2 2)", "LINESTRING(0 0,2 2)", "true" },
+            { "POLYGON((0.5 0.5,1.5 0.5,1.5 1.5,0.5 1.5,0.5 0.5))",
+              "POLYGON((0 0,2 0,2 2,0 2,0 0))", "false" },
+            { "POINT(9 9)", "POINT(1 1)", "false" },
+        };
+        for (String[] pair : pairs) {
+            GeometryWrapper a = WKTDatatype.INSTANCE.parse(pair[0]);
+            GeometryWrapper b = WKTDatatype.INSTANCE.parse(pair[1]);
+            boolean expected = Boolean.parseBoolean(pair[2]);
+            String where = pair[0] + " vs " + pair[1];
+
+            // equals == within AND contains, and that identity holds here, unlike in Lucene
+            boolean substitute = a.getXYGeometry().within(b.getXYGeometry())
+                && a.getXYGeometry().contains(b.getXYGeometry());
+            assertEquals("within AND contains is equals for " + where, expected, substitute);
+            assertEquals("and agrees with the pattern for " + where,
+                expected, a.relate(b, "T*F**FFF*"));
+
+            // the named within/contains agree with the patterns the doc lists for them
+            assertEquals("sfWithin equals its pattern for " + where,
+                a.getXYGeometry().within(b.getXYGeometry()), a.relate(b, "T*F**F***"));
+            assertEquals("sfContains equals its pattern for " + where,
+                a.getXYGeometry().contains(b.getXYGeometry()), a.relate(b, "T*****FF*"));
+        }
+    }
+
+    private static final String[] COVERS =
+        { "T*****FF*", "*T****FF*", "***T**FF*", "****T*FF*" };
+    private static final String[] COVERED_BY =
+        { "T*F**F***", "*TF**F***", "**FT*F***", "**F*TF***" };
+
+    private static boolean anyPattern(GeometryWrapper a, GeometryWrapper b, String[] patterns)
+            throws Exception {
+        for (String p : patterns) {
+            if (a.relate(b, p)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * {@code covers} and {@code coveredBy} need all four DE-9IM patterns, not the first.
+     * <p>
+     * The single patterns {@code T*****FF*} and {@code T*F**F***} are {@code contains} and
+     * {@code within}, which are not boundary-neutral -- the very reason to want
+     * {@code covers}. A line along a polygon's edge is covered by it but not within it.
+     * Checked against JTS, which has both predicates directly.
+     */
+    @Test
+    public void testCoversNeedsAPatternDisjunction() throws Exception {
+        GeometryWrapper poly = WKTDatatype.INSTANCE.parse("POLYGON((0 0,2 0,2 2,0 2,0 0))");
+        GeometryWrapper same = WKTDatatype.INSTANCE.parse("POLYGON((0 0,2 0,2 2,0 2,0 0))");
+        GeometryWrapper edge = WKTDatatype.INSTANCE.parse("LINESTRING(0 0,2 0)");
+        GeometryWrapper inner =
+            WKTDatatype.INSTANCE.parse("POLYGON((0.5 0.5,1.5 0.5,1.5 1.5,0.5 1.5,0.5 0.5))");
+        GeometryWrapper away = WKTDatatype.INSTANCE.parse("POLYGON((5 5,6 5,6 6,5 6,5 5))");
+
+        // the disjunction agrees with JTS
+        assertTrue(anyPattern(poly, edge, COVERS));
+        assertTrue(poly.getXYGeometry().covers(edge.getXYGeometry()));
+        assertTrue(anyPattern(poly, inner, COVERS));
+        assertTrue(anyPattern(poly, same, COVERS));
+        assertFalse(anyPattern(poly, away, COVERS));
+        assertTrue(anyPattern(edge, poly, COVERED_BY));
+        assertTrue(anyPattern(inner, poly, COVERED_BY));
+        assertFalse(anyPattern(poly, inner, COVERED_BY));
+
+        // and the first pattern alone is not enough: it is contains/within, which the
+        // boundary case fails
+        assertFalse("T*****FF* alone is contains, and misses the boundary case",
+            poly.relate(edge, "T*****FF*"));
+        assertFalse("T*F**F*** alone is within, and misses the boundary case",
+            edge.relate(poly, "T*F**F***"));
     }
 
     @Test
