@@ -21,18 +21,11 @@
 
 package org.apache.jena.graph;
 
-import junit.framework.*;
-import org.apache.jena.test.JenaTestBase;
+import org.junit.jupiter.api.Test;
 
-public class TestFactory extends JenaTestBase {
-    public TestFactory(String name) {
-        super(name);
-    }
+public class TestFactory {
 
-    public static TestSuite suite() {
-        return new TestSuite(TestFactory.class);
-    }
-
+    @Test
     public void testFactory() {
         GraphMemFactory.createDefaultGraph();
     }

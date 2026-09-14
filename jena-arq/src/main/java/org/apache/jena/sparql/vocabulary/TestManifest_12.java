@@ -27,17 +27,15 @@ import org.apache.jena.rdf.model.ResourceFactory;
 /**
  * Additional or changed vocabulary for rdf-tests SPARQL area.
  */
+@Deprecated(forRemoval = true)
 public class TestManifest_12 {
 
-    /** <p>The namespace of the vocabulary as a string</p> */
+    /** The namespace of the vocabulary as a string */
     public static final String NS = "http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#";
 
+    @Deprecated(forRemoval = true)
     public static final Resource PositiveSyntaxTest12 = ResourceFactory.createResource(NS+"PositiveSyntaxTest12");
 
+    @Deprecated(forRemoval = true)
     public static final Resource NegativeSyntaxTest12 = ResourceFactory.createResource(NS+"NegativeSyntaxTest12");
-
-    public static final Resource PositiveUpdateSyntaxTest = ResourceFactory.createResource(NS+"PositiveUpdateSyntaxTest");
-
-    public static final Resource NegativeUpdateSyntaxTest = ResourceFactory.createResource(NS+"NegativeUpdateSyntaxTest");
-
 }

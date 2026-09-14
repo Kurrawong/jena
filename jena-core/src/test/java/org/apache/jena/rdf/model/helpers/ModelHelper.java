@@ -21,34 +21,23 @@
 
 package org.apache.jena.rdf.model.helpers;
 
-import java.util.*;
+import static org.junit.jupiter.api.Assertions.fail;
 
-import org.junit.Ignore;
+import java.util.*;
 
 import org.apache.jena.graph.GraphTestLib;
 import org.apache.jena.graph.Node;
 import org.apache.jena.junit.NodeCreateUtils;
 import org.apache.jena.rdf.model.*;
 import org.apache.jena.shared.PrefixMapping;
-import org.apache.jena.test.JenaTestBase;
 import org.apache.jena.util.CollectionFactory;
 
 /**
     provides useful functionality for testing models, eg building small models
     from strings, testing equality, etc.
-
-    Currently this class extends JenaTestBase and thus TestCase.
-
-    TODO: Refactoring should remove the TestCase dependency in future.
-
  */
-@Ignore // ignore this class as a test case.
-public class ModelHelper extends JenaTestBase
+public class ModelHelper
 {
-	private ModelHelper(String name)
-	{ super(name); }
-
-
 	protected static Model aModel;
 
 	static {
@@ -57,13 +46,6 @@ public class ModelHelper extends JenaTestBase
 	}
 
 	protected static final Model empty = ModelFactory.createDefaultModel();
-
-	protected static Model extendedModel(AbstractModelTestBase base)
-	{
-		Model result = base.createModel();
-		result.setNsPrefixes( PrefixMapping.Extended );
-		return result;
-	}
 
 	protected static String nice( RDFNode n )
 	{ return GraphTestLib.nice( n.asNode() ); }
@@ -169,26 +151,6 @@ public class ModelHelper extends JenaTestBase
 	}
 
 	/**
-        makes a model with a given reiifcation style, initialised with statements parsed
-        from a string.
-
-        @param facts a string in semicolon-separated "S P O" format
-        @return a model containing those facts
-	 */
-	public static Model modelWithStatements( AbstractModelTestBase base, String facts )
-	{ return modelAdd( createModel( base ), facts ); }
-
-	/**
-        make a model and give it Extended prefixes
-	 */
-	public static Model createModel( AbstractModelTestBase base )
-	{
-		Model result = base.createModel();
-		result.setNsPrefixes( PrefixMapping.Extended );
-		return result;
-	}
-
-	/**
         Answer a default model; it exists merely to abbreviate the rather long explicit
         invocation.
 
@@ -203,7 +165,6 @@ public class ModelHelper extends JenaTestBase
         @param title a String appearing at the beginning of the failure message
         @param wanted the model value that is expected
         @param got the model value to check
-        @exception junit.framework.AssertionFailedError the models are not isomorphic
 	 */
 	public static void assertIsoModels( String title, Model wanted, Model got )
 	{

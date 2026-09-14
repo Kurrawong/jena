@@ -21,6 +21,8 @@
 
 package org.apache.jena.assembler;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import org.apache.jena.assembler.assemblers.AssemblerBase;
 import org.apache.jena.assembler.exceptions.CannotConstructException;
 import org.apache.jena.rdf.model.Model;
@@ -29,7 +31,6 @@ import org.apache.jena.rdf.model.Property;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.shared.BrokenException;
 import org.apache.jena.shared.PrefixMapping;
-import org.apache.jena.test.JenaTestBase;
 import org.apache.jena.vocabulary.LocationMappingVocab;
 import org.apache.jena.vocabulary.RDF;
 import org.apache.jena.vocabulary.RDFS;
@@ -40,7 +41,7 @@ import org.apache.jena.vocabulary.RDFS;
  * in subclasses to control the parser that is used to construct models and the
  * prefixes added to the model (these features added for Eyeball).
  */
-public class AssemblerTestBase extends JenaTestBase {
+public class AssemblerTestBase {
 
     protected Class<? extends Assembler> getAssemblerClass() {
         throw new BrokenException("this class must define getAssemblerClass");
@@ -88,10 +89,6 @@ public class AssemblerTestBase extends JenaTestBase {
     }
 
     protected static final Model schema = JA.getSchema();
-
-    public AssemblerTestBase(String name) {
-        super(name);
-    }
 
     protected Model model(String string) {
         Model result = ModelTestLib.createModel();
