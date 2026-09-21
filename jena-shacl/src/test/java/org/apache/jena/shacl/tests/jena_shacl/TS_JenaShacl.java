@@ -28,7 +28,7 @@ import org.junit.platform.suite.api.Suite;
 @SelectClasses({
     // jena tests
     TestJenaShaclByCode.class,
-    TestJenaShacl.class
+    Scripts_JenaShacl.class
 } )
 public class TS_JenaShacl {
 

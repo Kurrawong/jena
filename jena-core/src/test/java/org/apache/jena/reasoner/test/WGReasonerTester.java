@@ -30,9 +30,8 @@ import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.junit.Assert;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import junit.framework.TestCase;
 import org.apache.jena.graph.Graph;
 import org.apache.jena.graph.GraphMemFactory;
 import org.apache.jena.rdf.model.*;
@@ -208,13 +207,13 @@ public class WGReasonerTester {
     /**
      * Run all the tests in the manifest
      * @param reasonerF the factory for the reasoner to be tested
-     * @param testcase the JUnit test case which is requesting this test
+     * @param testcase non-null if the caller wants a failed test to assert
      * @param configuration optional configuration information
      * @return true if all the tests pass
      * @throws IOException if one of the test files can't be found
      * @throws JenaException if the test can't be found or fails internally
      */
-    public boolean runTests(ReasonerFactory reasonerF, TestCase testcase, Resource configuration) throws IOException {
+    public boolean runTests(ReasonerFactory reasonerF, Object testcase, Resource configuration) throws IOException {
         for ( String test : listTests() )
         {
             if ( !runTest( test, reasonerF, testcase, configuration ) )
@@ -253,13 +252,13 @@ public class WGReasonerTester {
      * Run a single designated test.
      * @param uri the uri of the test, as defined in the manifest file
      * @param reasonerF the factory for the reasoner to be tested
-     * @param testcase the JUnit test case which is requesting this test
+     * @param testcase non-null if the caller wants a failed test to assert
      * @param configuration optional configuration information
      * @return true if the test passes
      * @throws IOException if one of the test files can't be found
      * @throws JenaException if the test can't be found or fails internally
      */
-    public boolean runTest(String uri, ReasonerFactory reasonerF, TestCase testcase, Resource configuration) throws IOException {
+    public boolean runTest(String uri, ReasonerFactory reasonerF, Object testcase, Resource configuration) throws IOException {
         return runTestDetailedResponse(uri,reasonerF,testcase,configuration) != FAIL;
     }
     static final public int FAIL = -1;
@@ -271,7 +270,7 @@ public class WGReasonerTester {
 		 * Run a single designated test.
 		 * @param uri the uri of the test, as defined in the manifest file
 		 * @param reasonerF the factory for the reasoner to be tested
-		 * @param testcase the JUnit test case which is requesting this test
+		 * @param testcase non-null if the caller wants a failed test to assert
 		 * @param configuration optional configuration information
 		 * @return true if the test passes
 		 * @throws IOException if one of the test files can't be found
@@ -279,7 +278,7 @@ public class WGReasonerTester {
 		 */
 
 
-	   public int runTestDetailedResponse(String uri, ReasonerFactory reasonerF, TestCase testcase, Resource configuration) throws IOException {
+	   public int runTestDetailedResponse(String uri, ReasonerFactory reasonerF, Object testcase, Resource configuration) throws IOException {
 
         // Find the specification for the named test
         Resource test = testManifest.getResource(uri);
@@ -386,7 +385,7 @@ public class WGReasonerTester {
 //                System.out.println("**** expected");
 //                conclusions.write(System.out, "TTL");
 //            }
-            Assert.assertTrue("Test: " + test + "\n" +  description, correct);
+            assertTrue(correct, "Test: " + test + "\n" +  description);
         }
         return correct?goodResult:FAIL;
     }
