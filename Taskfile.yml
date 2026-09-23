@@ -46,6 +46,11 @@ tasks:
     cmds:
       - docker buildx inspect {{.BUILDX_BUILDER}} >/dev/null 2>&1 || docker buildx create --name {{.BUILDX_BUILDER}} --driver docker-container --bootstrap
 
+  test-entrypoint:
+    desc: Check that the loader entrypoint reports a failed build step (no Docker needed)
+    cmds:
+      - sh build-files/docker/test/test-loader-entrypoint.sh
+
   runtime-build:
     desc: Build the clean runtime Fuseki image from the repo root
     cmds:
