@@ -1071,6 +1071,31 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
     // ---- Document building ----
 
+    /**
+     * Trim {@code values} to what the field's declared cardinality allows: all of them if
+     * the field is multi-valued, otherwise the first alone.
+     * <p>
+     * Data that contradicts the config is routine, and the alternative to trimming is not
+     * a richer document but no document at all — a sortable or facetable single-valued
+     * field contributes one {@code SortedDocValuesField} per value, and Lucene rejects an
+     * entire block carrying two of them at {@code addDocuments} time. During a bulk load
+     * that aborts the run partway through, so one entity's surplus value costs every
+     * entity after it. The warning names the entity and field so the shape or the data can
+     * be corrected.
+     *
+     * @param scope the nested block the values belong to, or null for the parent document
+     */
+    private List<Object> withinDeclaredCardinality(List<Object> values,
+            ShaclIndexMapping.FieldDef fieldDef, String entityId, String scope) {
+        if (fieldDef.isMultiValued() || values.size() <= 1) {
+            return values;
+        }
+        log.warn("Multiple values found for non-multi-valued field '{}'{} on entity '{}'; only the first value will be indexed. To index all values, set <{}> true in the index configuration.",
+            fieldDef.getFieldName(), scope == null ? "" : " of nested block '" + scope + "'",
+            entityId, MULTI_VALUED_CONFIG_IRI);
+        return Collections.singletonList(values.get(0));
+    }
+
     protected Document docFromMapping(Entity entity, ShaclIndexMapping.IndexProfile profile) {
         Document doc = new Document();
 
@@ -1096,13 +1121,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             if (value instanceof List) {
                 @SuppressWarnings("unchecked")
                 List<Object> values = (List<Object>) value;
-                List<Object> valuesToIndex = values;
-                if (!fieldDef.isMultiValued() && values.size() > 1) {
-                    log.warn("Multiple values found for non-multi-valued field '{}' on entity '{}'; only the first value will be indexed. To index all values, set <{}> true in the index configuration.",
-                        fieldDef.getFieldName(), entity.getId(), MULTI_VALUED_CONFIG_IRI);
-                    valuesToIndex = Collections.singletonList(values.get(0));
-                }
-                for (Object v : valuesToIndex) {
+                for (Object v : withinDeclaredCardinality(values, fieldDef, entity.getId(), null)) {
                     addFieldToDoc(doc, fieldDef, v);
                 }
             } else {
@@ -1177,7 +1196,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     if (value instanceof List) {
                         @SuppressWarnings("unchecked")
                         List<Object> values = (List<Object>) value;
-                        for (Object v : values) {
+                        for (Object v : withinDeclaredCardinality(values, fieldDef,
+                                entity.getId(), nestedDef.getNestedName())) {
                             addFieldToDoc(child, fieldDef, v);
                         }
                     } else {
