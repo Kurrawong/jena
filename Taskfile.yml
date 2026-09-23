@@ -64,7 +64,7 @@ tasks:
       - docker buildx build --builder {{.BUILDX_BUILDER}} --platform {{.PLATFORMS}} --target runtime -f build-files/docker/Dockerfile -t ghcr.io/{{.GHCR_OWNER}}/{{.RUNTIME_IMAGE_NAME}}:{{.IMAGE_TAG}} --push .
 
   runtime-acr-push:
-    desc: "Build and push the multi-arch runtime image to ACR (usage: task runtime-acr-push ACR_NAME=gswadevacr)"
+    desc: "Build and push the multi-arch runtime image to ACR (usage: task runtime-acr-push ACR_NAME=<registry>)"
     requires:
       vars: [ACR_NAME]
     deps: [_buildx-builder]
@@ -138,7 +138,7 @@ tasks:
         fi
 
   loader-acr-push:
-    desc: "Build and push the multi-arch text-only SHACL indexer image to ACR (usage: task loader-acr-push ACR_NAME=gswadevacr)"
+    desc: "Build and push the multi-arch text-only SHACL indexer image to ACR (usage: task loader-acr-push ACR_NAME=<registry>)"
     requires:
       vars: [ACR_NAME]
     deps: [_buildx-builder]
@@ -146,21 +146,6 @@ tasks:
       - az account show > /dev/null 2>&1 || az login
       - az acr login --name {{.ACR_NAME}}
       - docker buildx build --builder {{.BUILDX_BUILDER}} --platform {{.ACR_PLATFORMS}} --target loader -f build-files/docker/Dockerfile -t {{.ACR_NAME}}.azurecr.io/{{.IMAGE_NAME}}:{{.IMAGE_TAG}} -t {{.ACR_NAME}}.azurecr.io/{{.IMAGE_NAME}}:latest --push .
-
-  push_gswa:
-    desc: Push runtime (as rdf-delta-server) and the loader to the GSWA ACR (gswareg.azurecr.io) with :IMAGE_TAG and :latest
-    cmds:
-      # On gswareg both images follow the GSWA naming convention —
-      # rdf-delta-server and fuseki-loader — not fuseki-lucene-shacl and
-      # fuseki-lucene-shacl-loader, which GHCR and gswadevacr use.
-      - task: runtime-acr-push
-        vars:
-          ACR_NAME: gswareg
-          RUNTIME_IMAGE_NAME: rdf-delta-server
-      - task: loader-acr-push
-        vars:
-          ACR_NAME: gswareg
-          IMAGE_NAME: fuseki-loader
 
   # ── Vulnerability scanning ──────────────────────────────
 
