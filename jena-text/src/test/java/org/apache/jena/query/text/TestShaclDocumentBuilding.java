@@ -31,6 +31,8 @@ import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
+import org.apache.jena.query.text.ShaclIndexMapping.JoinStep;
+import org.apache.jena.query.text.ShaclIndexMapping.NestedDef;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
 import org.apache.jena.sparql.path.Path;
 import org.apache.jena.sparql.path.PathFactory;
@@ -129,6 +131,30 @@ public class TestShaclDocumentBuilding {
                 Collections.singleton(remarksPred))),
             Collections.emptyList(),
             Collections.emptyList());
+    }
+
+    /** A profile whose only content is one nested block carrying a single-valued sort key. */
+    private static IndexProfile reviewNestProfile() {
+        Node reviewPred = NodeFactory.createURI(NS + "review");
+        Node reviewerPred = NodeFactory.createURI(NS + "reviewer");
+        FieldDef reviewerField = new FieldDef("reviewerName", FieldType.KEYWORD, null,
+            true, true, false, true, false, false);
+        NestedDef reviewNest = new NestedDef(
+            "review",
+            PathFactory.pathLink(reviewPred),
+            Collections.singletonList(new JoinStep(reviewPred, false)),
+            Collections.singleton(reviewPred),
+            Collections.singletonList(occurrence(reviewerField, PathFactory.pathLink(reviewerPred),
+                Collections.singleton(reviewerPred))),
+            Collections.emptyList());
+        return new IndexProfile(
+            NodeFactory.createURI(NS + "ReviewShape"),
+            Collections.singleton(BOOK_CLASS),
+            "uri", "docType",
+            Collections.singletonList(reviewerField),
+            Collections.emptyList(),
+            Collections.emptyList(),
+            Collections.singletonList(reviewNest));
     }
 
     @After
@@ -312,6 +338,48 @@ public class TestShaclDocumentBuilding {
             .filter(field -> field.fieldType().docValuesType() == DocValuesType.SORTED)
             .count());
         textIndex.updateEntityForProfile(entity, testProfile);
+    }
+
+    /**
+     * A single-valued sortable field on a <em>child</em> document, handed two values by
+     * the data. The parent path has truncated to the first value since
+     * {@code testNonMultiValuedSortableFieldOnlyIndexesFirstValue}; the child path did
+     * not, and a second {@code SortedDocValuesField} makes Lucene reject the whole block
+     * at {@code addDocuments} time. In a bulk load that aborts the run — observed against
+     * the production index at 21.4M entities.
+     */
+    @Test
+    public void testNestedSingleValuedSortableFieldOnlyIndexesFirstValue() {
+        IndexProfile profile = reviewNestProfile();
+        Entity entity = new Entity("http://example.org/book1", null);
+        Entity.NestedRecord review = new Entity.NestedRecord();
+        review.addValue("reviewerName", "Ashgrove");
+        review.addValue("reviewerName", "Balingup");
+        entity.addNestedRecord("review", review);
+
+        List<Document> children = textIndex.childDocsFromMapping(entity, profile);
+
+        assertEquals(1, children.size());
+        Document child = children.get(0);
+        assertEquals("Ashgrove", child.get("reviewerName"));
+        assertEquals("Only the first value is indexed for a non-multi-valued field", 1,
+            Arrays.stream(child.getFields("reviewerName"))
+                .filter(field -> field.fieldType().docValuesType() == DocValuesType.SORTED)
+                .count());
+    }
+
+    /** The same case driven through the writer, which is where the failure actually surfaced. */
+    @Test
+    public void testNestedSingleValuedSortableFieldIsWritable() {
+        IndexProfile profile = reviewNestProfile();
+        Entity entity = new Entity("http://example.org/book1", null);
+        Entity.NestedRecord review = new Entity.NestedRecord();
+        review.addValue("reviewerName", "Ashgrove");
+        review.addValue("reviewerName", "Balingup");
+        entity.addNestedRecord("review", review);
+
+        textIndex.updateEntityForProfile(entity, profile);
+        textIndex.commit();
     }
 
     @Test
