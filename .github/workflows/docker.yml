@@ -62,6 +62,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      ## Runs before the image is built: the loader's exit status is what tells a
+      ## deployment an index build failed, and a regression there is silent by
+      ## definition. Pure shell, so it costs seconds and needs no Docker.
+      - name: Test loader entrypoint failure handling
+        run: sh build-files/docker/test/test-loader-entrypoint.sh
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
 

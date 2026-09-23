@@ -51,6 +51,23 @@ echo "NO_STATS: ${NO_STATS:-false}"
 echo "JAVA_VECTOR_OPTS: ${JAVA_VECTOR_OPTS:-<none>}"
 echo "==========================="
 
+# Abort the load on a failed build step.
+#
+# `set -e` is not usable here: the statistics block below ends a pipeline with
+# `grep -v "^WARN"`, which exits 1 whenever every line is a warning, and several
+# commands are read for their status rather than their success. So each heavy step
+# checks its own status instead.
+#
+# Without this the script ran on past a crashed indexer, built the spatial index,
+# printed "Processing complete." and exited 0. An index left at its last batch
+# commit is never finalised or stamped, and an unstamped index reads back as
+# UNKNOWN rather than an error — so Fuseki serves the truncated content without
+# complaint and nothing downstream sees a failure.
+fail_step() {
+  echo "ERROR: $1 failed (exit $2). Aborting; the index is incomplete." >&2
+  exit "$2"
+}
+
 # Early failure checks
 if [ ! -f "$CONFIG" ]; then
   echo "ERROR: Missing config file at $CONFIG"
@@ -301,7 +318,7 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "tdb2" ] || [ "$MODE" = "tdb2.xloader" ]; 
     done
 
     echo "Loader command: $LOADER_CMD"
-    eval "$LOADER_CMD"
+    eval "$LOADER_CMD" || fail_step "TDB2 xloader" $?
 
     EFFECTIVE_TDB2_LOCATION="$CLEAN_LOC"
   else
@@ -317,7 +334,7 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "tdb2" ] || [ "$MODE" = "tdb2.xloader" ]; 
     done
 
     echo "Loader command: $LOADER_CMD"
-    eval "$LOADER_CMD"
+    eval "$LOADER_CMD" || fail_step "TDB2 load" $?
 
     EFFECTIVE_TDB2_LOCATION=$(echo "$TDB2_LOCATION" | sed 's/^"//; s/"$//')
   fi
@@ -329,7 +346,7 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "index" ] || [ "$MODE" = "text" ]; then
   echo "Config: $CONFIG"
   echo "Text index location: $TEXT_INDEX_LOCATION"
 
-  $TEXT_INDEXER_CMD --desc="$CONFIG"
+  $TEXT_INDEXER_CMD --desc="$CONFIG" || fail_step "SHACL text index build" $?
 fi
 
 # Spatial Indexing
@@ -346,7 +363,7 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "index" ] || [ "$MODE" = "spatial" ]; then
     SPATIAL_CMD="$SPATIAL_CMD --srs=\"$SRS_URI\""
   fi
 
-  eval "$SPATIAL_CMD"
+  eval "$SPATIAL_CMD" || fail_step "spatial index build" $?
 fi
 
 # Statistics
