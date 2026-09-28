@@ -71,17 +71,32 @@ public interface Geof {
     public static final String BUFFER_NAME = GEOF_URI + "buffer";
     public static final String DIFFERENCE_NAME = GEOF_URI + "difference";
     public static final String BOUNDARY_NAME = GEOF_URI + "boundary";
+    public static final String CENTROID_NAME = GEOF_URI + "centroid";
     public static final String CONVEXHULL_NAME = GEOF_URI + "convexHull";
     public static final String GETSRID_NAME = GEOF_URI + "getSRID";
 
-    //Geometry Property function symbols:
-    //N.B. These functions are not part of the GeoSPARQL standard but have been included for convenience using GeometryLiterals.
+    // Geometry property function symbols:
+    public static final String GEOMETRY_TYPE = GEOF_URI + "geometryType";
+    public static final String IS_3D = GEOF_URI + "is3D";
+    public static final String IS_MEASURED = GEOF_URI + "isMeasured";
+    public static final String NUM_GEOMETRIES = GEOF_URI + "numGeometries";
     public static final String DIMENSION = GEOF_URI + "dimension";
     public static final String COORDINATE_DIMENSION = GEOF_URI + "coordinateDimension";
     public static final String SPATIAL_DIMENSION = GEOF_URI + "spatialDimension";
     public static final String IS_EMPTY = GEOF_URI + "isEmpty";
     public static final String IS_SIMPLE = GEOF_URI + "isSimple";
     public static final String IS_VALID = GEOF_URI + "isValid";
+
+    //GeoSPARQL 1.1 coordinate extrema:
+    public static final String MIN_X = GEOF_URI + "minX";
+    public static final String MIN_Y = GEOF_URI + "minY";
+    public static final String MIN_Z = GEOF_URI + "minZ";
+    public static final String MAX_X = GEOF_URI + "maxX";
+    public static final String MAX_Y = GEOF_URI + "maxY";
+    public static final String MAX_Z = GEOF_URI + "maxZ";
+
+    //GeoSPARQL 1.1 geometry member access:
+    public static final String GEOMETRY_N = GEOF_URI + "geometryN";
 
     //upcoming GeoSPARQL 1.1 Datatype transformation functions:
     public static final String AS_GEOJSON = GEOF_URI + "asGeoJSON";

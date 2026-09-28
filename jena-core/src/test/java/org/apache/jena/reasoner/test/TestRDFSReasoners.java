@@ -21,6 +21,8 @@
 
 package org.apache.jena.reasoner.test;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
@@ -28,8 +30,13 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 
-import junit.framework.TestCase;
-import junit.framework.TestSuite;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Stream;
+
+import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.TestFactory;
+
 import org.apache.jena.rdf.model.*;
 import org.apache.jena.reasoner.InfGraph;
 import org.apache.jena.reasoner.Reasoner;
@@ -38,7 +45,6 @@ import org.apache.jena.reasoner.ValidityReport;
 import org.apache.jena.reasoner.ValidityReport.Report;
 import org.apache.jena.reasoner.rulesys.RDFSFBRuleReasonerFactory;
 import org.apache.jena.reasoner.rulesys.RDFSRuleReasonerFactory;
-import org.apache.jena.test.JenaTestBase;
 import org.apache.jena.vocabulary.RDFS;
 import org.apache.jena.vocabulary.ReasonerVocabulary;
 import org.slf4j.Logger;
@@ -47,25 +53,20 @@ import org.slf4j.LoggerFactory;
 /**
  * Test the set of admissable RDFS reasoners.
  */
-public class TestRDFSReasoners extends JenaTestBase {
+public class TestRDFSReasoners {
 
     /** Base URI for the test names */
     public static final String NAMESPACE = "http://www.hpl.hp.com/semweb/2003/query_tester/";
 
     protected static Logger logger = LoggerFactory.getLogger(TestReasoners.class);
 
-    /**
-     * Boilerplate for junit
-     */
-    public TestRDFSReasoners(String name) {
-        super(name);
-    }
 
     /**
-     * Boilerplate for junit. This is its own test suite
+     * The RDFS reasoner tests, one dynamic test per manifest entry.
      */
-    public static TestSuite suite() {
-        TestSuite suite = new TestSuite();
+    @TestFactory
+    public Stream<DynamicTest> rdfsReasonerTests() {
+        List<DynamicTest> suite = new ArrayList<>();
         try {
             // FB reasoner doesn't support validation so the full set of wg tests are
             // commented out
@@ -81,7 +82,7 @@ public class TestRDFSReasoners extends JenaTestBase {
             constructRDFWGtests(suite, RDFSRuleReasonerFactory.theInstance(), null);
             constructQuerytests(suite, "rdfs/manifest-standard.rdf", RDFSRuleReasonerFactory.theInstance(), config);
 
-            suite.addTest(new TestRDFSMisc(RDFSRuleReasonerFactory.theInstance(), null));
+            suite.add(DynamicTest.dynamicTest("TestRDFSMisc", ()->new TestRDFSMisc(RDFSRuleReasonerFactory.theInstance(), null).runTest()));
 
             Resource configFull = ReasonerTestLib.newResource().addProperty(ReasonerVocabulary.PROPsetRDFSLevel,
                                                                             ReasonerVocabulary.RDFS_FULL);
@@ -109,47 +110,47 @@ public class TestRDFSReasoners extends JenaTestBase {
             // failed to even built the test harness
             logger.error("Failed to construct RDFS test harness", e);
         }
-        return suite;
+        return suite.stream();
     }
 
     /**
      * Build a single named query test
      */
-    private static void constructSingleQuerytests(TestSuite suite, String manifest, String test, ReasonerFactory rf,
+    private static void constructSingleQuerytests(List<DynamicTest> suite, String manifest, String test, ReasonerFactory rf,
                                                   Resource config) throws IOException {
         ReasonerTester tester = new ReasonerTester(manifest);
         Reasoner r = rf.create(config);
-        suite.addTest(new TestReasonerFromManifest(tester, test, r));
+        suite.add(DynamicTest.dynamicTest(test, ()->new TestReasonerFromManifest(tester, test, r).runTest()));
     }
 
     /**
      * Build the query tests for the given reasoner.
      */
-    private static void constructQuerytests(TestSuite suite, String manifest, ReasonerFactory rf, Resource config) throws IOException {
+    private static void constructQuerytests(List<DynamicTest> suite, String manifest, ReasonerFactory rf, Resource config) throws IOException {
         ReasonerTester tester = new ReasonerTester(manifest);
         Reasoner r = rf.create(config);
         for ( String test : tester.listTests() ) {
-            suite.addTest(new TestReasonerFromManifest(tester, test, r));
+            suite.add(DynamicTest.dynamicTest(test, ()->new TestReasonerFromManifest(tester, test, r).runTest()));
         }
     }
 
     /**
      * Build the working group tests for the given reasoner.
      */
-    private static void constructRDFWGtests(TestSuite suite, ReasonerFactory rf, Resource config) throws IOException {
+    private static void constructRDFWGtests(List<DynamicTest> suite, ReasonerFactory rf, Resource config) throws IOException {
         WGReasonerTester tester = new WGReasonerTester("Manifest.rdf");
         for ( String test : tester.listTests() ) {
-            suite.addTest(new TestReasonerWG(tester, test, rf, config));
+            suite.add(DynamicTest.dynamicTest(test, ()->new TestReasonerWG(tester, test, rf, config).runTest()));
         }
     }
 
     /**
      * Build the query tests for the given reasoner.
      */
-    public static void constructQuerytests(TestSuite suite, String manifest, Reasoner reasoner) throws IOException {
+    public static void constructQuerytests(List<DynamicTest> suite, String manifest, Reasoner reasoner) throws IOException {
         ReasonerTester tester = new ReasonerTester(manifest);
         for ( String test : tester.listTests() ) {
-            suite.addTest(new TestReasonerFromManifest(tester, test, reasoner));
+            suite.add(DynamicTest.dynamicTest(test, ()->new TestReasonerFromManifest(tester, test, reasoner).runTest()));
         }
     }
 
@@ -157,7 +158,7 @@ public class TestRDFSReasoners extends JenaTestBase {
      * Inner class defining a test framework for invoking a single locally defined
      * query-over-inference test.
      */
-    static class TestReasonerFromManifest extends TestCase {
+    static class TestReasonerFromManifest {
 
         /** The tester which already has the test manifest loaded */
         ReasonerTester tester;
@@ -170,7 +171,6 @@ public class TestRDFSReasoners extends JenaTestBase {
 
         /** Constructor */
         TestReasonerFromManifest(ReasonerTester tester, String test, Reasoner reasoner) {
-            super(test);
             this.tester = tester;
             this.test = test;
             this.reasoner = reasoner;
@@ -179,7 +179,6 @@ public class TestRDFSReasoners extends JenaTestBase {
         /**
          * The test runner
          */
-        @Override
         public void runTest() throws IOException {
             tester.runTest(test, reasoner, this);
         }
@@ -190,7 +189,7 @@ public class TestRDFSReasoners extends JenaTestBase {
      * Inner class defining a test framework for invoking a single RDFCore working
      * group test.
      */
-    static class TestReasonerWG extends TestCase {
+    static class TestReasonerWG {
 
         /** The tester which already has the test manifest loaded */
         WGReasonerTester tester;
@@ -206,7 +205,6 @@ public class TestRDFSReasoners extends JenaTestBase {
 
         /** Constructor */
         TestReasonerWG(WGReasonerTester tester, String test, ReasonerFactory reasonerFactory, Resource config) {
-            super(test);
             this.tester = tester;
             this.test = test;
             this.reasonerFactory = reasonerFactory;
@@ -216,7 +214,6 @@ public class TestRDFSReasoners extends JenaTestBase {
         /**
          * The test runner
          */
-        @Override
         public void runTest() throws IOException {
             tester.runTest(test, reasonerFactory, this, config);
         }
@@ -227,7 +224,7 @@ public class TestRDFSReasoners extends JenaTestBase {
      * Inner class defining the misc extra tests needed to check out a candidate RDFS
      * reasoner.
      */
-    static class TestRDFSMisc extends TestCase {
+    static class TestRDFSMisc {
 
         /** The factory for the reasoner type under test */
         ReasonerFactory reasonerFactory;
@@ -237,7 +234,6 @@ public class TestRDFSReasoners extends JenaTestBase {
 
         /** Constructor */
         TestRDFSMisc(ReasonerFactory reasonerFactory, Resource config) {
-            super("TestRDFSMisc");
             this.reasonerFactory = reasonerFactory;
             this.config = config;
         }
@@ -245,7 +241,6 @@ public class TestRDFSReasoners extends JenaTestBase {
         /**
          * The test runner
          */
-        @Override
         public void runTest() throws IOException {
             ReasonerTester tester = new ReasonerTester("rdfs/manifest.rdf");
             // Test effect of switching off property scan - should break container
@@ -258,7 +253,7 @@ public class TestRDFSReasoners extends JenaTestBase {
                 }
             }
             configuration.addProperty(ReasonerVocabulary.PROPenableCMPScan, "false");
-            assertTrue("scanproperties off", !tester.runTest(NAMESPACE + "rdfs/test17", reasonerFactory, null, configuration));
+            assertTrue(!tester.runTest(NAMESPACE + "rdfs/test17", reasonerFactory, null, configuration), "scanproperties off");
 
             // Check capabilities description
             Reasoner r = reasonerFactory.create(null);

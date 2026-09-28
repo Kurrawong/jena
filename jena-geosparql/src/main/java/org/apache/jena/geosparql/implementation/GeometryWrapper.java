@@ -46,8 +46,10 @@ import org.apache.jena.rdf.model.ResourceFactory;
 import org.apache.jena.sparql.expr.NodeValue;
 import org.apache.sis.geometry.DirectPosition2D;
 import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.CoordinateXY;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.geom.GeometryCollection;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.IntersectionMatrix;
 import org.locationtech.jts.geom.Point;
@@ -78,6 +80,7 @@ public class GeometryWrapper implements Serializable {
     private final String geometryDatatypeURI;
     private GeometryDatatype geometryDatatype;
     private String lexicalForm;
+    private String geometryTypeURI;
     private String utmURI = null;
     private Double latitude = null;
 
@@ -190,6 +193,7 @@ public class GeometryWrapper implements Serializable {
         this.srsInfo = geometryWrapper.srsInfo;
         this.dimensionInfo = geometryWrapper.dimensionInfo;
         this.lexicalForm = geometryWrapper.lexicalForm;
+        this.geometryTypeURI = geometryWrapper.geometryTypeURI;
     }
 
     /**
@@ -385,6 +389,127 @@ public class GeometryWrapper implements Serializable {
      */
     public String getGeometryType() {
         return parsingGeometry.getGeometryType();
+    }
+
+    /**
+     * Returns whether the coordinate layout includes Z, including for empty geometries.
+     * Uses the wrapper's dimension metadata without aggregating member layouts.
+     * A WKT collection without a Z/M marker has XY metadata even if members
+     * declare their own Z/M layouts.
+     */
+    public boolean is3D() {
+        CoordinateSequenceDimensions dimensions = getCoordinateSequenceDimensions();
+        return dimensions == CoordinateSequenceDimensions.XYZ || dimensions == CoordinateSequenceDimensions.XYZM;
+    }
+
+    /**
+     * Returns whether the coordinate layout includes M, including for empty geometries.
+     * Uses the wrapper's dimension metadata without aggregating member layouts.
+     * A WKT collection without a Z/M marker has XY metadata even if members
+     * declare their own Z/M layouts.
+     */
+    public boolean isMeasured() {
+        CoordinateSequenceDimensions dimensions = getCoordinateSequenceDimensions();
+        return dimensions == CoordinateSequenceDimensions.XYM || dimensions == CoordinateSequenceDimensions.XYZM;
+    }
+
+    /**
+     * Returns the number of direct members of a Multi-geometry or GeometryCollection.
+     * Atomic geometries count as one, including empty atomic geometries; nested
+     * collections are not flattened. A collection with no members counts as zero.
+     */
+    public int getNumGeometries() {
+        return parsingGeometry.getNumGeometries();
+    }
+
+    /**
+     * Returns the geometry subtype URI defined by this wrapper's datatype.
+     * The datatype determines the type on first use; the result is cached.
+     *
+     * @return The subtype URI as a string.
+     * @throws DatatypeFormatException if the datatype cannot resolve the geometry type.
+     */
+    public String getGeometryTypeURI() {
+        if (geometryTypeURI == null) {
+            geometryTypeURI = getGeometryDatatype().getGeometryTypeURI(this);
+        }
+        return geometryTypeURI;
+    }
+
+    /**
+     * Returns the minimum ordinate of the first SRS dimension (X)
+     * across all geometry members.
+     * @throws IllegalStateException if the geometry has no coordinates or the evaluated ordinate is NaN or infinite.
+     */
+    public double getMinX() {
+        return GeometryCoordinateExtrema.minX(this);
+    }
+
+    /**
+     * Returns the minimum ordinate of the second SRS dimension (Y)
+     * across all geometry members.
+     * @throws IllegalStateException if the geometry has no coordinates or the evaluated ordinate is NaN or infinite.
+     */
+    public double getMinY() {
+        return GeometryCoordinateExtrema.minY(this);
+    }
+
+    /**
+     * Returns the minimum finite Z ordinate from the original coordinates across all geometry members.
+     * Members without a Z ordinate are skipped; M is not treated as Z.
+     * NaN values are skipped as missing Z ordinates; infinite Z values are rejected.
+     * @throws IllegalStateException if no finite Z exists or a Z ordinate is infinite.
+     */
+    public double getMinZ() {
+        return GeometryCoordinateExtrema.minZ(this);
+    }
+
+    /**
+     * Returns the maximum ordinate of the first SRS dimension (X)
+     * across all geometry members.
+     * @throws IllegalStateException if the geometry has no coordinates or the evaluated ordinate is NaN or infinite.
+     */
+    public double getMaxX() {
+        return GeometryCoordinateExtrema.maxX(this);
+    }
+
+    /**
+     * Returns the maximum ordinate of the second SRS dimension (Y)
+     * across all geometry members.
+     * @throws IllegalStateException if the geometry has no coordinates or the evaluated ordinate is NaN or infinite.
+     */
+    public double getMaxY() {
+        return GeometryCoordinateExtrema.maxY(this);
+    }
+
+    /**
+     * Returns the maximum finite Z ordinate from the original coordinates across all geometry members.
+     * Members without a Z ordinate are skipped; M is not treated as Z.
+     * NaN values are skipped as missing Z ordinates; infinite Z values are rejected.
+     * @throws IllegalStateException if no finite Z exists or a Z ordinate is infinite.
+     */
+    public double getMaxZ() {
+        return GeometryCoordinateExtrema.maxZ(this);
+    }
+
+    /**
+     * Selects a direct geometry member using a one-based index, without flattening
+     * nested collections. Index 1 selects an atomic geometry itself, including
+     * an empty atomic geometry. Retains the source datatype and SRS and uses the
+     * selected member's coordinate layout.
+     *
+     * @throws IllegalArgumentException if the index is outside the member range.
+     */
+    public GeometryWrapper getGeometryN(int index) {
+        if (index < 1 || index > parsingGeometry.getNumGeometries()) {
+            throw new IllegalArgumentException("Geometry member index is out of range: " + index);
+        }
+        if (!(parsingGeometry instanceof GeometryCollection)) {
+            return this;
+        }
+        Geometry member = parsingGeometry.getGeometryN(index - 1);
+        DimensionInfo dimensions = DimensionInfo.find(member, dimensionInfo.getDimensions());
+        return new GeometryWrapper(member, getSrsURI(), geometryDatatypeURI, dimensions);
     }
 
     /**
@@ -683,6 +808,40 @@ public class GeometryWrapper implements Serializable {
         Geometry xyGeo = this.xyGeometry.convexHull();
         Geometry parsingGeo = GeometryReverse.check(xyGeo, srsInfo);
         return new GeometryWrapper(parsingGeo, xyGeo, srsInfo.getSrsURI(), geometryDatatypeURI, dimensionInfo);
+    }
+
+    /**
+     * Returns the planar centroid in the source SRS and datatype. A result in a
+     * three-dimensional CRS has {@code Z=0}; {@code Z} and {@code M} are ignored
+     * in the calculation. Geographic coordinates are treated as planar
+     * coordinates, without reprojection.
+     *
+     * @throws DatatypeFormatException if a non-empty GML centroid has a source
+     * CRS coordinate dimension other than 2 or 3
+     */
+    public GeometryWrapper centroid() {
+        Point centroid = xyGeometry.getCentroid();
+        GeometryFactory factory = CustomGeometryFactory.theInstance();
+        int crsDimension = srsInfo.getCrs().getCoordinateSystem().getDimension();
+        Point xyCentroid;
+        if (centroid.isEmpty()) {
+            xyCentroid = factory.createPoint(new CustomCoordinateSequence(CoordinateSequenceDimensions.XY));
+        } else if (crsDimension == 3) {
+            xyCentroid = factory.createPoint(new Coordinate(centroid.getX(), centroid.getY(), 0));
+        } else {
+            xyCentroid = factory.createPoint(new CoordinateXY(centroid.getX(), centroid.getY()));
+        }
+        // GML positions follow the CRS dimension. The centroid supplies XY or
+        // XYZ with Z=0, but no additional ordinate.
+        if (!xyCentroid.isEmpty()
+                && GMLDatatype.URI.equals(geometryDatatypeURI)
+                && crsDimension != 2 && crsDimension != 3) {
+            throw new DatatypeFormatException(
+                "A centroid cannot be represented as GML in the source CRS.");
+        }
+        Geometry parsingCentroid = GeometryReverse.check(xyCentroid, srsInfo);
+        DimensionInfo centroidDimensions = DimensionInfo.find(xyCentroid.getCoordinate(), xyCentroid);
+        return new GeometryWrapper(parsingCentroid, xyCentroid, getSrsURI(), geometryDatatypeURI, centroidDimensions);
     }
 
     /**
@@ -1021,6 +1180,14 @@ public class GeometryWrapper implements Serializable {
      */
     public DimensionInfo getDimensionInfo() {
         return dimensionInfo;
+    }
+
+    /**
+     * Returns whether serialized text is already available without generating it.
+     * The text may have been supplied at construction or generated by {@link #asLiteral()}.
+     */
+    public boolean hasLexicalForm() {
+        return lexicalForm != null;
     }
 
     /**
