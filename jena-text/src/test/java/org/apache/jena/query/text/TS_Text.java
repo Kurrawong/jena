@@ -113,6 +113,8 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     // Nested sort selector: order by a child value where the co-located discriminator = X
     , TestNestedSortSelector.class
     , TestTextIndexRegistry.class
+    // Live writes commit and roll back every index in text:indexes
+    , org.apache.jena.query.text.assembler.TestMultiIndexLiveWrites.class
 
     // Spatial filtering
     , TestSpatialFiltering.class
