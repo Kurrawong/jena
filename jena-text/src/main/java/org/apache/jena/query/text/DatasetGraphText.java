@@ -24,6 +24,8 @@ package org.apache.jena.query.text;
 import java.util.Iterator;
 import java.util.List;
 
+import org.apache.jena.atlas.lib.Bytes;
+
 import org.apache.jena.dboe.transaction.txn.ComponentId;
 import org.apache.jena.dboe.transaction.txn.TransactionCoordinator;
 import org.apache.jena.dboe.transaction.txn.TransactionalComponent;
@@ -43,6 +45,10 @@ import org.slf4j.LoggerFactory;
 public class DatasetGraphText extends DatasetGraphTextMonitor implements Transactional {
     private static Logger log = LoggerFactory.getLogger(DatasetGraphText.class);
     private final TextIndex textIndex;
+    // Every index that joins the transaction: textIndex alone, or every index in a
+    // TextIndexRegistry. Each has its own IndexWriter, and documents it has not
+    // committed are invisible to searches.
+    private final List<TextIndex> txnIndexes;
     private final Graph dftGraph;
     private final boolean closeIndexOnClose;
     // Lock needed for commit/abort that perform an index operation and a dataset
@@ -83,23 +89,45 @@ public class DatasetGraphText extends DatasetGraphTextMonitor implements Transac
         this(dsg, index, producer, false);
     }
 
-    @SuppressWarnings("removal")
     public DatasetGraphText(DatasetGraph dsg, TextIndex index, TextDocProducer producer, boolean closeIndexOnClose) {
+        this(dsg, index, List.of(index), producer, closeIndexOnClose);
+    }
+
+    /**
+     * A dataset over every index in {@code registry}. Writes are committed to and rolled
+     * back from all of them; {@link #getTextIndex()} returns the registry's default.
+     */
+    public DatasetGraphText(DatasetGraph dsg, TextIndexRegistry registry, TextDocProducer producer, boolean closeIndexOnClose) {
+        this(dsg, registry.getDefault(), List.copyOf(registry.all()), producer, closeIndexOnClose);
+    }
+
+    // First component id for a TDB2 text index; index i in txnIndexes takes BASE_COMPONENT_ID + i.
+    // Index 0 keeps the id used before multi-index support, {2, 4, 6, 10}.
+    private static final int BASE_COMPONENT_ID = 0x0204060A;
+
+    @SuppressWarnings("removal")
+    private DatasetGraphText(DatasetGraph dsg, TextIndex index, List<TextIndex> txnIndexes,
+                             TextDocProducer producer, boolean closeIndexOnClose) {
         super(dsg, producer);
         this.textIndex = index;
+        this.txnIndexes = txnIndexes;
         dftGraph = GraphView.createDefaultGraph(this);
         this.closeIndexOnClose = closeIndexOnClose;
 
         if ( org.apache.jena.tdb1.sys.TDBInternal.isTDB1(dsg) ) {
             TransactionManager txnMgr = org.apache.jena.tdb1.sys.TDBInternal.getTransactionManager(dsg);
-            txnMgr.addAdditionComponent(new TextIndexTDB1(textIndex));
+            for ( TextIndex idx : txnIndexes )
+                txnMgr.addAdditionComponent(new TextIndexTDB1(idx));
             commitAction = delegateCommit;
             abortAction = delegateAbort;
         } else if ( org.apache.jena.tdb2.sys.TDBInternal.isTDB2(dsg) ) {
             TransactionCoordinator coord = org.apache.jena.tdb2.sys.TDBInternal.getTransactionCoordinator(dsg);
-            byte[] componentID = {2, 4, 6, 10};
-            TransactionalComponent tc = new TextIndexDB(ComponentId.create(null, componentID), textIndex);
-            coord.modifyConfig(() -> coord.addExternal(tc));
+            // The coordinator keys components by id, so each index needs its own.
+            for ( int i = 0; i < txnIndexes.size(); i++ ) {
+                byte[] componentID = Bytes.intToBytes(BASE_COMPONENT_ID + i);
+                TransactionalComponent tc = new TextIndexDB(ComponentId.create(null, componentID), txnIndexes.get(i));
+                coord.modifyConfig(() -> coord.addExternal(tc));
+            }
             commitAction = delegateCommit;
             abortAction = delegateAbort;
         } else {
@@ -206,7 +234,8 @@ public class DatasetGraphText extends DatasetGraphTextMonitor implements Transac
             super.getMonitor().finish();
             // Phase 1
             try {
-                textIndex.prepareCommit();
+                for ( TextIndex idx : txnIndexes )
+                    idx.prepareCommit();
             } catch (Throwable t) {
                 log.error("Exception in prepareCommit: " + t.getMessage(), t);
                 abort();
@@ -217,7 +246,8 @@ public class DatasetGraphText extends DatasetGraphTextMonitor implements Transac
             try {
                 // Hard to do atomically.
                 super.commit();
-                textIndex.commit();
+                for ( TextIndex idx : txnIndexes )
+                    idx.commit();
             } catch (Throwable t) {
                 log.error("Exception in commit: " + t.getMessage(), t);
                 abort();
@@ -242,10 +272,12 @@ public class DatasetGraphText extends DatasetGraphTextMonitor implements Transac
             } catch (Throwable t) {
                 log.warn("Exception in abort: " + t.getMessage(), t);
             }
-            try {
-                textIndex.rollback();
-            } catch (Throwable t) {
-                log.warn("Exception in abort: " + t.getMessage(), t);
+            for ( TextIndex idx : txnIndexes ) {
+                try {
+                    idx.rollback();
+                } catch (Throwable t) {
+                    log.warn("Exception in abort: " + t.getMessage(), t);
+                }
             }
         }
     }
@@ -297,7 +329,8 @@ public class DatasetGraphText extends DatasetGraphTextMonitor implements Transac
     public void close() {
         super.close();
         if ( closeIndexOnClose ) {
-            textIndex.close();
+            for ( TextIndex idx : txnIndexes )
+                idx.close();
         }
     }
 }

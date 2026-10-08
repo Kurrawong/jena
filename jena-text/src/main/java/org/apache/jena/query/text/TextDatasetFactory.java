@@ -96,7 +96,7 @@ public class TextDatasetFactory
                                       boolean closeIndexOnDSGClose, TextDocProducer producer) {
         TextIndexLucene defaultIndex = registry.getDefault();
         if (producer == null) producer = new TextDocProducerTriples(defaultIndex);
-        DatasetGraph dsgt = new DatasetGraphText(dsg, defaultIndex, producer, closeIndexOnDSGClose);
+        DatasetGraph dsgt = new DatasetGraphText(dsg, registry, producer, closeIndexOnDSGClose);
         Context c = dsgt.getContext();
         c.set(TextQuery.textIndex, defaultIndex);
         c.set(TextQuery.textIndexRegistry, registry);
