@@ -11,7 +11,7 @@ SHACL they also match instances of subclasses. This note plans to adopt the SHAC
 meaning, to add `sh:hasValue` so a shape can still ask for an exact type, and to replace
 the parts of `ShaclIndexAssembler` that duplicate `jena-shacl`.
 
-Claims about current behaviour were checked against `227a8f29f1`.
+Claims about current behaviour were checked against `35503d181d`.
 
 ## Current behaviour
 

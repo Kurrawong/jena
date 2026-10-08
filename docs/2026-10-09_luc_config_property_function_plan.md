@@ -11,7 +11,7 @@ SHACL index as triples, in the same `sh:` and `idx:` vocabulary the configuratio
 written in. A client uses it to discover which fields exist and what each one supports —
 faceting, sorting, filtering, range — over the ordinary SPARQL query endpoint.
 
-Claims about current behaviour were checked against `227a8f29f1`.
+Claims about current behaviour were checked against `35503d181d`.
 
 ## Why a property function
 
