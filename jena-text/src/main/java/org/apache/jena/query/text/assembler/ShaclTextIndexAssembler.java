@@ -38,6 +38,7 @@ import org.apache.jena.atlas.io.IO;
 import org.apache.jena.atlas.lib.IRILib;
 import org.apache.jena.graph.Graph;
 import org.apache.jena.graph.Node;
+import org.apache.jena.graph.Triple;
 import org.apache.jena.query.text.*;
 import org.apache.jena.rdf.model.RDFNode;
 import org.apache.jena.rdf.model.Resource;
@@ -46,6 +47,7 @@ import org.apache.jena.sparql.graph.GraphFactory;
 import org.apache.jena.sparql.graph.GraphReadOnly;
 import org.apache.jena.sparql.util.graph.GraphUtils;
 import org.apache.jena.vocabulary.RDF;
+import org.apache.jena.vocabulary.RDFS;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.store.*;
 
@@ -164,7 +166,7 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
     /**
      * The index's configuration as written: every triple reachable from the index
      * resource, following objects but not {@code rdf:type}, and not into {@code rdf:nil},
-     * which the assembler's model describes with inferred types. That covers the directories,
+     * leaving out the types the assembler infers for list cells. That covers the directories,
      * analyzers, shapes, fields and paths, and stops short of the dataset that declares
      * the index and of any description of the classes it is typed with.
      * <p>
@@ -181,6 +183,8 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
             if (!visited.add(subject))
                 continue;
             source.find(subject, Node.ANY, Node.ANY).forEach(t -> {
+                if (isInferredType(t))
+                    return;
                 copy.add(t);
                 Node object = t.getObject();
                 if (!object.isLiteral() && !RDF.Nodes.type.equals(t.getPredicate())
@@ -189,6 +193,17 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
             });
         }
         return new GraphReadOnly(copy);
+    }
+
+    /**
+     * Fuseki assembles from {@code AssemblerHelp.fullModel}, whose
+     * {@code ModelExpansion.withSchema} types every list cell {@code rdf:List} and
+     * {@code rdfs:Resource}. Neither says anything about the index, and the file never
+     * contains them.
+     */
+    private static boolean isInferredType(Triple t) {
+        return RDF.Nodes.type.equals(t.getPredicate())
+            && (RDF.Nodes.List.equals(t.getObject()) || RDFS.Nodes.Resource.equals(t.getObject()));
     }
 
     /**

@@ -36,13 +36,22 @@ check for it were removed in the same change.
 Fuseki parses the configuration file into a `Model` and hands each assembler a `Resource`
 in it. The model is discarded once the server is built, so `ShaclTextIndexAssembler`
 copies the index's subgraph while it still has it: every triple reachable from the index
-resource, following objects, with two exceptions:
+resource, following objects, with three exceptions:
 
 - `rdf:type` is not followed. Following it would pull in descriptions of the classes the
   index is typed with, which are not this index's configuration.
 - `rdf:nil` is not entered. The assembler's model carries inferred types for it
   (`rdf:nil rdf:type rdf:List`, `rdfs:Resource`); a first version returned them, and
   `TestLucConfig.triplesMatchTheConfigurationExactly` caught it.
+- `rdf:type rdf:List` and `rdf:type rdfs:Resource` are dropped. Fuseki assembles from
+  `AssemblerHelp.fullModel`, whose `ModelExpansion.withSchema` adds both to every list
+  cell. Against `demo/deploy/config.ttl` that was 42 triples the file does not contain,
+  found by diffing a running server's `luc:config` output against the file; the unit
+  tests had assembled without expansion. `typesInferredByTheAssemblerAreNotReturned`
+  now assembles the way Fuseki does.
+
+With those rules, every triple `luc:config` returned from the running demo server was in
+`demo/deploy/config.ttl`.
 
 The result is the configuration as written. Defaults are not added: a field with no
 `idx:facetable` triple is returned without one.
@@ -95,4 +104,4 @@ the result.
 | Removed | `jena-fuseki2/jena-fuseki-mod-config` and its entries in `jena-fuseki2/pom.xml` and `jena-fuseki-server/pom.xml` |
 | Demo app | `fetchConfigText` in `demo/app-static/app.js` runs the `CONSTRUCT` above against `{dataset}/query`; the dataset name comes from `APP_CONFIG.dataset`, default `mining`, since the index's subgraph does not contain the service |
 
-Tests: `TestLucConfig`, 19 cases, registered in `TS_Text`.
+Tests: `TestLucConfig`, 20 cases, registered in `TS_Text`.
