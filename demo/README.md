@@ -131,7 +131,18 @@ task docker-stop
 
 ## Data model
 
-The demo data (`data/mining.ttl`) contains:
+The data is split in two, and both halves load into the same dataset:
+
+| File | Holds | Indexed by |
+|---|---|---|
+| `data/mining.ttl`, `data/generated.ttl` | Sites, boreholes, reports and authors | `instance` |
+| `data/reference.ttl` | The classes and properties those use, and the controlled terms they take values from: commodities, states, operators, statuses and roles, as SKOS concepts in one scheme each | `reference` |
+
+`reference.ttl` is maintained by hand. A term used in the instance data must be defined
+there, or it has no label; `TestDemoReferenceIndex` fails if one is missing.
+`generate.py` draws on those terms but does not write them.
+
+The hand-written instance data (`data/mining.ttl`) contains:
 
 - **6 Sites** — mines and operations across Australian states
 - **7 Boreholes** — drill holes linked to sites
@@ -151,7 +162,45 @@ Author names (`ex:name`) are stored on the Author entity, not on the report.
 
 ## Index configuration
 
-`config.ttl` defines three SHACL shapes that control what gets indexed:
+`config.ttl` declares two text indexes over the one dataset. A query names the one it
+wants as its first argument, `luc:query ('instance' ...)` or `luc:query ('reference' ...)`.
+Each index's change listener sees every write and keeps only the entities its own shapes
+target, so a new term goes to `reference` and a new report to `instance`. Both set
+`text:exposeConfig true`; the app's Configuration page shows either.
+
+### The reference index
+
+One shape per kind of term, all with the same fields:
+
+| Shape | Targets | Fields |
+|-------|---------|--------|
+| ConceptShape | `skos:Concept` | termLabel, termLabelPrefix, termLabelExact, scheme, termType |
+| ClassShape | `rdfs:Class` | termLabel, termLabelPrefix, termLabelExact, termComment, termType |
+| PropertyShape | `rdf:Property` | termLabel, termLabelPrefix, termLabelExact, termComment, termType |
+
+| Field | Use |
+|-------|-----|
+| `termLabel`, `termComment` | Free-text search over labels and descriptions: "depth" or "metres" finds `ex:depth` |
+| `termLabelPrefix` | Typeahead, edge-n-grams per word: "Cop" finds Copper, "Ore" finds Iron Ore |
+| `termLabelExact` | Sort key, for listing a dropdown in label order |
+| `scheme` | Filter to one vocabulary, e.g. `ex:states` |
+| `termType` | Facet by kind: concept, class or property |
+
+A dropdown of states, in label order:
+
+```sparql
+PREFIX luc: <urn:jena:lucene:index#>
+
+SELECT ?entity WHERE {
+  (?hit ?entity ?score ?totalHits ?rank) luc:query ('reference' 'default' '*'
+    '{"op":"=","args":[{"property":"urn:jena:lucene:field#scheme"},"http://example.org/mining/states"]}'
+    '{"field":"urn:jena:lucene:field#termLabelExact","order":"asc"}' 100 0)
+} ORDER BY ?rank
+```
+
+### The instance index
+
+Three SHACL shapes control what gets indexed:
 
 | Shape | Entity type | Fields |
 |-------|------------|--------|
