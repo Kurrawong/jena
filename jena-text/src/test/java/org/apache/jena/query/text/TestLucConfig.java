@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Set;
 
 import org.apache.jena.assembler.Assembler;
+import org.apache.jena.assembler.AssemblerHelp;
 import org.apache.jena.graph.Graph;
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
@@ -116,7 +117,11 @@ public class TestLucConfig {
 
     /** A single-index dataset. {@code indexProperties} are added to the index resource. */
     private Dataset single(String indexProperties) {
-        String turtle = CONFIG_PREFIXES + THING_SHAPE
+        return assemble(singleConfig(indexProperties));
+    }
+
+    private static String singleConfig(String indexProperties) {
+        return CONFIG_PREFIXES + THING_SHAPE
             + "ex:dataset rdf:type text:TextDataset ;\n"
             + "    text:dataset ex:base ;\n"
             + "    text:index ex:index .\n"
@@ -128,7 +133,6 @@ public class TestLucConfig {
             + "    text:analyzer [ rdf:type text:StandardAnalyzer ; text:stopWords ( \"the\" \"a\" ) ] ;\n"
             + "    text:shapes ( ex:ThingShape )"
             + indexProperties + " .\n";
-        return assemble(turtle);
     }
 
     /** {@code ex:index} exposed, {@code ex:index2} not. */
@@ -152,6 +156,18 @@ public class TestLucConfig {
         Model model = ModelFactory.createDefaultModel();
         model.read(new StringReader(turtle), null, "TTL");
         Resource spec = model.getResource(NS + "dataset");
+        return (Dataset) Assembler.general().open(spec);
+    }
+
+    /**
+     * As Fuseki assembles: through {@link AssemblerHelp#fullModel}, which adds the
+     * {@code rdf:type} triples the assembler schema implies.
+     */
+    private static Dataset assembleExpanded(String turtle) {
+        Model model = ModelFactory.createDefaultModel();
+        model.read(new StringReader(turtle), null, "TTL");
+        Model expanded = AssemblerHelp.fullModel(model);
+        Resource spec = expanded.getResource(NS + "dataset");
         return (Dataset) Assembler.general().open(spec);
     }
 
@@ -275,6 +291,22 @@ public class TestLucConfig {
         assertFalse(g.contains(ex("base"), Node.ANY, Node.ANY));
         assertFalse(g.contains(uri(TEXT + "TextIndexShacl"), Node.ANY, Node.ANY),
             "rdf:type is not followed, so a description of the class is not returned");
+    }
+
+    /**
+     * Fuseki expands the configuration model before assembling, which types every list
+     * cell {@code rdf:List} and {@code rdfs:Resource}. Those triples were not written and
+     * must not be returned.
+     */
+    @Test
+    public void typesInferredByTheAssemblerAreNotReturned() {
+        dataset = assembleExpanded(singleConfig(" ;\n    text:exposeConfig true"));
+        Graph g = construct("default");
+        Node type = uri("http://www.w3.org/1999/02/22-rdf-syntax-ns#type");
+        assertFalse(g.contains(Node.ANY, type, uri("http://www.w3.org/1999/02/22-rdf-syntax-ns#List")));
+        assertFalse(g.contains(Node.ANY, type, uri("http://www.w3.org/2000/01/rdf-schema#Resource")));
+        assertTrue(g.contains(ex("index"), type, uri(TEXT + "TextIndexShacl")),
+            "a type that was written is still returned");
     }
 
     // ---- querying it
