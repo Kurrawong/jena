@@ -39,7 +39,6 @@ import org.apache.jena.query.QueryBuildException;
 import org.apache.jena.query.QueryExecException;
 import org.apache.jena.query.text.cql.CqlExpression;
 import org.apache.jena.query.text.cql.CqlParser;
-import org.apache.jena.sparql.core.DatasetGraph;
 import org.apache.jena.sparql.core.Substitute;
 import org.apache.jena.sparql.core.Var;
 import org.apache.jena.sparql.engine.ExecutionContext;
@@ -114,43 +113,6 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         }
     }
 
-    private record ResolvedTextIndex(String identity, ShaclTextIndexLucene index) {}
-
-    private static ResolvedTextIndex chooseTextIndex(ExecutionContext execCxt, DatasetGraph dsg, String selector) {
-        // Try registry first
-        Object regObj = execCxt.getContext().get(TextQuery.textIndexRegistry);
-        if (regObj instanceof TextIndexRegistry registry) {
-            TextIndexRegistry.ResolvedIndex resolved = registry.resolve(selector);
-            TextIndexLucene idx = resolved.index();
-            if (idx instanceof ShaclTextIndexLucene shaclIdx) {
-                return new ResolvedTextIndex(resolved.canonicalKey(), shaclIdx);
-            }
-            throw new TextIndexException("Selected text index is not SHACL-enabled: " + selector);
-        }
-
-        // Fall back to single index
-        if (!TextIndexRegistry.DEFAULT_ID.equals(selector)) {
-            throw new TextIndexException("Single-index datasets only support index selector \"" +
-                TextIndexRegistry.DEFAULT_ID + "\", got: " + selector);
-        }
-        Object obj = execCxt.getContext().get(TextQuery.textIndex);
-        if (obj instanceof ShaclTextIndexLucene shaclIdx) {
-            return new ResolvedTextIndex(TextIndexRegistry.DEFAULT_ID, shaclIdx);
-        }
-        if (obj != null) {
-            throw new TextIndexException("Configured text index is not SHACL-enabled");
-        }
-        if (dsg instanceof DatasetGraphText) {
-            TextIndex ti = ((DatasetGraphText) dsg).getTextIndex();
-            if (ti instanceof ShaclTextIndexLucene shaclIdx) {
-                return new ResolvedTextIndex(TextIndexRegistry.DEFAULT_ID, shaclIdx);
-            }
-            throw new TextIndexException("Dataset text index is not SHACL-enabled");
-        }
-        Log.warn(ShaclTextQueryPF.class, "Failed to find the text index");
-        return null;
-    }
-
     @Override
     public QueryIterator exec(Binding binding,
                               PropFuncArg argSubject, Node predicate, PropFuncArg argObject,
@@ -200,7 +162,7 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         if (args == null)
             return IterLib.noResults(execCxt);
 
-        ResolvedTextIndex resolvedTextIndex = chooseTextIndex(execCxt, execCxt.getDataset(), args.indexSelector);
+        ShaclIndexSelection.Resolved resolvedTextIndex = ShaclIndexSelection.resolve(execCxt, execCxt.getDataset(), args.indexSelector);
         if (resolvedTextIndex == null) {
             if (!warningIssued) {
                 Log.warn(getClass(), "No text index - no text search performed");
