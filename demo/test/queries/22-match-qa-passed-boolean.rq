@@ -6,7 +6,7 @@ PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?entity ?field ?value
 WHERE {
     (?hit ?entity ?score) luc:query (
-        "default"
+        "instance"
         '["urn:jena:lucene:field#qaPassed"]'
         "true"
         ""

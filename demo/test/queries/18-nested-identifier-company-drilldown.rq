@@ -6,7 +6,7 @@ PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?field ?value ?low ?high ?count
 WHERE {
     (?field ?value ?low ?high ?count) luc:facet (
-        "default"
+        "instance"
         "default"
         "*"
         '["urn:jena:lucene:field#identifierValueExact"]'

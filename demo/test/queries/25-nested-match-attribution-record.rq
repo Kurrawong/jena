@@ -15,7 +15,7 @@ PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?entity ?record ?field ?value
 WHERE {
     (?hit ?entity) luc:query (
-        "default"
+        "instance"
         "default"
         ""
         '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#attributionRole"},"Principal Investigator"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#attributionAgentExact"},"Dr Sarah Jones"]}]}'

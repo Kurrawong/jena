@@ -92,7 +92,7 @@ async function countHits({ q = '', filter = '', sort = '', page = 1 }) {
     const offset = (Math.max(1, parseInt(page, 10) || 1) - 1) * PAGE_SIZE;
     const query = `PREFIX luc: <urn:jena:lucene:index#>
 SELECT (COUNT(*) AS ?n) WHERE {
-    (?hit ?entity ?score) luc:query ('default' 'default' ${sparqlQuote(term)} ${sparqlQuote(filter)} ${sparqlQuote(sort)} 10000 ${offset})
+    (?hit ?entity ?score) luc:query ('instance' 'default' ${sparqlQuote(term)} ${sparqlQuote(filter)} ${sparqlQuote(sort)} 10000 ${offset})
 }`;
     const resp = await fetch(ENDPOINT, {
         method: 'POST',

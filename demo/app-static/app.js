@@ -7,6 +7,10 @@
 const APP_CONFIG = window.APP_CONFIG || {};
 const FUSEKI_BASE = APP_CONFIG.fusekiBase || 'http://localhost:3030';
 const DATASET = APP_CONFIG.dataset || 'mining';
+// The dataset carries two text indexes: "instance" for the sites, boreholes and reports
+// the app searches, and "reference" for the classes, properties and controlled terms.
+const INSTANCE_INDEX = APP_CONFIG.instanceIndex || 'instance';
+const REFERENCE_INDEX = APP_CONFIG.referenceIndex || 'reference';
 const RESULT_LIMITS = [10, 100, 1000, 5000, 9999];
 const DEFAULT_LIMIT = 10;
 const FACET_LIMITS = [10, 25, 50, 100, 500];
@@ -881,43 +885,55 @@ function extractConfig(store) {
     };
 }
 
-// Cache: the config does not change while the server is running, and three views
-// (search, config page, stats) each ask for it.
-let _configTextPromise = null;
+// Cache, per index: the config does not change while the server is running, and three
+// views (search, config page, stats) each ask for it.
+const _configTextPromises = new Map();
 
 /**
- * The text index's configuration, as Turtle.
+ * A text index's configuration, as Turtle.
  *
  * Read with luc:config through the dataset's query endpoint, so the app needs no admin
  * access and no copy of the file. The index must set text:exposeConfig true. What comes
  * back is the index resource and everything reachable from it — shapes, fields,
  * analyzers — but not the dataset or service declarations.
+ *
+ * The prefixes are the configuration file's own, and the property function is written
+ * as a full IRI, so the Turtle reads like the file: idx:facetable, not luc:facetable.
  */
-async function fetchConfigText() {
-    if (_configTextPromise) return _configTextPromise;
-    _configTextPromise = (async () => {
-        const endpoint = `${FUSEKI_BASE}/${DATASET}/query`;
-        const resp = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/sparql-query',
-                'Accept': 'text/turtle',
-            },
-            body: 'PREFIX luc: <urn:jena:lucene:index#>\n'
-                + 'CONSTRUCT { ?s ?p ?o } WHERE { (?s ?p ?o) luc:config ("default") }',
-        });
-        if (!resp.ok) {
-            const detail = (await resp.text()).trim().split('\n')[0];
-            throw new Error(`Could not read the configuration from ${endpoint} `
-                + `(${resp.status}${detail ? ': ' + detail : ''})`);
-        }
-        return await resp.text();
-    })();
-    return _configTextPromise;
+function fetchConfigText(index = INSTANCE_INDEX) {
+    if (!_configTextPromises.has(index)) {
+        _configTextPromises.set(index, (async () => {
+            const endpoint = `${FUSEKI_BASE}/${DATASET}/query`;
+            const resp = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/sparql-query',
+                    'Accept': 'text/turtle',
+                },
+                body: [
+                    'PREFIX idx:   <urn:jena:lucene:index#>',
+                    'PREFIX field: <urn:jena:lucene:field#>',
+                    'PREFIX text:  <http://jena.apache.org/text#>',
+                    'PREFIX sh:    <http://www.w3.org/ns/shacl#>',
+                    'PREFIX skos:  <http://www.w3.org/2004/02/skos/core#>',
+                    'PREFIX rdfs:  <http://www.w3.org/2000/01/rdf-schema#>',
+                    'PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>',
+                    `CONSTRUCT { ?s ?p ?o } WHERE { (?s ?p ?o) <urn:jena:lucene:index#config> (${sparqlQuote(index)}) }`,
+                ].join('\n'),
+            });
+            if (!resp.ok) {
+                const detail = (await resp.text()).trim().split('\n')[0];
+                throw new Error(`Could not read the ${index} index configuration from ${endpoint} `
+                    + `(${resp.status}${detail ? ': ' + detail : ''})`);
+            }
+            return await resp.text();
+        })());
+    }
+    return _configTextPromises.get(index);
 }
 
-async function loadConfig() {
-    const store = await parseTurtle(await fetchConfigText());
+async function loadConfig(index = INSTANCE_INDEX) {
+    const store = await parseTurtle(await fetchConfigText(index));
     return extractConfig(store);
 }
 
@@ -1759,7 +1775,7 @@ LIMIT 100`);
 
                 const query = `${SPARQL_PREFIXES}
 SELECT ?field ?value ?low ?high ?count WHERE {
-    (?field ?value ?low ?high ?count) luc:facet ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${sparqlQuote(JSON.stringify([dim]))} ${sparqlQuote(combinedFilter)} ${this.maxFacetValues} 0)
+    (?field ?value ?low ?high ?count) luc:facet ('${INSTANCE_INDEX}' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${sparqlQuote(JSON.stringify([dim]))} ${sparqlQuote(combinedFilter)} ${this.maxFacetValues} 0)
 }`;
                 const data = await this.runSparql(query);
                 const children = [];
@@ -1884,7 +1900,7 @@ SELECT ?field ?value ?low ?high ?count WHERE {
             const dim = JSON.stringify([this.identifierHierarchyDim()]);
             const query = `${SPARQL_PREFIXES}
 SELECT ?value ?count WHERE {
-    (?field ?value ?low ?high ?count) luc:facet ('default' 'default' '*' ${sparqlQuote(dim)} '' 50 0)
+    (?field ?value ?low ?high ?count) luc:facet ('${INSTANCE_INDEX}' 'default' '*' ${sparqlQuote(dim)} '' 50 0)
 }`;
             try {
                 const data = await this.runSparql(query);
@@ -1957,7 +1973,7 @@ SELECT ?value ?count WHERE {
 
             const query = `${SPARQL_PREFIXES}
 SELECT ?value ?count WHERE {
-    (?field ?value ?low ?high ?count) luc:facet ('default' 'default' '*' ${sparqlQuote(dim)} ${sparqlQuote(filter)} ${IDENTIFIER_SUGGESTION_LIMIT} 0)
+    (?field ?value ?low ?high ?count) luc:facet ('${INSTANCE_INDEX}' 'default' '*' ${sparqlQuote(dim)} ${sparqlQuote(filter)} ${IDENTIFIER_SUGGESTION_LIMIT} 0)
 }`;
             try {
                 const data = await this.runSparql(query);
@@ -2232,12 +2248,12 @@ SELECT ?value ?count WHERE {
             const offset = (this.currentPage - 1) * this.limit;
 
             const queryBranch =
-                `    { (?hit ?entity ?score ?totalHits ?rank) luc:query ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${filterArg} ${sortArg} ${this.limit} ${offset}) }`;
+                `    { (?hit ?entity ?score ?totalHits ?rank) luc:query ('${INSTANCE_INDEX}' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${filterArg} ${sortArg} ${this.limit} ${offset}) }`;
 
             // Page 2+ of an unchanged filter set reuses the buckets already on screen —
             // they cannot have changed, and recomputing them is the expensive half.
             const facetBranch = includeFacets
-                ? `\n    UNION\n    { (?field ?value ?low ?high ?count) luc:facet ('default' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${sparqlQuote(facetFieldsJson)} ${filterArg} ${this.maxFacetValues} 0)\n      BIND(BNODE() AS ?bucket) }`
+                ? `\n    UNION\n    { (?field ?value ?low ?high ?count) luc:facet ('${INSTANCE_INDEX}' ${sparqlQuote(searchField)} ${sparqlQuote(term)} ${sparqlQuote(facetFieldsJson)} ${filterArg} ${this.maxFacetValues} 0)\n      BIND(BNODE() AS ?bucket) }`
                 : '';
 
             // CONSTRUCT rather than SELECT: one RDF payload carrying hits and buckets
@@ -3051,13 +3067,22 @@ function configApp() {
         config: null,
         configRaw: '',
         configView: 'parsed',
+        indexes: [INSTANCE_INDEX, REFERENCE_INDEX],
+        index: INSTANCE_INDEX,
         error: null,
 
         async init() {
+            await this.show(this.index);
+        },
+
+        async show(index) {
+            this.index = index;
+            this.error = null;
             try {
-                this.config = await loadConfig();
-                this.configRaw = await fetchConfigText();
+                this.config = await loadConfig(index);
+                this.configRaw = await fetchConfigText(index);
             } catch (e) {
+                this.config = null;
                 this.error = `Failed to load config: ${e.message}`;
             }
         },
@@ -3094,9 +3119,9 @@ function statsApp() {
                 const statsQuery = `${SPARQL_PREFIXES}
 SELECT ?entity ?score ?totalHits ?field ?value ?low ?high ?count
 WHERE {
-    { (?hit ?entity ?score ?totalHits) luc:query ('default' 'default' '*' '' '' 0 0) }
+    { (?hit ?entity ?score ?totalHits) luc:query ('${INSTANCE_INDEX}' 'default' '*' '' '' 0 0) }
     UNION
-    { (?field ?value ?low ?high ?count) luc:facet ('default' 'default' '*' ${sparqlQuote(facetFieldsJson)} '' 0 0) }
+    { (?field ?value ?low ?high ?count) luc:facet ('${INSTANCE_INDEX}' 'default' '*' ${sparqlQuote(facetFieldsJson)} '' 0 0) }
 }`;
                 const statsData = await this.runSparql(endpoint, statsQuery);
                 const statsMs = performance.now() - t0;

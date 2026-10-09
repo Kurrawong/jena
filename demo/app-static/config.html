@@ -37,6 +37,13 @@
   <section class="section">
     <div class="container is-fluid main-content" x-data="configApp()" x-cloak>
 
+      <div class="sparql-editor-view-toggle config-index-toggle">
+        <template x-for="name in indexes" :key="name">
+          <button :class="{ active: index === name }" @click="show(name)"
+                  :title="`luc:config (&quot;${name}&quot;)`" x-text="name"></button>
+        </template>
+      </div>
+
       <template x-if="error">
         <div class="notice-error" x-text="error"></div>
       </template>
@@ -44,7 +51,7 @@
       <template x-if="config">
         <div>
           <div class="config-header-row">
-            <h1 class="config-title">Index Configuration</h1>
+            <h1 class="config-title" x-text="`Index Configuration: ${index}`"></h1>
             <div class="sparql-editor-view-toggle">
               <button :class="{ active: configView === 'parsed' }" @click="configView = 'parsed'">Parsed</button>
               <button :class="{ active: configView === 'raw' }" @click="configView = 'raw'">Raw TTL</button>

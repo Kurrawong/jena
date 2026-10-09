@@ -19,7 +19,7 @@ PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?entity ?record ?field ?value
 WHERE {
     (?hit ?entity) luc:query (
-        "default"
+        "instance"
         "default"
         ""
         '{"op":"in","args":[{"property":"urn:jena:lucene:field#analyte"},["Au","Cu"]]}'

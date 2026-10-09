@@ -1290,6 +1290,10 @@ code {
   border-radius: 4px;
   overflow: hidden;
 }
+.config-index-toggle {
+  display: inline-flex;
+  margin-bottom: 1rem;
+}
 .sparql-editor-view-toggle button {
   background: var(--bg-elevated);
   border: none;
