@@ -269,4 +269,30 @@ public class TestDemoDeployConfig {
         assertEquals(working, deployed,
             "demo/deploy/config.ttl has drifted from demo/test/config.ttl");
     }
+
+    /**
+     * The demo app reads its fields and facets with this exact query, so the deployed
+     * configuration must answer it. {@code text:exposeConfig} is off by default.
+     */
+    @Test
+    public void deployedConfigAnswersTheAppsConfigQuery() {
+        dataset = assembleDeployed();
+        String q = "PREFIX luc: <urn:jena:lucene:index#>\n"
+            + "CONSTRUCT { ?s ?p ?o } WHERE { (?s ?p ?o) luc:config (\"default\") }";
+        try (QueryExecution qe = QueryExecutionFactory.create(q, dataset)) {
+            Model config = qe.execConstruct();
+            assertTrue(config.contains(null, org.apache.jena.vocabulary.RDF.type, TextVocab.textIndexShacl),
+                "luc:config should return the index resource");
+        }
+    }
+
+    /** The local demo server runs demo/test/config.ttl; the app needs it exposed too. */
+    @Test
+    public void workingConfigExposesItsConfiguration() {
+        Path demo = demoDir();
+        assumeTrue(demo != null, "demo/ not found from the working directory");
+        Model model = RDFDataMgr.loadModel(demo.resolve("test/config.ttl").toString());
+        assertTrue(model.contains(null, TextVocab.pExposeConfig, model.createTypedLiteral(true)),
+            "demo/test/config.ttl must set text:exposeConfig true for the demo app");
+    }
 }
