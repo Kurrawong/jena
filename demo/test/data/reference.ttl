@@ -1,0 +1,153 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+## Reference data for the mining demo: the classes and properties the instance data uses,
+## and the controlled terms it takes values from. Indexed by the "reference" index;
+## mining.ttl and generated.ttl hold the instance data, indexed by "instance".
+##
+## A term used in the instance data must be defined here, or it has no label and no
+## entry in the reference index. generate.py draws on these terms but does not write them.
+
+@prefix ex:         <http://example.org/mining/> .
+@prefix commodity:  <http://example.org/mining/commodity/> .
+@prefix state:      <http://example.org/mining/state/> .
+@prefix operator:   <http://example.org/mining/operator/> .
+@prefix status:     <http://example.org/mining/status/> .
+@prefix rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos:  <http://www.w3.org/2004/02/skos/core#> .
+
+## --- Classes ---
+
+ex:MiningReport a rdfs:Class ; rdfs:label "Mining Report" .
+ex:Borehole     a rdfs:Class ; rdfs:label "Borehole" .
+ex:Site         a rdfs:Class ; rdfs:label "Site" .
+ex:Author       a rdfs:Class ; rdfs:label "Author" .
+
+## --- Properties ---
+
+ex:commodity a rdf:Property ;
+    rdfs:label "Commodity" ;
+    rdfs:comment "A commodity the site, borehole or report concerns." .
+
+ex:state a rdf:Property ;
+    rdfs:label "State" ;
+    rdfs:comment "The state or territory the entity is in." .
+
+ex:operator a rdf:Property ;
+    rdfs:label "Operator" ;
+    rdfs:comment "The company operating the site a report covers." .
+
+ex:status a rdf:Property ;
+    rdfs:label "Status" ;
+    rdfs:comment "The entity's status." .
+
+ex:identifier a rdf:Property ;
+    rdfs:label "Identifier" ;
+    rdfs:comment "The entity's primary identifier, such as SITE-MIA-001." .
+
+ex:year a rdf:Property ;
+    rdfs:label "Year" ;
+    rdfs:comment "The year a report was produced." .
+
+ex:depth a rdf:Property ;
+    rdfs:label "Depth" ;
+    rdfs:comment "A borehole's depth, in metres." .
+
+ex:authoredBy a rdf:Property ;
+    rdfs:label "Authored by" ;
+    rdfs:comment "An author of the report." .
+
+ex:authored a rdf:Property ;
+    rdfs:label "Authored" ;
+    rdfs:comment "A report the author wrote." .
+
+ex:name a rdf:Property ;
+    rdfs:label "Name" ;
+    rdfs:comment "An author's name." .
+
+ex:affiliation a rdf:Property ;
+    rdfs:label "Affiliation" ;
+    rdfs:comment "The organisation an author belongs to." .
+
+ex:publishedOn a rdf:Property ;
+    rdfs:label "Published on" ;
+    rdfs:comment "The date a report was published." .
+
+ex:indexedAt a rdf:Property ;
+    rdfs:label "Indexed at" ;
+    rdfs:comment "When a report was indexed." .
+
+ex:reviewNote a rdf:Property ;
+    rdfs:label "Review note" ;
+    rdfs:comment "A reviewer's note on a report." .
+
+ex:qaPassed a rdf:Property ;
+    rdfs:label "QA passed" ;
+    rdfs:comment "Whether a report passed quality assurance." .
+
+ex:confidenceScore a rdf:Property ;
+    rdfs:label "Confidence score" ;
+    rdfs:comment "A confidence score for a report, from 0 to 1." .
+
+## --- Concept schemes ---
+
+ex:commodities a skos:ConceptScheme ; rdfs:label "Commodities" .
+ex:states a skos:ConceptScheme ; rdfs:label "States" .
+ex:operators a skos:ConceptScheme ; rdfs:label "Operators" .
+ex:statuses a skos:ConceptScheme ; rdfs:label "Statuses" .
+ex:roles a skos:ConceptScheme ; rdfs:label "Roles" .
+
+## --- Commodities ---
+
+commodity:Bauxite a skos:Concept ; skos:inScheme ex:commodities ; rdfs:label "Bauxite" .
+commodity:Coal a skos:Concept ; skos:inScheme ex:commodities ; rdfs:label "Coal" .
+commodity:Copper a skos:Concept ; skos:inScheme ex:commodities ; rdfs:label "Copper" .
+commodity:Gold a skos:Concept ; skos:inScheme ex:commodities ; rdfs:label "Gold" .
+commodity:Iron-Ore a skos:Concept ; skos:inScheme ex:commodities ; rdfs:label "Iron Ore" .
+commodity:Lead a skos:Concept ; skos:inScheme ex:commodities ; rdfs:label "Lead" .
+commodity:Lithium a skos:Concept ; skos:inScheme ex:commodities ; rdfs:label "Lithium" .
+commodity:Manganese a skos:Concept ; skos:inScheme ex:commodities ; rdfs:label "Manganese" .
+commodity:Nickel a skos:Concept ; skos:inScheme ex:commodities ; rdfs:label "Nickel" .
+commodity:Silver a skos:Concept ; skos:inScheme ex:commodities ; rdfs:label "Silver" .
+commodity:Tin a skos:Concept ; skos:inScheme ex:commodities ; rdfs:label "Tin" .
+commodity:Uranium a skos:Concept ; skos:inScheme ex:commodities ; rdfs:label "Uranium" .
+commodity:Zinc a skos:Concept ; skos:inScheme ex:commodities ; rdfs:label "Zinc" .
+
+## --- States ---
+
+state:NSW a skos:Concept ; skos:inScheme ex:states ; rdfs:label "NSW" .
+state:NT a skos:Concept ; skos:inScheme ex:states ; rdfs:label "NT" .
+state:PNG a skos:Concept ; skos:inScheme ex:states ; rdfs:label "PNG" .
+state:QLD a skos:Concept ; skos:inScheme ex:states ; rdfs:label "QLD" .
+state:SA a skos:Concept ; skos:inScheme ex:states ; rdfs:label "SA" .
+state:TAS a skos:Concept ; skos:inScheme ex:states ; rdfs:label "TAS" .
+state:VIC a skos:Concept ; skos:inScheme ex:states ; rdfs:label "VIC" .
+state:WA a skos:Concept ; skos:inScheme ex:states ; rdfs:label "WA" .
+
+## --- Operators ---
+
+operator:Bellbird a skos:Concept ; skos:inScheme ex:operators ; rdfs:label "Bellbird" .
+operator:Corvid-Metals a skos:Concept ; skos:inScheme ex:operators ; rdfs:label "Corvid Metals" .
+operator:Ironstone-Group a skos:Concept ; skos:inScheme ex:operators ; rdfs:label "Ironstone Group" .
+operator:Mallee-Lithium a skos:Concept ; skos:inScheme ex:operators ; rdfs:label "Mallee Lithium" .
+operator:Quandong a skos:Concept ; skos:inScheme ex:operators ; rdfs:label "Quandong" .
+operator:Saltbush a skos:Concept ; skos:inScheme ex:operators ; rdfs:label "Saltbush" .
+operator:Stonefish-Industries a skos:Concept ; skos:inScheme ex:operators ; rdfs:label "Stonefish Industries" .
+operator:Thornbill a skos:Concept ; skos:inScheme ex:operators ; rdfs:label "Thornbill" .
+operator:Warrigal a skos:Concept ; skos:inScheme ex:operators ; rdfs:label "Warrigal" .
+operator:Wirrina a skos:Concept ; skos:inScheme ex:operators ; rdfs:label "Wirrina" .
+
+## --- Statuses ---
+
+status:Active a skos:Concept ; skos:inScheme ex:statuses ; rdfs:label "Active" .
+status:Care-and-Maintenance a skos:Concept ; skos:inScheme ex:statuses ; rdfs:label "Care and Maintenance" .
+status:Current a skos:Concept ; skos:inScheme ex:statuses ; rdfs:label "Current" .
+status:Exploration a skos:Concept ; skos:inScheme ex:statuses ; rdfs:label "Exploration" .
+status:Historical a skos:Concept ; skos:inScheme ex:statuses ; rdfs:label "Historical" .
+status:Superseded a skos:Concept ; skos:inScheme ex:statuses ; rdfs:label "Superseded" .
+
+## --- Roles ---
+
+ex:PrincipalInvestigator a skos:Concept ; skos:inScheme ex:roles ; rdfs:label "Principal Investigator" .
+ex:Reviewer a skos:Concept ; skos:inScheme ex:roles ; rdfs:label "Reviewer" .
+ex:DataSteward a skos:Concept ; skos:inScheme ex:roles ; rdfs:label "Data Steward" .

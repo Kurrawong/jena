@@ -13,48 +13,6 @@
 @prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
 @prefix geo:   <http://www.opengis.net/ont/geosparql#> .
 
-## --- Vocabulary IRIs ---
-
-commodity:Bauxite rdfs:label "Bauxite" .
-commodity:Coal rdfs:label "Coal" .
-commodity:Copper rdfs:label "Copper" .
-commodity:Gold rdfs:label "Gold" .
-commodity:Iron-Ore rdfs:label "Iron Ore" .
-commodity:Lead rdfs:label "Lead" .
-commodity:Lithium rdfs:label "Lithium" .
-commodity:Manganese rdfs:label "Manganese" .
-commodity:Nickel rdfs:label "Nickel" .
-commodity:Silver rdfs:label "Silver" .
-commodity:Tin rdfs:label "Tin" .
-commodity:Uranium rdfs:label "Uranium" .
-commodity:Zinc rdfs:label "Zinc" .
-
-state:NSW rdfs:label "NSW" .
-state:NT rdfs:label "NT" .
-state:QLD rdfs:label "QLD" .
-state:SA rdfs:label "SA" .
-state:TAS rdfs:label "TAS" .
-state:VIC rdfs:label "VIC" .
-state:WA rdfs:label "WA" .
-
-operator:Warrigal rdfs:label "Warrigal" .
-operator:Ironstone-Group rdfs:label "Ironstone Group" .
-operator:Saltbush rdfs:label "Saltbush" .
-operator:Wirrina rdfs:label "Wirrina" .
-operator:Stonefish-Industries rdfs:label "Stonefish Industries" .
-operator:Quandong rdfs:label "Quandong" .
-operator:Bellbird rdfs:label "Bellbird" .
-operator:Mallee-Lithium rdfs:label "Mallee Lithium" .
-operator:Corvid-Metals rdfs:label "Corvid Metals" .
-operator:Thornbill rdfs:label "Thornbill" .
-
-status:Active rdfs:label "Active" .
-status:Care-and-Maintenance rdfs:label "Care and Maintenance" .
-status:Current rdfs:label "Current" .
-status:Exploration rdfs:label "Exploration" .
-status:Historical rdfs:label "Historical" .
-status:Superseded rdfs:label "Superseded" .
-
 ## --- Sites ---
 
 ex:site-0000 a ex:Site ;
