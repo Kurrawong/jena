@@ -36,6 +36,7 @@ PREFIX ja:      <http://jena.hpl.hp.com/2005/11/Assembler#>
 PREFIX text:    <http://jena.apache.org/text#>
 PREFIX idx:     <urn:jena:lucene:index#>
 PREFIX sh:      <http://www.w3.org/ns/shacl#>
+PREFIX skos:    <http://www.w3.org/2004/02/skos/core#>
 PREFIX ex:      <http://example.org/mining/>
 PREFIX prov:    <http://www.w3.org/ns/prov#>
 PREFIX schema:  <https://schema.org/>
@@ -54,15 +55,16 @@ PREFIX schema:  <https://schema.org/>
 
 :text_dataset rdf:type text:TextDataset ;
     text:dataset :base_dataset ;
-    text:indexes :index ;
+    text:indexes ( :instanceIndex :referenceIndex ) ;
     text:buildOnStartup true .
 
 :base_dataset rdf:type ja:MemoryDataset ;
     ja:data <../test/data/mining.ttl> ;
-    ja:data <../test/data/generated.ttl> .
+    ja:data <../test/data/generated.ttl> ;
+    ja:data <../test/data/reference.ttl> .
 
-:index rdf:type text:TextIndexShacl ;
-    text:indexId "default" ;
+:instanceIndex rdf:type text:TextIndexShacl ;
+    text:indexId "instance" ;
     ## In-memory index, and with it an in-memory taxonomy: the default follows
     ## text:directory, so hierarchical facets need no separate declaration here.
     text:directory "mem" ;
@@ -70,7 +72,15 @@ PREFIX schema:  <https://schema.org/>
     text:storeValues false ;
     text:maxFacetHits 50000 ;
     ## The demo app reads its fields and facets from this index with luc:config.
-    ## Everything reachable from :index becomes readable through the query endpoint.
+    ## Everything reachable from :instanceIndex becomes readable through the query endpoint.
+    text:exposeConfig true .
+
+## Classes, properties and controlled terms: the vocabulary the instance data uses.
+:referenceIndex rdf:type text:TextIndexShacl ;
+    text:indexId "reference" ;
+    text:directory "mem" ;
+    text:shapes ( :ConceptShape :ClassShape :PropertyShape ) ;
+    text:storeValues false ;
     text:exposeConfig true .
 
 ## --- Field definitions (canonical, path-free) ---
@@ -325,3 +335,78 @@ field:location
     sh:property [ idx:field field:status ; sh:path ex:status ] ;
     sh:property [ idx:field field:location ; sh:path <http://www.opengis.net/ont/geosparql#asWKT> ] ;
     idx:facetHierarchy ( field:state field:commodity ) .
+
+## =====================================================================================
+## Reference index: the classes, properties and controlled terms in reference.ttl.
+## Same dataset as the instance index; each index's change listener sees every write
+## and keeps only the entities its own shapes target.
+## =====================================================================================
+
+## --- Reference fields ---
+
+## Free text over a term's label, for "find the property or term called ...".
+field:termLabel
+    idx:fieldName "termLabel" ;
+    idx:fieldType idx:TextField ;
+    idx:defaultSearch true .
+
+## Typeahead: each word of the label from its first letter, so "Cop" finds Copper and
+## "Ore" finds Iron Ore.
+field:termLabelPrefix
+    idx:fieldName "termLabelPrefix" ;
+    idx:fieldType idx:TextField ;
+    idx:stored false ;
+    idx:analyzer [ a text:EdgeNGramAnalyzer ; text:tokenized true ] .
+
+## The label as one value, for exact match and for listing a dropdown in label order.
+field:termLabelExact
+    idx:fieldName "termLabelExact" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:sortable true .
+
+## What a property or class is for, searchable alongside its label.
+field:termComment
+    idx:fieldName "termComment" ;
+    idx:fieldType idx:TextField ;
+    idx:defaultSearch true .
+
+## The scheme a term belongs to: filter on it to list one vocabulary.
+field:scheme
+    idx:fieldName "scheme" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true .
+
+## skos:Concept, rdfs:Class or rdf:Property.
+field:termType
+    idx:fieldName "termType" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true .
+
+## --- Reference shapes ---
+
+:ConceptShape
+    sh:targetClass skos:Concept ;
+    sh:property [ idx:field field:termLabel ;       sh:path rdfs:label ] ;
+    sh:property [ idx:field field:termLabelPrefix ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:termLabelExact ;  sh:path rdfs:label ] ;
+    sh:property [ idx:field field:scheme ;          sh:path skos:inScheme ] ;
+    sh:property [ idx:field field:termType ;        sh:path rdf:type ] .
+
+:ClassShape
+    sh:targetClass rdfs:Class ;
+    sh:property [ idx:field field:termLabel ;       sh:path rdfs:label ] ;
+    sh:property [ idx:field field:termLabelPrefix ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:termLabelExact ;  sh:path rdfs:label ] ;
+    sh:property [ idx:field field:termComment ;     sh:path rdfs:comment ] ;
+    sh:property [ idx:field field:termType ;        sh:path rdf:type ] .
+
+:PropertyShape
+    sh:targetClass rdf:Property ;
+    sh:property [ idx:field field:termLabel ;       sh:path rdfs:label ] ;
+    sh:property [ idx:field field:termLabelPrefix ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:termLabelExact ;  sh:path rdfs:label ] ;
+    sh:property [ idx:field field:termComment ;     sh:path rdfs:comment ] ;
+    sh:property [ idx:field field:termType ;        sh:path rdf:type ] .

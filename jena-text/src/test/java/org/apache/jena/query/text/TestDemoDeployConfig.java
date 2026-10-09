@@ -176,7 +176,7 @@ public class TestDemoDeployConfig {
         String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n"
             + "SELECT ?field ?value ?count WHERE {\n"
             + "  (?field ?value ?low ?high ?count) luc:facet (\n"
-            + "    \"default\" \"default\" \"*\"\n"
+            + "    \"instance\" \"default\" \"*\"\n"
             + "    '[\"urn:jena:lucene:field#state\"]'\n"
             + "    \"\" 20 0)\n"
             + "}";
@@ -278,7 +278,7 @@ public class TestDemoDeployConfig {
     public void deployedConfigAnswersTheAppsConfigQuery() {
         dataset = assembleDeployed();
         String q = "PREFIX luc: <urn:jena:lucene:index#>\n"
-            + "CONSTRUCT { ?s ?p ?o } WHERE { (?s ?p ?o) luc:config (\"default\") }";
+            + "CONSTRUCT { ?s ?p ?o } WHERE { (?s ?p ?o) luc:config (\"instance\") }";
         try (QueryExecution qe = QueryExecutionFactory.create(q, dataset)) {
             Model config = qe.execConstruct();
             assertTrue(config.contains(null, org.apache.jena.vocabulary.RDF.type, TextVocab.textIndexShacl),
