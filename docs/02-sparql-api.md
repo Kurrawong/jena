@@ -418,6 +418,83 @@ Range facets:
   ) .
 ```
 
+## luc:config
+
+### Syntax
+
+```sparql
+(?s ?p ?o) luc:config (indexSelector)
+```
+
+### Purpose
+
+Returns the selected index's configuration as triples, so a client can find out which
+fields exist and what each supports without a copy of the configuration file. The index
+must set [`text:exposeConfig true`](03-configuration.md#textexposeconfig); otherwise the
+call is a query error.
+
+What is returned is the configuration as written: every triple reachable from the index
+resource, without following `rdf:type`. A setting left at its default is absent, not
+written out. The defaults are in the tables of [03-configuration.md](03-configuration.md).
+
+### Arguments
+
+| Position | Meaning |
+|---|---|
+| `indexSelector` | The index, as for `luc:query` |
+
+### Subject slots
+
+Each of `?s`, `?p` and `?o` is a variable or a constant. The call matches like one triple
+pattern over the configuration, so a constant restricts the result. Blank nodes are
+stable across calls in one query, so several calls join through them.
+
+### Examples
+
+The whole configuration as RDF:
+
+```sparql
+PREFIX luc: <urn:jena:lucene:index#>
+
+CONSTRUCT { ?s ?p ?o } WHERE { (?s ?p ?o) luc:config ("default") }
+```
+
+The facetable fields and their types:
+
+```sparql
+PREFIX luc: <urn:jena:lucene:index#>
+PREFIX idx: <urn:jena:lucene:index#>
+
+SELECT ?field ?type WHERE {
+  (?field idx:facetable true) luc:config ("default") .
+  (?field idx:fieldType ?type) luc:config ("default") .
+}
+```
+
+The path feeding each field of one shape:
+
+```sparql
+PREFIX luc: <urn:jena:lucene:index#>
+PREFIX idx: <urn:jena:lucene:index#>
+PREFIX sh:  <http://www.w3.org/ns/shacl#>
+
+SELECT ?field ?path WHERE {
+  (<http://example.org/config#BookShape> sh:property ?occ) luc:config ("default") .
+  (?occ idx:field ?field) luc:config ("default") .
+  (?occ sh:path ?path) luc:config ("default") .
+}
+```
+
+### Limits
+
+- A SPARQL property path in the query is evaluated against the dataset, not against
+  `luc:config`'s output, so `rdf:rest*/rdf:first` cannot walk a list such as a sequence
+  `sh:path`. Use one `luc:config` call per list cell, or `CONSTRUCT` the configuration and
+  query the result.
+- Errors: an index without `text:exposeConfig true`, an unknown selector, and a selector
+  that is not a literal are query errors. A subject that is not three slots, or an object
+  that is not one selector, is a query build error.
+
 ## CQL2-JSON Filters
 
 The `property` entry is always a field IRI.

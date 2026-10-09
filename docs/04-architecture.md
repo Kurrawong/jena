@@ -68,6 +68,7 @@ Used with `text:shapes` configuration. SPARQL search via `luc:query` (with filte
 | `ShaclTextDocProducer` | Change listener. On triple add/delete, reads entity state from `MultiUnion(defaultGraph, unionGraph)`, builds Entity, calls `updateEntityForProfile()`. Supports data in default and named graphs |
 | `ShaclTextQueryPF` | Implements `luc:query` — search with JSON filter support, `?totalHits` binding. Uses `SearchExecution` for shared state with `luc:facet` |
 | `TextFacetPF` | Implements `luc:facet` — facet counts property function. Returns (field, value, count) bindings |
+| `ShaclConfigPF` | Implements `luc:config` — matches a triple pattern over the index's configuration subgraph, copied at assembly when `text:exposeConfig true` |
 | `SearchExecution` | Shared execution state. Stored in `ExecutionContext` keyed by normalised query params. Lazy-computes hits, facet counts, and total hit count |
 | `FacetValue` | Immutable (value, count) pair for facet results |
 | `ShaclIndexAssembler` | Parses `text:shapes` RDF config into `ShaclIndexMapping`. Reads `sh:targetClass`, `sh:path`, `sh:alternativePath`. No jena-shacl dependency |

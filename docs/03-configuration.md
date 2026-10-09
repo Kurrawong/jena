@@ -110,8 +110,28 @@ one with `text:entityMap`.
 | `text:maxFacetHits` | no | Maximum documents considered during facet collection |
 | `text:analyzer` | no | Index-wide default analyzer |
 | `text:queryAnalyzer` | no | Index-wide query analyzer |
+| `text:exposeConfig` | no, default `false` | Let [`luc:config`](02-sparql-api.md#lucconfig) return this index's configuration. See below |
 
 If the index resource itself is a URI resource, that URI is also accepted as an `indexSelector`.
+
+### `text:exposeConfig`
+
+With `text:exposeConfig true`, anyone who can query the dataset can read this index's
+configuration through `luc:config`. What they can read is every triple reachable from the
+index resource, as written in the file:
+
+- `text:directory` and `text:taxonomyDirectory`, including file paths;
+- the analyzers, with every setting they carry, including any file path in them;
+- the shapes, fields, occurrences, paths and hierarchies;
+- an `idx:externalSource` block, including its `idx:location` and delta locations.
+
+Not readable: the dataset, services and endpoints that declare the index, and anything
+reached only through `rdf:type`. Only the index resource's own subgraph is copied, and
+only when this flag is set; the setting does not affect the index on disk or its
+configuration fingerprint.
+
+The flag is per index. In a `text:indexes` configuration, each index answers
+`luc:config` only if it sets the flag itself.
 
 ### Upgrading: the taxonomy directory
 
