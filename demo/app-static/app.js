@@ -4,9 +4,9 @@
 // Configuration — adjust these if your Fuseki setup differs
 // ---------------------------------------------------------------------------
 
-const CONFIG_PATH = 'config.ttl';
 const APP_CONFIG = window.APP_CONFIG || {};
 const FUSEKI_BASE = APP_CONFIG.fusekiBase || 'http://localhost:3030';
+const DATASET = APP_CONFIG.dataset || 'mining';
 const RESULT_LIMITS = [10, 100, 1000, 5000, 9999];
 const DEFAULT_LIMIT = 10;
 const FACET_LIMITS = [10, 25, 50, 100, 500];
@@ -33,7 +33,6 @@ const RDF = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 const SH = 'http://www.w3.org/ns/shacl#';
 const TEXT = 'http://jena.apache.org/text#';
 const IDX = 'urn:jena:lucene:index#';
-const FUSEKI = 'http://jena.apache.org/fuseki#';
 // Vocabulary for the search CONSTRUCT's payload. Private to the demo — the app both
 // writes the template and reads the graph back, so nothing else depends on these terms.
 const RES = 'urn:jena:lucene:result#';
@@ -715,13 +714,6 @@ function extractConfig(store) {
     const storeValues = getLiteral(store, indexNode, TEXT + 'storeValues') === 'true';
     const maxFacetHits = parseInt(getLiteral(store, indexNode, TEXT + 'maxFacetHits') || '0', 10);
 
-    const serviceNodes = getSubjects(store, RDF + 'type', FUSEKI + 'Service');
-    let datasetName = 'dataset';
-    if (serviceNodes.length > 0) {
-        const name = getLiteral(store, serviceNodes[0], FUSEKI + 'name');
-        if (name) datasetName = name;
-    }
-
     const shapesHead = getObject(store, indexNode, TEXT + 'shapes');
     const shapeNodes = shapesHead ? walkList(store, shapesHead) : [];
 
@@ -876,7 +868,7 @@ function extractConfig(store) {
     }
 
     return {
-        endpoint: `${FUSEKI_BASE}/${datasetName}/query`,
+        endpoint: `${FUSEKI_BASE}/${DATASET}/query`,
         storeValues,
         maxFacetHits,
         shapes,
@@ -894,34 +886,30 @@ function extractConfig(store) {
 let _configTextPromise = null;
 
 /**
- * The running server's configuration, as Turtle.
+ * The text index's configuration, as Turtle.
  *
- * Fetched from Fuseki's /$/config endpoint rather than from a copy sitting next to
- * this app. The copy used to be a symlink created by the Taskfile, which meant the
- * app could only run on the same filesystem as the server, and could silently show a
- * different file from the one Fuseki had actually loaded.
- *
- * Falls back to a config.ttl sitting next to this app, for a static deployment that
- * has no Fuseki admin access. The demo Taskfile no longer creates one, so in the demo
- * the fallback firing means the endpoint is genuinely unreachable.
+ * Read with luc:config through the dataset's query endpoint, so the app needs no admin
+ * access and no copy of the file. The index must set text:exposeConfig true. What comes
+ * back is the index resource and everything reachable from it — shapes, fields,
+ * analyzers — but not the dataset or service declarations.
  */
 async function fetchConfigText() {
     if (_configTextPromise) return _configTextPromise;
     _configTextPromise = (async () => {
-        try {
-            const resp = await fetch(`${FUSEKI_BASE}/$/config`);
-            if (resp.ok) return await resp.text();
-        } catch (e) {
-            // Admin paths are localhost-gated by default and a fronting proxy may not
-            // forward them, so a browser talking straight to Fuseki can land here.
-            console.warn('Config endpoint unavailable, falling back to local config.ttl:', e.message);
-        }
-        const resp = await fetch(`${CONFIG_PATH}?t=${Date.now()}`);
+        const endpoint = `${FUSEKI_BASE}/${DATASET}/query`;
+        const resp = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/sparql-query',
+                'Accept': 'text/turtle',
+            },
+            body: 'PREFIX luc: <urn:jena:lucene:index#>\n'
+                + 'CONSTRUCT { ?s ?p ?o } WHERE { (?s ?p ?o) luc:config ("default") }',
+        });
         if (!resp.ok) {
-            throw new Error(
-                `Could not read the configuration. ${FUSEKI_BASE}/$/config was unreachable `
-                + `(admin paths are localhost-gated unless the proxy forwards them), and there `
-                + `is no local ${CONFIG_PATH} to fall back to (${resp.status}).`);
+            const detail = (await resp.text()).trim().split('\n')[0];
+            throw new Error(`Could not read the configuration from ${endpoint} `
+                + `(${resp.status}${detail ? ': ' + detail : ''})`);
         }
         return await resp.text();
     })();

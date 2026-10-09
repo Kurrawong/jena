@@ -337,8 +337,11 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST \
             http://localhost:3030/mining/update --data-urlencode \
             'update=INSERT DATA { <urn:a> <urn:b> <urn:c> }')" = "405"
-          test "$(curl -s -o /dev/null -w '%{http_code}' \
-            'http://localhost:3030/$/config')" = "200"
+          ## The app reads the index configuration through the query endpoint.
+          contains "TextIndexShacl" "$(curl -sf http://localhost:3030/mining/query \
+            -H 'Accept: text/turtle' --data-urlencode \
+            'query=PREFIX luc: <urn:jena:lucene:index#> CONSTRUCT { ?s ?p ?o } WHERE { (?s ?p ?o) luc:config ("default") }')" \
+            "luc:config"
           ## Opened for the UI's dataset list and statistics page: read-only.
           test "$(curl -s -o /dev/null -w '%{http_code}' \
             'http://localhost:3030/$/server')" = "200"
