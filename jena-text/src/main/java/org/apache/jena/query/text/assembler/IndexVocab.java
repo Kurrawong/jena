@@ -43,6 +43,9 @@ public class IndexVocab {
      * any query pattern reading an {@code idx:nested} block out of a config graph.
      */
     public static final String pfNestedMatch = NS + "nestedMatch";
+    /** The index's own configuration as triples. Answers only when the index sets
+     *  {@code text:exposeConfig true}. */
+    public static final String pfConfig = NS + "config";
 
     // Types
     public static final Resource IndexProfile   = Vocab.resource(NS, "IndexProfile");

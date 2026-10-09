@@ -26,17 +26,26 @@ import static org.apache.jena.query.text.assembler.TextVocab.*;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashSet;
+import java.util.Set;
 
 import org.apache.jena.assembler.Assembler;
 import org.apache.jena.assembler.Mode;
 import org.apache.jena.assembler.assemblers.AssemblerBase;
 import org.apache.jena.atlas.io.IO;
 import org.apache.jena.atlas.lib.IRILib;
+import org.apache.jena.graph.Graph;
+import org.apache.jena.graph.Node;
 import org.apache.jena.query.text.*;
 import org.apache.jena.rdf.model.RDFNode;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.Statement;
+import org.apache.jena.sparql.graph.GraphFactory;
+import org.apache.jena.sparql.graph.GraphReadOnly;
 import org.apache.jena.sparql.util.graph.GraphUtils;
+import org.apache.jena.vocabulary.RDF;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.store.*;
 
@@ -133,11 +142,53 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
                 config.setMaxFacetHits(mfhNode.asLiteral().getInt());
             }
 
-            return new ShaclTextIndexLucene(directory, taxonomyDirectory, config);
+            boolean exposeConfig = false;
+            Statement exposeConfigStatement = root.getProperty(pExposeConfig);
+            if (exposeConfigStatement != null) {
+                RDFNode ecNode = exposeConfigStatement.getObject();
+                if (!ecNode.isLiteral() || !(ecNode.asLiteral().getValue() instanceof Boolean))
+                    throw new TextIndexException("text:exposeConfig property must be a boolean : " + ecNode);
+                exposeConfig = ecNode.asLiteral().getBoolean();
+            }
+
+            ShaclTextIndexLucene index = new ShaclTextIndexLucene(directory, taxonomyDirectory, config);
+            if (exposeConfig)
+                index.setExposedConfig(configOf(root));
+            return index;
         } catch (IOException e) {
             IO.exception(e);
             return null;
         }
+    }
+
+    /**
+     * The index's configuration as written: every triple reachable from the index
+     * resource, following objects but not {@code rdf:type}, and not into {@code rdf:nil},
+     * which the assembler's model describes with inferred types. That covers the directories,
+     * analyzers, shapes, fields and paths, and stops short of the dataset that declares
+     * the index and of any description of the classes it is typed with.
+     * <p>
+     * Copied because the assembler's model is discarded once the server is built.
+     */
+    static Graph configOf(Resource root) {
+        Graph source = root.getModel().getGraph();
+        Graph copy = GraphFactory.createDefaultGraph();
+        Set<Node> visited = new HashSet<>();
+        Deque<Node> pending = new ArrayDeque<>();
+        pending.add(root.asNode());
+        while (!pending.isEmpty()) {
+            Node subject = pending.poll();
+            if (!visited.add(subject))
+                continue;
+            source.find(subject, Node.ANY, Node.ANY).forEach(t -> {
+                copy.add(t);
+                Node object = t.getObject();
+                if (!object.isLiteral() && !RDF.Nodes.type.equals(t.getPredicate())
+                        && !RDF.Nodes.nil.equals(object))
+                    pending.add(object);
+            });
+        }
+        return new GraphReadOnly(copy);
     }
 
     /**

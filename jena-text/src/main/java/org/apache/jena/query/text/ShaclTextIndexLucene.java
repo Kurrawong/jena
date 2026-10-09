@@ -33,6 +33,7 @@ import org.apache.jena.geosparql.implementation.parsers.wkt.WKTReader;
 import org.apache.jena.geosparql.implementation.vocabulary.SRS_URI;
 import org.apache.jena.datatypes.RDFDatatype;
 import org.apache.jena.datatypes.xsd.XSDDatatype;
+import org.apache.jena.graph.Graph;
 import org.apache.jena.graph.Node;
 import org.apache.jena.sparql.core.DatasetGraph;
 import org.apache.jena.graph.NodeFactory;
@@ -129,6 +130,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
     /** Fingerprint of the configuration this instance was built with. */
     private final String configFingerprint;
+    private volatile Graph exposedConfig;
 
     /** The stamp found on disk when this index was opened, or null if there was none. */
     private final ShaclIndexStamp.StampData openedStamp;
@@ -426,6 +428,18 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                              openedStamp.version(), ShaclConfigFingerprint.FINGERPRINT_VERSION);
             }
         }
+    }
+
+    /**
+     * The configuration {@code luc:config} returns, or null when the index does not set
+     * {@code text:exposeConfig true}.
+     */
+    public Graph getExposedConfig() {
+        return exposedConfig;
+    }
+
+    public void setExposedConfig(Graph exposedConfig) {
+        this.exposedConfig = exposedConfig;
     }
 
     /** Fingerprint of the configuration this instance is running with. */
