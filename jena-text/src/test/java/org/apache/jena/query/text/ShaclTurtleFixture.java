@@ -38,6 +38,7 @@ import org.apache.jena.riot.Lang;
 import org.apache.jena.riot.RDFParser;
 import org.apache.jena.sys.JenaSystem;
 import org.apache.lucene.document.Document;
+import org.apache.lucene.document.StoredField;
 import org.apache.lucene.index.*;
 import org.apache.lucene.util.Bits;
 
@@ -145,7 +146,11 @@ final class ShaclTurtleFixture {
         return children;
     }
 
-    /** Stored values of {@code fieldName} on {@code doc}, sorted; empty when doc is null. */
+    /**
+     * Values of {@code fieldName} on {@code doc}, sorted; empty when doc is null. The
+     * documents this fixture returns carry a field held only in doc values as if it were
+     * stored, so a value is found wherever the index keeps it.
+     */
     static List<String> stored(Document doc, String fieldName) {
         List<String> result = new ArrayList<>();
         if (doc == null) {
@@ -228,13 +233,18 @@ final class ShaclTurtleFixture {
                 return docs;
             }
             try (DirectoryReader reader = DirectoryReader.open(index.getDirectory())) {
+                List<ShaclIndexMapping.FieldDef> docValueFields = docValueFields(index);
                 for (LeafReaderContext leaf : reader.leaves()) {
                     LeafReader leafReader = leaf.reader();
                     StoredFields storedFields = leafReader.storedFields();
                     Bits live = leafReader.getLiveDocs();
+                    FieldValueReader values = new FieldValueReader(null);
+                    values.startLeaf(leaf);
                     for (int i = 0; i < leafReader.maxDoc(); i++) {
                         if (live == null || live.get(i)) {
-                            docs.add(storedFields.document(i));
+                            Document doc = storedFields.document(i);
+                            addDocValues(values, docValueFields, i, doc);
+                            docs.add(doc);
                         }
                     }
                 }
@@ -243,6 +253,34 @@ final class ShaclTurtleFixture {
             throw new UncheckedIOException(ex);
         }
         return docs;
+    }
+
+    /** Every field whose value the index can hold in a doc value alone, once each by name. */
+    private static List<ShaclIndexMapping.FieldDef> docValueFields(ShaclTextIndexLucene index) {
+        Map<String, ShaclIndexMapping.FieldDef> byName = new TreeMap<>();
+        for (ShaclIndexMapping.IndexProfile profile : index.getShaclMapping().getProfiles()) {
+            List<ShaclIndexMapping.FieldDef> fields = new ArrayList<>(profile.getFields());
+            profile.getNestedDefs().forEach(nested -> fields.addAll(nested.getFields()));
+            for (ShaclIndexMapping.FieldDef field : fields) {
+                if (field.isValueInDocValues()) {
+                    byName.putIfAbsent(field.getFieldName(), field);
+                }
+            }
+        }
+        return new ArrayList<>(byName.values());
+    }
+
+    /** Add each doc-value-only value of {@code fields} on one document to it as a stored field. */
+    private static void addDocValues(FieldValueReader reader, List<ShaclIndexMapping.FieldDef> fields,
+            int segmentDocId, Document doc) throws IOException {
+        for (ShaclIndexMapping.FieldDef field : fields) {
+            if (!reader.storedNames(List.of(field)).isEmpty()) {
+                continue;
+            }
+            for (String value : reader.values(field, segmentDocId, doc).lexicals()) {
+                doc.add(new StoredField(field.getFieldName(), value));
+            }
+        }
     }
 
     /** Messages logged by {@code loggerClass} while {@code body} runs. */
