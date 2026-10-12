@@ -143,6 +143,7 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestFieldValueStorage.class
     , TestLucFields.class
     , TestEntityDocValue.class
+    , TestTextIndexDump.class
 
     // Shared field occurrences / fan-in
     , TestSharedFieldOccurrences.class

@@ -315,6 +315,23 @@ public class TestEntityDocValue {
     }
 
     @Test
+    public void indexKeepsTheDocValueTypeItWasWrittenWith(@TempDir Path dir) {
+        String directory = "<" + IRILib.filenameToIRI(dir.toAbsolutePath().toString()) + ">";
+        open(directory, "sorted");
+        load();
+        close();
+
+        // The default is binary; Lucene would reject a binary doc value on this field.
+        open(directory, null);
+        Txn.executeWrite(dataset, () -> addDoc(dataset.getDefaultModel(), "e4", "common delta", "C4"));
+        assertEquals(DocValuesType.SORTED, entityDocValuesType());
+        Counter counter = count();
+        assertEquals(List.of(ex("e2"), ex("e3"), ex("e1"), ex("e4")), entities(CODE_ASC));
+        assertEquals(0, counter.stored);
+        assertEquals(4, counter.docValues);
+    }
+
+    @Test
     public void segmentWithoutTheDocValueFallsBackToTheStoredCopy(@TempDir Path dir) {
         String directory = "<" + IRILib.filenameToIRI(dir.toAbsolutePath().toString()) + ">";
         // Written before the doc value existed.
