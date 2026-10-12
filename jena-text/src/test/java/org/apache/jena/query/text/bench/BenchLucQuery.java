@@ -111,6 +111,20 @@ public class BenchLucQuery {
             + "}";
     }
 
+    /**
+     * The identifier query: hits bound to {@code ?hit} only, so no entity IRI is read, and
+     * {@code recordId}, a sortable {@code KEYWORD}, read through {@code luc:fields} from
+     * its doc value.
+     */
+    static String largeIdentifierQuery(int window) {
+        return PREFIXES
+            + "PREFIX field: <" + FIELD + ">\n"
+            + "SELECT ?id WHERE {\n"
+            + "  (?hit) luc:query (\"default\" \"default\" \"*\" '" + STATUS_FILTER + "' \"\" " + window + " 0) .\n"
+            + "  (?hit field:recordId ?id) luc:fields () .\n"
+            + "}";
+    }
+
     static String largeTextMatchQuery(int window) {
         return PREFIXES
             + "SELECT ?entity ?field ?value WHERE {\n"
@@ -126,6 +140,7 @@ public class BenchLucQuery {
     private Query largeFilter;
     private Query largeText;
     private Query largeTextMatch;
+    private Query largeIdentifier;
 
     @Setup(Level.Trial)
     public void setup(BenchmarkParams params) throws Exception {
@@ -142,6 +157,7 @@ public class BenchLucQuery {
         largeFilter = QueryFactory.create(largeFilterQuery(largeWindow));
         largeText = QueryFactory.create(largeTextQuery(largeWindow));
         largeTextMatch = QueryFactory.create(largeTextMatchQuery(matchWindow));
+        largeIdentifier = QueryFactory.create(largeIdentifierQuery(largeWindow));
 
         // Run this benchmark's query once and check its row count, so a broken query
         // cannot be timed as a fast one.
@@ -154,6 +170,7 @@ public class BenchLucQuery {
             case "largeFilterOnly" -> largeFilter;
             case "largeTextNoMatch" -> largeText;
             case "largeTextWithMatch" -> largeTextMatch;
+            case "largeIdentifierFields" -> largeIdentifier;
             default -> throw new IllegalStateException("No sanity check for " + method);
         };
         long t0 = System.nanoTime();
@@ -164,7 +181,7 @@ public class BenchLucQuery {
             case "pageText" -> 20;
             case "pageTextWithMatch" -> 20;
             case "pageTextWithFacet" -> 20 + 10 + 8 + 3 + 10;
-            case "largeFilterOnly", "largeTextNoMatch" -> largeWindow;
+            case "largeFilterOnly", "largeTextNoMatch", "largeIdentifierFields" -> largeWindow;
             case "largeTextWithMatch" -> matchWindow;
             default -> 0;
         };
@@ -219,6 +236,15 @@ public class BenchLucQuery {
     @Benchmark
     public long largeTextWithMatch(Blackhole bh) {
         return run(largeTextMatch, bh);
+    }
+
+    /**
+     * 300,000 hits from the same CQL filter as {@link #largeFilterOnly}, binding only
+     * {@code ?hit}, with {@code recordId} returned by {@code luc:fields}: one row per hit.
+     */
+    @Benchmark
+    public long largeIdentifierFields(Blackhole bh) {
+        return run(largeIdentifier, bh);
     }
 
     private long run(Query query, Blackhole bh) {

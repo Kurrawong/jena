@@ -185,6 +185,7 @@ public class TestLucQueryHitPath {
     /** Records every stored-field read and match computation. */
     private static final class Counter implements HitReadObserver {
         final List<Collection<String>> reads = new ArrayList<>();
+        final List<String> docValues = new ArrayList<>();
         int matches;
 
         @Override
@@ -195,6 +196,11 @@ public class TestLucQueryHitPath {
         @Override
         public synchronized void matchesComputed(int docId) {
             matches++;
+        }
+
+        @Override
+        public synchronized void docValuesRead(int docId, String fieldName) {
+            docValues.add(fieldName);
         }
     }
 
@@ -220,9 +226,13 @@ public class TestLucQueryHitPath {
         List<Binding> rows = select("(?hit ?entity) luc:query " + luc("common", "", "", 100) + " .");
         assertEquals(COMMON_HITS, rows.size());
         String entityField = textIndex.getDocDef().getEntityField();
-        assertEquals(COMMON_HITS, counter.reads.size(), "one read per hit");
+        // From the entity IRI doc value, or the stored copy where a segment lacks it.
+        assertEquals(COMMON_HITS, counter.reads.size() + counter.docValues.size(), "one read per hit");
         for (Collection<String> fields : counter.reads) {
             assertEquals(List.of(entityField), fields);
+        }
+        for (String field : counter.docValues) {
+            assertEquals(entityField, field);
         }
     }
 

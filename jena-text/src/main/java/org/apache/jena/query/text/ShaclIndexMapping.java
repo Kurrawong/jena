@@ -81,6 +81,7 @@ public class ShaclIndexMapping {
         /** Optional analyzer applied (via {@link Analyzer#normalize}) to a KEYWORD field's
          *  indexed term and sort key. Null = raw value (unchanged behaviour). */
         private final Analyzer normalizer;
+        private final boolean valueInDocValues;
 
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
                         boolean stored, boolean indexed, boolean facetable,
@@ -167,6 +168,8 @@ public class ShaclIndexMapping {
             this.defaultSearch = defaultSearch;
             this.storeLiteralMetadata = storeLiteralMetadata;
             this.normalizer = normalizer;
+            this.valueInDocValues = this.fieldType == FieldType.KEYWORD && sortable
+                && normalizer == null && !storeLiteralMetadata;
             this.fieldIRI = fieldIRI != null ? fieldIRI : NodeFactory.createURI(FIELD_IRI_PREFIX + fieldName);
         }
 
@@ -204,6 +207,15 @@ public class ShaclIndexMapping {
         /** @deprecated use {@link #isTemporal()}. Kept for backwards compat with PR-merge windows. */
         @Deprecated public boolean isDateLike() { return isTemporal(); }
         public boolean preservesLiteralMetadata() { return storeLiteralMetadata || isTemporal(); }
+
+        /**
+         * Whether the field's doc value holds its original value: a sortable
+         * {@code KEYWORD} with no {@code idx:normalizer} and no
+         * {@code idx:storeLiteralMetadata}. Such a field is written as a doc value only,
+         * with no stored copy, and read back from the doc value. Every other type's doc
+         * value is a sort key, a number or an epoch, or lives in the shared facet field.
+         */
+        public boolean isValueInDocValues()  { return valueInDocValues; }
 
         @Override
         public boolean equals(Object o) {
@@ -779,6 +791,7 @@ public class ShaclIndexMapping {
     private final Set<Node> nestedChildPredicates;
     private final Set<Node> nestedJoinPredicates;
     private final Set<Node> relevantPredicates;
+    private final List<FieldDef> rootFields;
 
     public ShaclIndexMapping(List<IndexProfile> profiles) {
         this.profiles = Collections.unmodifiableList(new ArrayList<>(profiles));
@@ -796,10 +809,24 @@ public class ShaclIndexMapping {
         this.relevantPredicates = buildRelevantPredicates(
             topLevelPredicates, nestedChildPredicates, nestedJoinPredicates);
         this.classLookup = Collections.unmodifiableMap(buildClassLookup(this.profiles));
+        Set<FieldDef> roots = new LinkedHashSet<>();
+        for (IndexProfile profile : this.profiles) {
+            roots.addAll(distinctFields(profile.getRootOccurrences()));
+        }
+        this.rootFields = List.copyOf(roots);
     }
 
     public List<IndexProfile> getProfiles() {
         return profiles;
+    }
+
+    /**
+     * Fields with an occurrence at root scope in any profile, in declaration order: the
+     * fields whose values are on the entity's own document. A field bound only inside
+     * {@code idx:nested} blocks is not among them.
+     */
+    public List<FieldDef> getRootFields() {
+        return rootFields;
     }
 
     public boolean isRelevantPredicate(Node predicate) {

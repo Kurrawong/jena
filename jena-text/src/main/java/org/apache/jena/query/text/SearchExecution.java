@@ -83,8 +83,6 @@ public class SearchExecution {
     private final String hitPrefix;
 
     // Lazy results
-    private List<TextHit> hits;
-    private boolean hitsComputed = false;
     private List<SearchHit> searchHits;
     private int searchHitsFetchedWindow = 0;
     private ShaclTextIndexLucene.HitSearch search;
@@ -92,6 +90,11 @@ public class SearchExecution {
     /** Ranks returned to luc:query since the last search; dependent reads batch over these. */
     private final BitSet returned = new BitSet();
     private final Map<FacetRequestKey, Map<String, List<FacetValue>>> facetCountsCache = new HashMap<>();
+    /**
+     * Values read by {@code luc:fields}: per field, a list indexed by rank holding each
+     * hit's values, or null where the hit has not been read. Cleared when the search re-runs.
+     */
+    private final Map<ShaclIndexMapping.FieldDef, List<List<Node>>> fieldValues = new HashMap<>();
     private long totalHits = -1;
 
     // Held searcher
@@ -245,28 +248,6 @@ public class SearchExecution {
         return sb.toString();
     }
 
-    /**
-     * Get search hits, computing them lazily on first access.
-     */
-    public synchronized List<TextHit> getHits(int limit, String highlight) {
-        if (!hitsComputed) {
-            try {
-                if (filter == null && (sortSpecs == null || sortSpecs.isEmpty())) {
-                    List<String> resolved = textIndex.resolveSearchFields(searchFields);
-                    hits = textIndex.queryByFields(resolved, queryString, graphURI, lang, limit, highlight);
-                } else {
-                    hits = textIndex.queryWithCql(searchFields, queryString, filter, sortSpecs,
-                        graphURI, lang, limit, highlight);
-                }
-            } catch (Exception e) {
-                log.error("Error computing hits: {}", e.getMessage());
-                hits = Collections.emptyList();
-            }
-            hitsComputed = true;
-        }
-        return hits;
-    }
-
     // ---- Held searcher ------------------------------------------------------------
 
     /** A {@code luc:query} iterator over this search opened. */
@@ -376,6 +357,7 @@ public class SearchExecution {
             searchHitsFetchedWindow = 0;
         } finally {
             returned.clear();
+            fieldValues.clear();
             searchReader = searcher.getIndexReader();
             if (acquired) {
                 if (openIterators > 0) {
@@ -510,6 +492,72 @@ public class SearchExecution {
             return;
         }
         readAgainstSearch(searcher -> textIndex.computeNestedMatches(searcher, search.finalQuery(), batch));
+    }
+
+    // ---- Field values (luc:fields) ----------------------------------------------------
+
+    /** The values of one field for a cached hit; see {@link #fieldValues(SearchHit, List)}. */
+    public synchronized List<Node> fieldValues(SearchHit hit, ShaclIndexMapping.FieldDef field) {
+        return fieldValues(hit, List.of(field)).get(field);
+    }
+
+    /**
+     * The values of {@code fields} for a cached hit, by field, each list empty when the
+     * hit has none. The first request for a field reads it for this hit and every hit
+     * returned to {@code luc:query} so far that lacks it, in one doc-ID-ordered pass; later
+     * requests are lookups.
+     */
+    public synchronized Map<ShaclIndexMapping.FieldDef, List<Node>> fieldValues(
+            SearchHit hit, List<ShaclIndexMapping.FieldDef> fields) {
+        if (!hasFieldValues(hit, fields)) {
+            readFieldValues(pending(hit, h -> hasFieldValues(h, fields)), fields);
+        }
+        return cachedFieldValues(hit, fields);
+    }
+
+    /** Every cached hit, with {@code fields} read. */
+    public synchronized List<SearchHit> hitsWithFieldValues(List<ShaclIndexMapping.FieldDef> fields) {
+        List<SearchHit> all = getCachedHits();
+        readFieldValues(missing(all, h -> hasFieldValues(h, fields)), fields);
+        return all;
+    }
+
+    private boolean hasFieldValues(SearchHit hit, List<ShaclIndexMapping.FieldDef> fields) {
+        for (ShaclIndexMapping.FieldDef field : fields) {
+            List<List<Node>> column = fieldValues.get(field);
+            if (column == null || column.get(hit.getRank()) == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private Map<ShaclIndexMapping.FieldDef, List<Node>> cachedFieldValues(
+            SearchHit hit, List<ShaclIndexMapping.FieldDef> fields) {
+        Map<ShaclIndexMapping.FieldDef, List<Node>> result = new LinkedHashMap<>();
+        for (ShaclIndexMapping.FieldDef field : fields) {
+            List<List<Node>> column = fieldValues.get(field);
+            List<Node> values = column != null ? column.get(hit.getRank()) : null;
+            result.put(field, values != null ? values : List.of());
+        }
+        return result;
+    }
+
+    private void readFieldValues(List<SearchHit> batch, List<ShaclIndexMapping.FieldDef> fields) {
+        if (batch.isEmpty() || fields.isEmpty()) {
+            return;
+        }
+        int size = searchHits.size();
+        for (ShaclIndexMapping.FieldDef field : fields) {
+            fieldValues.computeIfAbsent(field, f -> new ArrayList<>(Collections.nCopies(size, null)));
+        }
+        readAgainstSearch(searcher -> textIndex.readFieldValues(searcher, batch, fields,
+            (hit, field, values) -> fieldValues.get(field).set(hit.getRank(), values)));
+    }
+
+    /** The index this search ran against. */
+    public ShaclTextIndexLucene getTextIndex() {
+        return textIndex;
     }
 
     // ---- Facets and counts -------------------------------------------------------------
