@@ -37,14 +37,18 @@ import org.apache.lucene.index.StoredFields;
 
 /**
  * Reads the values of SHACL fields for documents of one index, in doc-ID order. Used by
- * {@code luc:match}, {@code luc:nestedMatch} and {@code luc:fields}.
+ * {@code luc:match}, {@code luc:nestedMatch}, {@code luc:fields} and the index's
+ * {@link TextHit} query methods.
  * <p>
  * A field whose doc value holds its original value
  * ({@link ShaclIndexMapping.FieldDef#isValueInDocValues()}) is read from that doc value
  * with a forward-only {@code advanceExact}; every other field is read from stored fields,
  * decoding only the fields asked for. Which source a field uses is decided per segment
- * from its {@link FieldInfo}: a segment written before the field had a doc value, or
- * written with a different configuration, falls back to its stored copy.
+ * from its {@link FieldInfo}: a segment with no doc value for the field, such as one
+ * written before the field was made sortable, falls back to its stored copy. A segment
+ * written while the field had an {@code idx:normalizer} has a doc value holding the
+ * normalized key, and that key is what is read: the index needs rebuilding after such a
+ * configuration change, as {@link ShaclIndexStamp} warns.
  * <p>
  * Both sources give the same term for the same value: a doc value goes through
  * {@link LiteralFieldSupport#reconstructNode} with no datatype or language, which is what

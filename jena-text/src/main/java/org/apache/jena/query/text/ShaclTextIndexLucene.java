@@ -2790,18 +2790,69 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
     // ---- Value and field node helpers ----
 
-    private Node extractValueNode(Document doc, List<String> resolvedFields, Query valueQuery) {
-        for (String fieldName : resolvedFields) {
-            String[] storedValues = doc.getValues(fieldName);
-            if (storedValues == null || storedValues.length == 0) continue;
-            SelectedStoredValue storedValue = selectStoredValue(fieldName, storedValues, valueQuery);
-            ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
-            if (fd == null) continue;
-            return LiteralFieldSupport.reconstructNode(fd, storedValue.value(),
-                alignedStoredValue(doc, LiteralFieldSupport.datatypeField(fieldName), storedValue.index()),
-                alignedStoredValue(doc, LiteralFieldSupport.langField(fieldName), storedValue.index()));
+    /**
+     * The {@link TextHit}s for {@code scoreDocs}, in their order, skipping documents with
+     * no entity. Entity IRIs and values are read in doc-ID order, as {@code luc:query}
+     * reads them: the IRI from its doc value where the segment has one, and each value
+     * through {@link FieldValueReader}, so fields kept in doc values only are returned.
+     * A hit's value comes from the first of {@code resolvedFields} with a value on its
+     * document; on a multi-valued field it is the one {@code valueQuery} matches.
+     *
+     * @param ranked score each hit by its rank instead of its Lucene score, for a sorted search
+     */
+    private List<TextHit> textHits(IndexSearcher searcher, ScoreDoc[] scoreDocs,
+            List<String> resolvedFields, Query valueQuery, boolean ranked) throws IOException {
+        List<SearchHit> hits = new ArrayList<>(scoreDocs.length);
+        for (int i = 0; i < scoreDocs.length; i++) {
+            hits.add(new SearchHit("t", i, scoreDocs[i].score, scoreDocs[i].doc));
         }
-        return null;
+        readEntityNodes(searcher, hits);
+
+        List<ShaclIndexMapping.FieldDef> fields = new ArrayList<>(resolvedFields.size());
+        for (String fieldName : resolvedFields) {
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
+            if (fd != null) {
+                fields.add(fd);
+            }
+        }
+        Node[] valueNodes = new Node[hits.size()];
+        FieldValueReader values = new FieldValueReader(hitReadObserver);
+        HitReader.inDocOrder(searcher.getIndexReader(), hits, new HitReader.LeafReads() {
+            private Set<String> storedNames;
+
+            @Override
+            public void startLeaf(LeafReaderContext leaf) throws IOException {
+                values.startLeaf(leaf);
+                storedNames = values.storedNames(fields);
+            }
+
+            @Override
+            public void read(SearchHit hit, int segmentDocId) throws IOException {
+                if (hit.getEntityNode() == null) {
+                    return;
+                }
+                Document doc = values.stored(segmentDocId, storedNames);
+                for (ShaclIndexMapping.FieldDef fd : fields) {
+                    FieldValueReader.Values fieldValues = values.values(fd, segmentDocId, doc);
+                    if (!fieldValues.isEmpty()) {
+                        SelectedStoredValue selected =
+                            selectStoredValue(fd.getFieldName(), fieldValues.lexicals(), valueQuery);
+                        valueNodes[hit.getRank()] = fieldValues.node(selected.index());
+                        return;
+                    }
+                }
+            }
+        });
+
+        Node fieldNode = resolveFieldNode(resolvedFields);
+        List<TextHit> results = new ArrayList<>(hits.size());
+        for (SearchHit hit : hits) {
+            if (hit.getEntityNode() != null) {
+                float score = ranked ? rankScore(results.size()) : hit.getScore();
+                results.add(new TextHit(hit.getEntityNode(), score, valueNodes[hit.getRank()], null, fieldNode));
+            }
+        }
+        return results;
     }
 
     private SelectedStoredValue selectStoredValue(String fieldName, String[] storedValues, Query valueQuery) {
@@ -2840,14 +2891,6 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     }
 
     private record SelectedStoredValue(int index, String value) {}
-
-    private static String alignedStoredValue(Document doc, String fieldName, int index) {
-        String[] values = doc.getValues(fieldName);
-        if (values == null || index < 0 || index >= values.length) {
-            return null;
-        }
-        return values[index];
-    }
 
     private static Integer parseInteger(String lexical) {
         try {
@@ -2906,21 +2949,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
             int maxHits = limit > 0 ? limit : MAX_N;
             TopDocs topDocs = searcher.search(filterToParents(query), maxHits);
-
-            Node fieldNode = resolveFieldNode(resolvedFields);
-            List<TextHit> results = new ArrayList<>();
-            String entityField = getDocDef().getEntityField();
-            StoredFields storedFields = searcher.storedFields();
-            for (ScoreDoc sd : topDocs.scoreDocs) {
-                Document doc = storedFields.document(sd.doc);
-                String uri = doc.get(entityField);
-                if (uri != null) {
-                    Node entityNode = TextQueryFuncs.stringToNode(uri);
-                    Node valueNode = extractValueNode(doc, resolvedFields, query);
-                    results.add(new TextHit(entityNode, sd.score, valueNode, null, fieldNode));
-                }
-            }
-            return results;
+            return textHits(searcher, topDocs.scoreDocs, resolvedFields, query, false);
         } catch (IOException ex) {
             throw new TextIndexException("queryByFields", ex);
         } catch (ParseException ex) {
@@ -2970,21 +2999,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
             int maxHits = limit > 0 ? limit : MAX_N;
             TopDocs topDocs = searcher.search(filterToParents(combined.build()), maxHits);
-
-            Node fieldNode = resolveFieldNode(resolved);
-            List<TextHit> results = new ArrayList<>();
-            String entityField = getDocDef().getEntityField();
-            StoredFields storedFields = searcher.storedFields();
-            for (ScoreDoc sd : topDocs.scoreDocs) {
-                Document doc = storedFields.document(sd.doc);
-                String uri = doc.get(entityField);
-                if (uri != null) {
-                    Node entityNode = TextQueryFuncs.stringToNode(uri);
-                    Node valueNode = extractValueNode(doc, resolved, valueQuery);
-                    results.add(new TextHit(entityNode, sd.score, valueNode, null, fieldNode));
-                }
-            }
-            return results;
+            return textHits(searcher, topDocs.scoreDocs, resolved, valueQuery, false);
         } catch (IOException ex) {
             throw new TextIndexException("queryWithFilters", ex);
         } catch (ParseException ex) {
@@ -3079,22 +3094,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 topDocs = searcher.search(filterToParents(combined.build()), maxHits);
             }
 
-            Node fieldNode = resolveFieldNode(resolved);
-            List<TextHit> results = new ArrayList<>();
-            String entityField = getDocDef().getEntityField();
-            StoredFields storedFields = searcher.storedFields();
-            int idx = 0;
-            for (ScoreDoc sd : topDocs.scoreDocs) {
-                Document doc = storedFields.document(sd.doc);
-                String uri = doc.get(entityField);
-                if (uri != null) {
-                    Node entityNode = TextQueryFuncs.stringToNode(uri);
-                    Node valueNode = extractValueNode(doc, resolved, valueQuery);
-                    float score = luceneSort == null ? sd.score : rankScore(idx++);
-                    results.add(new TextHit(entityNode, score, valueNode, null, fieldNode));
-                }
-            }
-            return results;
+            return textHits(searcher, topDocs.scoreDocs, resolved, valueQuery, luceneSort != null);
         } catch (IOException ex) {
             throw new TextIndexException("queryWithCql", ex);
         } catch (ParseException ex) {

@@ -80,8 +80,6 @@ public class SearchExecution {
     private final String hitPrefix;
 
     // Lazy results
-    private List<TextHit> hits;
-    private boolean hitsComputed = false;
     private List<SearchHit> searchHits;
     private int searchHitsFetchedWindow = 0;
     private ShaclTextIndexLucene.HitSearch search;
@@ -245,28 +243,6 @@ public class SearchExecution {
         }
 
         return sb.toString();
-    }
-
-    /**
-     * Get search hits, computing them lazily on first access.
-     */
-    public synchronized List<TextHit> getHits(int limit, String highlight) {
-        if (!hitsComputed) {
-            try {
-                if (filter == null && (sortSpecs == null || sortSpecs.isEmpty())) {
-                    List<String> resolved = textIndex.resolveSearchFields(searchFields);
-                    hits = textIndex.queryByFields(resolved, queryString, graphURI, lang, limit, highlight);
-                } else {
-                    hits = textIndex.queryWithCql(searchFields, queryString, filter, sortSpecs,
-                        graphURI, lang, limit, highlight);
-                }
-            } catch (Exception e) {
-                log.error("Error computing hits: {}", e.getMessage());
-                hits = Collections.emptyList();
-            }
-            hitsComputed = true;
-        }
-        return hits;
     }
 
     // ---- Held searcher ------------------------------------------------------------

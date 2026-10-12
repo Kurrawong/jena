@@ -71,7 +71,7 @@ Used with `text:shapes` configuration. SPARQL search via `luc:query` (with filte
 | `ShaclConfigPF` | Implements `luc:config` — matches a triple pattern over the index's configuration subgraph, copied at assembly when `text:exposeConfig true` |
 | `SearchExecution` | Shared execution state. Stored in `ExecutionContext` keyed by normalised query params. Lazy-computes hits, facet counts, and total hit count. Holds the searcher the hits came from and reads entity IRIs, match details and child records on request |
 | `HitReader` | Visits a set of hits in Lucene doc-ID order, one segment at a time; used by every per-hit read |
-| `FieldValueReader` | Reads field values for `luc:match`, `luc:nestedMatch` and `luc:fields`, from doc values where they hold the value and from restricted stored-field decodes otherwise |
+| `FieldValueReader` | Reads field values for `luc:match`, `luc:nestedMatch`, `luc:fields` and the `TextHit` query methods (`queryByFields`, `queryWithFilters`, `queryWithCql`), from doc values where they hold the value and from restricted stored-field decodes otherwise |
 | `TextMatchPF`, `TextNestedMatchPF`, `TextFieldsPF` | Implement `luc:match`, `luc:nestedMatch` and `luc:fields`; each finds its search and hit through `?hit` |
 | `FacetValue` | Immutable (value, count) pair for facet results |
 | `ShaclIndexAssembler` | Parses `text:shapes` RDF config into `ShaclIndexMapping`. Reads `sh:targetClass`, `sh:path`, `sh:alternativePath`. No jena-shacl dependency |
@@ -192,8 +192,9 @@ deletes, and Lucene requires every document with a field to give it the same doc
 type.
 
 The type is chosen when the index opens: a new index takes the JVM system property
-`jena.text.entityDocValues` (`binary`, the default; `sorted`; or `none`), which exists
-to compare the three reads in a benchmark. An index that already has the doc-value field
+`jena.text.entityDocValues` (`binary`, the default; `sorted`; or `none`). The property
+is a temporary switch for comparing the three reads in a benchmark, not configuration,
+and is removed once the benchmark has decided. An index that already has the doc-value field
 keeps its type, because Lucene rejects a document that gives an existing field another
 doc-value type. An index written before the doc value existed takes new documents with
 it. `readEntityNodes` checks each segment's `FieldInfo`, and each document, and falls
