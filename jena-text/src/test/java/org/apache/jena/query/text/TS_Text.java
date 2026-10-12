@@ -83,6 +83,9 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestShaclIndexMapping.class
     , TestShaclConfigFingerprint.class
     , TestShaclIndexStamp.class
+    , TestLucConfig.class
+    , TestLucStats.class
+    , TestDemoReferenceIndex.class
     , TestShaclDocumentBuilding.class
     , TestShaclTextDocProducer.class
     , TestShaclNoPFDuringIndexing.class

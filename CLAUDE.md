@@ -188,6 +188,7 @@ All new code is additive — upstream code paths are unmodified.
 | `ShaclTextDocProducer` | Change listener — rebuilds entity Lucene docs on triple add/delete |
 | `ShaclTextQueryPF` | `luc:query` property function with JSON filter support and `?totalHits` binding |
 | `TextFacetPF` | `luc:facet` property function — returns (field, value, count) bindings |
+| `ShaclConfigPF` | `luc:config` property function — the index's configuration as triples; opt-in via `text:exposeConfig` |
 | `SearchExecution` | Shared state between `luc:query` and `luc:facet` in same SPARQL query via `ExecutionContext` |
 | `ShaclIndexAssembler` | Parses `text:shapes` RDF config into `ShaclIndexMapping` |
 | `TextIndexLucene` | Extended with SHACL faceting methods (core methods unchanged) |

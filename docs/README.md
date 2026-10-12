@@ -10,6 +10,8 @@ This doc set covers the SHACL/entity-per-document search model in `jena-text`.
 | `luc:match` | Done | Sole per-hit match-detail API |
 | `luc:nestedMatch` | Done | Projects the `idx:nested` child records a filter selected, grouped by `?record` |
 | `luc:facet` | Done | Fixed-position facet API with field IRIs and range facets |
+| `luc:config` | Done | The index configuration as triples, through the query endpoint. Opt-in per index with `text:exposeConfig`. See [2026-10-09_luc_config_property_function_plan.md](2026-10-09_luc_config_property_function_plan.md) |
+| `luc:stats` | Done | Entity, document, term, token and point counts and index size as triples, through the query endpoint. Not gated. See [02-sparql-api.md](02-sparql-api.md#lucstats) |
 | Multi-index selection | Done | Query-time `indexSelector` plus `text:indexes` config |
 | Field IRIs | Done | Public SPARQL uses field IRIs only |
 | Sort pushdown | Done | Sort specs use field IRIs in the public API |
@@ -19,7 +21,6 @@ This doc set covers the SHACL/entity-per-document search model in `jena-text`.
 | Graph scoping model | Designed | Reserved synthetic field `urn:jena:lucene:field#sourceGraph`; implementation deferred |
 | Source graph indexing | Designed | `idx:storeGraph` flag writing multi-valued `sourceGraph`. Not built — `?graph` was removed from `luc:query` instead, since a union-built document has no single source graph |
 | Vector search | Designed | Entity-level dense vectors as a `VECTOR` field, filtered KNN plus facets. Not built — engine choice is Jlama. The loader's missing Vector API flags, a prerequisite, are fixed |
-| `luc:config` | Designed | The effective index configuration as `sh:`/`idx:` triples over the query endpoint. See [2026-10-09_luc_config_property_function_plan.md](2026-10-09_luc_config_property_function_plan.md) |
 | SHACL class semantics | Designed | `sh:targetClass` and `sh:class` to match subclass instances, with `sh:hasValue` for an exact type. See [2026-10-09_shacl_class_semantics_and_jena_shacl_reuse.md](2026-10-09_shacl_class_semantics_and_jena_shacl_reuse.md) |
 | Highlight API | Deferred | Reserved for later, not active in the current `luc:query` signature |
 

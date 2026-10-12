@@ -15,7 +15,7 @@
 # and the geometry with a bare Point: it returns nothing.
 PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?entity ?score WHERE {
-  (?hit ?entity ?score) luc:query ("default" "default" "*"
+  (?hit ?entity ?score) luc:query ("instance" "default" "*"
     '{"op":"s_dwithin","args":[{"property":"urn:jena:lucene:field#location"},{"type":"Point","coordinates":[121.60,-30.95]},60000]}'
     ""
     20

@@ -12,43 +12,6 @@
 @prefix prov:  <http://www.w3.org/ns/prov#> .
 @prefix schema: <https://schema.org/> .
 
-## --- Classes ---
-
-ex:MiningReport rdfs:label "Mining Report" .
-ex:Borehole     rdfs:label "Borehole" .
-ex:Site         rdfs:label "Site" .
-
-## --- Vocabulary IRIs ---
-
-commodity:Copper    rdfs:label "Copper" .
-commodity:Lead      rdfs:label "Lead" .
-commodity:Zinc      rdfs:label "Zinc" .
-commodity:Gold      rdfs:label "Gold" .
-commodity:Silver    rdfs:label "Silver" .
-commodity:Uranium   rdfs:label "Uranium" .
-commodity:Iron-Ore  rdfs:label "Iron Ore" .
-
-state:QLD  rdfs:label "QLD" .
-state:SA   rdfs:label "SA" .
-state:WA   rdfs:label "WA" .
-state:NSW  rdfs:label "NSW" .
-state:PNG  rdfs:label "PNG" .
-state:NT   rdfs:label "NT" .
-
-operator:Saltbush  rdfs:label "Saltbush" .
-operator:Warrigal       rdfs:label "Warrigal" .
-operator:Bellbird   rdfs:label "Bellbird" .
-operator:Quandong  rdfs:label "Quandong" .
-operator:Corvid-Metals rdfs:label "Corvid Metals" .
-
-status:Active      rdfs:label "Active" .
-status:Historical  rdfs:label "Historical" .
-status:Current     rdfs:label "Current" .
-
-ex:PrincipalInvestigator rdfs:label "Principal Investigator" .
-ex:Reviewer              rdfs:label "Reviewer" .
-ex:DataSteward           rdfs:label "Data Steward" .
-
 ## --- Sites ---
 
 ex:site-brolga-ridge a ex:Site ;

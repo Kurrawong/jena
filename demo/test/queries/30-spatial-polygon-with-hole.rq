@@ -14,7 +14,7 @@
 # reappear. That contrast is the whole point of the query.
 PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?entity ?score WHERE {
-  (?hit ?entity ?score) luc:query ("default" "default" "*"
+  (?hit ?entity ?score) luc:query ("instance" "default" "*"
     '{"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},{"type":"Polygon","coordinates":[[[121.40,-31.30],[121.80,-31.30],[121.80,-30.70],[121.40,-30.70],[121.40,-31.30]],[[121.60,-31.25],[121.72,-31.25],[121.72,-31.15],[121.60,-31.15],[121.60,-31.25]]]}]}'
     ""
     20

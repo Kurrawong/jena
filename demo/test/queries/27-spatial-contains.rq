@@ -9,7 +9,7 @@
 # which is why none of the generated point sites appear.
 PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?entity ?score WHERE {
-  (?hit ?entity ?score) luc:query ("default" "default" "*"
+  (?hit ?entity ?score) luc:query ("instance" "default" "*"
     '{"op":"s_contains","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[121.25,-30.95,121.35,-30.85]}]}'
     ""
     20

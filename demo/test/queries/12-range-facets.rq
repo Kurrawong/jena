@@ -12,7 +12,7 @@ PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?field ?value ?low ?high ?count
 WHERE {
   (?field ?value ?low ?high ?count) luc:facet (
-    "default"
+    "instance"
     "default"
     "*"
     '[{"field":"urn:jena:lucene:field#year","ranges":[null, 2000, 2020, null]}, {"field":"urn:jena:lucene:field#depth","ranges":[0, 200, 500, 1000]}]'

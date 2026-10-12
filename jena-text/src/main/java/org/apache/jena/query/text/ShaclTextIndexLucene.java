@@ -33,6 +33,7 @@ import org.apache.jena.geosparql.implementation.parsers.wkt.WKTReader;
 import org.apache.jena.geosparql.implementation.vocabulary.SRS_URI;
 import org.apache.jena.datatypes.RDFDatatype;
 import org.apache.jena.datatypes.xsd.XSDDatatype;
+import org.apache.jena.graph.Graph;
 import org.apache.jena.graph.Node;
 import org.apache.jena.sparql.core.DatasetGraph;
 import org.apache.jena.graph.NodeFactory;
@@ -129,6 +130,18 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
     /** Fingerprint of the configuration this instance was built with. */
     private final String configFingerprint;
+    private volatile Graph exposedConfig;
+
+    /**
+     * Subject of the index-level {@code luc:stats} figures: the index resource of the
+     * configuration when the assembler supplies it, so the figures join with
+     * {@code luc:config}.
+     */
+    private volatile Node indexResource = NodeFactory.createBlankNode();
+
+    /** {@code luc:stats} figures for one reader generation. */
+    private record CachedStats(IndexReader.CacheKey key, Graph stats) {}
+    private volatile CachedStats cachedStats;
 
     /** The stamp found on disk when this index was opened, or null if there was none. */
     private final ShaclIndexStamp.StampData openedStamp;
@@ -149,7 +162,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * docIdField, so reads must restrict to parent docs to preserve the entity-per-hit
      * iteration contract). Used by {@link #filterToParents(Query)} on every read site.
      */
-    private static final Query PARENT_DOC_FILTER =
+    static final Query PARENT_DOC_FILTER =
         new TermQuery(new Term(BLOCK_KIND_FIELD, BLOCK_KIND_PARENT));
 
     /** {@link BitSetProducer} over the parent filter — required by {@code ToParentBlockJoinQuery}. */
@@ -425,6 +438,48 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     log.info("Index configuration not verified: stamp uses fingerprint version {}, this build understands {}",
                              openedStamp.version(), ShaclConfigFingerprint.FINGERPRINT_VERSION);
             }
+        }
+    }
+
+    /**
+     * The configuration {@code luc:config} returns, or null when the index does not set
+     * {@code text:exposeConfig true}.
+     */
+    public Graph getExposedConfig() {
+        return exposedConfig;
+    }
+
+    public void setExposedConfig(Graph exposedConfig) {
+        this.exposedConfig = exposedConfig;
+    }
+
+    public void setIndexResource(Node indexResource) {
+        this.indexResource = indexResource;
+    }
+
+    /**
+     * Figures about this index's Lucene contents, as {@code luc:stats} returns them,
+     * computed from the current searcher. Kept until the searcher is next refreshed,
+     * because counting distinct terms walks every term of every text and keyword field.
+     */
+    public Graph getStats() {
+        IndexSearcher searcher = acquireSearcher();
+        try {
+            IndexReader.CacheHelper helper = searcher.getIndexReader().getReaderCacheHelper();
+            IndexReader.CacheKey key = helper == null ? null : helper.getKey();
+            CachedStats cached = cachedStats;
+            if (key != null && cached != null && cached.key() == key) {
+                return cached.stats();
+            }
+            Graph stats = ShaclIndexStats.compute(searcher, shaclMapping, indexResource);
+            if (key != null) {
+                cachedStats = new CachedStats(key, stats);
+            }
+            return stats;
+        } catch (IOException e) {
+            throw new TextIndexException("could not read the index: " + e.getMessage(), e);
+        } finally {
+            releaseSearcher(searcher);
         }
     }
 

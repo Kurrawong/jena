@@ -21,6 +21,7 @@
 
 package org.apache.jena.query.text;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -47,6 +48,7 @@ import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.RDFList;
 import org.apache.jena.rdf.model.RDFNode;
 import org.apache.jena.rdf.model.Resource;
+import org.apache.jena.rdf.model.Statement;
 import org.apache.jena.riot.RDFDataMgr;
 import org.apache.jena.sparql.core.DatasetGraph;
 import org.apache.jena.sparql.core.DatasetGraphFactory;
@@ -115,18 +117,15 @@ public class TestDemoExamples {
         Model config = RDFDataMgr.loadModel(demoTestDir.resolve("config.ttl").toUri().toString());
 
         // text:shapes is an RDF list on the index resource. Read it from the config rather
-        // than naming the shapes here, so adding a shape to the demo is picked up.
-        Resource shapesList = null;
-        var it = config.listObjectsOfProperty(
+        // than naming the shapes here, so adding a shape to the demo is picked up. The
+        // examples search the instance index; the reference index has its own tests.
+        var instanceIndexes = config.listSubjectsWithProperty(
+            config.createProperty("http://jena.apache.org/text#indexId"), "instance").toList();
+        assertEquals(1, instanceIndexes.size(), "config.ttl should declare one index with text:indexId \"instance\"");
+        Statement shapesStmt = instanceIndexes.get(0).getProperty(
             config.createProperty("http://jena.apache.org/text#shapes"));
-        while (it.hasNext()) {
-            RDFNode node = it.next();
-            if (node.isResource()) {
-                shapesList = node.asResource();
-                break;
-            }
-        }
-        assertNotNull(shapesList, "config.ttl declares no text:shapes list");
+        assertNotNull(shapesStmt, "the instance index declares no text:shapes list");
+        Resource shapesList = shapesStmt.getResource();
 
         // idx:location and idx:delta are written relative to demo/test, which is where
         // `task index` runs. Surefire's working directory is the module, and NIO fixes the
@@ -183,7 +182,7 @@ public class TestDemoExamples {
     private static void makeExternalSourcePathsAbsolute(Model config, Path baseDir) {
         for (String prop : new String[] { "location", "delta" }) {
             var p = config.createProperty("urn:jena:lucene:index#" + prop);
-            List<org.apache.jena.rdf.model.Statement> found =
+            List<Statement> found =
                 config.listStatements(null, p, (RDFNode) null).toList();
             for (var stmt : found) {
                 if (!stmt.getObject().isLiteral()) continue;

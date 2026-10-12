@@ -8,7 +8,7 @@ PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?entity ?score
 WHERE {
     (?hit ?entity ?score) luc:query (
-        "default"
+        "instance"
         "default"
         "copper"
         '{"op":"=","args":[{"property":"urn:jena:lucene:field#state"},"http://example.org/mining/state/QLD"]}'

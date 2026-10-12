@@ -1,10 +1,18 @@
 ---
 title: "Config endpoint and index-shape fingerprint"
 date: "2026-08-13"
-status: "Built and tested; TDB2 stamping deliberately not done"
+status: "Fingerprint built and in use. Config endpoint built, then removed on 2026-10-09. TDB2 stamping deliberately not done"
 ---
 
 # Config Endpoint and Index-Shape Fingerprint
+
+> **The config endpoint described here has been removed.** The
+> `jena-fuseki-mod-config` module and its `/$/config` paths were deleted on 2026-10-09 in
+> favour of the `luc:config` property function, which answers through the dataset's
+> query endpoint instead of the admin space. See
+> [2026-10-09_luc_config_property_function_plan.md](2026-10-09_luc_config_property_function_plan.md).
+> The fingerprint, the index stamp and the dataset pairing are unaffected and still in
+> use.
 
 Two features that share one idea: the server should be able to tell you what
 configuration it is running, and whether the on-disk index was built from the same

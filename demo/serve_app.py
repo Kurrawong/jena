@@ -36,11 +36,9 @@ def _is_label_request(path: str) -> bool:
 # anyone else puts dataset creation and deletion (POST/DELETE /$/datasets), backups and
 # compaction one URL away for them - the localhost gate is laundered, not enforced.
 #
-# The app needs exactly three paths: {dataset}/query, /$/config and /$/config/{id}.
+# The app needs only {dataset}/query, so nothing under "/$/" is forwarded.
 ADMIN_PREFIX = "/$/"
-ADMIN_ALLOWED = (
-    ("/$/config", ("GET",)),
-)
+ADMIN_ALLOWED = ()
 
 
 def _admin_forward_allowed(path: str, method: str) -> bool:

@@ -12,7 +12,7 @@
 #   site-no-geometry     an entity with no geometry is in no spatial result at all
 PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?entity ?score WHERE {
-  (?hit ?entity ?score) luc:query ("default" "default" "*"
+  (?hit ?entity ?score) luc:query ("instance" "default" "*"
     '{"op":"s_within","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[120.5,-31.5,122.5,-30.0]}]}'
     ""
     20

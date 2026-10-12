@@ -13,5 +13,8 @@
 
 window.APP_CONFIG = {
   fusekiBase: window.location.origin,
+  // The Fuseki service name (fuseki:name in config.ttl) whose query endpoint answers
+  // luc:config, luc:query and luc:facet.
+  dataset: 'mining',
   labelCacheVersion: '1',
 };
