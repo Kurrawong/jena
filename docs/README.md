@@ -21,7 +21,7 @@ This doc set covers the SHACL/entity-per-document search model in `jena-text`.
 | Vector search | Designed | Entity-level dense vectors as a `VECTOR` field, filtered KNN plus facets. Not built — engine choice is Jlama. The loader's missing Vector API flags, a prerequisite, are fixed |
 | `luc:config` | Designed | The effective index configuration as `sh:`/`idx:` triples over the query endpoint. See [2026-10-09_luc_config_property_function_plan.md](2026-10-09_luc_config_property_function_plan.md) |
 | SHACL class semantics | Designed | `sh:targetClass` and `sh:class` to match subclass instances, with `sh:hasValue` for an exact type. See [2026-10-09_shacl_class_semantics_and_jena_shacl_reuse.md](2026-10-09_shacl_class_semantics_and_jena_shacl_reuse.md) |
-| `luc:fields` | Designed | Stored field values for every `luc:query` hit, read from the Lucene document with no join to the RDF store. See [2026-10-12_luc_query_field_projection_design.md](2026-10-12_luc_query_field_projection_design.md) |
+| `luc:fields` | Designed | Field values for every `luc:query` hit, read from doc values or stored fields with no join to the RDF store. See [2026-10-12_luc_query_field_projection_design.md](2026-10-12_luc_query_field_projection_design.md) |
 | Highlight API | Deferred | Reserved for later, not active in the current `luc:query` signature |
 
 ## Core Rules

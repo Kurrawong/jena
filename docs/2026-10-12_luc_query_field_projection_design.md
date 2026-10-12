@@ -8,10 +8,11 @@ status: "Designed; nothing implemented"
 
 This design lets a SPARQL query return field values for every `luc:query` hit straight
 from the Lucene index, so that an identifier for each of 300,000 hits needs no join back to
-the RDF store. It adds a `returnFields` argument to `luc:query` and a `luc:fields`
-property function that emits the values. Values are read from doc values where the doc
-value is the original value, and from stored fields otherwise. `luc:query` stops loading
-each hit's whole stored document, which makes every query cheaper per hit.
+the RDF store. It adds a `luc:fields` property function that joins to `luc:query` through
+`?hit`; `luc:query`'s arguments are unchanged. Values are read from doc values where the
+doc value is the original value, and from stored fields otherwise. `luc:query` stops
+loading each hit's whole stored document, and reads the entity IRI only when the query
+binds `?entity`.
 
 Claims about current behaviour were checked against `5872e83981`.
 
@@ -74,51 +75,35 @@ Two things follow:
 - Doc values are cheaper again, but only if `luc:query` also stops loading the whole
   document. Otherwise the stored-field read stays and the doc-value read is added to it.
 
-This design takes the second route: `luc:query` reads only the stored fields a query
-needs, and none when the query needs none.
+This design takes the second route.
 
 ## API
 
-### `luc:query` gains an eighth argument
-
-```sparql
-(?hit ?entity ?score ?totalHits ?rank)
-  luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset returnFields)
-```
-
-`returnFields` is a JSON array of field IRIs, or `""` for none. Object arity becomes
-exactly 8. SHACL mode carries no backward-compatibility requirement, so the 7-argument
-form is removed rather than kept as an alternative.
-
-The field list belongs to `luc:query` because the values have to be read while the search
-holds its `IndexSearcher`. A Lucene doc ID is only valid against the reader it came from,
-and the searcher is released when `searchWithHitIds` returns. The comment on
-`computeNestedMatches` records the same constraint. A property function evaluated after
-the search cannot read the values itself.
-
-### `luc:fields` emits the values
+### `luc:fields`
 
 ```sparql
 (?hit ?field ?value) luc:fields ()
 ```
 
-| Variable | Type | Meaning |
+| Slot | Type | Meaning |
 |---|---|---|
 | `?hit` | blank node | Join key from `luc:query` |
-| `?field` | IRI | A field named in `returnFields`; a variable or a constant IRI |
-| `?value` | IRI or literal | One value |
+| `?field` | variable or field IRI | A variable returns every readable field; an IRI returns that field only |
+| `?value` | variable | One value |
 
-It returns one row per value, the same shape as `luc:match` and `luc:nestedMatch`.
-`?field` may be a constant, which selects one field, so one pattern per field produces one
-column per field:
+The object is always `()`. `luc:query` is unchanged: it keeps its seven arguments, and
+the fields to read are decided by `luc:fields` alone.
+
+`luc:fields` returns one row per value, and behaves like a triple pattern with `?hit` as
+subject: a variable in the field slot ranges over fields, a constant selects one. One
+pattern per field gives one column per field:
 
 ```sparql
 PREFIX luc: <urn:jena:lucene:index#>
 PREFIX field: <https://example.org/field#>
 
 SELECT ?id ?name WHERE {
-  (?hit) luc:query ("default" "default" "<text>" '<CQL2-JSON>' "" 300000 0
-                    '["https://example.org/field#collarId","https://example.org/field#name"]') .
+  (?hit) luc:query ("default" "default" "<text>" '<CQL2-JSON>' "" 300000 0) .
   (?hit field:collarId ?id) luc:fields () .
   (?hit field:name ?name) luc:fields () .
 }
@@ -128,33 +113,48 @@ A multi-valued field gives one row per value, as a triple pattern over a multi-v
 predicate would. Rows come in `luc:query` order, because ARQ evaluates `luc:fields` once
 per incoming binding.
 
+Binding only `?hit` in `luc:query`, as above, matters for cost: it is what lets
+`luc:query` skip the entity IRI (see [Read plan](#read-plan)).
+
+### Using it with `luc:match`
+
+Both join on `?hit`, so a hit's rows are every combination of its `luc:match` rows and its
+`luc:fields` rows, as with two triple patterns on one subject. Two matched fields and one
+constant single-valued `luc:fields` pattern give two rows per hit. Neither function
+changes what the other returns.
+
+Give the two different variable names. `(?hit ?field ?value) luc:match ()` with
+`(?hit ?field ?value) luc:fields ()` also joins on `?field` and `?value`, and keeps only
+rows where both produce the same pair.
+
 ### Errors
 
 Each of the following raises a query error naming the field, rather than returning no
 rows:
 
-- an IRI in `returnFields` that is not a configured field (as for `fieldSpec`)
-- a field with `idx:stored false` that is not doc-value eligible (see
+- an IRI in the field slot that is not a configured field (as for `fieldSpec`)
+- a field that is neither stored nor doc-value eligible (see
   [Where values come from](#where-values-come-from)), which has no value to return
 - a field inside an `idx:nested` block (see [Out of scope](#out-of-scope))
-- a constant `?field` in `luc:fields` that is not in the `returnFields` of the search
-  that produced `?hit`
+- `luc:fields` reading after the index has been refreshed under the search (see
+  [Searcher lifetime](#searcher-lifetime))
 
 This follows the existing rule in [02-sparql-api.md](02-sparql-api.md#a-filter-is-applied-or-the-query-is-refused):
-a request the index cannot honour is refused.
+a request the index cannot honour is refused. With a variable field slot, fields that have
+no readable value are skipped rather than raised, since none was named.
 
 ### Alternatives rejected
 
 | Alternative | Why rejected |
 |---|---|
+| An eighth `luc:query` argument listing the fields to read, which an earlier draft of this design proposed | It only existed so values could be read before `luc:query` released its searcher. Holding the searcher removes that reason, and the argument made every field IRI appear twice. It would save a second decompression of stored blocks in one case (see [Cost of reading separately](#cost-of-reading-separately)) |
+| Bind values in extra `luc:query` subject slots, e.g. `(?hit ?entity ?score ?totalHits ?rank ?collarId)` | Subject slots are positional, so `?collarId` needs the four slots before it filled. The variables must line up with a field list elsewhere. A multi-valued field has no single value to bind |
+| The field IRI in the object, `(?hit ?value) luc:fields (field:collarId)` | Correlation works either way, since `?hit` stays in the subject. But "every field" then needs a second form, and the object invites `(?hit ?id ?name) luc:fields (field:collarId field:name)`, which brings back positional alignment and cross-multiplies multi-valued fields inside one call. `luc:config`, `luc:match` and `luc:nestedMatch` already put the field in the subject |
 | Extend `luc:match` | It means "fields the text query matched". Returning unmatched fields from it changes that meaning for existing queries |
-| Bind values in extra `luc:query` subject slots, e.g. `(?hit ?entity ?score ?totalHits ?rank ?collarId)` | Subject slots are positional and already carry five meanings. A multi-valued field in a slot has no single value to bind |
-| Leave `luc:query` at 7 arguments and have `luc:fields` register its constant field IRIs at `build()` time for `luc:query` to read | Depends on ARQ constructing every stage's iterator before `luc:query` executes. That is not established, and a variable `?field` would give `luc:query` no list to read |
 
 ## Where values come from
 
-Each requested field is read from one of two sources, chosen once per field from its
-configuration.
+Each field is read from one of two sources, chosen once per field from its configuration.
 
 ### Doc values, where they hold the original value
 
@@ -168,13 +168,15 @@ A field is doc-value eligible when all of these hold:
   with the value
 
 A scalar identifier such as CollarId fits this shape. It needs `idx:sortable true` in the
-shape, and a reindex if it is not sortable today. With it, the value is read from a
-column in doc-ID order, and no stored field is touched.
+shape, and a reindex if it is not sortable today. The value is then read from a column in
+doc-ID order, and no stored field is touched. `idx:stored` can be `false` for such a
+field: the doc value is the only copy needed, though `luc:match` reads stored fields only
+and then has nothing to show for it.
 
 A multi-valued field read from `SortedSetDocValues` returns each distinct value once, in
 byte order. Stored fields return values in indexing order, duplicates included. RDF
-triples form a set, so the doc-value result matches the source data. Two eligible fields
-can therefore return the same values in a different row order, and the tests pin that.
+triples form a set, so the doc-value result matches the source data, but the two sources
+can return the same values in a different row order, and the tests pin that.
 
 ### Stored fields, otherwise
 
@@ -192,55 +194,94 @@ hold the original value:
 `idx:stored` defaults to `true` ([03-configuration.md](03-configuration.md#field-properties)),
 so most configured fields can be projected from stored fields without reindexing.
 
-Stored values are turned into RDF terms by the existing `fieldValueToNode`, which applies
+### Turning values into terms
+
+Stored values go through the existing `fieldValueToNode`, which applies
 `idx:storeLiteralMetadata` through `LiteralFieldSupport.reconstructNode` and aligns each
-value with its datatype and language twin by index. A doc value is converted by the same
+value with its datatype and language twin by index. A doc value goes through the same
 `reconstructNode` with no datatype or language, which is what `fieldValueToNode` passes
 for an eligible field, so both sources give the same term. For `KEYWORD` that is an IRI
-when `looksLikeUri` accepts the value and a plain string otherwise. Whether either equals the source triple's object is governed by
+when `looksLikeUri` accepts the value and a plain string otherwise. Whether either equals
+the source triple's object is governed by
 [2026-04-09_date_literal_round_trip_design.md](2026-04-09_date_literal_round_trip_design.md).
 
-A field that is eligible for both is read from doc values. A field with
-`idx:stored false` can be projected only if it is eligible.
+## Read plan
 
-## Read path
+`luc:query` reads the entity IRI only when its subject list has an `?entity` slot, and
+reads it with a `StoredFieldVisitor` that accepts the entity field alone, replacing
+`storedFields.document(sd.doc)`. The visitor still decompresses the block the document
+sits in, so the saving is in decoding the other fields, not in I/O.
 
-`searchWithHitIds` builds a read plan from the request before reading any hit:
+Under that rule, `(?hit) luc:query (…)` reads no stored fields. `SearchHit.getEntityNode`
+returns null for a hit read without it. Its one other caller, the over-limit warning in
+`computeNestedMatches`, logs the Lucene doc ID instead.
 
-| Input | Effect on the plan |
-|---|---|
-| The `luc:query` subject list has an `?entity` slot | Read the entity IRI field from stored fields |
-| A field in `returnFields` is doc-value eligible | Read it from doc values |
-| Any other field in `returnFields` | Read it, and its datatype and language twins, from stored fields |
+`luc:fields`, on its first call for a field, reads that field for every cached hit of the
+search in one pass and caches the values by hit. Later calls for the same field are map
+lookups. A variable field slot reads every readable field in one pass: the eligible ones
+from doc values, the rest with one visitor over stored fields.
 
-The entity IRI is the field that most often forces a stored-field read, because it is
-written stored and indexed with no doc value (`docFromMapping`). Today it is read for
-every hit even when the query never binds `?entity`. Under the plan, `(?hit) luc:query
-(…)` with only eligible `returnFields` reads no stored fields at all.
-`SearchHit.getEntityNode` returns null for a hit read without it. Its one other caller,
-the over-limit warning in `computeNestedMatches`, logs the Lucene doc ID instead.
+Every pass runs in doc-ID order. The hits are grouped by segment, sorted by doc ID within
+each one, read in that order, and the values put back by hit. Doc values need
+forward-only access for `advanceExact`. For stored fields, doc-ID order means each
+compressed block is decompressed once for all the hits in it, instead of once per visit
+in rank order. How much that saves cold has not been measured.
 
-When stored fields are needed, a `StoredFieldVisitor` accepts only the planned fields,
-replacing `storedFields.document(sd.doc)`. This skips decoding the fields nobody asked
-for. It still decompresses the block the document sits in, so the saving is in decoding,
-not I/O.
+### The entity IRI as a doc value
 
-Both sources are read in doc-ID order. The hits are grouped by segment, sorted by doc ID
-within each one, read in that order, and the values written back to each hit's rank
-position. Doc values need forward-only access for `advanceExact`. For stored fields, doc-ID
-order means each compressed block is decompressed once for all the hits in it, instead of
-once per visit in rank order. How much that saves cold has not been measured.
+The entity IRI is written stored and indexed, with no doc value (`docFromMapping`), so
+any query that binds `?entity` still pays one stored-field read per hit. Adding a doc
+value for it would make that a column read like CollarId's.
 
-The values are kept on `SearchHit` as a list of `FieldMatch`, the type `luc:match`
-already uses.
+This step ships only if it measures well. It needs a reindex, and it writes every IRI a
+second time. IRIs are unique per document, so the column gets no deduplication. It helps
+large result sets that bind `?entity`, such as exports and `CONSTRUCT` over many hits. A
+page of 20 hits will not notice it, and the Discovery Portal query does not bind
+`?entity` at all. The [performance plan](#performance) measures it against the visitor
+read; if it is not clearly faster for large windows, it is left out.
+
+### Cost of reading separately
+
+Reading fields in `luc:fields` rather than inside `luc:query`'s search costs extra in one
+case only. When a query binds `?entity` and also reads a stored-only field, the entity
+pass and the field pass each decompress the same stored blocks. The second pass hits the
+page cache, so it costs CPU, not I/O; it has not been measured. Doc-value fields, and
+queries that do not bind `?entity`, read exactly what a combined pass would. The entity
+doc value, if it ships, removes the case.
+
+## Searcher lifetime
+
+A Lucene doc ID is valid only against the reader it came from. Today `searchWithHitIds`
+releases its `IndexSearcher` before returning, which is why the comment on
+`computeNestedMatches` insists everything be read inside that call.
+
+`SearchExecution` instead keeps the searcher it searched with, holding one reference from
+the `SearcherManager`, and releases it when `luc:query`'s iterator closes. In a
+nested-loop plan, `luc:fields` runs its pass on the first incoming hit, while
+`luc:query`'s iterator is still open.
+
+A plan can evaluate `luc:fields` after that iterator has closed: for example when
+`luc:query` sits in one group of a hash join and is fully drained first. `luc:fields` then
+acquires a searcher and compares its reader with the one the search used. The
+`SearcherManager` hands back the same reader until a commit refreshes it
+(`ShaclTextIndexLucene.commit` calls `maybeRefresh`), so with no write in between the doc
+IDs are still valid and the read goes ahead. If the reader has changed, `luc:fields`
+raises a query error rather than attach values from a different index state to the hits.
+
+While a searcher is held, segments merged away in the meantime keep their files until it
+is released. For one query that is the usual cost of a Lucene reader and is bounded by the
+query's duration.
+
+When a `SearchExecution` re-runs its search for a larger window, it releases the old
+searcher, takes the new one, and discards cached field values, since the doc IDs they were
+read against may no longer hold.
 
 ## Shared execution
 
-`SearchExecution.buildKey` is unchanged: `returnFields` is not part of the key, so
-`luc:facet` still shares the search with `luc:query`. A `SearchExecution` records what it
-has loaded: the fields, and whether the entity IRI was read. If a later `luc:query` with
-the same key needs something outside that, the search re-runs with the union, as it
-already re-runs when the hit window grows.
+`SearchExecution.buildKey` is unchanged, so `luc:facet` still shares the search with
+`luc:query`. A `SearchExecution` records whether the entity IRI was read. If a later
+`luc:query` with the same key binds `?entity` and the first did not, the IRIs are read in a
+further pass over the held searcher, rather than by re-running the search.
 
 ## Joining on `?hit`
 
@@ -258,16 +299,16 @@ must not copy them:
   search by hit ID through a context-wide map.
 
 The map and labels are introduced for `luc:fields`. Moving `luc:match` and
-`luc:nestedMatch` onto them is a small follow-up and removes the same defects there.
+`luc:nestedMatch` onto them is a small follow-up and removes the same defects there. Until
+then, a 300,000-hit query that also uses `luc:match` is slow because of `luc:match`.
 
 ## Memory
 
 The hit list is already materialised in full: `SearchExecution` caches up to
-`offset + limit` `SearchHit` objects. Projection adds one `FieldMatch` and one `Node` per
-value. For one short identifier field on 300,000 hits that is an estimated 30–60 MB of
-heap, not measured. Streaming hits instead of caching them would change how
-`luc:facet`, `luc:match` and `?totalHits` share state, and this requirement does not need
-it.
+`offset + limit` `SearchHit` objects. Projection adds one cached `Node` per value read.
+For one short identifier field on 300,000 hits that is an estimated 30–60 MB of heap, not
+measured. Streaming hits instead of caching them would change how `luc:facet`,
+`luc:match` and `?totalHits` share state, and this requirement does not need it.
 
 ## Related defects found while designing
 
@@ -282,8 +323,11 @@ These are outside this design and need their own failing test and fix:
    other than `*`, `searchWithHitIds` calls `computeFieldMatches`, which loads each hit's
    whole stored document a second time and evaluates `Weight.matches` on it. A
    300,000-hit portal search with a text term pays that for every hit even when no
-   `luc:match` appears in the query. The visitor from [Read path](#read-path) applies
-   there too: it needs only the matched fields.
+   `luc:match` appears in the query. A visitor limited to the matched fields applies
+   there too.
+3. **`luc:match` rejects a constant field.** `TextMatchPF` raises "Field must be a
+   variable" for a field IRI in its field slot. `luc:fields` accepts one; relaxing
+   `luc:match` the same way would make the two consistent.
 
 ## Out of scope
 
@@ -298,15 +342,14 @@ These are outside this design and need their own failing test and fix:
 
 | Change | Where |
 |---|---|
-| Parse `returnFields`; object arity 8 | `ShaclTextQueryPF.build` and `parseArgs`, `QueryArgs` |
-| Loaded-field and entity record, re-run on a wider set, hit-ID map | `SearchExecution` |
+| Entity IRI read only when the subject list has an `?entity` slot, with a one-field visitor; nullable `getEntityNode` | `ShaclTextQueryPF`, `ShaclTextIndexLucene.searchWithHitIds`, `SearchHit`, the warning in `computeNestedMatches` |
+| Held searcher and its release on iterator close; reader check for late reads; per-field value cache; hit-ID map | `SearchExecution`, `ShaclTextQueryPF` |
 | Doc-value eligibility, decided once per field | `ShaclIndexMapping.FieldDef` |
-| Read plan; doc-ID-ordered doc-value and stored-field reads; restricted stored-field visitor; values kept on the hit | `ShaclTextIndexLucene.searchWithHitIds`, new read-plan class, `SearchHit` |
-| Entity IRI read only when the subject list has an `?entity` slot; nullable `getEntityNode` | `ShaclTextQueryPF`, `SearchHit`, the warning in `computeNestedMatches` |
+| Doc-ID-ordered doc-value and stored-field passes | `ShaclTextIndexLucene` |
 | Per-search hit labels | `SearchHit` constructor |
 | The property function | New `TextFieldsPF`; `IndexVocab.pfFields = NS + "fields"`; registered in `TextQuery` beside `pfNestedMatch` |
-| Every existing `luc:query` call site in tests, docs and the demo gains `""` as an eighth argument | `jena-text/src/test`, `docs/`, `demo/` |
-| Docs | `luc:query` arguments and a `luc:fields` section in [02-sparql-api.md](02-sparql-api.md), including that omitting `?entity` avoids the stored-field read; the `idx:stored` and `idx:sortable` rows in [03-configuration.md](03-configuration.md#field-properties) name `luc:fields`; a row in [README.md](README.md) |
+| Entity IRI doc value, if it measures well | `docFromMapping`; a reindex |
+| Docs | A `luc:fields` section in [02-sparql-api.md](02-sparql-api.md), including that binding only `?hit` avoids the entity read; the `idx:stored` and `idx:sortable` rows in [03-configuration.md](03-configuration.md#field-properties) name `luc:fields`; a row in [README.md](README.md) |
 
 ## Tests
 
@@ -315,7 +358,8 @@ JUnit 5 and must be added to `TS_Text`'s `@SelectClasses`; a class missing from 
 never runs.
 
 - A single-valued `KEYWORD` field with a filter-only search (`*`) returns one row per
-  hit, in rank order, with the stored value. This is the Discovery Portal shape.
+  hit, in rank order. This is the Discovery Portal shape, tested with the field read from
+  stored fields and, declared sortable, from doc values.
 - The same with a text query string and with a sort spec, so rank order is checked under
   relevance and under a sort.
 - A multi-valued field returns one row per value.
@@ -327,43 +371,84 @@ never runs.
   values and stored fields give the same terms, compared as sets.
 - A sortable `KEYWORD` field with `idx:stored false` and no normalizer is returned; the
   same field without `idx:sortable` raises.
-- The read plan for `(?hit)` with only eligible `returnFields` contains no stored
-  fields. The plan for `(?hit ?entity)` contains the entity field only. These are tested
-  on the plan object, since a skipped read has no observable result.
+- A variable field slot returns every readable field and skips unreadable ones; a
+  constant selects one.
+- Two constant-field patterns give one row per hit with both columns.
+- `luc:fields` and `luc:match` in one query: distinct variables give the per-hit product;
+  shared `?field ?value` variables give only the common pairs.
+- `(?hit) luc:query` reads no stored field: tested by counting visitor calls through a
+  test hook, since a skipped read has no other observable result. `(?hit ?entity)` reads
+  the entity field only.
 - `?entity` binds the same IRI as before when its slot is present, and a constant
   `?entity` still filters hits.
-- Two constant-field `luc:fields` patterns give one row per hit with both columns.
+- A second `luc:query` with the same key that binds `?entity`, after one that did not,
+  gets the IRIs without re-running the search.
+- A commit between the search and a late `luc:fields` read raises; with no commit, the
+  late read succeeds.
+- A window re-run discards cached values and reads them again.
+- The searcher is released when the query finishes, including when the query is
+  cancelled or abandoned part-way: the `SearcherManager` reference count returns to its
+  starting value.
 - Each error in [Errors](#errors) raises and names the field.
 - Two `luc:query` calls with different searches in one query: each `?hit` resolves to its
   own search's values.
-- `luc:query` and `luc:facet` with the same search share one `SearchExecution` when
-  `returnFields` is set.
-- A second `luc:query` with the same key and a wider `returnFields` gets the extra field.
 - 300,000 hits complete in time linear in the hit count. Use a synthetic index sized to
   make a quadratic join fail a generous timeout, not a wall-clock benchmark.
 
-## Measurement
+## Performance
+
+The change touches the per-hit path of every `luc:query`, so it is measured for
+regressions in queries that do not use `luc:fields`, as well as for the gain in the
+Discovery Portal query.
+
+### Benchmark
+
+A JMH benchmark in `jena-text`'s test sources, run on demand and not by `TS_Text`. It sits
+in `jena-text` rather than `jena-benchmarks`, because `jena-benchmarks` is upstream's and
+its module lists already conflict on every upstream sync.
+
+It builds a synthetic SHACL index of 500,000 entities, each with about ten stored fields
+including two `TEXT` fields of a few hundred characters, so that whole-document loads cost
+what they do on real data. Scenarios:
+
+| Scenario | What it guards |
+|---|---|
+| Page of 20, text query, binds `?entity` | The common UI query |
+| Page of 20, text query, with `luc:match` | Match computation and the `?hit` join |
+| `luc:query` with `luc:facet`, same search | Shared execution |
+| 300,000 hits, filter only, binds `?entity` | Large windows that need the IRI; the entity doc-value step |
+| 300,000 hits, `(?hit)`, CollarId from stored fields | The Discovery Portal shape before reindexing |
+| 300,000 hits, `(?hit)`, CollarId from doc values | The Discovery Portal shape after |
+| 300,000 hits, binds `?entity`, stored-only field | The double-decompression case |
+
+The benchmark is committed on its own first, and its numbers recorded at that commit, so
+the baseline is the current code. The first three scenarios and the fourth run on both
+the baseline and the change. The proposed threshold is that none is more than 5% slower
+at the median, warm, on the same machine. The others have no baseline and are reported.
+
+### End-to-end measurement
 
 On the same local dataset and NVMe as the baseline table, evict the TDB2 and Lucene files
 from the page cache, then run the 300,000-ID query with `luc:fields` in place of the
-triple pattern. Run it twice, once with CollarId read from stored fields and once with it declared
+triple pattern: once with CollarId read from stored fields, and once with it declared
 sortable and read from doc values. Record time, disk reads and data read, cold and warm,
 and confirm the row count and the set of IDs equal the baseline query's. Repeat cold on
 shared dev.
 
 Separately, measure warm per-hit `luc:query` time for an ordinary query that binds
-`?entity` and requests no fields, against the 13 µs baseline, to confirm the restricted
-visitor helps queries that do not use projection.
+`?entity`, against the 13 µs baseline, to confirm the one-field visitor helps queries that
+do not use `luc:fields`.
 
 ## Open decisions
 
-1. **Name.** `luc:fields` is proposed. `luc:values` and `luc:stored` were considered;
-   `luc:fields` matches the `returnFields` argument.
-2. **All stored fields.** Whether `returnFields` should accept `["*"]`. It would load
-   every stored field of every hit, which is cheap per hit but unbounded in memory for a
-   large window.
+1. **Name.** `luc:fields` is proposed. `luc:values` and `luc:stored` were considered.
+2. **Variable field slot.** Whether a variable should be allowed at all. It reads every
+   readable field of every hit, which is cheap per hit but unbounded in memory for a large
+   window. Requiring a constant is the conservative choice.
 3. **Numeric doc values.** `INT` and `LONG` doc values could be eligible when the
    original lexical form is canonical, but nothing records whether it was. Left as
    stored-only until a numeric identifier needs it.
-4. **The two related defects.** Whether they are fixed before this lands. The negative
+4. **Regression threshold.** 5% at the median is proposed. Benchmark noise on the
+   machine used may call for a wider band or more iterations.
+5. **The related defects.** Whether they are fixed before this lands. The negative
    `limit` defect affects any client that follows the documentation.
