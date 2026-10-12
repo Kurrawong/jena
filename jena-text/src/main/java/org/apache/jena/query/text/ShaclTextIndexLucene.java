@@ -62,8 +62,13 @@ import org.apache.lucene.facet.taxonomy.FastTaxonomyFacetCounts;
 import org.apache.lucene.facet.taxonomy.TaxonomyReader;
 import org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyReader;
 import org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyWriter;
+import org.apache.lucene.index.BinaryDocValues;
 import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.DocValuesType;
+import org.apache.lucene.index.FieldInfo;
+import org.apache.lucene.index.FieldInfos;
 import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.SortedDocValues;
 import org.apache.lucene.search.SearcherManager;
 import org.apache.lucene.search.join.BitSetProducer;
 import org.apache.lucene.search.join.ParentChildrenBlockJoinQuery;
@@ -247,8 +252,31 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         this.hitReadObserver = observer;
     }
 
-    /** System property choosing the entity IRI doc value. Not yet implemented. */
+    /**
+     * System property choosing the entity IRI doc value written for a new index:
+     * {@code binary} (the default), {@code sorted} or {@code none}. It exists so the two
+     * doc-value types and the stored-field read can be benchmarked against each other;
+     * it is not configuration.
+     */
     static final String ENTITY_DOC_VALUES_PROPERTY = "jena.text.entityDocValues";
+
+    /**
+     * The doc value written for the entity IRI, under {@link #entityDocValueField}:
+     * {@code BINARY}, {@code SORTED} or {@code NONE}. Decided when the index is opened. An
+     * index that already has that field keeps the type it was written with, because Lucene
+     * rejects a document that gives an existing field a different doc-value type.
+     */
+    private final DocValuesType entityDocValues;
+
+    /**
+     * The field holding the entity IRI doc value. It is not the entity field itself:
+     * child documents carry the entity field for block deletes, and Lucene requires every
+     * document with a field to give it the same doc-value type. A separate field also lets
+     * an index written before the doc value existed take new documents with it.
+     */
+    static String entityDocValueField(String entityField) {
+        return entityField + "__docValue";
+    }
 
     /** Test hook: also store copies of fields read from doc values, as indexes written before that rule do. */
     private volatile boolean legacyStoredCopies = false;
@@ -319,6 +347,39 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         // The parent constructor opened (and committed) the IndexWriter before this point,
         // so an NRT SearcherManager rooted on it is safe to construct now.
         initSearcherManager();
+        this.entityDocValues = decideEntityDocValues();
+    }
+
+    private DocValuesType decideEntityDocValues() {
+        String mode = System.getProperty(ENTITY_DOC_VALUES_PROPERTY, "binary").trim().toLowerCase(Locale.ROOT);
+        DocValuesType wanted = switch (mode) {
+            case "none" -> DocValuesType.NONE;
+            case "sorted" -> DocValuesType.SORTED;
+            case "binary" -> DocValuesType.BINARY;
+            default -> {
+                log.warn("Unknown {} value '{}'; using binary", ENTITY_DOC_VALUES_PROPERTY, mode);
+                yield DocValuesType.BINARY;
+            }
+        };
+        String docValueField = entityDocValueField(getDocDef().getEntityField());
+        IndexSearcher searcher = acquireSearcher();
+        try {
+            FieldInfo existing = FieldInfos.getMergedFieldInfos(searcher.getIndexReader()).fieldInfo(docValueField);
+            if (existing == null) {
+                return wanted;
+            }
+            DocValuesType type = existing.getDocValuesType();
+            if (type != DocValuesType.BINARY && type != DocValuesType.SORTED) {
+                type = DocValuesType.NONE;
+            }
+            if (type != wanted) {
+                log.info("Entity IRI doc value: the index was written with {}, which stays; "
+                    + "a rebuild into an empty directory writes {}", type, wanted);
+            }
+            return type;
+        } finally {
+            releaseSearcher(searcher);
+        }
     }
 
     /**
@@ -914,30 +975,68 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     }
 
     /**
-     * Read the entity IRI of each hit, decoding only the entity field, in doc-ID order.
-     * A document without the field gets a null entity.
+     * Read the entity IRI of each hit in doc-ID order: from the entity doc value where the
+     * segment has one, otherwise decoding only the entity field from stored fields. A
+     * document without the field gets a null entity.
      */
     void readEntityNodes(IndexSearcher searcher, Collection<SearchHit> hits) throws IOException {
         String entityField = getDocDef().getEntityField();
+        String docValueField = entityDocValueField(entityField);
         HitReadObserver observer = hitReadObserver;
         HitReader.OneStringField visitor = new HitReader.OneStringField(entityField);
         HitReader.inDocOrder(searcher.getIndexReader(), hits, new HitReader.LeafReads() {
+            private LeafReaderContext leaf;
             private StoredFields storedFields;
+            private BinaryDocValues binary;
+            private SortedDocValues sorted;
 
             @Override
-            public void startLeaf(LeafReaderContext leaf) throws IOException {
-                storedFields = leaf.reader().storedFields();
+            public void startLeaf(LeafReaderContext leafContext) throws IOException {
+                leaf = leafContext;
+                storedFields = null;
+                binary = null;
+                sorted = null;
+                // Segments written before the doc value existed fall back to stored fields.
+                FieldInfo info = leaf.reader().getFieldInfos().fieldInfo(docValueField);
+                DocValuesType type = info == null ? DocValuesType.NONE : info.getDocValuesType();
+                if (type == DocValuesType.BINARY) {
+                    binary = leaf.reader().getBinaryDocValues(docValueField);
+                } else if (type == DocValuesType.SORTED) {
+                    sorted = leaf.reader().getSortedDocValues(docValueField);
+                }
             }
 
             @Override
             public void read(SearchHit hit, int segmentDocId) throws IOException {
+                String uri = fromDocValue(segmentDocId);
+                if (uri == null) {
+                    uri = fromStoredField(segmentDocId);
+                } else if (observer != null) {
+                    observer.docValuesRead(hit.getLuceneDocId(), entityField);
+                }
+                hit.setEntityNode(uri == null ? null : TextQueryFuncs.stringToNode(uri));
+            }
+
+            private String fromDocValue(int segmentDocId) throws IOException {
+                if (binary != null && binary.advanceExact(segmentDocId)) {
+                    return binary.binaryValue().utf8ToString();
+                }
+                if (sorted != null && sorted.advanceExact(segmentDocId)) {
+                    return sorted.lookupOrd(sorted.ordValue()).utf8ToString();
+                }
+                return null;
+            }
+
+            private String fromStoredField(int segmentDocId) throws IOException {
+                if (storedFields == null) {
+                    storedFields = leaf.reader().storedFields();
+                }
                 visitor.reset();
                 storedFields.document(segmentDocId, visitor);
-                String uri = visitor.value();
-                hit.setEntityNode(uri == null ? null : TextQueryFuncs.stringToNode(uri));
                 if (observer != null) {
-                    observer.storedFieldsRead(hit.getLuceneDocId(), List.of(entityField));
+                    observer.storedFieldsRead(leaf.docBase + segmentDocId, List.of(entityField));
                 }
+                return visitor.value();
             }
         });
     }
@@ -1260,6 +1359,15 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
         String docIdField = profile.getDocIdField();
         doc.add(new Field(docIdField, entity.getId(), ftIRI));
+        // A column of entity IRIs, so luc:query can read them without stored fields.
+        if (docIdField.equals(getDocDef().getEntityField())) {
+            String docValueField = entityDocValueField(docIdField);
+            if (entityDocValues == DocValuesType.BINARY) {
+                doc.add(new BinaryDocValuesField(docValueField, new BytesRef(entity.getId())));
+            } else if (entityDocValues == DocValuesType.SORTED) {
+                doc.add(new SortedDocValuesField(docValueField, new BytesRef(entity.getId())));
+            }
+        }
 
         String discriminatorField = profile.getDiscriminatorField();
         if (discriminatorField != null && !profile.getTargetClasses().isEmpty()) {

@@ -182,8 +182,8 @@ public class TestEntityDocValue {
         IndexSearcher searcher = textIndex.acquireSearcher();
         try {
             FieldInfo info = FieldInfos.getMergedFieldInfos(searcher.getIndexReader())
-                .fieldInfo(textIndex.getDocDef().getEntityField());
-            return info.getDocValuesType();
+                .fieldInfo(ShaclTextIndexLucene.entityDocValueField(textIndex.getDocDef().getEntityField()));
+            return info == null ? DocValuesType.NONE : info.getDocValuesType();
         } finally {
             textIndex.releaseSearcher(searcher);
         }
@@ -254,18 +254,20 @@ public class TestEntityDocValue {
     }
 
     @Test
-    public void existingIndexWithoutTheDocValueKeepsAcceptingWrites(@TempDir Path dir) {
+    public void segmentWithoutTheDocValueFallsBackToTheStoredCopy(@TempDir Path dir) {
         String directory = "<" + IRILib.filenameToIRI(dir.toAbsolutePath().toString()) + ">";
+        // Written before the doc value existed.
         open(directory, "none");
         load();
         close();
 
-        // The default would write the doc value, which Lucene rejects for a field that
-        // already exists without one.
+        // A new document gets the doc value; the old segment has none.
         open(directory, null);
         Txn.executeWrite(dataset, () -> addDoc(dataset.getDefaultModel(), "e4", "common delta", "C4"));
-        assertEquals(DocValuesType.NONE, entityDocValuesType());
-        List<Node> all = entities(CODE_ASC);
-        assertEquals(List.of(ex("e2"), ex("e3"), ex("e1"), ex("e4")), all);
+        assertEquals(DocValuesType.BINARY, entityDocValuesType());
+        Counter counter = count();
+        assertEquals(List.of(ex("e2"), ex("e3"), ex("e1"), ex("e4")), entities(CODE_ASC));
+        assertEquals(3, counter.stored, "e1 to e3 from the stored copy");
+        assertEquals(1, counter.docValues, "e4 from the doc value");
     }
 }
