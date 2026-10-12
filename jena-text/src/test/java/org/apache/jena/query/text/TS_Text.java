@@ -153,6 +153,10 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestTypeaheadFieldConfigurations.class
     , TestNestedJoinPathSupport.class
 
+    // sh:node steps and filters, occurrence value constraints evaluated by jena-shacl
+    , TestShaclNodeOccurrenceFilters.class
+    , TestShaclOccurrenceValueConstraints.class
+
     // Offset paging
     , TestOffsetPaging.class
 
