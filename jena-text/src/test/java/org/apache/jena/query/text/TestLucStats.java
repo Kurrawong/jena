@@ -36,6 +36,7 @@ import org.apache.jena.query.*;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.ModelFactory;
 import org.apache.jena.rdf.model.Resource;
+import org.apache.jena.sparql.pfunction.PropertyFunctionRegistry;
 import org.apache.jena.sys.JenaSystem;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -342,5 +343,38 @@ public class TestLucStats {
     public void unknownSelectorIsAnError() {
         dataset = multi();
         assertThrows(QueryExecException.class, () -> stats("nope"));
+    }
+
+    /**
+     * An index that fails while producing its graph, as getStats does on an IOException,
+     * is a query error naming the property function, like a bad selector.
+     */
+    @Test
+    public void indexFailureIsAQueryError() {
+        dataset = single("");
+        String uri = LUC + "failingStats";
+        PropertyFunctionRegistry.get().put(uri, FailingPF.class);
+        try {
+            String q = PREFIXES + "SELECT * WHERE { (?s ?p ?o) <" + uri + "> (\"default\") }";
+            QueryExecException e = assertThrows(QueryExecException.class, () -> {
+                try (QueryExecution qe = QueryExecutionFactory.create(q, dataset)) {
+                    qe.execSelect().forEachRemaining(row -> {});
+                }
+            });
+            assertTrue(e.getMessage().startsWith("luc:failing: "), e.getMessage());
+        } finally {
+            PropertyFunctionRegistry.get().remove(uri);
+        }
+    }
+
+    public static class FailingPF extends ShaclGraphPF {
+        public FailingPF() {
+            super("luc:failing");
+        }
+
+        @Override
+        protected Graph graph(ShaclTextIndexLucene index, String selector) {
+            throw new TextIndexException("could not read the index");
+        }
     }
 }
