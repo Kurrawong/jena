@@ -37,7 +37,6 @@ import org.apache.jena.sparql.engine.iterator.QueryIterPlainWrapper;
 import org.apache.jena.sparql.pfunction.PropFuncArg;
 import org.apache.jena.sparql.pfunction.PropertyFunctionBase;
 import org.apache.jena.sparql.util.IterLib;
-import org.apache.jena.sparql.util.Symbol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,7 +61,12 @@ import org.slf4j.LoggerFactory;
  * (field, value) rows cannot say which value belongs with which key.
  * <p>
  * The object argument list is empty — all state comes from the shared
- * {@link SearchExecution} stored in the {@link ExecutionContext}.
+ * {@link SearchExecution} stored in the {@link ExecutionContext}. A bound {@code ?hit}
+ * names its search, so it is found with one lookup. A field IRI in the field slot keeps
+ * only that field's values.
+ * <p>
+ * The child records are found on the first call, for every hit {@code luc:query} has
+ * returned, against the searcher the search ran on.
  */
 public class TextNestedMatchPF extends PropertyFunctionBase {
     private static final Logger log = LoggerFactory.getLogger(TextNestedMatchPF.class);
@@ -97,7 +101,7 @@ public class TextNestedMatchPF extends PropertyFunctionBase {
                 recordNode = requireVariable(argSubject.getArg(1), "Record", argSubject);
             }
             if (argSubject.getArgListSize() > 2) {
-                fieldNode = requireVariable(argSubject.getArg(2), "Field", argSubject);
+                fieldNode = argSubject.getArg(2);
             }
             if (argSubject.getArgListSize() > 3) {
                 valueNode = requireVariable(argSubject.getArg(3), "Value", argSubject);
@@ -110,37 +114,35 @@ public class TextNestedMatchPF extends PropertyFunctionBase {
             return IterLib.noResults(execCxt);
         }
 
-        SearchExecution se = findSearchExecution(execCxt);
-        if (se == null) {
-            log.warn("luc:nestedMatch used without a preceding luc:query in the same query");
-            return IterLib.noResults(execCxt);
-        }
-
-        // Reuse the hits luc:query already fetched — the nested records were projected
-        // during that search and are carried on the hits.
-        List<SearchHit> allHits = se.getCachedHits();
-
         Var hitVar = Var.isVar(hitNode) ? Var.alloc(hitNode) : null;
         Var recordVar = recordNode != null ? Var.alloc(recordNode) : null;
-        Var fieldVar = fieldNode != null ? Var.alloc(fieldNode) : null;
+        Var fieldVar = fieldNode != null && Var.isVar(fieldNode) ? Var.alloc(fieldNode) : null;
+        Node fieldFilter = fieldNode != null && fieldVar == null ? fieldNode : null;
         Var valueVar = valueNode != null ? Var.alloc(valueNode) : null;
 
         List<Binding> bindings = new ArrayList<>();
 
-        for (SearchHit sh : allHits) {
-            // ?hit already bound — keep only its own rows.
-            if (hitVar == null && !hitNode.equals(sh.getHitId())) {
-                continue;
+        if (hitVar == null) {
+            // ?hit bound: it names its search and its rank.
+            SearchExecution se = SearchExecution.forHit(execCxt, hitNode);
+            SearchHit sh = se != null ? se.findHit(hitNode) : null;
+            if (sh == null) {
+                if (SearchExecution.all(execCxt).isEmpty()) {
+                    log.warn("luc:nestedMatch used without a preceding luc:query in the same query");
+                }
+                return IterLib.noResults(execCxt);
             }
-
-            for (NestedMatch record : sh.getNestedMatches()) {
-                for (FieldMatch fm : record.getFieldMatches()) {
-                    BindingBuilder builder = Binding.builder(binding);
-                    if (hitVar != null) builder.add(hitVar, sh.getHitId());
-                    if (recordVar != null) builder.add(recordVar, record.getRecordId());
-                    if (fieldVar != null && fm.getFieldIRI() != null) builder.add(fieldVar, fm.getFieldIRI());
-                    if (valueVar != null && fm.getValue() != null) builder.add(valueVar, fm.getValue());
-                    bindings.add(builder.build());
+            addRows(bindings, binding, null, recordVar, fieldVar, fieldFilter, valueVar, sh, se.nestedMatches(sh));
+        } else {
+            List<SearchExecution> searches = SearchExecution.all(execCxt);
+            if (searches.isEmpty()) {
+                log.warn("luc:nestedMatch used without a preceding luc:query in the same query");
+                return IterLib.noResults(execCxt);
+            }
+            for (SearchExecution se : searches) {
+                for (SearchHit sh : se.hitsWithNestedMatches()) {
+                    addRows(bindings, binding, hitVar, recordVar, fieldVar, fieldFilter, valueVar,
+                        sh, sh.getNestedMatches());
                 }
             }
         }
@@ -148,28 +150,28 @@ public class TextNestedMatchPF extends PropertyFunctionBase {
         return QueryIterPlainWrapper.create(bindings.iterator(), execCxt);
     }
 
+    private static void addRows(List<Binding> bindings, Binding binding, Var hitVar, Var recordVar,
+                                Var fieldVar, Node fieldFilter, Var valueVar,
+                                SearchHit sh, List<NestedMatch> records) {
+        for (NestedMatch record : records) {
+            for (FieldMatch fm : record.getFieldMatches()) {
+                if (fieldFilter != null && !fieldFilter.equals(fm.getFieldIRI())) {
+                    continue;
+                }
+                BindingBuilder builder = Binding.builder(binding);
+                if (hitVar != null) builder.add(hitVar, sh.getHitId());
+                if (recordVar != null) builder.add(recordVar, record.getRecordId());
+                if (fieldVar != null && fm.getFieldIRI() != null) builder.add(fieldVar, fm.getFieldIRI());
+                if (valueVar != null && fm.getValue() != null) builder.add(valueVar, fm.getValue());
+                bindings.add(builder.build());
+            }
+        }
+    }
+
     private static Node requireVariable(Node node, String label, PropFuncArg argSubject) {
         if (!node.isVariable()) {
             throw new QueryExecException(label + " must be a variable: " + argSubject);
         }
         return node;
-    }
-
-    /**
-     * Find a SearchExecution in the execution context, stored there by luc:query or
-     * luc:facet under a key derived from the search parameters.
-     */
-    private SearchExecution findSearchExecution(ExecutionContext execCxt) {
-        String prefix = TextQuery.NS + "searchExecution/";
-        org.apache.jena.sparql.util.Context ctx = execCxt.getContext();
-        for (Symbol sym : ctx.keys()) {
-            if (sym.getSymbol().startsWith(prefix)) {
-                Object obj = ctx.get(sym);
-                if (obj instanceof SearchExecution) {
-                    return (SearchExecution) obj;
-                }
-            }
-        }
-        return null;
     }
 }

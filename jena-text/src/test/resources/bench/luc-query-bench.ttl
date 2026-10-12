@@ -1,0 +1,126 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+## Assembler for the synthetic luc:query benchmark (BenchLucQuery).
+## @@TDB@@ and @@LUCENE@@ are replaced with absolute paths when the benchmark
+## writes this file into its working directory.
+
+PREFIX :        <#>
+PREFIX field:   <urn:jena:lucene:field#>
+PREFIX rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX ja:      <http://jena.hpl.hp.com/2005/11/Assembler#>
+PREFIX tdb2:    <http://jena.apache.org/2016/tdb#>
+PREFIX text:    <http://jena.apache.org/text#>
+PREFIX idx:     <urn:jena:lucene:index#>
+PREFIX sh:      <http://www.w3.org/ns/shacl#>
+PREFIX schema:  <https://schema.org/>
+PREFIX bench:   <http://example.org/bench/>
+
+:text_dataset rdf:type text:TextDataset ;
+    text:dataset :base_dataset ;
+    text:index :index .
+
+:base_dataset rdf:type tdb2:DatasetTDB ;
+    tdb2:location "@@TDB@@" .
+
+:index rdf:type text:TextIndexShacl ;
+    text:directory <@@LUCENE@@> ;
+    text:shapes ( :RecordShape ) ;
+    text:storeValues false ;
+    text:maxFacetHits 50000 .
+
+## --- Fields ---
+
+field:entityType
+    idx:fieldName "entityType" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true .
+
+field:label
+    idx:fieldName "label" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true .
+
+field:recordId
+    idx:fieldName "recordId" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:sortable true .
+
+field:description
+    idx:fieldName "description" ;
+    idx:fieldType idx:TextField ;
+    idx:stored true ;
+    idx:defaultSearch true .
+
+field:abstract
+    idx:fieldName "abstract" ;
+    idx:fieldType idx:TextField ;
+    idx:stored true ;
+    idx:defaultSearch true .
+
+field:category
+    idx:fieldName "category" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:facetable true .
+
+field:region
+    idx:fieldName "region" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:facetable true .
+
+field:status
+    idx:fieldName "status" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:facetable true .
+
+field:subject
+    idx:fieldName "subject" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:facetable true ;
+    idx:multiValued true .
+
+field:year
+    idx:fieldName "year" ;
+    idx:fieldType idx:IntField ;
+    idx:stored true ;
+    idx:sortable true ;
+    idx:facetable true .
+
+field:identifierType
+    idx:fieldName "identifierType" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:facetable true ;
+    idx:multiValued true .
+
+field:identifierValue
+    idx:fieldName "identifierValue" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:multiValued true .
+
+## --- Shape ---
+
+:RecordShape
+    sh:targetClass bench:Record ;
+    sh:property [ idx:field field:entityType ; sh:path rdf:type ] ;
+    sh:property [ idx:field field:label ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:recordId ; sh:path bench:recordId ] ;
+    sh:property [ idx:field field:description ; sh:path bench:description ] ;
+    sh:property [ idx:field field:abstract ; sh:path bench:abstract ] ;
+    sh:property [ idx:field field:category ; sh:path bench:category ] ;
+    sh:property [ idx:field field:region ; sh:path bench:region ] ;
+    sh:property [ idx:field field:status ; sh:path bench:status ] ;
+    sh:property [ idx:field field:subject ; sh:path bench:subject ] ;
+    sh:property [ idx:field field:year ; sh:path bench:year ] ;
+    idx:nested [
+        idx:joinPath schema:identifier ;
+        idx:property [ idx:field field:identifierType ; sh:path schema:propertyID ] ;
+        idx:property [ idx:field field:identifierValue ; sh:path schema:value ] ;
+    ] .

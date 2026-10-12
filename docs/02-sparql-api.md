@@ -17,8 +17,9 @@ Public API rules:
 
 - Index selection is explicit and always the first object argument.
 - Field references are always field IRIs, never `idx:fieldName`.
-- `luc:query` returns `?hit`; per-hit match detail comes from `luc:match`, and the
-  nested child records that satisfied the filter from `luc:nestedMatch`.
+- `luc:query` returns `?hit`; per-hit match detail comes from `luc:match`, the
+  nested child records that satisfied the filter from `luc:nestedMatch`, and field
+  values from `luc:fields`.
 - `luc:query` no longer returns `?match`.
 - Parsing is fixed-position and fixed-arity. There is no shape-based argument inference.
 - Use `""` as the placeholder for an unused `cqlFilter` or `sortSpec`.
@@ -40,6 +41,10 @@ Subject arity may be 1 to 5:
 - `?hit ?entity ?score`
 - `?hit ?entity ?score ?totalHits`
 - `?hit ?entity ?score ?totalHits ?rank`
+
+The entity IRI is read from the index only when the subject list has an `?entity` slot,
+as a variable or as an IRI to filter on. `(?hit)` alone reads no stored field, which
+suits a query that needs only `luc:match` or `luc:nestedMatch` rows.
 
 `?rank` sits last rather than beside `?score`, where it would read more naturally. It was
 added after the earlier positions were already in use, and appending it was the only
@@ -65,7 +70,7 @@ Object arity is always exactly 7.
 | 3 | `queryString` | string literal | Yes | Lucene query string |
 | 4 | `cqlFilter` | string literal | Yes | CQL2-JSON object, or `""` |
 | 5 | `sortSpec` | string literal | Yes | JSON sort object/array, or `""` |
-| 6 | `limit` | integer literal | Yes | Page size. Negative means unlimited |
+| 6 | `limit` | integer literal | Yes | Page size. Negative means unlimited. `0` gives the default page of 10 |
 | 7 | `offset` | integer literal | Yes | Number of leading hits to skip. `0` = first page. Must be non-negative. `offset + limit` must fit in a signed 32-bit int |
 
 ### `fieldSpec`
@@ -102,7 +107,7 @@ Pinned by `TestLuceneQuerySyntax`.
 
 | Variable | Type | Meaning |
 |---|---|---|
-| `?hit` | blank node | Query-scoped join key for `luc:match` |
+| `?hit` | blank node | Query-scoped join key for `luc:match` and `luc:nestedMatch`. Each `luc:query` in a query labels its hits distinctly |
 | `?entity` | IRI | Matched entity |
 | `?score` | float | Lucene relevance score; for a sorted search, `1/(1+rank)` (see below) |
 | `?totalHits` | `xsd:integer` | Total matching hits across the whole result set, independent of `limit` and `offset` |
@@ -217,7 +222,7 @@ Notes:
 - `?totalHits` always reflects the full match count, not the page size. Use it to compute page counts.
 - Lucene fetches `offset + limit` hits internally and the PF exposes only the slice. Very deep offsets therefore cost proportionally more.
 - When `luc:query` and `luc:facet` share a search (same selector, field spec, query string, filter, sort), the cached hit list grows to the largest window seen in the query; each caller gets its own slice.
-- A negative `offset` is a query error. A negative `limit` is still accepted and means unlimited (offset then has no effect beyond skipping).
+- A negative `offset` is a query error. A negative `limit` returns every hit from `offset` on. A `limit` of `0` returns the default page of 10.
 
 ## luc:match
 
@@ -227,20 +232,37 @@ Notes:
 (?hit ?field ?value ?snippet) luc:match ()
 ```
 
-The object is always `()`.
+The object is always `()`. The field slot takes a variable or a field IRI; an IRI keeps
+only the matches on that field:
+
+```sparql
+(?hit field:title ?value) luc:match () .
+```
+
+A constant in the value slot keeps only that value. This is what happens when `?field`
+and `?value` are shared with a `luc:fields` pattern evaluated first.
 
 ### Purpose
 
 `luc:match` is the only per-hit match-detail API. It joins to `luc:query` through `?hit` and returns one row per matched field.
+
+Match details are computed only when a query uses `luc:match`. The first call computes
+them for every hit `luc:query` has returned, in one pass over the index, and later calls
+read them from memory. A query without `luc:match` does not compute them.
 
 ### Return bindings
 
 | Variable | Type | Meaning |
 |---|---|---|
 | `?hit` | blank node | Join key from `luc:query` |
-| `?field` | IRI | Field IRI that matched |
-| `?value` | IRI or literal | Stored field value |
+| `?field` | IRI | Field IRI that matched; a variable or a field IRI to filter on |
+| `?value` | IRI or literal | The field value the query matched. Unbound for a field with `idx:stored false` |
 | `?snippet` | literal | Reserved for later highlighting support |
+
+On a multi-valued field, `?value` is the first value the query matches. A field read
+from doc values (see [03-configuration.md](03-configuration.md#where-values-are-kept))
+lists its values in byte order, so when no single value matches, for example a phrase
+spanning values, the first value in byte order is returned.
 
 ### Example
 
@@ -260,7 +282,8 @@ SELECT ?entity ?score ?field ?value WHERE {
 (?hit ?record ?field ?value) luc:nestedMatch ()
 ```
 
-The object is always `()`.
+The object is always `()`. The field slot takes a variable or a field IRI; an IRI keeps
+only that field's values.
 
 ### Purpose
 
@@ -278,8 +301,8 @@ indexed-but-unstored field can be filtered on but has nothing to return.
 |---|---|---|
 | `?hit` | blank node | Join key from `luc:query` |
 | `?record` | blank node | Grouping key — one per matching child document |
-| `?field` | IRI | Field IRI within the child |
-| `?value` | IRI or literal | Stored field value |
+| `?field` | IRI | Field IRI within the child; a variable or a field IRI to filter on |
+| `?value` | IRI or literal | Field value |
 
 `?record` is the point of the API. When a filter selects two children of the same
 entity, a flat stream of `(?field ?value)` rows cannot say which value belongs with
@@ -319,8 +342,88 @@ SELECT ?entity ?record ?field ?value WHERE {
   keep the drill-down — they have no children to lose.
 - At most 100 child records per hit are projected. Exceeding that is logged, not
   silently trimmed.
-- The projection is computed during the `luc:query` search, so it costs one extra
-  block-restricted child query per hit and needs no second Lucene search.
+- The projection is computed on the first `luc:nestedMatch` call, for every hit
+  `luc:query` has returned: one block-restricted child query per hit, against the index
+  state `luc:query` searched. A query without `luc:nestedMatch` does not compute it.
+
+## luc:fields
+
+### Syntax
+
+```sparql
+(?hit ?field ?value) luc:fields ()
+```
+
+The object is always `()`.
+
+### Purpose
+
+`luc:fields` returns field values for each hit from the Lucene index, with no join to
+the graph. It suits queries that need one or two values for many hits, such as an
+identifier for every hit of a large search. It joins to `luc:query` through `?hit`.
+
+It behaves like a triple pattern with `?hit` as subject: one row per value. A variable
+in the field slot ranges over every returnable root field; a field IRI selects one field.
+One pattern per field gives one column per field.
+
+A returnable root field has `idx:stored true` and an occurrence on the shape itself, not
+only inside an `idx:nested` block. `LATLON` fields are not returned.
+
+### Return bindings
+
+| Variable | Type | Meaning |
+|---|---|---|
+| `?hit` | blank node | Join key from `luc:query` |
+| `?field` | IRI | A variable, or the field IRI to return |
+| `?value` | IRI or literal | One value. A constant keeps only that value |
+
+Values are the terms `luc:match` returns for the same field. A multi-valued field gives
+one row per value. A field read from doc values gives each distinct value once, in byte
+order; one read from stored fields gives values in indexing order.
+
+### Example
+
+The identifier of every hit of a filtered search:
+
+```sparql
+PREFIX luc:   <urn:jena:lucene:index#>
+PREFIX field: <https://example.org/field#>
+
+SELECT ?id WHERE {
+  (?hit) luc:query ("default" "default" "" '<CQL2-JSON>' "" 300000 0) .
+  (?hit field:collarId ?id) luc:fields () .
+}
+```
+
+Binding only `?hit` means `luc:query` reads no entity IRI. When `field:collarId` is a
+sortable `KEYWORD`, its value is read from its doc value and the query reads no stored
+field.
+
+### With luc:match
+
+Both join on `?hit`, so a hit's rows are every combination of its `luc:match` rows and
+its `luc:fields` rows. Use different variable names. With `(?hit ?field ?value)` in
+both, the patterns also join on `?field` and `?value` and keep only the pairs both
+produce.
+
+### Errors
+
+Each raises a query error naming the field:
+
+- a field IRI that is not configured in any index of the dataset; in a query over two
+  indexes, a field of one gives no rows for the hits of the other
+- a field with `idx:stored false`
+- a field that occurs only inside an `idx:nested` block; `luc:nestedMatch` returns those
+- a read after the index was refreshed under the search (see [Shared Execution](#shared-execution))
+
+They are raised on the first call, because the index is known only once `luc:query`
+has run.
+
+### Reads
+
+The first call for a field reads it for every hit `luc:query` has returned, in one pass
+in Lucene doc-ID order, and caches the values; later calls are lookups. With `?hit`
+unbound, it reads every hit `luc:query` cached. The cache holds one entry per value.
 
 ## luc:facet
 
@@ -859,8 +962,8 @@ page — pagination over a selector-ordered result set stays correct across page
 
 ## Shared Execution
 
-`luc:query`, `luc:facet`, `luc:match`, and `luc:nestedMatch` share a single Lucene
-execution when these match:
+`luc:query`, `luc:facet`, `luc:match`, `luc:nestedMatch` and `luc:fields` share a
+single Lucene execution when these match:
 
 - resolved index identity
 - search field spec
@@ -869,3 +972,15 @@ execution when these match:
 - sort spec
 
 Facet-specific parameters such as requested facet fields, `maxValues`, and `minCount` are applied after the shared search step.
+
+`luc:match`, `luc:nestedMatch` and `luc:fields` find their search through `?hit`: each search in a
+query labels its hits with its own prefix, so a query with two `luc:query` patterns over
+different searches joins each `?hit` to the right one.
+
+Entity IRIs, match details, child records and field values are read after the search, and only when
+the query asks for them. They are read against the index state the search used: the
+search holds its Lucene searcher until `luc:query`'s results are consumed or the query
+is closed or cancelled. If a read happens after that, or a later `luc:query` over the
+same search needs more hits than were fetched, and the index has been committed in the
+meantime, the query fails with an error asking for it to be re-run, rather than return
+values from a different index state.

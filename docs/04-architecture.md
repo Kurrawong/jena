@@ -64,15 +64,19 @@ Used with `text:shapes` configuration. SPARQL search via `luc:query` (with filte
 
 | Class | Role |
 |-------|------|
-| `ShaclIndexMapping` | Parsed data model: `IndexProfile` (shape), `FieldDef` (field), `FieldType` enum. Pure data, no RDF/Lucene dependencies beyond `Node` and `Analyzer` |
+| `ShaclIndexMapping` | Parsed data model: `IndexProfile` (shape), `FieldDef` (field), `FieldType` enum. Pure data, no RDF/Lucene dependencies beyond `Node`, `Analyzer` and the `ShaclShapeCondition`s held by steps and occurrences |
 | `ShaclTextDocProducer` | Change listener. On triple add/delete, reads entity state from `MultiUnion(defaultGraph, unionGraph)`, builds Entity, calls `updateEntityForProfile()`. Supports data in default and named graphs |
 | `ShaclTextQueryPF` | Implements `luc:query` — search with JSON filter support, `?totalHits` binding. Uses `SearchExecution` for shared state with `luc:facet` |
 | `TextFacetPF` | Implements `luc:facet` — facet counts property function. Returns (field, value, count) bindings |
 | `ShaclConfigPF` | Implements `luc:config` — matches a triple pattern over the index's configuration subgraph, copied at assembly when `text:exposeConfig true` |
 | `ShaclStatsPF` | Implements `luc:stats` — matches a triple pattern over figures `ShaclIndexStats` reads from the current searcher, cached per reader generation. Shares `ShaclGraphPF` with `ShaclConfigPF` |
-| `SearchExecution` | Shared execution state. Stored in `ExecutionContext` keyed by normalised query params. Lazy-computes hits, facet counts, and total hit count |
+| `SearchExecution` | Shared execution state. Stored in `ExecutionContext` keyed by normalised query params. Lazy-computes hits, facet counts, and total hit count. Holds the searcher the hits came from and reads entity IRIs, match details and child records on request |
+| `HitReader` | Visits a set of hits in Lucene doc-ID order, one segment at a time; used by every per-hit read |
+| `FieldValueReader` | Reads field values for `luc:match`, `luc:nestedMatch`, `luc:fields` and the `TextHit` query methods (`queryByFields`, `queryWithFilters`, `queryWithCql`), from doc values where they hold the value and from restricted stored-field decodes otherwise |
+| `TextMatchPF`, `TextNestedMatchPF`, `TextFieldsPF` | Implement `luc:match`, `luc:nestedMatch` and `luc:fields`; each finds its search and hit through `?hit` |
 | `FacetValue` | Immutable (value, count) pair for facet results |
-| `ShaclIndexAssembler` | Parses `text:shapes` RDF config into `ShaclIndexMapping`. Reads `sh:targetClass`, `sh:path`, `sh:alternativePath`. No jena-shacl dependency |
+| `ShaclIndexAssembler` | Parses `text:shapes` RDF config into `ShaclIndexMapping`. Reads `sh:targetClass`, `sh:property`, `sh:path` (with jena-shacl's `ShaclPaths.parsePath`) and `sh:node` steps. Uses jena-shacl's `SHACL` vocabulary |
+| `ShaclShapeCondition` | A jena-shacl node shape applied to one node at a time: a step's filter, or a field occurrence's value constraints. Answers "does this node conform" with `VLib.validateShape`; produces no validation report. Lists the paths it reads, for change tracking |
 | `ShaclTextIndexLucene` | Extended `TextIndexLucene` with taxonomy writer/reader for hierarchical facets, `MultiFacets`, and `extractHierarchyDrillDown()` |
 | `IndexVocab` | `urn:jena:lucene:index#` namespace constants and PF URI strings |
 
@@ -99,20 +103,115 @@ sequenceDiagram
 
     S->>QP: luc:query ("default" "learning" '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Tech"]}')
     QP->>SE: getOrCreate(key = "qs=learning|filters=urn:jena:lucene:field#category:Tech")
-    SE->>L: Execute query (first access, lazy)
-    L-->>SE: Hits + reader snapshot
-    SE-->>QP: Hit URIs + scores
+    SE->>L: Search on a held searcher (first access, lazy)
+    L-->>SE: Doc IDs, ranks, scores
+    SE-->>QP: Page of hits
     QP-->>S: (?hit ?s ?score) bindings
 
     S->>FP: luc:facet ("default" "learning" '["urn:jena:lucene:field#category"]')
     FP->>SE: getOrCreate(same key) — reuses existing
-    SE-->>FP: Facet counts (from same snapshot)
+    SE->>L: Facet search on its own searcher (first access per facet request)
+    SE-->>FP: Facet counts
     FP-->>S: (?field ?value ?count) bindings
 ```
 
 Both PFs build a normalised key from query parameters. `SearchExecution.getOrCreate()` stores/retrieves shared state in `ExecutionContext`.
 
+The shared state is the parameters and the cached results, not one index snapshot. Facet
+counts and `?totalHits` each acquire the current searcher, run, and release it. They see
+the same index state as the hits unless a commit refreshed the index in between.
+
 Key normalisation: property URIs are sorted, filter map keys are sorted, filter values within each key are sorted. This ensures the same logical query always produces the same key regardless of argument ordering.
+
+---
+
+## Hit Path
+
+### Held searcher
+
+A Lucene doc ID is valid only against the reader it came from. `SearchExecution` keeps
+the `IndexSearcher` its search ran on, holding one `SearcherManager` reference, while any
+`luc:query` iterator over that search is open. `ShaclTextQueryPF` calls `retain()` before
+searching and returns a `QueryIterPlainWrapper` subclass whose `closeIterator()` calls
+`release()`; the last release returns the searcher. ARQ calls `closeIterator()` when the
+iterator is exhausted, when the query is cancelled, and when a parent iterator or the
+`QueryExecution` is closed, so an abandoned query releases it too. A `luc:query` call
+that fails before returning its iterator releases in a `finally` block.
+
+Reads that run after the last release, for example `luc:match` evaluated after a sort
+drained `luc:query`, acquire the current searcher and compare its `IndexReader` with
+the one the search used. `SearcherManager` returns the same reader until a commit
+refreshes it, so with no commit in between the doc IDs are still valid and the read
+proceeds. A different reader raises `QueryExecException`.
+
+A larger window re-runs the search. It uses the held searcher when there is one, so the
+pages of one query see one index state. Otherwise it acquires the current searcher and
+applies the same reader check: the hit labels already returned name ranks in the earlier
+search, and a re-run on a different reader would give them to different documents. The
+new hits are new `SearchHit` objects, so nothing read for the old ones carries over.
+
+### Lazy per-hit reads
+
+`ShaclTextIndexLucene.searchHits` returns hits with rank, score and Lucene doc ID only.
+The rest is read on request, each time for a batch of hits in doc-ID order through
+`HitReader.inDocOrder`, which sorts the hits, starts each segment once, and writes the
+results back onto the hits so rank order is kept:
+
+| Data | Read when | Read how |
+|---|---|---|
+| Entity IRI | `luc:query`'s subject list has an `?entity` slot | The entity IRI doc value where the segment has one; otherwise `HitReader.OneStringField`, a `StoredFieldVisitor` that decodes the entity field and stops |
+| Match details | First `luc:match` call | `Weight.matches` per hit, then `FieldValueReader` for the matched fields |
+| Child records | First `luc:nestedMatch` call | One `ParentChildrenBlockJoinQuery` per hit for each nested clause of the filter, then `FieldValueReader` for each child |
+| Field values | First `luc:fields` call for a field | `FieldValueReader` for the requested fields; cached per field by rank in `SearchExecution` |
+
+Match details, child records and field values are computed for the requested hit plus
+every hit `luc:query` has returned that lacks them, so a page is computed in one pass.
+With `?hit` unbound they are computed for every cached hit.
+
+### Value reader
+
+`FieldValueReader` reads a set of fields for documents of one segment in increasing
+doc-ID order. For each field and segment it checks the segment's `FieldInfo` once:
+
+| Field | Segment has | Read from |
+|---|---|---|
+| `FieldDef.isValueInDocValues()` | `SORTED` or `SORTED_SET` doc values under the field's name | The doc value, with forward-only `advanceExact` |
+| `FieldDef.isValueInDocValues()` | a stored copy only (written before the field was sortable) | Stored fields |
+| any other | — | Stored fields |
+| any | no `FieldInfo` | Nothing: no document in the segment has the field |
+
+The stored fields of all fields read from them are decoded together, with one
+`DocumentStoredFieldVisitor` restricted to those fields and their datatype and language
+twins. Values from either source become terms through
+`LiteralFieldSupport.reconstructNode`; a doc value passes no datatype or language, as
+the stored path does for such a field. A field with `idx:stored false` returns nothing
+even when it has a doc value.
+
+`luc:match` passes the values to `selectStoredValue`, which picks the value the text
+query matches. `luc:nestedMatch` reads child documents rather than the hits themselves.
+A block never spans segments and children precede their parent, so with the hits in
+doc-ID order the child doc IDs also only increase through a pass.
+
+### Entity IRI doc value
+
+`docFromMapping` writes the entity IRI as a `BinaryDocValuesField` on parent documents,
+under its own field, `<entity field>__docValue`, beside the stored copy. It cannot be a
+doc value of the entity field itself: child documents carry that field for block
+deletes, and Lucene requires every document with a field to give it the same doc-value
+type.
+
+An index written before the doc value existed takes new documents with it, so old and
+new segments mix. `readEntityNodes` checks each segment's `FieldInfo`, and each document,
+and falls back to the one-field visitor where the doc value is absent.
+
+### Hit lookup
+
+Each `SearchExecution` created in a query gets a number from a per-query registry in the
+`ExecutionContext`, and labels its hits `s<number>h<rank>`. `luc:match` and
+`luc:nestedMatch` parse a bound `?hit` to find the search in the registry and the hit by
+rank in its cached window: one lookup per incoming `?hit`, where each call used to scan
+every cached hit. Two `luc:query` patterns over different searches in one query no longer
+share labels, so each `?hit` resolves to its own search.
 
 ---
 
@@ -158,14 +257,18 @@ DatasetGraphTextMonitor.add(g, s, p, o)
         ShaclTextDocProducer.change()
         ├── p == rdf:type?
         │     └── handleTypeChange()
-        │           └── rebuildEntityDocuments(s)
+        │           ├── rebuildEntityDocuments(s)
+        │           └── entities whose sh:class conditions reach s
         ├── mapping.isRelevantPredicate(p)?
         │     ├── top-level predicate?
         │     │     └── rebuild entity subject directly
         │     ├── nested child predicate?
         │     │     └── reverse nested join path from changed child node
-        │     └── nested join predicate?
-        │           └── locate join step, reverse join-path prefix to parent
+        │     ├── nested join predicate?
+        │     │     └── locate join step, reverse join-path prefix to parent
+        │     └── read by a step filter or a value constraint?
+        │           └── reverse the condition's path (step paths, then the path
+        │               the condition reads) to the scope root
         └── else: ignore (irrelevant predicate)
 
 rebuildEntityDocuments(subject)
@@ -356,13 +459,13 @@ The public SPARQL output for a range bucket is explicit bounds, not a display la
 | FieldType | Lucene indexed field | Lucene stored field | Lucene DocValues |
 |-----------|---------------------|--------------------|--------------------|
 | TEXT | `TextField` | (via `TYPE_STORED`) | — |
-| KEYWORD | `StringField` | (via `Store.YES`) | `SortedSetDocValuesFacetField` (facetable), `SortedDocValuesField` (sortable) |
+| KEYWORD | `StringField` | (via `Store.YES`), except sortable fields with no normalizer and no literal metadata, whose sort doc value holds the value | `SortedSetDocValuesFacetField` (facetable), `SortedDocValuesField` or `SortedSetDocValuesField` (sortable) |
 | INT | `IntPoint` | `StoredField(int)` | `SortedNumericDocValuesField` (facetable and/or sortable) |
 | LONG | `LongPoint` | `StoredField(long)` | `SortedNumericDocValuesField` (facetable and/or sortable) |
 | DOUBLE | `DoublePoint` | `StoredField(double)` | `SortedNumericDocValuesField` (facetable and/or sortable) |
 
 Each entity document also gets:
-- **URI field** (`ftIRI` type) — tokenized=false, stored=true
+- **URI field** (`ftIRI` type) — tokenized=false, stored=true, plus a `BinaryDocValuesField` of the IRI on parent documents, under `<field>__docValue` (see [Entity IRI doc value](#entity-iri-doc-value))
 - **Discriminator field** — `StringField` with the target class local name (e.g., "Book")
 
 ---

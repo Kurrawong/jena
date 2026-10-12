@@ -29,8 +29,11 @@ import org.apache.jena.graph.Node;
 import org.apache.jena.query.text.*;
 import org.apache.jena.query.text.ShaclIndexMapping.*;
 import org.apache.jena.rdf.model.*;
+import org.apache.jena.shacl.engine.ShaclPaths;
+import org.apache.jena.shacl.parser.ShaclParseException;
+import org.apache.jena.shacl.vocabulary.SHACL;
+import org.apache.jena.shacl.vocabulary.SHACLM;
 import org.apache.jena.sparql.path.*;
-import org.apache.jena.system.G;
 import org.apache.lucene.analysis.Analyzer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,27 +49,13 @@ public class ShaclIndexAssembler {
     private static final Set<FieldType> SELF_BINDABLE_TYPES =
         Collections.unmodifiableSet(EnumSet.of(FieldType.KEYWORD, FieldType.TEXT));
 
-    private static final String SH = "http://www.w3.org/ns/shacl#";
-    private static final String SH_BLANK_NODE = SH + "BlankNode";
-    private static final String SH_IRI = SH + "IRI";
-    private static final String SH_LITERAL = SH + "Literal";
-    private static final String SH_BLANK_NODE_OR_IRI = SH + "BlankNodeOrIRI";
-    private static final String SH_BLANK_NODE_OR_LITERAL = SH + "BlankNodeOrLiteral";
-    private static final String SH_IRI_OR_LITERAL = SH + "IRIOrLiteral";
-
-    private static final Property shTargetClass     = ResourceFactory.createProperty(SH, "targetClass");
-    private static final Property shProperty        = ResourceFactory.createProperty(SH, "property");
-    private static final Property shPath            = ResourceFactory.createProperty(SH, "path");
-    private static final Property shAlternativePath = ResourceFactory.createProperty(SH, "alternativePath");
-    private static final Property shInversePath     = ResourceFactory.createProperty(SH, "inversePath");
-    private static final Property shClass           = ResourceFactory.createProperty(SH, "class");
-    private static final Property shNodeKind        = ResourceFactory.createProperty(SH, "nodeKind");
-    private static final Property shDatatype        = ResourceFactory.createProperty(SH, "datatype");
-
-    private static final Node SH_INVERSE_PATH = shInversePath.asNode();
-    private static final Node SH_ALTERNATIVE_PATH = shAlternativePath.asNode();
-    private static final Node RDF_FIRST = org.apache.jena.vocabulary.RDF.first.asNode();
-    private static final Node RDF_NIL = org.apache.jena.vocabulary.RDF.nil.asNode();
+    private static final Property shTargetClass = SHACLM.targetClass;
+    private static final Property shProperty    = SHACLM.property;
+    private static final Property shPath        = SHACLM.path;
+    private static final Property shClass       = SHACLM.class_;
+    private static final Property shNodeKind    = SHACLM.nodeKind;
+    private static final Property shDatatype    = SHACLM.datatype;
+    private static final Property shNode        = SHACLM.node;
 
     private ShaclIndexAssembler() {}
 
@@ -144,7 +133,8 @@ public class ShaclIndexAssembler {
             if (!propNode.isResource()) {
                 throw new TextIndexException("sh:property on " + shape + " must be a resource");
             }
-            occurrences.add(parseOccurrence(a, propNode.asResource(), canonicalFields, reachableFields, null));
+            parseMember(a, propNode.asResource(), canonicalFields, reachableFields, null,
+                Collections.emptyList(), Collections.emptyList(), occurrences);
         }
         return Collections.unmodifiableList(occurrences);
     }
@@ -190,8 +180,8 @@ public class ShaclIndexAssembler {
                 if (!occurrenceNode.isResource()) {
                     throw new TextIndexException("idx:property inside idx:nested must be a resource on " + shape);
                 }
-                nestedOccurrences.add(parseOccurrence(
-                    a, occurrenceNode.asResource(), canonicalFields, reachableFields, nestedName));
+                parseMember(a, occurrenceNode.asResource(), canonicalFields, reachableFields, nestedName,
+                    Collections.emptyList(), Collections.emptyList(), nestedOccurrences);
             }
 
             if (nestedOccurrences.isEmpty()) {
@@ -453,10 +443,114 @@ public class ShaclIndexAssembler {
         return Collections.unmodifiableList(hierarchies);
     }
 
+    /**
+     * Parse one member of a scope: a field occurrence, or a step whose {@code sh:node}
+     * shape contributes further occurrences. Either way the resulting occurrences are
+     * appended to {@code out}, each carrying the chain of steps that leads to it.
+     *
+     * @param stepShapes the {@code sh:node} shapes of {@code steps}, in the same order
+     */
+    private static void parseMember(Assembler a, Resource memberRes,
+                                    Map<String, CanonicalFieldSpec> canonicalFields,
+                                    Map<String, FieldDef> reachableFields, String nestedName,
+                                    List<StepDef> steps, List<Resource> stepShapes,
+                                    List<FieldOccurrence> out) {
+        if (isStep(memberRes)) {
+            parseStep(a, memberRes, canonicalFields, reachableFields, nestedName, steps, stepShapes, out);
+        } else {
+            out.add(parseOccurrence(a, memberRes, canonicalFields, reachableFields, nestedName, steps));
+        }
+    }
+
+    /**
+     * A step is a {@code sh:property} with {@code sh:path} and {@code sh:node}, no
+     * {@code idx:field}, whose {@code sh:node} shape declares at least one field
+     * occurrence. Without a field occurrence underneath, such a property is an ordinary
+     * SHACL constraint, which inside a {@code sh:node} shape makes it part of the filter.
+     */
+    static boolean isStep(Resource memberRes) {
+        return isStep(memberRes, new HashSet<>());
+    }
+
+    private static boolean isStep(Resource memberRes, Set<RDFNode> visiting) {
+        if (memberRes.hasProperty(IndexVocab.pField)
+                || !memberRes.hasProperty(shPath)
+                || !memberRes.hasProperty(shNode)) {
+            return false;
+        }
+        for (Statement nodeStmt : memberRes.listProperties(shNode).toList()) {
+            RDFNode shape = nodeStmt.getObject();
+            if (shape.isResource() && visiting.add(shape) && declaresFields(shape.asResource(), visiting)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean declaresFields(Resource shapeRes, Set<RDFNode> visiting) {
+        for (Statement memberStmt : shapeRes.listProperties(shProperty).toList()) {
+            RDFNode member = memberStmt.getObject();
+            if (!member.isResource()) {
+                continue;
+            }
+            if (member.asResource().hasProperty(IndexVocab.pField) || isStep(member.asResource(), visiting)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void parseStep(Assembler a, Resource stepRes,
+                                  Map<String, CanonicalFieldSpec> canonicalFields,
+                                  Map<String, FieldDef> reachableFields, String nestedName,
+                                  List<StepDef> steps, List<Resource> stepShapes,
+                                  List<FieldOccurrence> out) {
+        List<Statement> nodeStmts = stepRes.listProperties(shNode).toList();
+        if (nodeStmts.size() != 1 || !nodeStmts.get(0).getObject().isResource()) {
+            throw new TextIndexException("Step " + stepRes + " must have exactly one sh:node shape");
+        }
+        if (stepRes.hasProperty(IndexVocab.pSelf)) {
+            throw new TextIndexException("Step " + stepRes + " has idx:self. A step follows its sh:path; "
+                + "put idx:self on a sh:property inside its sh:node shape instead.");
+        }
+        for (Property constraint : ShaclConstraints.ALL) {
+            if (!constraint.equals(shNode) && stepRes.hasProperty(constraint)) {
+                throw new TextIndexException("Step " + stepRes + " carries " + ShaclConstraints.name(constraint)
+                    + ". A step takes only sh:path and sh:node; put constraints on the nodes it reaches "
+                    + "inside the sh:node shape.");
+            }
+        }
+        Path path = extractOccurrencePath(stepRes);
+        Resource shapeRes = nodeStmts.get(0).getObject().asResource();
+        if (stepShapes.contains(shapeRes)) {
+            // Each pass through the shape would add another step, without end.
+            throw new TextIndexException("Step " + stepRes + " reaches the sh:node shape " + shapeRes
+                + ", which already encloses it. A step may not lead back to its own shape: the index "
+                + "evaluates steps to a fixed depth.");
+        }
+        ShaclShapeCondition filter = ShaclConstraints.filterCondition(shapeRes);
+        StepDef step = new StepDef(path, extractPathVariants(path), filter);
+
+        List<StepDef> chain = new ArrayList<>(steps);
+        chain.add(step);
+        List<Resource> chainShapes = new ArrayList<>(stepShapes);
+        chainShapes.add(shapeRes);
+        for (Statement memberStmt : shapeRes.listProperties(shProperty).toList()) {
+            RDFNode member = memberStmt.getObject();
+            if (!member.isResource()) {
+                throw new TextIndexException("sh:property on " + shapeRes + " must be a resource");
+            }
+            Resource memberRes = member.asResource();
+            if (memberRes.hasProperty(IndexVocab.pField) || isStep(memberRes)) {
+                parseMember(a, memberRes, canonicalFields, reachableFields, nestedName, chain, chainShapes, out);
+            }
+        }
+    }
+
     private static FieldOccurrence parseOccurrence(Assembler a, Resource occurrenceRes,
                                                    Map<String, CanonicalFieldSpec> canonicalFields,
                                                    Map<String, FieldDef> reachableFields,
-                                                   String nestedName) {
+                                                   String nestedName, List<StepDef> steps) {
         rejectCanonicalFieldPropertiesOnOccurrence(occurrenceRes);
 
         Statement fieldStmt = occurrenceRes.getProperty(IndexVocab.pField);
@@ -482,23 +576,29 @@ public class ShaclIndexAssembler {
         Node requiredClass = getOptionalResourceNode(occurrenceRes, shClass);
         NodeKindConstraint nodeKindConstraint = getOptionalNodeKindConstraint(occurrenceRes);
         Node datatype = getOptionalResourceNode(occurrenceRes, shDatatype);
+        ShaclShapeCondition valueCondition = ShaclConstraints.valueCondition(occurrenceRes);
 
-        if (self) {
-            if (!SELF_BINDABLE_TYPES.contains(field.getFieldType())) {
-                throw new TextIndexException("Field occurrence " + occurrenceRes
-                    + " binds the focus node with idx:self into field "
-                    + field.getFieldIRI().getURI() + ", which has type " + field.getFieldType()
-                    + ". A focus node is a resource, so a self-bound field must be "
-                    + SELF_BINDABLE_TYPES + ".");
-            }
-            return FieldOccurrence.self(field, requiredClass, nodeKindConstraint, datatype, nestedName);
+        if (self && !SELF_BINDABLE_TYPES.contains(field.getFieldType())) {
+            throw new TextIndexException("Field occurrence " + occurrenceRes
+                + " binds the focus node with idx:self into field "
+                + field.getFieldIRI().getURI() + ", which has type " + field.getFieldType()
+                + ". A focus node is a resource, so a self-bound field must be "
+                + SELF_BINDABLE_TYPES + ".");
         }
 
-        List<List<JoinStep>> pathVariants = extractPathVariants(path);
-        Set<Node> predicates = extractLeafPredicates(path);
+        List<List<JoinStep>> pathVariants = List.of(List.of());
+        Set<Node> predicates = new LinkedHashSet<>();
+        for (StepDef step : steps) {
+            pathVariants = ShaclIndexMapping.concatVariants(pathVariants, step.getPathVariants());
+            predicates.addAll(extractLeafPredicates(step.getPath()));
+        }
+        if (path != null) {
+            pathVariants = ShaclIndexMapping.concatVariants(pathVariants, extractPathVariants(path));
+            predicates.addAll(extractLeafPredicates(path));
+        }
 
-        return new FieldOccurrence(field, path, pathVariants, predicates,
-            requiredClass, nodeKindConstraint, datatype, nestedName);
+        return new FieldOccurrence(field, steps, path, pathVariants, predicates,
+            requiredClass, nodeKindConstraint, datatype, valueCondition, nestedName);
     }
 
     /**
@@ -808,48 +908,45 @@ public class ShaclIndexAssembler {
         return parseShaclPath(graph, pathNode);
     }
 
+    /**
+     * Parse a SHACL path with jena-shacl, then reject the forms the index cannot handle.
+     * Change tracking, the join-path handling and the precomputed path variants support
+     * only predicate, inverse, sequence and alternative paths, so {@code sh:zeroOrMorePath},
+     * {@code sh:oneOrMorePath} and {@code sh:zeroOrOnePath} are rejected here.
+     */
     static Path parseShaclPath(Graph graph, Node node) {
-        if (node.isURI() && !RDF_NIL.equals(node)) {
-            return PathFactory.pathLink(node);
+        Path path;
+        try {
+            path = ShaclPaths.parsePath(graph, node);
+        } catch (ShaclParseException ex) {
+            throw unsupportedPath(node, ex);
         }
-
-        if (isList(graph, node)) {
-            List<Node> nodes = G.rdfList(graph, node);
-            if (nodes.isEmpty()) {
-                throw new TextIndexException("Empty list for path sequence");
-            }
-            Path path = null;
-            for (Node n : nodes) {
-                Path next = parseShaclPath(graph, n);
-                path = path == null ? next : PathFactory.pathSeq(path, next);
-            }
-            return path;
+        if (!isSupportedPath(path)) {
+            throw unsupportedPath(node, null);
         }
-
-        if (node.isBlank()) {
-            if (G.hasProperty(graph, node, SH_INVERSE_PATH)) {
-                Node subPath = G.getOneSP(graph, node, SH_INVERSE_PATH);
-                return PathFactory.pathInverse(parseShaclPath(graph, subPath));
-            }
-
-            if (G.hasProperty(graph, node, SH_ALTERNATIVE_PATH)) {
-                Node pathList = G.getOneSP(graph, node, SH_ALTERNATIVE_PATH);
-                List<Node> nodes = G.rdfList(graph, pathList);
-                Path path = null;
-                for (Node n : nodes) {
-                    Path next = parseShaclPath(graph, n);
-                    path = path == null ? next : PathFactory.pathAlt(path, next);
-                }
-                return path;
-            }
-        }
-
-        throw new TextIndexException("Unsupported SHACL path node: " + node
-            + ". Only predicate, alternative, inverse, and sequence paths are supported.");
+        return path;
     }
 
-    private static boolean isList(Graph graph, Node node) {
-        return RDF_NIL.equals(node) || G.contains(graph, node, RDF_FIRST, null);
+    private static TextIndexException unsupportedPath(Node node, Exception cause) {
+        String message = "Unsupported SHACL path node: " + node
+            + ". Only predicate, alternative, inverse, and sequence paths are supported.";
+        return cause == null ? new TextIndexException(message) : new TextIndexException(message, cause);
+    }
+
+    private static boolean isSupportedPath(Path path) {
+        if (path instanceof P_Link) {
+            return true;
+        }
+        if (path instanceof P_Inverse inverse) {
+            return isSupportedPath(inverse.getSubPath());
+        }
+        if (path instanceof P_Seq seq) {
+            return isSupportedPath(seq.getLeft()) && isSupportedPath(seq.getRight());
+        }
+        if (path instanceof P_Alt alt) {
+            return isSupportedPath(alt.getLeft()) && isSupportedPath(alt.getRight());
+        }
+        return false;
     }
 
     static Set<Node> extractLeafPredicates(Path path) {
@@ -998,13 +1095,12 @@ public class ShaclIndexAssembler {
         if (nodeKind == null) {
             return null;
         }
-        String uri = nodeKind.getURI();
-        if (SH_BLANK_NODE.equals(uri)) return NodeKindConstraint.BLANK_NODE;
-        if (SH_IRI.equals(uri)) return NodeKindConstraint.IRI;
-        if (SH_LITERAL.equals(uri)) return NodeKindConstraint.LITERAL;
-        if (SH_BLANK_NODE_OR_IRI.equals(uri)) return NodeKindConstraint.BLANK_NODE_OR_IRI;
-        if (SH_BLANK_NODE_OR_LITERAL.equals(uri)) return NodeKindConstraint.BLANK_NODE_OR_LITERAL;
-        if (SH_IRI_OR_LITERAL.equals(uri)) return NodeKindConstraint.IRI_OR_LITERAL;
+        if (SHACL.BlankNode.equals(nodeKind)) return NodeKindConstraint.BLANK_NODE;
+        if (SHACL.IRI.equals(nodeKind)) return NodeKindConstraint.IRI;
+        if (SHACL.Literal.equals(nodeKind)) return NodeKindConstraint.LITERAL;
+        if (SHACL.BlankNodeOrIRI.equals(nodeKind)) return NodeKindConstraint.BLANK_NODE_OR_IRI;
+        if (SHACL.BlankNodeOrLiteral.equals(nodeKind)) return NodeKindConstraint.BLANK_NODE_OR_LITERAL;
+        if (SHACL.IRIOrLiteral.equals(nodeKind)) return NodeKindConstraint.IRI_OR_LITERAL;
         throw new TextIndexException("Unsupported sh:nodeKind on " + occurrenceRes + ": " + nodeKind);
     }
 }

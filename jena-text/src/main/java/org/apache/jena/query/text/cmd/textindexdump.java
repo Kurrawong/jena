@@ -21,6 +21,12 @@
 
 package org.apache.jena.query.text.cmd ;
 
+import java.io.IOException ;
+import java.util.ArrayList ;
+import java.util.LinkedHashSet ;
+import java.util.List ;
+import java.util.Set ;
+
 import org.apache.jena.atlas.lib.Lib ;
 import org.apache.jena.atlas.logging.LogCtlJUL;
 import org.apache.jena.cmd.ArgDecl;
@@ -31,8 +37,15 @@ import org.apache.jena.sparql.core.assembler.AssemblerUtils ;
 import org.apache.lucene.analysis.Analyzer ;
 import org.apache.lucene.document.Document ;
 import org.apache.lucene.index.DirectoryReader ;
+import org.apache.lucene.index.DocValuesType ;
+import org.apache.lucene.index.FieldInfo ;
 import org.apache.lucene.index.IndexReader ;
 import org.apache.lucene.index.IndexableField ;
+import org.apache.lucene.index.LeafReader ;
+import org.apache.lucene.index.LeafReaderContext ;
+import org.apache.lucene.index.ReaderUtil ;
+import org.apache.lucene.index.SortedDocValues ;
+import org.apache.lucene.index.SortedSetDocValues ;
 import org.apache.lucene.index.StoredFields;
 import org.apache.lucene.queryparser.classic.QueryParser ;
 import org.apache.lucene.search.IndexSearcher ;
@@ -107,6 +120,7 @@ public class textindexdump extends CmdARQ {
             Query query = queryParser.parse("*:*");
             ScoreDoc[] sDocs = indexSearcher.search(query, 1000).scoreDocs ;
             StoredFields sFields = indexSearcher.storedFields();
+            Set<String> docValueFields = docValueFields(textIndex) ;
 
             for ( ScoreDoc sd : sDocs ) {
                 System.out.println("Doc: "+sd.doc) ;
@@ -116,9 +130,56 @@ public class textindexdump extends CmdARQ {
                     //System.out.println("  "+f) ;
                     System.out.println("  "+f.name()+" = "+f.stringValue()) ;
                 }
+                for ( String field : docValueFields ) {
+                    if ( doc.getField(field) == null )
+                        printDocValues(indexReader, sd.doc, field) ;
+                }
             }
 
         } catch (Exception ex) { throw new TextIndexException(ex) ; }
 
+    }
+
+    /**
+     * Fields of a SHACL index whose stored values are kept in their doc values instead of
+     * stored fields; see {@link ShaclIndexMapping.FieldDef#isValueInDocValues()}.
+     */
+    private static Set<String> docValueFields(TextIndexLucene textIndex) {
+        Set<String> names = new LinkedHashSet<>() ;
+        if ( !(textIndex instanceof ShaclTextIndexLucene shaclIndex) )
+            return names ;
+        List<ShaclIndexMapping.FieldDef> fields = new ArrayList<>() ;
+        for ( ShaclIndexMapping.IndexProfile profile : shaclIndex.getShaclMapping().getProfiles() ) {
+            fields.addAll(profile.getFields()) ;
+            for ( ShaclIndexMapping.NestedDef nested : profile.getNestedDefs() )
+                fields.addAll(nested.getFields()) ;
+        }
+        for ( ShaclIndexMapping.FieldDef field : fields ) {
+            if ( field.isStored() && field.isValueInDocValues() )
+                names.add(field.getFieldName()) ;
+        }
+        return names ;
+    }
+
+    /** Print one document's values of {@code field} from its sorted or sorted-set doc value. */
+    private static void printDocValues(IndexReader indexReader, int docId, String field) throws IOException {
+        List<LeafReaderContext> leaves = indexReader.leaves() ;
+        LeafReaderContext leaf = leaves.get(ReaderUtil.subIndex(docId, leaves)) ;
+        int segmentDocId = docId - leaf.docBase ;
+        LeafReader reader = leaf.reader() ;
+        FieldInfo info = reader.getFieldInfos().fieldInfo(field) ;
+        if ( info == null )
+            return ;
+        if ( info.getDocValuesType() == DocValuesType.SORTED ) {
+            SortedDocValues values = reader.getSortedDocValues(field) ;
+            if ( values.advanceExact(segmentDocId) )
+                System.out.println("  "+field+" = "+values.lookupOrd(values.ordValue()).utf8ToString()) ;
+        } else if ( info.getDocValuesType() == DocValuesType.SORTED_SET ) {
+            SortedSetDocValues values = reader.getSortedSetDocValues(field) ;
+            if ( values.advanceExact(segmentDocId) ) {
+                for ( int i = 0 ; i < values.docValueCount() ; i++ )
+                    System.out.println("  "+field+" = "+values.lookupOrd(values.nextOrd()).utf8ToString()) ;
+            }
+        }
     }
 }

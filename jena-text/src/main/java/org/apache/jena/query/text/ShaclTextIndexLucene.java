@@ -62,7 +62,10 @@ import org.apache.lucene.facet.taxonomy.FastTaxonomyFacetCounts;
 import org.apache.lucene.facet.taxonomy.TaxonomyReader;
 import org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyReader;
 import org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyWriter;
+import org.apache.lucene.index.BinaryDocValues;
 import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.DocValuesType;
+import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.search.SearcherManager;
 import org.apache.lucene.search.join.BitSetProducer;
@@ -250,6 +253,41 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * A hit whose filter selects more children than this is logged, not silently trimmed.
      */
     private static final int MAX_NESTED_MATCHES_PER_HIT = 100;
+
+    /** Test hook counting reads on the hit path; null in production. */
+    private volatile HitReadObserver hitReadObserver;
+
+    void setHitReadObserver(HitReadObserver observer) {
+        this.hitReadObserver = observer;
+    }
+
+    /**
+     * Test hook: write parent documents without the entity IRI doc value, as indexes
+     * written before it existed do. Hits from such documents read the stored entity field.
+     */
+    private volatile boolean legacyNoEntityDocValue = false;
+
+    void setLegacyNoEntityDocValue(boolean legacy) {
+        this.legacyNoEntityDocValue = legacy;
+    }
+
+    /**
+     * The field holding the entity IRI doc value. It is not the entity field itself:
+     * child documents carry the entity field for block deletes, and Lucene requires every
+     * document with a field to give it the same doc-value type. A separate field also lets
+     * an index written before the doc value existed take new documents with it.
+     */
+    static String entityDocValueField(String entityField) {
+        return entityField + "__docValue";
+    }
+
+    /** Test hook: also store copies of fields read from doc values, as indexes written before that rule do. */
+    private volatile boolean legacyStoredCopies = false;
+
+    void setLegacyStoredCopies(boolean legacy) {
+        this.legacyStoredCopies = legacy;
+    }
+
 
     public ShaclTextIndexLucene(Directory directory, TextIndexConfig config) {
         this(directory, null, config);
@@ -512,7 +550,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * The caller MUST pair this with {@link #releaseSearcher(IndexSearcher)} in a
      * try/finally — a missed release leaks reader references.
      */
-    private IndexSearcher acquireSearcher() {
+    IndexSearcher acquireSearcher() {
         try {
             return searcherManager.acquire();
         } catch (IOException e) {
@@ -521,13 +559,15 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     }
 
     /** Release a searcher previously obtained from {@link #acquireSearcher()}. */
-    private void releaseSearcher(IndexSearcher searcher) {
+    void releaseSearcher(IndexSearcher searcher) {
         if (searcher == null) {
             return;
         }
+        // What SearcherManager.release does, without the manager: a searcher held by a
+        // query can outlive the manager, which close() and rollback() discard.
         try {
-            searcherManager.release(searcher);
-        } catch (IOException e) {
+            searcher.getIndexReader().decRef();
+        } catch (IOException | org.apache.lucene.store.AlreadyClosedException e) {
             log.warn("Failed to release searcher: {}", e.getMessage());
         }
     }
@@ -832,13 +872,51 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     }
 
     /**
-     * Execute a search and return SearchHit objects with stable hit IDs.
-     * The returned hits carry Lucene doc IDs for later field match extraction.
+     * A search run against a searcher the caller holds. The hits carry rank, score and
+     * doc ID only; {@link #readEntityNodes}, {@link #computeFieldMatches} and
+     * {@link #computeNestedMatches} fill in the rest against the same searcher.
+     *
+     * @param textQuery  the text part, for match details; a {@link MatchAllDocsQuery}
+     *                   when there is no query string
+     * @param finalQuery the text part combined with the compiled filter, for child records
+     */
+    record HitSearch(List<SearchHit> hits, Query textQuery, Query finalQuery) {}
+
+    /**
+     * Execute a search and return hits with their entity IRIs, match details and child
+     * records all read. Acquires and releases its own searcher.
+     * <p>
+     * {@code luc:query} does not use this: it runs {@link #searchHits} against a searcher
+     * {@link SearchExecution} holds, and reads the rest only when the query asks.
      */
     public List<SearchHit> searchWithHitIds(List<String> resolvedFields, String qs,
             CqlExpression cqlFilter, List<SortSpec> sortSpecs,
             String graphURI, String lang, int limit) {
         IndexSearcher searcher = acquireSearcher();
+        try {
+            HitSearch search = searchHits(searcher, resolvedFields, qs, cqlFilter, sortSpecs, limit, "hit");
+            List<SearchHit> results = search.hits();
+            readEntityNodes(searcher, results);
+            results.removeIf(hit -> hit.getEntityNode() == null);
+            computeFieldMatches(searcher, search.textQuery(), resolvedFields, results);
+            computeNestedMatches(searcher, search.finalQuery(), results);
+            return results;
+        } catch (IOException ex) {
+            throw new TextIndexException("searchWithHitIds", ex);
+        } finally {
+            releaseSearcher(searcher);
+        }
+    }
+
+    /**
+     * Run a search against {@code searcher}, which the caller holds, and return hits that
+     * carry rank, score and Lucene doc ID only. Nothing is read from stored fields.
+     *
+     * @param limit       hits to return; zero or less means {@link #MAX_N}
+     * @param labelPrefix prefix of each hit's blank node label
+     */
+    HitSearch searchHits(IndexSearcher searcher, List<String> resolvedFields, String qs,
+            CqlExpression cqlFilter, List<SortSpec> sortSpecs, int limit, String labelPrefix) {
         try {
             Query textQuery;
             if (qs == null || qs.isEmpty()) {
@@ -865,10 +943,16 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 finalQuery = textQuery;
             }
 
+            Query searchQuery = filterToParents(finalQuery);
             int maxHits = limit > 0 ? limit : MAX_N;
+            // Lucene allocates its hit queue at the requested size, capped at maxDoc. A
+            // window larger than the index (an unlimited luc:query) is sized by the
+            // number of matches instead.
+            if (maxHits >= searcher.getIndexReader().maxDoc()) {
+                maxHits = Math.max(1, searcher.count(searchQuery));
+            }
             Sort luceneSort = buildLuceneSort(sortSpecs);
 
-            Query searchQuery = filterToParents(finalQuery);
             TopDocs topDocs;
             if (luceneSort != null) {
                 topDocs = searcher.search(searchQuery, maxHits, luceneSort);
@@ -876,41 +960,77 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 topDocs = searcher.search(searchQuery, maxHits);
             }
 
-            String entityField = getDocDef().getEntityField();
-            StoredFields storedFields = searcher.storedFields();
-            List<SearchHit> results = new ArrayList<>();
+            List<SearchHit> results = new ArrayList<>(topDocs.scoreDocs.length);
             int idx = 0;
             for (ScoreDoc sd : topDocs.scoreDocs) {
-                Document doc = storedFields.document(sd.doc);
-                String uri = doc.get(entityField);
-                if (uri != null) {
-                    Node entityNode = TextQueryFuncs.stringToNode(uri);
-                    float score = luceneSort == null ? sd.score : rankScore(idx);
-                    results.add(new SearchHit(idx++, entityNode, score, sd.doc));
+                float score = luceneSort == null ? sd.score : rankScore(idx);
+                results.add(new SearchHit(labelPrefix, idx++, score, sd.doc));
+            }
+            return new HitSearch(results, textQuery, finalQuery);
+        } catch (IOException ex) {
+            throw new TextIndexException("searchHits", ex);
+        } catch (ParseException ex) {
+            throw new TextIndexParseException(qs, ex.getMessage());
+        }
+    }
+
+    /**
+     * Read the entity IRI of each hit in doc-ID order: from the entity doc value where the
+     * segment has one, otherwise decoding only the entity field from stored fields. A
+     * document without the field gets a null entity.
+     */
+    void readEntityNodes(IndexSearcher searcher, Collection<SearchHit> hits) throws IOException {
+        String entityField = getDocDef().getEntityField();
+        String docValueField = entityDocValueField(entityField);
+        HitReadObserver observer = hitReadObserver;
+        HitReader.OneStringField visitor = new HitReader.OneStringField(entityField);
+        HitReader.inDocOrder(searcher.getIndexReader(), hits, new HitReader.LeafReads() {
+            private LeafReaderContext leaf;
+            private StoredFields storedFields;
+            private BinaryDocValues binary;
+
+            @Override
+            public void startLeaf(LeafReaderContext leafContext) throws IOException {
+                leaf = leafContext;
+                storedFields = null;
+                binary = null;
+                // Segments written before the doc value existed fall back to stored fields.
+                FieldInfo info = leaf.reader().getFieldInfos().fieldInfo(docValueField);
+                if (info != null && info.getDocValuesType() == DocValuesType.BINARY) {
+                    binary = leaf.reader().getBinaryDocValues(docValueField);
                 }
             }
 
-            // Compute field matches using NamedMatches
-            if (!results.isEmpty() && !(textQuery instanceof MatchAllDocsQuery)) {
-                computeFieldMatches(searcher, textQuery, resolvedFields, results);
+            @Override
+            public void read(SearchHit hit, int segmentDocId) throws IOException {
+                String uri = fromDocValue(segmentDocId);
+                if (uri == null) {
+                    uri = fromStoredField(segmentDocId);
+                } else if (observer != null) {
+                    observer.docValuesRead(hit.getLuceneDocId(), entityField);
+                }
+                hit.setEntityNode(uri == null ? null : TextQueryFuncs.stringToNode(uri));
             }
 
-            // Project the child documents the filter selected. Done here, inside the same
-            // try block, because this is the one place where the compiled query, a live
-            // searcher and valid parent doc ids all coexist — resolving children later
-            // would read doc ids against a reader that may have been refreshed since.
-            if (!results.isEmpty()) {
-                computeNestedMatches(searcher, finalQuery, results);
+            private String fromDocValue(int segmentDocId) throws IOException {
+                if (binary != null && binary.advanceExact(segmentDocId)) {
+                    return binary.binaryValue().utf8ToString();
+                }
+                return null;
             }
 
-            return results;
-        } catch (IOException ex) {
-            throw new TextIndexException("searchWithHitIds", ex);
-        } catch (ParseException ex) {
-            throw new TextIndexParseException(qs, ex.getMessage());
-        } finally {
-            releaseSearcher(searcher);
-        }
+            private String fromStoredField(int segmentDocId) throws IOException {
+                if (storedFields == null) {
+                    storedFields = leaf.reader().storedFields();
+                }
+                visitor.reset();
+                storedFields.document(segmentDocId, visitor);
+                if (observer != null) {
+                    observer.storedFieldsRead(leaf.docBase + segmentDocId, List.of(entityField));
+                }
+                return visitor.value();
+            }
+        });
     }
 
     /**
@@ -927,71 +1047,123 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     }
 
     /**
-     * Compute field-level matches for each hit using Lucene's Matches/NamedMatches API.
+     * Compute field-level matches for each hit using Lucene's Matches/NamedMatches API,
+     * in doc-ID order. Only the matched fields and their datatype and language twins are
+     * decoded. A hit with no match gets an empty list; under a match-all text query every
+     * hit does.
      */
-    private void computeFieldMatches(IndexSearcher searcher, Query textQuery,
-            List<String> resolvedFields, List<SearchHit> hits) throws IOException {
+    void computeFieldMatches(IndexSearcher searcher, Query textQuery,
+            List<String> resolvedFields, Collection<SearchHit> hits) throws IOException {
+        if (textQuery instanceof MatchAllDocsQuery) {
+            for (SearchHit hit : hits) {
+                hit.setFieldMatches(List.of());
+            }
+            return;
+        }
         Query rewritten = searcher.rewrite(textQuery);
         Weight weight = searcher.createWeight(rewritten, ScoreMode.COMPLETE, 1.0f);
-        List<LeafReaderContext> leaves = searcher.getIndexReader().leaves();
+        HitReadObserver observer = hitReadObserver;
+        FieldValueReader values = new FieldValueReader(observer);
 
-        for (SearchHit hit : hits) {
-            int docId = hit.getLuceneDocId();
-            // Find the leaf context for this doc
-            int leafIdx = ReaderUtil.subIndex(docId, leaves);
-            LeafReaderContext leaf = leaves.get(leafIdx);
-            int segmentDocId = docId - leaf.docBase;
+        HitReader.inDocOrder(searcher.getIndexReader(), hits, new HitReader.LeafReads() {
+            private LeafReaderContext leaf;
 
-            Matches matches = weight.matches(leaf, segmentDocId);
-            if (matches == null) continue;
-
-            // Extract named matches → field IRIs
-            Collection<NamedMatches> namedMatchList = NamedMatches.findNamedMatches(matches);
-            List<FieldMatch> fieldMatches = new ArrayList<>();
-
-            StoredFields storedFields = searcher.storedFields();
-            Document doc = storedFields.document(docId);
-
-            for (NamedMatches nm : namedMatchList) {
-                String name = nm.getName(); // This is the field IRI string
-                Node fieldIRI = NodeFactory.createURI(name);
-
-                ShaclIndexMapping.FieldDef fd = shaclMapping.findField(name);
-                Node valueNode = null;
-                if (fd != null) {
-                    String[] storedValues = doc.getValues(fd.getFieldName());
-                    if (storedValues != null && storedValues.length > 0) {
-                        SelectedStoredValue selected = selectStoredValue(fd.getFieldName(), storedValues, textQuery);
-                        valueNode = fieldValueToNode(doc, fd, selected);
-                    }
-                }
-
-                fieldMatches.add(new FieldMatch(fieldIRI, valueNode, null));
+            @Override
+            public void startLeaf(LeafReaderContext leafContext) {
+                leaf = leafContext;
+                values.startLeaf(leafContext);
             }
 
-            // If no named matches found, fall back to field-level match check
-            if (fieldMatches.isEmpty()) {
-                for (String fieldName : resolvedFields) {
-                    MatchesIterator mi = matches.getMatches(fieldName);
-                    if (mi != null && mi.next()) {
-                        ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
-                        Node fieldIRI = fd != null ? fd.getFieldIRI()
-                            : NodeFactory.createLiteralString(fieldName);
-                        Node valueNode = null;
-                        if (fd != null) {
-                            String[] storedValues = doc.getValues(fieldName);
-                            if (storedValues != null && storedValues.length > 0) {
-                                SelectedStoredValue selected = selectStoredValue(fieldName, storedValues, textQuery);
-                                valueNode = fieldValueToNode(doc, fd, selected);
-                            }
+            @Override
+            public void read(SearchHit hit, int segmentDocId) throws IOException {
+                Matches matches = weight.matches(leaf, segmentDocId);
+                if (observer != null) {
+                    observer.matchesComputed(hit.getLuceneDocId());
+                }
+                if (matches == null) {
+                    hit.setFieldMatches(List.of());
+                    return;
+                }
+
+                // Which fields matched: named matches carry the field IRI. Without any, fall
+                // back to asking each searched field.
+                List<Node> matchedIRIs = new ArrayList<>();
+                List<ShaclIndexMapping.FieldDef> matchedDefs = new ArrayList<>();
+                for (NamedMatches nm : NamedMatches.findNamedMatches(matches)) {
+                    String name = nm.getName();
+                    matchedIRIs.add(NodeFactory.createURI(name));
+                    matchedDefs.add(shaclMapping.findField(name));
+                }
+                if (matchedIRIs.isEmpty()) {
+                    for (String fieldName : resolvedFields) {
+                        MatchesIterator mi = matches.getMatches(fieldName);
+                        if (mi != null && mi.next()) {
+                            ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
+                            matchedIRIs.add(fd != null ? fd.getFieldIRI()
+                                : NodeFactory.createLiteralString(fieldName));
+                            matchedDefs.add(fd);
                         }
-                        fieldMatches.add(new FieldMatch(fieldIRI, valueNode, null));
                     }
                 }
+
+                // Only the matched fields are read: from doc values where they hold the
+                // value, otherwise from one restricted stored-field decode.
+                Document doc = values.stored(segmentDocId, values.storedNames(matchedDefs));
+
+                List<FieldMatch> fieldMatches = new ArrayList<>(matchedIRIs.size());
+                for (int i = 0; i < matchedIRIs.size(); i++) {
+                    ShaclIndexMapping.FieldDef fd = matchedDefs.get(i);
+                    Node valueNode = null;
+                    FieldValueReader.Values fieldValues = values.values(fd, segmentDocId, doc);
+                    if (!fieldValues.isEmpty()) {
+                        // Which value the query matched. A multi-valued doc value lists its
+                        // values in byte order, so with no matching value the first in byte
+                        // order is returned, not the first indexed.
+                        SelectedStoredValue selected =
+                            selectStoredValue(fd.getFieldName(), fieldValues.lexicals(), textQuery);
+                        valueNode = fieldValues.node(selected.index());
+                    }
+                    fieldMatches.add(new FieldMatch(matchedIRIs.get(i), valueNode, null));
+                }
+                hit.setFieldMatches(fieldMatches);
+            }
+        });
+    }
+
+    /** Receives the values read for one hit and one field. */
+    @FunctionalInterface
+    interface FieldValuesSink {
+        void accept(SearchHit hit, ShaclIndexMapping.FieldDef field, List<Node> values);
+    }
+
+    /**
+     * Read {@code fields} from each hit's own document, in doc-ID order, for
+     * {@code luc:fields}. Fields read from doc values cost no stored-field access; the
+     * rest share one restricted stored-field decode per hit. {@code sink} gets one call
+     * per hit and field, with an empty list when the hit has no value.
+     * <p>
+     * {@code searcher} must be the one the hits came from.
+     */
+    void readFieldValues(IndexSearcher searcher, Collection<SearchHit> hits,
+            List<ShaclIndexMapping.FieldDef> fields, FieldValuesSink sink) throws IOException {
+        FieldValueReader values = new FieldValueReader(hitReadObserver);
+        HitReader.inDocOrder(searcher.getIndexReader(), hits, new HitReader.LeafReads() {
+            private Set<String> storedNames;
+
+            @Override
+            public void startLeaf(LeafReaderContext leaf) throws IOException {
+                values.startLeaf(leaf);
+                storedNames = values.storedNames(fields);
             }
 
-            hit.setFieldMatches(fieldMatches);
-        }
+            @Override
+            public void read(SearchHit hit, int segmentDocId) throws IOException {
+                Document doc = values.stored(segmentDocId, storedNames);
+                for (ShaclIndexMapping.FieldDef field : fields) {
+                    sink.accept(hit, field, values.values(field, segmentDocId, doc).nodes());
+                }
+            }
+        });
     }
 
     /**
@@ -1007,8 +1179,11 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * which restricts the child query to the block belonging to one parent — the same
      * primitive an "inner hits" feature is built on, and the reason no doc id arithmetic
      * appears in this method.
+     * <p>
+     * {@code searcher} must be the one the hits came from: their doc IDs are only valid
+     * against its reader. Every hit gets a list, empty when nothing is projected.
      */
-    private void computeNestedMatches(IndexSearcher searcher, Query finalQuery, List<SearchHit> hits)
+    void computeNestedMatches(IndexSearcher searcher, Query finalQuery, Collection<SearchHit> hits)
             throws IOException {
         List<Query> childQueries = new ArrayList<>();
         collectChildQueries(finalQuery, childQueries);
@@ -1016,42 +1191,71 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             // No nested clause: nothing selected a child, so there is no matching child
             // to report. Returning every child of every scope would be a different
             // feature wearing the same name.
+            for (SearchHit hit : hits) {
+                hit.setNestedMatches(List.of());
+            }
             return;
         }
 
-        StoredFields storedFields = searcher.storedFields();
-        for (SearchHit hit : hits) {
-            // Sorted and de-duplicated: one child can satisfy more than one nested clause,
-            // and index order keeps the projection stable across pages.
-            Set<Integer> childDocIds = new TreeSet<>();
-            for (Query childQuery : childQueries) {
-                Query scoped = new ParentChildrenBlockJoinQuery(
-                    PARENTS_FILTER, childQuery, hit.getLuceneDocId());
-                for (ScoreDoc sd : searcher.search(scoped, MAX_NESTED_MATCHES_PER_HIT + 1).scoreDocs) {
-                    childDocIds.add(sd.doc);
-                }
+        // A child's scope is known only once it is read, so the stored names cover every
+        // nested field; fields read from doc values are not among them.
+        List<ShaclIndexMapping.FieldDef> nestedFields = new ArrayList<>();
+        for (ShaclIndexMapping.IndexProfile profile : shaclMapping.getProfiles()) {
+            for (ShaclIndexMapping.NestedDef nestedDef : profile.getNestedDefs()) {
+                nestedFields.addAll(nestedDef.getFields());
             }
-            if (childDocIds.isEmpty()) {
-                continue;
-            }
-            if (childDocIds.size() > MAX_NESTED_MATCHES_PER_HIT) {
-                log.warn("Hit {} matched {} child records; projecting the first {}",
-                    hit.getEntityNode(), childDocIds.size(), MAX_NESTED_MATCHES_PER_HIT);
+        }
+        FieldValueReader values = new FieldValueReader(hitReadObserver);
+        HitReader.inDocOrder(searcher.getIndexReader(), hits, new HitReader.LeafReads() {
+            private LeafReaderContext leaf;
+            private Set<String> childStoredNames;
+
+            @Override
+            public void startLeaf(LeafReaderContext leafContext) throws IOException {
+                leaf = leafContext;
+                values.startLeaf(leafContext);
+                childStoredNames = new HashSet<>(values.storedNames(nestedFields));
+                childStoredNames.add(NESTED_SCOPE_FIELD);
             }
 
-            List<NestedMatch> matches = new ArrayList<>();
-            for (int childDocId : childDocIds) {
-                if (matches.size() >= MAX_NESTED_MATCHES_PER_HIT) {
-                    break;
+            @Override
+            public void read(SearchHit hit, int segmentDocId) throws IOException {
+                // Sorted and de-duplicated: one child can satisfy more than one nested
+                // clause, and index order keeps the projection stable across pages.
+                Set<Integer> childDocIds = new TreeSet<>();
+                for (Query childQuery : childQueries) {
+                    Query scoped = new ParentChildrenBlockJoinQuery(
+                        PARENTS_FILTER, childQuery, hit.getLuceneDocId());
+                    for (ScoreDoc sd : searcher.search(scoped, MAX_NESTED_MATCHES_PER_HIT + 1).scoreDocs) {
+                        childDocIds.add(sd.doc);
+                    }
                 }
-                NestedMatch match = nestedMatchFromChild(
-                    hit.getRank(), matches.size(), storedFields.document(childDocId));
-                if (match != null) {
-                    matches.add(match);
+                if (childDocIds.size() > MAX_NESTED_MATCHES_PER_HIT) {
+                    // The entity IRI is read only when the query binds it.
+                    Object which = hit.getEntityNode() != null
+                        ? hit.getEntityNode() : "at Lucene doc " + hit.getLuceneDocId();
+                    log.warn("Hit {} matched {} child records; projecting the first {}",
+                        which, childDocIds.size(), MAX_NESTED_MATCHES_PER_HIT);
                 }
+
+                // A block never spans segments, and children of later hits come after
+                // this hit, so child doc IDs only increase through the pass.
+                List<NestedMatch> matches = new ArrayList<>();
+                for (int childDocId : childDocIds) {
+                    if (matches.size() >= MAX_NESTED_MATCHES_PER_HIT) {
+                        break;
+                    }
+                    int childSegmentDocId = childDocId - leaf.docBase;
+                    Document childDoc = values.stored(childSegmentDocId, childStoredNames);
+                    NestedMatch match = nestedMatchFromChild(hit.getHitId(), matches.size(), childDoc,
+                        values, childSegmentDocId);
+                    if (match != null) {
+                        matches.add(match);
+                    }
+                }
+                hit.setNestedMatches(matches);
             }
-            hit.setNestedMatches(matches);
-        }
+        });
     }
 
     /**
@@ -1078,8 +1282,12 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         }
     }
 
-    /** Project one child document's stored fields, or null if it has nothing to project. */
-    private NestedMatch nestedMatchFromChild(int hitRank, int ordinal, Document childDoc) {
+    /**
+     * Project one child document's returnable fields, or null if it has nothing to project.
+     * {@code childDoc} holds the stored fields {@code values} said to decode.
+     */
+    private NestedMatch nestedMatchFromChild(Node hitId, int ordinal, Document childDoc,
+            FieldValueReader values, int childSegmentDocId) throws IOException {
         String scope = childDoc.get(NESTED_SCOPE_FIELD);
         ShaclIndexMapping.NestedDef nestedDef = shaclMapping.findNestedDefByName(scope);
         if (nestedDef == null) {
@@ -1093,35 +1301,19 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             if (!fd.isStored()) {
                 continue;
             }
-            String[] storedValues = childDoc.getValues(fd.getFieldName());
-            if (storedValues == null) {
-                continue;
-            }
+            FieldValueReader.Values fieldValues = values.values(fd, childSegmentDocId, childDoc);
             Node fieldIRI = fd.getFieldIRI() != null
                 ? fd.getFieldIRI()
                 : NodeFactory.createLiteralString(fd.getFieldName());
-            for (int i = 0; i < storedValues.length; i++) {
-                // Every stored value is projected, positionally aligned with its datatype
-                // and language twins. selectStoredValue's "which one did the query mean"
-                // heuristic is not needed and would be wrong here: a child document holds
-                // exactly the one record being reported.
-                Node value = fieldValueToNode(childDoc, fd, new SelectedStoredValue(i, storedValues[i]));
-                if (value != null) {
-                    fieldMatches.add(new FieldMatch(fieldIRI, value, null));
-                }
+            // Every value is projected, aligned with its datatype and language twins.
+            // selectStoredValue's "which one did the query mean" heuristic is not needed
+            // and would be wrong here: a child document holds exactly the one record
+            // being reported.
+            for (Node value : fieldValues.nodes()) {
+                fieldMatches.add(new FieldMatch(fieldIRI, value, null));
             }
         }
-        return fieldMatches.isEmpty() ? null : new NestedMatch(hitRank, ordinal, scope, fieldMatches);
-    }
-
-    /**
-     * Convert a stored field value to an appropriate RDF node based on field type.
-     */
-    private Node fieldValueToNode(Document doc, ShaclIndexMapping.FieldDef fd, SelectedStoredValue selectedValue) {
-        if (selectedValue == null || selectedValue.value() == null || fd == null) return null;
-        return LiteralFieldSupport.reconstructNode(fd, selectedValue.value(),
-            alignedStoredValue(doc, LiteralFieldSupport.datatypeField(fd.getFieldName()), selectedValue.index()),
-            alignedStoredValue(doc, LiteralFieldSupport.langField(fd.getFieldName()), selectedValue.index()));
+        return fieldMatches.isEmpty() ? null : new NestedMatch(hitId, ordinal, scope, fieldMatches);
     }
 
     // ---- Document building ----
@@ -1159,6 +1351,10 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
         String docIdField = profile.getDocIdField();
         doc.add(new Field(docIdField, entity.getId(), ftIRI));
+        // A column of entity IRIs, so luc:query can read them without stored fields.
+        if (!legacyNoEntityDocValue && docIdField.equals(getDocDef().getEntityField())) {
+            doc.add(new BinaryDocValuesField(entityDocValueField(docIdField), new BytesRef(entity.getId())));
+        }
 
         String discriminatorField = profile.getDiscriminatorField();
         if (discriminatorField != null && !profile.getTargetClasses().isEmpty()) {
@@ -1396,6 +1592,15 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         }
     }
 
+    /**
+     * Whether a {@code KEYWORD} value gets a stored copy. A field whose doc value holds
+     * its original value is written as that doc value only, so the value is on disk once;
+     * {@link FieldValueReader} reads it from there.
+     */
+    private boolean storesCopy(ShaclIndexMapping.FieldDef fieldDef) {
+        return fieldDef.isStored() && (!fieldDef.isValueInDocValues() || legacyStoredCopies);
+    }
+
     private void addFieldToDoc(Document doc, ShaclIndexMapping.FieldDef fieldDef, Object value) {
         if (value instanceof Node node) {
             addNodeFieldToDoc(doc, fieldDef, node);
@@ -1403,8 +1608,6 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         }
 
         String fieldName = fieldDef.getFieldName();
-        Field.Store store =
-            fieldDef.isStored() ? Field.Store.YES : Field.Store.NO;
 
         switch (fieldDef.getFieldType()) {
             case TEXT:
@@ -1422,16 +1625,17 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 // normalized bytes; the stored value and facet label stay raw (human-readable).
                 Analyzer kwNorm = fieldDef.getNormalizer();
                 BytesRef kwKey = kwNorm != null ? kwNorm.normalize(fieldName, strVal) : null;
+                boolean kwStoreCopy = storesCopy(fieldDef);
                 if (fieldDef.isIndexed()) {
                     if (kwKey != null) {
                         doc.add(new StringField(fieldName, kwKey.utf8ToString(), Field.Store.NO));
-                        if (fieldDef.isStored()) {
+                        if (kwStoreCopy) {
                             doc.add(new StoredField(fieldName, strVal));
                         }
                     } else {
-                        doc.add(new StringField(fieldName, strVal, store));
+                        doc.add(new StringField(fieldName, strVal, kwStoreCopy ? Field.Store.YES : Field.Store.NO));
                     }
-                } else if (fieldDef.isStored()) {
+                } else if (kwStoreCopy) {
                     doc.add(new StoredField(fieldName, strVal));
                 }
                 if (fieldDef.isFacetable() && strVal != null && !strVal.isEmpty()) {
@@ -1532,20 +1736,21 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 }
             }
             case KEYWORD -> {
-                Field.Store store = fieldDef.isStored() ? Field.Store.YES : Field.Store.NO;
+                boolean storeCopy = storesCopy(fieldDef);
+                Field.Store store = storeCopy ? Field.Store.YES : Field.Store.NO;
                 // Normalizer (if any) drives the indexed term + sort key; stored/facet stay raw.
                 Analyzer kwNorm = fieldDef.getNormalizer();
                 BytesRef kwKey = kwNorm != null ? kwNorm.normalize(fieldName, lexical) : null;
                 if (fieldDef.isIndexed()) {
                     if (kwKey != null) {
                         doc.add(new StringField(fieldName, kwKey.utf8ToString(), Field.Store.NO));
-                        if (fieldDef.isStored()) {
+                        if (storeCopy) {
                             doc.add(new StoredField(fieldName, lexical));
                         }
                     } else {
                         doc.add(new StringField(fieldName, lexical, store));
                     }
-                } else if (fieldDef.isStored()) {
+                } else if (storeCopy) {
                     doc.add(new StoredField(fieldName, lexical));
                 }
                 if (fieldDef.isFacetable() && !lexical.isEmpty()) {
@@ -2572,18 +2777,69 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
     // ---- Value and field node helpers ----
 
-    private Node extractValueNode(Document doc, List<String> resolvedFields, Query valueQuery) {
-        for (String fieldName : resolvedFields) {
-            String[] storedValues = doc.getValues(fieldName);
-            if (storedValues == null || storedValues.length == 0) continue;
-            SelectedStoredValue storedValue = selectStoredValue(fieldName, storedValues, valueQuery);
-            ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
-            if (fd == null) continue;
-            return LiteralFieldSupport.reconstructNode(fd, storedValue.value(),
-                alignedStoredValue(doc, LiteralFieldSupport.datatypeField(fieldName), storedValue.index()),
-                alignedStoredValue(doc, LiteralFieldSupport.langField(fieldName), storedValue.index()));
+    /**
+     * The {@link TextHit}s for {@code scoreDocs}, in their order, skipping documents with
+     * no entity. Entity IRIs and values are read in doc-ID order, as {@code luc:query}
+     * reads them: the IRI from its doc value where the segment has one, and each value
+     * through {@link FieldValueReader}, so fields kept in doc values only are returned.
+     * A hit's value comes from the first of {@code resolvedFields} with a value on its
+     * document; on a multi-valued field it is the one {@code valueQuery} matches.
+     *
+     * @param ranked score each hit by its rank instead of its Lucene score, for a sorted search
+     */
+    private List<TextHit> textHits(IndexSearcher searcher, ScoreDoc[] scoreDocs,
+            List<String> resolvedFields, Query valueQuery, boolean ranked) throws IOException {
+        List<SearchHit> hits = new ArrayList<>(scoreDocs.length);
+        for (int i = 0; i < scoreDocs.length; i++) {
+            hits.add(new SearchHit("t", i, scoreDocs[i].score, scoreDocs[i].doc));
         }
-        return null;
+        readEntityNodes(searcher, hits);
+
+        List<ShaclIndexMapping.FieldDef> fields = new ArrayList<>(resolvedFields.size());
+        for (String fieldName : resolvedFields) {
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
+            if (fd != null) {
+                fields.add(fd);
+            }
+        }
+        Node[] valueNodes = new Node[hits.size()];
+        FieldValueReader values = new FieldValueReader(hitReadObserver);
+        HitReader.inDocOrder(searcher.getIndexReader(), hits, new HitReader.LeafReads() {
+            private Set<String> storedNames;
+
+            @Override
+            public void startLeaf(LeafReaderContext leaf) throws IOException {
+                values.startLeaf(leaf);
+                storedNames = values.storedNames(fields);
+            }
+
+            @Override
+            public void read(SearchHit hit, int segmentDocId) throws IOException {
+                if (hit.getEntityNode() == null) {
+                    return;
+                }
+                Document doc = values.stored(segmentDocId, storedNames);
+                for (ShaclIndexMapping.FieldDef fd : fields) {
+                    FieldValueReader.Values fieldValues = values.values(fd, segmentDocId, doc);
+                    if (!fieldValues.isEmpty()) {
+                        SelectedStoredValue selected =
+                            selectStoredValue(fd.getFieldName(), fieldValues.lexicals(), valueQuery);
+                        valueNodes[hit.getRank()] = fieldValues.node(selected.index());
+                        return;
+                    }
+                }
+            }
+        });
+
+        Node fieldNode = resolveFieldNode(resolvedFields);
+        List<TextHit> results = new ArrayList<>(hits.size());
+        for (SearchHit hit : hits) {
+            if (hit.getEntityNode() != null) {
+                float score = ranked ? rankScore(results.size()) : hit.getScore();
+                results.add(new TextHit(hit.getEntityNode(), score, valueNodes[hit.getRank()], null, fieldNode));
+            }
+        }
+        return results;
     }
 
     private SelectedStoredValue selectStoredValue(String fieldName, String[] storedValues, Query valueQuery) {
@@ -2622,14 +2878,6 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     }
 
     private record SelectedStoredValue(int index, String value) {}
-
-    private static String alignedStoredValue(Document doc, String fieldName, int index) {
-        String[] values = doc.getValues(fieldName);
-        if (values == null || index < 0 || index >= values.length) {
-            return null;
-        }
-        return values[index];
-    }
 
     private static Integer parseInteger(String lexical) {
         try {
@@ -2688,21 +2936,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
             int maxHits = limit > 0 ? limit : MAX_N;
             TopDocs topDocs = searcher.search(filterToParents(query), maxHits);
-
-            Node fieldNode = resolveFieldNode(resolvedFields);
-            List<TextHit> results = new ArrayList<>();
-            String entityField = getDocDef().getEntityField();
-            StoredFields storedFields = searcher.storedFields();
-            for (ScoreDoc sd : topDocs.scoreDocs) {
-                Document doc = storedFields.document(sd.doc);
-                String uri = doc.get(entityField);
-                if (uri != null) {
-                    Node entityNode = TextQueryFuncs.stringToNode(uri);
-                    Node valueNode = extractValueNode(doc, resolvedFields, query);
-                    results.add(new TextHit(entityNode, sd.score, valueNode, null, fieldNode));
-                }
-            }
-            return results;
+            return textHits(searcher, topDocs.scoreDocs, resolvedFields, query, false);
         } catch (IOException ex) {
             throw new TextIndexException("queryByFields", ex);
         } catch (ParseException ex) {
@@ -2752,21 +2986,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
             int maxHits = limit > 0 ? limit : MAX_N;
             TopDocs topDocs = searcher.search(filterToParents(combined.build()), maxHits);
-
-            Node fieldNode = resolveFieldNode(resolved);
-            List<TextHit> results = new ArrayList<>();
-            String entityField = getDocDef().getEntityField();
-            StoredFields storedFields = searcher.storedFields();
-            for (ScoreDoc sd : topDocs.scoreDocs) {
-                Document doc = storedFields.document(sd.doc);
-                String uri = doc.get(entityField);
-                if (uri != null) {
-                    Node entityNode = TextQueryFuncs.stringToNode(uri);
-                    Node valueNode = extractValueNode(doc, resolved, valueQuery);
-                    results.add(new TextHit(entityNode, sd.score, valueNode, null, fieldNode));
-                }
-            }
-            return results;
+            return textHits(searcher, topDocs.scoreDocs, resolved, valueQuery, false);
         } catch (IOException ex) {
             throw new TextIndexException("queryWithFilters", ex);
         } catch (ParseException ex) {
@@ -2861,22 +3081,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 topDocs = searcher.search(filterToParents(combined.build()), maxHits);
             }
 
-            Node fieldNode = resolveFieldNode(resolved);
-            List<TextHit> results = new ArrayList<>();
-            String entityField = getDocDef().getEntityField();
-            StoredFields storedFields = searcher.storedFields();
-            int idx = 0;
-            for (ScoreDoc sd : topDocs.scoreDocs) {
-                Document doc = storedFields.document(sd.doc);
-                String uri = doc.get(entityField);
-                if (uri != null) {
-                    Node entityNode = TextQueryFuncs.stringToNode(uri);
-                    Node valueNode = extractValueNode(doc, resolved, valueQuery);
-                    float score = luceneSort == null ? sd.score : rankScore(idx++);
-                    results.add(new TextHit(entityNode, score, valueNode, null, fieldNode));
-                }
-            }
-            return results;
+            return textHits(searcher, topDocs.scoreDocs, resolved, valueQuery, luceneSort != null);
         } catch (IOException ex) {
             throw new TextIndexException("queryWithCql", ex);
         } catch (ParseException ex) {

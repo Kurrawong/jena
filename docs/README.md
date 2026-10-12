@@ -22,6 +22,8 @@ This doc set covers the SHACL/entity-per-document search model in `jena-text`.
 | Source graph indexing | Designed | `idx:storeGraph` flag writing multi-valued `sourceGraph`. Not built — `?graph` was removed from `luc:query` instead, since a union-built document has no single source graph |
 | Vector search | Designed | Entity-level dense vectors as a `VECTOR` field, filtered KNN plus facets. Not built — engine choice is Jlama. The loader's missing Vector API flags, a prerequisite, are fixed |
 | SHACL class semantics | Designed | `sh:targetClass` and `sh:class` to match subclass instances, with `sh:hasValue` for an exact type. See [2026-10-09_shacl_class_semantics_and_jena_shacl_reuse.md](2026-10-09_shacl_class_semantics_and_jena_shacl_reuse.md) |
+| Hit path and `luc:fields` | Built | `luc:query` reads the entity IRI only when bound, from a doc value, and computes matches only for `luc:match`; `luc:fields` returns field values per hit from doc values or stored fields. See [2026-10-12_luc_query_field_projection_design.md](2026-10-12_luc_query_field_projection_design.md) |
+| `sh:node` occurrence filters | Built | Feed a field from nodes selected by a node shape, with occurrence constraints evaluated by jena-shacl. See [2026-10-12_shacl_node_occurrence_filters_design.md](2026-10-12_shacl_node_occurrence_filters_design.md) |
 | Highlight API | Deferred | Reserved for later, not active in the current `luc:query` signature |
 
 ## Core Rules

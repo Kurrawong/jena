@@ -140,6 +140,14 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     // luc:nestedMatch property function
     , TestNestedMatchProjection.class
 
+    // luc:query hit path: reads per hit, held searcher, hit lookup
+    , TestLucQueryHitPath.class
+    , TestLucMatchLargeWindow.class
+    , TestFieldValueStorage.class
+    , TestLucFields.class
+    , TestEntityDocValue.class
+    , TestTextIndexDump.class
+
     // Shared field occurrences / fan-in
     , TestSharedFieldOccurrences.class
 
@@ -155,6 +163,13 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestNestedGeometryScope.class
     , TestTypeaheadFieldConfigurations.class
     , TestNestedJoinPathSupport.class
+
+    // sh:node steps and filters, occurrence value constraints evaluated by jena-shacl
+    , TestShaclNodeOccurrenceFilters.class
+    , TestShaclOccurrenceValueConstraints.class
+    , TestShaclStepChangeTracking.class
+    , TestShaclConditionRejections.class
+    , TestLucFieldsThroughNodeStep.class
 
     // Offset paging
     , TestOffsetPaging.class

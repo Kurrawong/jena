@@ -49,8 +49,12 @@ public class NestedMatch {
     private final String scope;
     private final List<FieldMatch> fieldMatches;
 
-    public NestedMatch(int hitRank, int ordinal, String scope, List<FieldMatch> fieldMatches) {
-        this.recordId = NodeFactory.createBlankNode("hit" + hitRank + "r" + ordinal);
+    /**
+     * @param hitId   the hit this child belongs to; the record's label extends the hit's
+     * @param ordinal position of this child among the hit's projected children
+     */
+    public NestedMatch(Node hitId, int ordinal, String scope, List<FieldMatch> fieldMatches) {
+        this.recordId = NodeFactory.createBlankNode(hitId.getBlankNodeLabel() + "r" + ordinal);
         this.scope = scope;
         this.fieldMatches = fieldMatches != null
             ? Collections.unmodifiableList(new ArrayList<>(fieldMatches))

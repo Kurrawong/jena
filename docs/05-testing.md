@@ -34,6 +34,12 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 | `TestTextFacetPF` | 16 | SPARQL `luc:facet` PF: flat/range facets, mixed requests, filters, maxValues, minCount, subject arity checks, empty-string placeholders |
 | `TestTextQueryPFFilters` | 13 | SPARQL `luc:query` with JSON filters, field-IRI scoping, empty-string placeholders, string limits, and end-to-end sort pushdown |
 | `TestSearchExecution` | 10 | Shared execution: key generation, normalisation, index-aware reuse, and sort-sensitive cache keys |
+| `TestLucQueryHitPath` | 25 | The `luc:query` hit path: `(?hit)` decodes no stored field and `(?hit ?entity)` only the entity field or its doc value, counted through `HitReadObserver`; entity order under relevance and sort; constant `?entity`; no match details without `luc:match`, only matched fields decoded with it, and only for the returned page; two searches in one query each resolving their own `?hit`; constant field slots in `luc:match` and `luc:nestedMatch`; negative and zero `limit`; the searcher held while iterating, until the last of two iterators closes, and released on finish, abandon and cancel; late reads with and without a commit; a window re-run on the held searcher ignoring a later commit, and raising after release and a commit; closing a query after its index closed |
+| `TestLucMatchLargeWindow` | 2 | `luc:match` and `luc:nestedMatch` over 300,000 hits within 90 s, which the earlier per-call scan of every cached hit does not meet |
+| `TestFieldValueStorage` | 10 | Which fields are read from doc values; an eligible stored field written as a doc value only; original terms from doc values and from stored fields (normalized, facet-only, language-tagged, numeric, temporal); indexes with stored copies of eligible fields; a segment written before a field was sortable; the value `luc:match` selects on a multi-valued doc-value field; `luc:nestedMatch` reading child fields from doc values; `queryByFields`, `queryWithFilters` and `queryWithCql` returning doc-value-only values |
+| `TestLucFields` | 16 | `luc:fields`: the identifier query reading no stored field, variable and constant field slots, multi-valued fields, two patterns per hit, joins with `luc:match` in both orders, each error, a late read after a commit, one read per field, two indexes in one query |
+| `TestEntityDocValue` | 5 | The entity IRI doc value: written as binary and giving the same IRIs under relevance and sort with no stored read, an index without it, an old segment without it beside a new one with it, parent documents only, and entity updates and deletes |
+| `TestTextIndexDump` | 1 | `textindexdump` printing fields kept in doc values only |
 
 ### SHACL Entity-Per-Document Tests
 
@@ -70,6 +76,16 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 | `TestCsvRowSource` | 15 | CSV/TSV reading: header and positional binding, `idx:subjectPrefix`, glob expansion in filename order, empty cell → null, blank join key skipped-but-counted, rows emitted in file order without an ordering check, and the config errors on open — missing file, empty glob, missing subject/bound column |
 | `TestExternalSourceAssembler` | 13 | Turtle config: narrow source, optional properties, headerless positional binding, bound fields becoming profile fields, hierarchy over external fields, and the validation rules — `idx:joinPath` xor `idx:externalSource`, required `idx:nestedName`, no `sh:path` on a bound column, exactly one of `idx:columnName`/`idx:columnIndex`, unknown format, unsupported field type |
 | `TestExternalContentIndexing` | 19 | End-to-end: rows become children of the matching entity; entities with no rows still indexed; unmatched rows counted and dropped; same-child `=` + range correlation; entity-level AND across two properties is *not* same-child; sort by a not-stored external value with `missing` placement; `idx:subjectPrefix`; a bad join key building successfully with a zero match rate in the counters; unsorted buffering; empty and unparseable cells; `idx:onError "fail"`; hierarchical facets over external children; live graph change does not strip external children. Plus wide children (depth-from/depth-to/analyte/value on one child): four-way same-child correlation, the decorrelation check that a Cu child and a deep child on the same hole do not satisfy one AND, and two analytes still not being same-child |
+
+### sh:node Steps and Value Constraints
+
+Both classes configure the index from Turtle through `ShaclTurtleFixture`, which also reads
+the written Lucene documents back.
+
+| Class | Tests | What it covers |
+|-------|-------|---------------|
+| `TestShaclNodeOccurrenceFilters` | 14 | Steps: a filtered identifier value as a sortable root field; two kept values, and the single-valued warning; filters with `sh:in`, an inner `sh:minCount`, a constraint on the shape, and a field-less `sh:node` member; a step inside a step; a step inside `idx:nested` feeding the child; an occurrence's own constraint not deciding whether its node is kept; the change listener following a filter predicate, a field value and an `rdf:type`; the fingerprint following a filter; bulk indexer and change listener writing the same documents |
+| `TestShaclOccurrenceValueConstraints` | 33 | Each accepted per-value constraint filtering values; each set constraint, and `sh:sparql` on an occurrence and in a filter, rejected naming the constraint; repeating paths rejected; `sh:class` admitting a subclass instance |
 
 ### Existing Tests (unchanged, verifying no regressions)
 
@@ -192,6 +208,86 @@ mvn clean install -pl jena-fuseki2/jena-fuseki-server -am -DskipTests
 java -jar jena-fuseki2/jena-fuseki-server/target/jena-fuseki-server-*.jar \
     --config config.ttl
 ```
+
+---
+
+## luc:query benchmark
+
+`BenchLucQuery`, in `jena-text/src/test/java/org/apache/jena/query/text/bench/`, is a JMH
+benchmark of `luc:query` over a synthetic index. It is in the test sources but is not a
+test: surefire runs only `TS_*` classes and `TS_Text` does not list it.
+
+### Running it
+
+```bash
+mvn -o -q -pl jena-text test-compile dependency:build-classpath \
+    -Dmdep.outputFile=target/bench.classpath -Dmdep.includeScope=test -Drat.skip
+cd jena-text
+java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED \
+    -cp target/test-classes:target/classes:$(cat target/bench.classpath) \
+    org.apache.jena.query.text.bench.BenchLucQuery -rf json -rff results.json
+```
+
+Arguments after the class name are JMH's. A regex runs a subset: `BenchLucQuery pageText`
+runs the three page scenarios. `-l` builds the index and lists the scenarios without
+running them.
+
+The first run generates the data, loads it into TDB2 with the parallel loader and builds the
+Lucene index with `shacltextindexer`, the same path as a production bulk load. On a 12-core
+machine this took about two and a half minutes. Later runs reuse the build, which lives in
+`jena-text/target/bench-luc-query` and is therefore deleted by `mvn clean`. System
+properties:
+
+| Property | Default | Meaning |
+|---|---|---|
+| `bench.dir` | `jena-text/target/bench-luc-query` | Where the dataset and index are built and reused |
+| `bench.entities` | `500000` | Entity count; both large windows are three fifths of it |
+| `bench.matchWindow` | `20000` | Window of `largeTextWithMatch` |
+
+The benchmark uses JMH's sample-time mode in milliseconds, with 3 warmup and 5 measurement
+iterations of 10 seconds each, in one forked JVM with an 8 GB heap. JMH reports the mean
+and the 50th, 90th, 95th and 99th percentiles. Compare runs at the median, on the same
+machine, with the machine otherwise idle.
+
+### Data
+
+500,000 entities of one SHACL shape, in a TDB2 store on disk. Each entity has two `TEXT`
+fields of about 300 characters drawn from a 5,000-word vocabulary with a Zipf
+distribution, a sortable `KEYWORD` identifier, four facetable `KEYWORD` fields, an `INT`
+year, and two `schema:identifier` children (`schema:propertyID`, `schema:value`) indexed
+through `idx:nested`. Every field except `entityType` is stored. Hit counts are fixed by
+the entity number: the term `survey` matches 300,000 entities, the term `basalt` 10,638,
+and the filter `status = active` 300,000. The index config is
+`jena-text/src/test/resources/bench/luc-query-bench.ttl`.
+
+The store is TDB2 rather than in-memory because production runs on TDB2.
+
+### Scenarios
+
+Each scenario runs one SPARQL query through ARQ in a read transaction and reads every
+binding of every row. Before timing, each scenario runs its query once and fails if the
+row count is wrong.
+
+| Scenario | Query | Rows |
+|---|---|---|
+| `pageText` | `basalt`, page of 20, binds `?entity` | 20 |
+| `pageTextWithMatch` | as `pageText`, joined to `luc:match` | 20 |
+| `pageTextWithFacet` | as `pageText`, in a `UNION` with `luc:facet` over four fields, 10 values each | 51 |
+| `largeFilterOnly` | `*` with the `status` filter, limit 300,000, binds `?entity` | 300,000 |
+| `largeTextNoMatch` | `survey`, limit 300,000, binds `?entity` | 300,000 |
+| `largeTextWithMatch` | `survey` joined to `luc:match`, limit `bench.matchWindow` | 20,000 |
+| `largeIdentifierFields` | `*` with the `status` filter, limit 300,000, binds `?hit` only, `recordId` through `luc:fields` | 300,000 |
+
+`largeIdentifierFields` reads `recordId`, a sortable `KEYWORD`, from its doc value. An
+index built before field values were read from doc values still has a stored copy, so
+build a fresh one with `-Dbench.dir`. The same holds for the entity IRI doc value that
+`largeFilterOnly` reads; an older index falls back to the stored entity field.
+
+`largeTextWithMatch` runs at 20,000 hits rather than 300,000. `luc:match` finds each
+incoming hit by scanning every cached hit, so the query time grows with the square of the
+window: on the machine above it took 3.5 seconds at 20,000 hits and 15 seconds at 40,000,
+which projects to more than ten minutes per query at 300,000. Run it at 300,000 with
+`-Dbench.matchWindow=300000` once that lookup is linear.
 
 ---
 

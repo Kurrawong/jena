@@ -282,7 +282,7 @@ These go on the **canonical field**, never on an occurrence.
 |---|---|---|
 | `idx:fieldName` | required | Internal Lucene field name |
 | `idx:fieldType` | `idx:TextField` | `idx:TextField`, `idx:KeywordField`, `idx:IntField`, `idx:LongField`, `idx:DoubleField`, `idx:TemporalField`, `idx:LatLonField` |
-| `idx:stored` | `true` | Keep the value so `luc:match` / `luc:nestedMatch` can project it |
+| `idx:stored` | `true` | The value can be returned by `luc:match`, `luc:nestedMatch` and `luc:fields`. Where it is kept is decided by the indexer; see [Where values are kept](#where-values-are-kept) |
 | `idx:indexed` | `true` | Write searchable terms/points — this is what makes the field **filterable** |
 | `idx:facetable` | `false` | Write facet docvalues — required to appear in `luc:facet` |
 | `idx:sortable` | `false` | Write sort docvalues — required for `ORDER BY` pushdown |
@@ -298,13 +298,47 @@ The four write-side flags are independent, and each buys exactly one capability:
 | Flag | Structure written | Without it |
 |---|---|---|
 | `idx:indexed` | inverted terms / points | filters on the field are **silently dropped** — the clause becomes residual, is logged, and never applied |
-| `idx:stored` | stored value | `luc:match` has nothing to project |
+| `idx:stored` | stored value, or the sort doc value alone for an eligible field | `luc:match`, `luc:nestedMatch` and `luc:fields` have nothing to return |
 | `idx:facetable` | facet docvalues | faceting the field is an error |
 | `idx:sortable` | sort docvalues | no sort pushdown |
 
 Numeric and temporal fields take their facet/sort docvalues from `idx:facetable` **or** `idx:sortable`, independently of `idx:indexed` — so a numeric field can be facetable and sortable but not filterable. That is rarely what you want; see [10-suggested-configuration.md](10-suggested-configuration.md).
 
 `idx:DateField` and `idx:DateTimeField` are accepted as deprecated aliases for `idx:TemporalField`.
+
+### Where values are kept
+
+A field's sort doc value holds its original value when all of these hold:
+
+- `idx:fieldType` is `idx:KeywordField`
+- `idx:sortable true`
+- no `idx:normalizer`, so the doc value is the raw lexical form rather than a sort key
+- `idx:storeLiteralMetadata false`, so there is no datatype or language to pair with it
+
+Such a field with `idx:stored true` is written as the doc value only, with no stored
+copy, and `luc:match`, `luc:nestedMatch` and `luc:fields` read it from the doc value. A
+doc-value read costs no stored-field decompression, which matters when values are read
+for many hits. Every other field with `idx:stored true` gets a stored copy, because its
+doc value, if any, does not hold the original value:
+
+| Field | Doc values written | Holds the original value? |
+|---|---|---|
+| `TEXT` | none | — |
+| `KEYWORD`, `idx:sortable`, `idx:normalizer` set | sort doc value | No: the normalized sort key |
+| `KEYWORD`, `idx:facetable` only | `SortedSetDocValuesFacetField` | Encoded in the shared facet field |
+| `KEYWORD` with `idx:storeLiteralMetadata` | as above | The language tag and datatype are stored separately |
+| `INT`, `LONG`, `DOUBLE` | `SortedNumericDocValuesField` | The number, not the lexical form: `"007"^^xsd:integer` would come back as `7` |
+| `TEMPORAL` | `SortedNumericDocValuesField` on an epoch twin | No: precision and timezone are lost |
+
+The rule applies to root and nested fields. Both sources give the same term: an IRI
+when the value looks like one (`://` or a `urn:` prefix), a plain string otherwise. A
+multi-valued field read from its doc value returns each distinct value once, in byte
+order; stored values come back in indexing order.
+
+An index written before this rule keeps stored copies of eligible fields. The reader
+prefers the doc value and decides per segment: a segment with no doc value for the
+field, for example one written before the field was made sortable, is read from its
+stored copy. Reindex to drop the unused copies.
 
 #### What a filter means on a multi-valued field
 
@@ -341,9 +375,7 @@ one field cannot end up with two different definitions.
 | `idx:field` | yes | The canonical field this occurrence feeds |
 | `sh:path` | yes¹ | Direct, sequence, inverse, or alternative path from the entity (or, inside `idx:nested`, from the child node) |
 | `idx:self` | yes¹ | Bind the focus node itself instead of a path from it — see [Indexing the focus node](#indexing-the-focus-node) |
-| `sh:class` | no | Only index values whose reached node has this `rdf:type` |
-| `sh:nodeKind` | no | Restrict to `sh:IRI`, `sh:Literal`, or `sh:BlankNode` |
-| `sh:datatype` | no | Only index literals with this datatype |
+| `sh:class`, `sh:datatype`, `sh:nodeKind`, … | no | Value constraints: only index the values that satisfy them — see [Value constraints](#value-constraints) |
 
 ¹ Exactly one of `sh:path` / `idx:self`. Neither is an error, and so is both.
 
@@ -375,6 +407,94 @@ tracked.
 
 The main use is a nested block whose child node is itself one of the values you want —
 see [Pattern 4](#pattern-4--hierarchy-whose-level-is-the-child-node).
+
+### Value constraints
+
+The SHACL constraints on an occurrence filter the values it reaches, one value at a time.
+They are evaluated by jena-shacl as a node shape applied to each value node; a value that
+does not conform is not indexed, and nothing is reported.
+
+```turtle
+sh:property [ idx:field field:author ; sh:path ex:author ; sh:class ex:Person ] ;
+sh:property [ idx:field field:code ; sh:path ex:code ; sh:pattern "^[A-Z]{3}-" ] ;
+```
+
+Accepted on an occurrence, with their SHACL meaning:
+
+`sh:class`, `sh:datatype`, `sh:nodeKind`, `sh:in`, `sh:pattern` (with `sh:flags`),
+`sh:minLength`, `sh:maxLength`, `sh:languageIn`, `sh:minInclusive`, `sh:maxInclusive`,
+`sh:minExclusive`, `sh:maxExclusive`, `sh:node`, `sh:and`, `sh:or`, `sh:not`, `sh:xone`.
+
+Rejected on an occurrence at config time, with an error naming the constraint:
+`sh:hasValue`, `sh:minCount`, `sh:maxCount`, `sh:uniqueLang`, `sh:qualifiedValueShape`,
+`sh:equals`, `sh:disjoint`, `sh:lessThan` and `sh:lessThanOrEquals`. Each describes the
+set of values a path reaches, or compares it with another property's values, so it has no
+meaning for one value. To index only one value, use `sh:in` with one member. These
+constraints are accepted inside a [step's filter](#steps-following-a-path-through-shnode).
+
+`sh:sparql`, SPARQL-based constraint components and `sh:closed` are rejected everywhere.
+
+A `sh:property` on an occurrence is rejected. To index only the values whose own
+properties conform, write `sh:node [ sh:property [ … ] ]` on the occurrence.
+
+**`sh:class` follows `rdfs:subClassOf`.** `sh:class ex:Person` keeps a value typed
+`ex:Student` when the data holds `ex:Student rdfs:subClassOf ex:Person`, as SHACL defines
+it. The subclass triples are read from the graph the entity is built from. A change to an
+`rdfs:subClassOf` triple is not tracked by the change listener: it can change which values
+satisfy `sh:class` anywhere in the data, so after changing the class hierarchy, rebuild the
+index. `sh:targetClass` still matches `rdf:type` exactly.
+
+`sh:datatype` also requires the literal to be well formed for its datatype:
+`"abc"^^xsd:integer` does not satisfy `sh:datatype xsd:integer`.
+
+### Steps: following a path through sh:node
+
+A `sh:property` with `sh:path` and `sh:node`, and no `idx:field`, is a **step**. From the
+focus node it follows `sh:path`, keeps each reached node that conforms to the `sh:node`
+shape's **filter**, and evaluates the field occurrences of the `sh:node` shape from each
+kept node.
+
+```turtle
+# ex:site1 schema:identifier [ schema:propertyID ex:CollarId ; schema:value "2297211" ] ,
+#                            [ schema:propertyID ex:HoleId   ; schema:value "H-1" ] .
+sh:property [
+    sh:path schema:identifier ;
+    sh:node [
+        sh:property [ sh:path schema:propertyID ; sh:hasValue ex:CollarId ] ;
+        sh:property [ sh:path schema:value ; idx:field field:collarId ] ;
+    ] ;
+] ;
+```
+
+`field:collarId` receives `"2297211"` only. It is an ordinary field of the scope the step
+is declared in: a root field at shape level, so it can be sortable, facetable and returned
+by `luc:fields`, and a child field when the step is an `idx:property` inside
+`idx:nested`. An entity with two kept nodes gives two values, and the field's
+`idx:multiValued` setting applies as it does to any path.
+
+Inside the `sh:node` shape:
+
+| Member | Role |
+|---|---|
+| `sh:property` with `idx:field` | A field occurrence, evaluated from the kept node. Its own value constraints filter its values and do not decide whether the node is kept |
+| `sh:property` with `sh:path` and `sh:node` whose shape declares a field occurrence | A further step, evaluated from the kept node |
+| Any other `sh:property` | Part of the filter, with its SHACL meaning: `sh:hasValue` holds when at least one value equals it, `sh:minCount` counts values, and so on |
+| A constraint on the shape itself (`sh:class`, `sh:in`, `sh:or`, …) | Part of the filter, applied to the kept node |
+
+A `sh:property` whose `sh:node` shape declares no field occurrence is part of the filter:
+`sh:property [ sh:path ex:org ; sh:node ex:ActiveShape ]` keeps a node whose every
+`ex:org` conforms to `ex:ActiveShape`. At shape level and directly inside `idx:nested`, a
+`sh:property` without `idx:field` that is not a step is an error, as before.
+
+A step may not lead back to a `sh:node` shape that encloses it; that is a config-time
+error. A step carries only `sh:path` and `sh:node`. Constraints on the reached nodes go inside the
+`sh:node` shape. Paths inside a filter are limited to the forms listed under
+[Paths](#paths), so that the change listener can follow them.
+
+The change listener follows a step: a change to a triple on any path the filter reads, or
+to an `rdf:type` checked by `sh:class` in it, rebuilds the entities whose step reaches the
+changed node. Changing an identifier's `schema:propertyID` from `ex:CollarId` to another
+kind removes its value from `field:collarId`.
 
 ## Choosing an Analyzer for a TEXT Field
 
@@ -522,6 +642,16 @@ Inverse path:
 ```turtle
 sh:path [ sh:inversePath ex:authored ] .
 ```
+
+Alternative path:
+
+```turtle
+sh:path [ sh:alternativePath ( ex:title ex:subtitle ) ] .
+```
+
+`sh:zeroOrMorePath`, `sh:oneOrMorePath` and `sh:zeroOrOnePath` are rejected at config
+time, in occurrences, steps and filters alike: the change listener cannot walk them back to
+the entity.
 
 ## Nested Child Records
 

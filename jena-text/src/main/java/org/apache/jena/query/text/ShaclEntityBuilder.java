@@ -30,10 +30,10 @@ import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.ShaclIndexMapping.NestedDef;
+import org.apache.jena.query.text.ShaclIndexMapping.StepDef;
 import org.apache.jena.query.ARQ;
 import org.apache.jena.sparql.path.eval.PathEval;
 import org.apache.jena.sparql.util.Context;
-import org.apache.jena.vocabulary.RDF;
 
 /**
  * Builds parent entities and nested child records from a graph and a parsed index profile.
@@ -57,9 +57,10 @@ final class ShaclEntityBuilder {
         Entity entity = new Entity(entityUri, null);
         Map<String, LinkedHashSet<Object>> docValues = new LinkedHashMap<>();
 
+        Map<List<StepDef>, Set<Node>> rootKept = new HashMap<>();
         for (FieldOccurrence occurrence : profile.getRootOccurrences()) {
             addValues(docValues, occurrence.getField().getFieldName(),
-                extractOccurrenceValues(graph, subject, occurrence));
+                extractOccurrenceValues(graph, subject, occurrence, rootKept));
         }
 
         for (NestedDef nestedDef : profile.getNestedDefs()) {
@@ -72,9 +73,10 @@ final class ShaclEntityBuilder {
             while (childIter.hasNext()) {
                 Node child = childIter.next();
                 Map<String, LinkedHashSet<Object>> recordValues = new LinkedHashMap<>();
+                Map<List<StepDef>, Set<Node>> childKept = new HashMap<>();
 
                 for (FieldOccurrence occurrence : nestedDef.getOccurrences()) {
-                    List<Object> values = extractOccurrenceValues(graph, child, occurrence);
+                    List<Object> values = extractOccurrenceValues(graph, child, occurrence, childKept);
                     if (!values.isEmpty()) {
                         // Child-scoped values go ONLY to the per-record map; they are
                         // emitted on the child Lucene doc by the indexer, not flattened
@@ -116,56 +118,67 @@ final class ShaclEntityBuilder {
         target.computeIfAbsent(fieldName, key -> new LinkedHashSet<>()).addAll(values);
     }
 
-    private static List<Object> extractOccurrenceValues(Graph graph, Node subject, FieldOccurrence occurrence) {
+    /**
+     * The values of one occurrence, evaluated from the scope's focus node: through the
+     * occurrence's steps to the kept nodes, then along its own path, keeping each value
+     * that satisfies its value constraints.
+     *
+     * @param kept nodes kept by each chain of steps from {@code focus}, shared by the
+     *             occurrences of one scope so that a step is evaluated once
+     */
+    private static List<Object> extractOccurrenceValues(Graph graph, Node focus, FieldOccurrence occurrence,
+                                                        Map<List<StepDef>, Set<Node>> kept) {
         LinkedHashSet<Object> values = new LinkedHashSet<>();
-        if (occurrence.isSelf()) {
-            // The focus node itself: the entity at root scope, the child node inside a
-            // nested block. Constraints still apply — they filter the focus node.
-            if (!satisfiesConstraints(graph, subject, occurrence)) {
-                return Collections.emptyList();
-            }
-            Object value = nodeToValue(subject, occurrence.getField().getFieldType(),
-                occurrence.getField().preservesLiteralMetadata());
-            return value != null ? List.of(value) : Collections.emptyList();
-        }
-        Iterator<Node> iter = PathEval.eval(graph, subject, occurrence.getPath(), indexingContext());
-        while (iter.hasNext()) {
-            Node endpoint = iter.next();
-            if (!satisfiesConstraints(graph, endpoint, occurrence)) {
+        for (Node start : keptNodes(graph, focus, occurrence.getSteps(), kept)) {
+            if (occurrence.isSelf()) {
+                // The node the occurrence is evaluated from: the entity at root scope, the
+                // child node inside a nested block, or a node kept by a step. Constraints
+                // still apply; they filter that node.
+                addValue(values, graph, start, occurrence);
                 continue;
             }
-            Object value = nodeToValue(endpoint, occurrence.getField().getFieldType(),
-                occurrence.getField().preservesLiteralMetadata());
-            if (value != null) {
-                values.add(value);
+            Iterator<Node> iter = PathEval.eval(graph, start, occurrence.getLocalPath(), indexingContext());
+            while (iter.hasNext()) {
+                addValue(values, graph, iter.next(), occurrence);
             }
         }
         return new ArrayList<>(values);
     }
 
-    private static boolean satisfiesConstraints(Graph graph, Node endpoint, FieldOccurrence occurrence) {
-        if (occurrence.getRequiredClass() != null) {
-            if (!endpoint.isBlank() && !endpoint.isURI()) {
-                return false;
-            }
-            if (!graph.find(endpoint, RDF.type.asNode(), occurrence.getRequiredClass()).hasNext()) {
-                return false;
+    private static void addValue(Set<Object> values, Graph graph, Node endpoint, FieldOccurrence occurrence) {
+        if (!occurrence.accepts(graph, endpoint)) {
+            return;
+        }
+        Object value = nodeToValue(endpoint, occurrence.getField().getFieldType(),
+            occurrence.getField().preservesLiteralMetadata());
+        if (value != null) {
+            values.add(value);
+        }
+    }
+
+    /** The nodes reached from {@code focus} through {@code steps}, each kept by its step's filter. */
+    private static Set<Node> keptNodes(Graph graph, Node focus, List<StepDef> steps,
+                                       Map<List<StepDef>, Set<Node>> kept) {
+        if (steps.isEmpty()) {
+            return Collections.singleton(focus);
+        }
+        Set<Node> cached = kept.get(steps);
+        if (cached != null) {
+            return cached;
+        }
+        StepDef last = steps.get(steps.size() - 1);
+        Set<Node> result = new LinkedHashSet<>();
+        for (Node from : keptNodes(graph, focus, steps.subList(0, steps.size() - 1), kept)) {
+            Iterator<Node> iter = PathEval.eval(graph, from, last.getPath(), indexingContext());
+            while (iter.hasNext()) {
+                Node reached = iter.next();
+                if (!result.contains(reached) && last.keeps(graph, reached)) {
+                    result.add(reached);
+                }
             }
         }
-        if (occurrence.getNodeKindConstraint() != null
-                && !occurrence.getNodeKindConstraint().matches(endpoint)) {
-            return false;
-        }
-        if (occurrence.getDatatype() != null) {
-            if (!endpoint.isLiteral()) {
-                return false;
-            }
-            String datatypeUri = endpoint.getLiteralDatatypeURI();
-            if (!Objects.equals(datatypeUri, occurrence.getDatatype().getURI())) {
-                return false;
-            }
-        }
-        return true;
+        kept.put(List.copyOf(steps), result);
+        return result;
     }
 
     static Object nodeToValue(Node obj, FieldType fieldType) {

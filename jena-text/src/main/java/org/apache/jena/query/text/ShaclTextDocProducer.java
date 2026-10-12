@@ -26,6 +26,7 @@ import java.util.*;
 import org.apache.jena.query.ARQ;
 import org.apache.jena.graph.Graph;
 import org.apache.jena.graph.Node;
+import org.apache.jena.query.text.ShaclIndexMapping.ConditionPath;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.ShaclIndexMapping.JoinStep;
@@ -105,8 +106,12 @@ public class ShaclTextDocProducer implements TextDocProducer {
         for (ProfileOccurrence profileOccurrence : mapping.getOccurrencesRequiringClass(typeNode)) {
             Set<Node> scopeRoots = findScopeRootsForConstraintChange(graph, subject,
                 profileOccurrence.getOccurrence());
-            entitiesToRebuild.addAll(resolveEntityRoots(graph, profileOccurrence, scopeRoots));
+            entitiesToRebuild.addAll(resolveEntityRoots(graph, profileOccurrence.getNestedDef(), scopeRoots));
         }
+        // sh:class in a step filter or a value constraint, matched through the path that
+        // reaches the typed node rather than by class, so that a subclass's instance is
+        // followed too.
+        entitiesToRebuild.addAll(findEntitiesForConditionChange(graph, RDF_TYPE, subject, typeNode));
 
         for (Node entity : entitiesToRebuild) {
             rebuildEntityDocuments(entity);
@@ -119,9 +124,11 @@ public class ShaclTextDocProducer implements TextDocProducer {
 
         for (ProfileOccurrence profileOccurrence : mapping.getOccurrencesForPredicate(changedPredicate)) {
             Set<Node> scopeRoots = findScopeRootsForPredicateChange(
-                profileOccurrence.getOccurrence(), changedPredicate, changedSubject, changedObject, graph);
-            entities.addAll(resolveEntityRoots(graph, profileOccurrence, scopeRoots));
+                profileOccurrence.getOccurrence().getPathVariants(), changedPredicate, changedSubject,
+                changedObject, graph);
+            entities.addAll(resolveEntityRoots(graph, profileOccurrence.getNestedDef(), scopeRoots));
         }
+        entities.addAll(findEntitiesForConditionChange(graph, changedPredicate, changedSubject, changedObject));
 
         if (mapping.isNestedJoinPredicate(changedPredicate)) {
             for (IndexProfile profile : mapping.getProfiles()) {
@@ -137,18 +144,33 @@ public class ShaclTextDocProducer implements TextDocProducer {
         return entities;
     }
 
-    private Set<Node> resolveEntityRoots(Graph graph, ProfileOccurrence profileOccurrence, Set<Node> scopeRoots) {
+    /**
+     * Entities whose step filters or value constraints read {@code changedPredicate} at a
+     * position the changed triple can occupy.
+     */
+    private Set<Node> findEntitiesForConditionChange(Graph graph, Node changedPredicate,
+                                                     Node changedSubject, Node changedObject) {
+        Set<Node> entities = new LinkedHashSet<>();
+        for (ConditionPath conditionPath : mapping.getConditionPathsForPredicate(changedPredicate)) {
+            Set<Node> scopeRoots = findScopeRootsForPredicateChange(conditionPath.getPathVariants(),
+                changedPredicate, changedSubject, changedObject, graph);
+            entities.addAll(resolveEntityRoots(graph, conditionPath.getNestedDef(), scopeRoots));
+        }
+        return entities;
+    }
+
+    private Set<Node> resolveEntityRoots(Graph graph, NestedDef nestedDef, Set<Node> scopeRoots) {
         if (scopeRoots.isEmpty()) {
             return Collections.emptySet();
         }
-        if (!profileOccurrence.isNestedScoped()) {
+        if (nestedDef == null) {
             return scopeRoots;
         }
-        return reverseTraverseToParents(graph, scopeRoots, profileOccurrence.getNestedDef().getJoinSteps());
+        return reverseTraverseToParents(graph, scopeRoots, nestedDef.getJoinSteps());
     }
 
     private Set<Node> findScopeRootsForConstraintChange(Graph graph, Node endpoint, FieldOccurrence occurrence) {
-        if (occurrence.isSelf()) {
+        if (occurrence.getPath() == null) {
             // Walking an identity path backwards from a node arrives at that same node.
             return Collections.singleton(endpoint);
         }
@@ -160,10 +182,10 @@ public class ShaclTextDocProducer implements TextDocProducer {
         return roots;
     }
 
-    private Set<Node> findScopeRootsForPredicateChange(FieldOccurrence occurrence, Node changedPredicate,
+    private Set<Node> findScopeRootsForPredicateChange(List<List<JoinStep>> pathVariants, Node changedPredicate,
                                                        Node changedSubject, Node changedObject, Graph graph) {
         Set<Node> roots = new LinkedHashSet<>();
-        for (List<JoinStep> variant : occurrence.getPathVariants()) {
+        for (List<JoinStep> variant : pathVariants) {
             for (int i = 0; i < variant.size(); i++) {
                 JoinStep step = variant.get(i);
                 if (!step.getPredicate().equals(changedPredicate)) {
