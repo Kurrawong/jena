@@ -71,6 +71,16 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 | `TestExternalSourceAssembler` | 13 | Turtle config: narrow source, optional properties, headerless positional binding, bound fields becoming profile fields, hierarchy over external fields, and the validation rules — `idx:joinPath` xor `idx:externalSource`, required `idx:nestedName`, no `sh:path` on a bound column, exactly one of `idx:columnName`/`idx:columnIndex`, unknown format, unsupported field type |
 | `TestExternalContentIndexing` | 19 | End-to-end: rows become children of the matching entity; entities with no rows still indexed; unmatched rows counted and dropped; same-child `=` + range correlation; entity-level AND across two properties is *not* same-child; sort by a not-stored external value with `missing` placement; `idx:subjectPrefix`; a bad join key building successfully with a zero match rate in the counters; unsorted buffering; empty and unparseable cells; `idx:onError "fail"`; hierarchical facets over external children; live graph change does not strip external children. Plus wide children (depth-from/depth-to/analyte/value on one child): four-way same-child correlation, the decorrelation check that a Cu child and a deep child on the same hole do not satisfy one AND, and two analytes still not being same-child |
 
+### sh:node Steps and Value Constraints
+
+Both classes configure the index from Turtle through `ShaclTurtleFixture`, which also reads
+the written Lucene documents back.
+
+| Class | Tests | What it covers |
+|-------|-------|---------------|
+| `TestShaclNodeOccurrenceFilters` | 14 | Steps: a filtered identifier value as a sortable root field; two kept values, and the single-valued warning; filters with `sh:in`, an inner `sh:minCount`, a constraint on the shape, and a field-less `sh:node` member; a step inside a step; a step inside `idx:nested` feeding the child; an occurrence's own constraint not deciding whether its node is kept; the change listener following a filter predicate, a field value and an `rdf:type`; the fingerprint following a filter; bulk indexer and change listener writing the same documents |
+| `TestShaclOccurrenceValueConstraints` | 33 | Each accepted per-value constraint filtering values; each set constraint, and `sh:sparql` on an occurrence and in a filter, rejected naming the constraint; repeating paths rejected; `sh:class` admitting a subclass instance |
+
 ### Existing Tests (unchanged, verifying no regressions)
 
 The remaining suite covers text search, multilingual support, graph indexing, deletion, analyzers, property lists, spatial filtering, nested identifiers, and demo mining scenarios.

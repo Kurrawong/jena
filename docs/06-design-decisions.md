@@ -108,14 +108,20 @@ For the public SPARQL/API contract, field references are always IRIs. The intern
 2. New custom config vocabulary — no established standard
 3. SHACL NodeShape/PropertyShape — maps naturally to "entity with typed fields"
 
-**Decision:** Use SHACL vocabulary (`sh:targetClass`, `sh:path`, `sh:alternativePath`) with extension properties in the `idx:` namespace. Parse config using standard Jena RDF API — no jena-shacl dependency.
+**Decision:** Use SHACL vocabulary (`sh:targetClass`, `sh:path`, `sh:alternativePath`) with extension properties in the `idx:` namespace. Read the configuration with the Jena RDF API, reusing jena-shacl's vocabulary, path parser and constraint evaluation. The index never runs validation or produces a validation report.
 
 **Rationale:**
 - SHACL shapes map directly to the concept of "an entity type with typed properties"
 - `sh:targetClass` is exactly how you say "these are Book entities"
 - `sh:path` / `sh:alternativePath` naturally express "index these predicates"
 - Extension properties (`idx:fieldType`, `idx:facetable`, etc.) are clean additions
-- No dependency on jena-shacl — we're reading config, not running validation
+- The index reads configuration and filters values; it does not validate data. It
+  reuses jena-shacl for the parts that are the same in both: the `sh:` vocabulary,
+  `ShaclPaths.parsePath`, and the constraint components. A field occurrence's value
+  constraints and a `sh:node` step's filter are jena-shacl node shapes, and the index
+  asks only whether one node conforms to one shape
+  ([2026-10-12_shacl_node_occurrence_filters_design.md](2026-10-12_shacl_node_occurrence_filters_design.md)).
+  The `idx:` settings stay in the index's own mapping; jena-shacl never sees them.
 
 ---
 

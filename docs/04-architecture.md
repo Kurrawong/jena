@@ -64,14 +64,15 @@ Used with `text:shapes` configuration. SPARQL search via `luc:query` (with filte
 
 | Class | Role |
 |-------|------|
-| `ShaclIndexMapping` | Parsed data model: `IndexProfile` (shape), `FieldDef` (field), `FieldType` enum. Pure data, no RDF/Lucene dependencies beyond `Node` and `Analyzer` |
+| `ShaclIndexMapping` | Parsed data model: `IndexProfile` (shape), `FieldDef` (field), `FieldType` enum. Pure data, no RDF/Lucene dependencies beyond `Node`, `Analyzer` and the `ShaclShapeCondition`s held by steps and occurrences |
 | `ShaclTextDocProducer` | Change listener. On triple add/delete, reads entity state from `MultiUnion(defaultGraph, unionGraph)`, builds Entity, calls `updateEntityForProfile()`. Supports data in default and named graphs |
 | `ShaclTextQueryPF` | Implements `luc:query` — search with JSON filter support, `?totalHits` binding. Uses `SearchExecution` for shared state with `luc:facet` |
 | `TextFacetPF` | Implements `luc:facet` — facet counts property function. Returns (field, value, count) bindings |
 | `ShaclConfigPF` | Implements `luc:config` — matches a triple pattern over the index's configuration subgraph, copied at assembly when `text:exposeConfig true` |
 | `SearchExecution` | Shared execution state. Stored in `ExecutionContext` keyed by normalised query params. Lazy-computes hits, facet counts, and total hit count |
 | `FacetValue` | Immutable (value, count) pair for facet results |
-| `ShaclIndexAssembler` | Parses `text:shapes` RDF config into `ShaclIndexMapping`. Reads `sh:targetClass`, `sh:path`, `sh:alternativePath`. No jena-shacl dependency |
+| `ShaclIndexAssembler` | Parses `text:shapes` RDF config into `ShaclIndexMapping`. Reads `sh:targetClass`, `sh:property`, `sh:path` (with jena-shacl's `ShaclPaths.parsePath`) and `sh:node` steps. Uses jena-shacl's `SHACL` vocabulary |
+| `ShaclShapeCondition` | A jena-shacl node shape applied to one node at a time: a step's filter, or a field occurrence's value constraints. Answers "does this node conform" with `VLib.validateShape`; produces no validation report. Lists the paths it reads, for change tracking |
 | `ShaclTextIndexLucene` | Extended `TextIndexLucene` with taxonomy writer/reader for hierarchical facets, `MultiFacets`, and `extractHierarchyDrillDown()` |
 | `IndexVocab` | `urn:jena:lucene:index#` namespace constants and PF URI strings |
 
@@ -157,14 +158,18 @@ DatasetGraphTextMonitor.add(g, s, p, o)
         ShaclTextDocProducer.change()
         ├── p == rdf:type?
         │     └── handleTypeChange()
-        │           └── rebuildEntityDocuments(s)
+        │           ├── rebuildEntityDocuments(s)
+        │           └── entities whose sh:class conditions reach s
         ├── mapping.isRelevantPredicate(p)?
         │     ├── top-level predicate?
         │     │     └── rebuild entity subject directly
         │     ├── nested child predicate?
         │     │     └── reverse nested join path from changed child node
-        │     └── nested join predicate?
-        │           └── locate join step, reverse join-path prefix to parent
+        │     ├── nested join predicate?
+        │     │     └── locate join step, reverse join-path prefix to parent
+        │     └── read by a step filter or a value constraint?
+        │           └── reverse the condition's path (step paths, then the path
+        │               the condition reads) to the scope root
         └── else: ignore (irrelevant predicate)
 
 rebuildEntityDocuments(subject)
