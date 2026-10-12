@@ -218,6 +218,12 @@ Recorded when the design was built.
   itself (`sh:minCount`, `sh:class`, …) has no defined meaning here, so it is rejected
   with an error that says to put it inside the `sh:node` shape. `idx:self` on a step is
   rejected for the same reason.
+- **Recursive steps are rejected.** A step whose `sh:node` shape leads back to a shape
+  that encloses it would expand into an unbounded chain of steps; the assembler reports it
+  as a configuration error. A recursive shape inside a filter is left to jena-shacl.
+- **`sh:property` on a field occurrence is rejected.** It is not in the accepted list,
+  and was ignored, so every value was indexed. `sh:node [ sh:property … ]` says the same
+  thing and is accepted.
 - **`sh:closed` is rejected everywhere.** A closed shape depends on every predicate of a
   node, which change tracking cannot follow.
 - **Paths inside filters are restricted** to predicate, inverse, sequence and alternative

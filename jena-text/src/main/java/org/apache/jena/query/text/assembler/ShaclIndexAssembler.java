@@ -134,7 +134,7 @@ public class ShaclIndexAssembler {
                 throw new TextIndexException("sh:property on " + shape + " must be a resource");
             }
             parseMember(a, propNode.asResource(), canonicalFields, reachableFields, null,
-                Collections.emptyList(), occurrences);
+                Collections.emptyList(), Collections.emptyList(), occurrences);
         }
         return Collections.unmodifiableList(occurrences);
     }
@@ -181,7 +181,7 @@ public class ShaclIndexAssembler {
                     throw new TextIndexException("idx:property inside idx:nested must be a resource on " + shape);
                 }
                 parseMember(a, occurrenceNode.asResource(), canonicalFields, reachableFields, nestedName,
-                    Collections.emptyList(), nestedOccurrences);
+                    Collections.emptyList(), Collections.emptyList(), nestedOccurrences);
             }
 
             if (nestedOccurrences.isEmpty()) {
@@ -447,13 +447,16 @@ public class ShaclIndexAssembler {
      * Parse one member of a scope: a field occurrence, or a step whose {@code sh:node}
      * shape contributes further occurrences. Either way the resulting occurrences are
      * appended to {@code out}, each carrying the chain of steps that leads to it.
+     *
+     * @param stepShapes the {@code sh:node} shapes of {@code steps}, in the same order
      */
     private static void parseMember(Assembler a, Resource memberRes,
                                     Map<String, CanonicalFieldSpec> canonicalFields,
                                     Map<String, FieldDef> reachableFields, String nestedName,
-                                    List<StepDef> steps, List<FieldOccurrence> out) {
+                                    List<StepDef> steps, List<Resource> stepShapes,
+                                    List<FieldOccurrence> out) {
         if (isStep(memberRes)) {
-            parseStep(a, memberRes, canonicalFields, reachableFields, nestedName, steps, out);
+            parseStep(a, memberRes, canonicalFields, reachableFields, nestedName, steps, stepShapes, out);
         } else {
             out.add(parseOccurrence(a, memberRes, canonicalFields, reachableFields, nestedName, steps));
         }
@@ -500,7 +503,8 @@ public class ShaclIndexAssembler {
     private static void parseStep(Assembler a, Resource stepRes,
                                   Map<String, CanonicalFieldSpec> canonicalFields,
                                   Map<String, FieldDef> reachableFields, String nestedName,
-                                  List<StepDef> steps, List<FieldOccurrence> out) {
+                                  List<StepDef> steps, List<Resource> stepShapes,
+                                  List<FieldOccurrence> out) {
         List<Statement> nodeStmts = stepRes.listProperties(shNode).toList();
         if (nodeStmts.size() != 1 || !nodeStmts.get(0).getObject().isResource()) {
             throw new TextIndexException("Step " + stepRes + " must have exactly one sh:node shape");
@@ -518,11 +522,19 @@ public class ShaclIndexAssembler {
         }
         Path path = extractOccurrencePath(stepRes);
         Resource shapeRes = nodeStmts.get(0).getObject().asResource();
+        if (stepShapes.contains(shapeRes)) {
+            // Each pass through the shape would add another step, without end.
+            throw new TextIndexException("Step " + stepRes + " reaches the sh:node shape " + shapeRes
+                + ", which already encloses it. A step may not lead back to its own shape: the index "
+                + "evaluates steps to a fixed depth.");
+        }
         ShaclShapeCondition filter = ShaclConstraints.filterCondition(shapeRes);
         StepDef step = new StepDef(path, extractPathVariants(path), filter);
 
         List<StepDef> chain = new ArrayList<>(steps);
         chain.add(step);
+        List<Resource> chainShapes = new ArrayList<>(stepShapes);
+        chainShapes.add(shapeRes);
         for (Statement memberStmt : shapeRes.listProperties(shProperty).toList()) {
             RDFNode member = memberStmt.getObject();
             if (!member.isResource()) {
@@ -530,7 +542,7 @@ public class ShaclIndexAssembler {
             }
             Resource memberRes = member.asResource();
             if (memberRes.hasProperty(IndexVocab.pField) || isStep(memberRes)) {
-                parseMember(a, memberRes, canonicalFields, reachableFields, nestedName, chain, out);
+                parseMember(a, memberRes, canonicalFields, reachableFields, nestedName, chain, chainShapes, out);
             }
         }
     }

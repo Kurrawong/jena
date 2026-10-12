@@ -150,6 +150,13 @@ final class ShaclConstraints {
             throw new TextIndexException("Field occurrence " + occurrenceRes + " uses sh:closed, "
                 + "which is not supported in text:shapes.");
         }
+        if (occurrenceRes.hasProperty(SHACLM.property)) {
+            // Not a value constraint the index applies, so it would otherwise be ignored
+            // and every value indexed.
+            throw new TextIndexException("Field occurrence " + occurrenceRes + " has sh:property. "
+                + "To index only values whose own properties conform, use "
+                + "sh:node [ sh:property [ ... ] ] on the occurrence.");
+        }
 
         Graph source = occurrenceRes.getModel().getGraph();
         Graph target = GraphFactory.createDefaultGraph();

@@ -400,6 +400,9 @@ constraints are accepted inside a [step's filter](#steps-following-a-path-throug
 
 `sh:sparql`, SPARQL-based constraint components and `sh:closed` are rejected everywhere.
 
+A `sh:property` on an occurrence is rejected. To index only the values whose own
+properties conform, write `sh:node [ sh:property [ … ] ]` on the occurrence.
+
 **`sh:class` follows `rdfs:subClassOf`.** `sh:class ex:Person` keeps a value typed
 `ex:Student` when the data holds `ex:Student rdfs:subClassOf ex:Person`, as SHACL defines
 it. The subclass triples are read from the graph the entity is built from. A change to an
@@ -449,7 +452,8 @@ A `sh:property` whose `sh:node` shape declares no field occurrence is part of th
 `ex:org` conforms to `ex:ActiveShape`. At shape level and directly inside `idx:nested`, a
 `sh:property` without `idx:field` that is not a step is an error, as before.
 
-A step carries only `sh:path` and `sh:node`. Constraints on the reached nodes go inside the
+A step may not lead back to a `sh:node` shape that encloses it; that is a config-time
+error. A step carries only `sh:path` and `sh:node`. Constraints on the reached nodes go inside the
 `sh:node` shape. Paths inside a filter are limited to the forms listed under
 [Paths](#paths), so that the change listener can follow them.
 
