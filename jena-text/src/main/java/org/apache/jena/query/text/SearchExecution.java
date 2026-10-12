@@ -288,11 +288,6 @@ public class SearchExecution {
         }
     }
 
-    /** Whether a searcher is currently held. */
-    synchronized boolean holdsSearcher() {
-        return heldSearcher != null;
-    }
-
     @FunctionalInterface
     private interface SearcherRead {
         void read(IndexSearcher searcher) throws IOException;
