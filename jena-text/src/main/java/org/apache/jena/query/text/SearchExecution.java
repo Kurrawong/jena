@@ -227,6 +227,32 @@ public class SearchExecution {
         return searchHits != null ? Collections.unmodifiableList(searchHits) : Collections.emptyList();
     }
 
+    /** A {@code luc:query} iterator over this search opened. */
+    public synchronized void retain() {
+    }
+
+    /** A {@code luc:query} iterator over this search closed. */
+    public synchronized void release() {
+    }
+
+    /** The cached hit with this ID, or null. */
+    public synchronized SearchHit findHit(org.apache.jena.graph.Node hitId) {
+        if (searchHits == null) {
+            return null;
+        }
+        for (SearchHit sh : searchHits) {
+            if (sh.getHitId().equals(hitId)) {
+                return sh;
+            }
+        }
+        return null;
+    }
+
+    /** The match details of a cached hit. */
+    public synchronized List<FieldMatch> fieldMatches(SearchHit hit) {
+        return hit.getFieldMatches();
+    }
+
     public CqlExpression getFilter() {
         return filter;
     }

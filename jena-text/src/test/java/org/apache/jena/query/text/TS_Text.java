@@ -137,6 +137,10 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     // luc:nestedMatch property function
     , TestNestedMatchProjection.class
 
+    // luc:query hit path: reads per hit, held searcher, hit lookup
+    , TestLucQueryHitPath.class
+    , TestLucMatchLargeWindow.class
+
     // Shared field occurrences / fan-in
     , TestSharedFieldOccurrences.class
 

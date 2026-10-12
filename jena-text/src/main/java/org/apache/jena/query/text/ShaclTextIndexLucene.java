@@ -240,6 +240,24 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      */
     private static final int MAX_NESTED_MATCHES_PER_HIT = 100;
 
+    /** Test hook counting reads on the hit path; null in production. */
+    private volatile HitReadObserver hitReadObserver;
+
+    void setHitReadObserver(HitReadObserver observer) {
+        this.hitReadObserver = observer;
+    }
+
+    private void observeStoredRead(int docId, Document doc) {
+        HitReadObserver observer = hitReadObserver;
+        if (observer != null) {
+            Set<String> names = new LinkedHashSet<>();
+            for (IndexableField f : doc.getFields()) {
+                names.add(f.name());
+            }
+            observer.storedFieldsRead(docId, names);
+        }
+    }
+
     public ShaclTextIndexLucene(Directory directory, TextIndexConfig config) {
         this(directory, null, config);
     }
@@ -471,7 +489,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * The caller MUST pair this with {@link #releaseSearcher(IndexSearcher)} in a
      * try/finally — a missed release leaks reader references.
      */
-    private IndexSearcher acquireSearcher() {
+    IndexSearcher acquireSearcher() {
         try {
             return searcherManager.acquire();
         } catch (IOException e) {
@@ -480,7 +498,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     }
 
     /** Release a searcher previously obtained from {@link #acquireSearcher()}. */
-    private void releaseSearcher(IndexSearcher searcher) {
+    void releaseSearcher(IndexSearcher searcher) {
         if (searcher == null) {
             return;
         }
@@ -841,6 +859,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             int idx = 0;
             for (ScoreDoc sd : topDocs.scoreDocs) {
                 Document doc = storedFields.document(sd.doc);
+                observeStoredRead(sd.doc, doc);
                 String uri = doc.get(entityField);
                 if (uri != null) {
                     Node entityNode = TextQueryFuncs.stringToNode(uri);
@@ -902,6 +921,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             int segmentDocId = docId - leaf.docBase;
 
             Matches matches = weight.matches(leaf, segmentDocId);
+            if (hitReadObserver != null) hitReadObserver.matchesComputed(docId);
             if (matches == null) continue;
 
             // Extract named matches → field IRIs
@@ -910,6 +930,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
             StoredFields storedFields = searcher.storedFields();
             Document doc = storedFields.document(docId);
+            observeStoredRead(docId, doc);
 
             for (NamedMatches nm : namedMatchList) {
                 String name = nm.getName(); // This is the field IRI string
@@ -1003,8 +1024,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 if (matches.size() >= MAX_NESTED_MATCHES_PER_HIT) {
                     break;
                 }
-                NestedMatch match = nestedMatchFromChild(
-                    hit.getRank(), matches.size(), storedFields.document(childDocId));
+                Document childDoc = storedFields.document(childDocId);
+                observeStoredRead(childDocId, childDoc);
+                NestedMatch match = nestedMatchFromChild(hit.getRank(), matches.size(), childDoc);
                 if (match != null) {
                     matches.add(match);
                 }
