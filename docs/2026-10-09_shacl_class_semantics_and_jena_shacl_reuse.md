@@ -195,11 +195,19 @@ replacement keeps that restriction by checking the parsed `Path` for `P_ZeroOrMo
 `jena-text/pom.xml` should declare `jena-shacl` directly, with `${project.version}`, so the
 dependency does not rest on `jena-cmds` continuing to carry it.
 
+The validation engine (`Shapes.parse`, `VLib.validateShape`, the constraint classes in
+`engine/constraint`) was first ruled out here: it produces validation reports, the index
+needs filters, and the mapping carries `idx:` settings the validator does not model.
+[2026-10-12_shacl_node_occurrence_filters_design.md](2026-10-12_shacl_node_occurrence_filters_design.md)
+reverses that for occurrence constraints and `sh:node` filters. A filter is the question
+"does this node conform to this shape", which the engine answers without a report, and the
+`idx:` settings stay in the index's own mapping. That design implements this section's
+vocabulary, path and dependency changes, and gives an occurrence's `sh:class` the subclass
+meaning through jena-shacl's `ClassConstraint`. `sh:targetClass` and the `sh:hasValue`
+focus-node filter below remain this plan's.
+
 Not reused:
 
-- The validation engine (`Shapes.parse`, `ShaclValidator`, the constraint classes in
-  `engine/constraint`) produces validation reports. The index needs filters, and its
-  mapping carries `idx:` settings the validator does not model.
 - `ShaclPaths.pathToRDF` writes left-deep sequences as nested lists, and writes
   `sh:alternativePath` for a `P_ReverseLink`. The `luc:config` plan
   ([2026-10-09_luc_config_property_function_plan.md](2026-10-09_luc_config_property_function_plan.md))
