@@ -1,7 +1,7 @@
 ---
 title: "Reading less per hit, and luc:fields for identifier queries"
 date: "2026-10-12"
-status: "Parts 1, 2 and 3 implemented; the entity IRI doc value awaits the benchmark"
+status: "Built"
 ---
 
 # Reading Less per Hit, and luc:fields for Identifier Queries
@@ -426,26 +426,33 @@ The benchmark is committed first and run at that commit for the baseline. The fi
 scenarios exist at the baseline and must be no more than 5% slower at the median, warm, on
 the same machine. The others are reported.
 
-#### Part 1 results
+#### Results
 
-Both runs used the same machine and index, pinned to 8 of 12 cores. The baseline was
-benchmark commit `ae310d3792` and Part 1 was `324382021e`. JMH ran in sample-time mode,
-with 3 × 10 s warmup, 5 × 10 s measurement and one fork. Times are in ms per query.
-`luc:fields` is Part 3, so the identifier scenario is not in this run.
+Both runs used the same machine, pinned to 8 of 12 cores, each with an index built by its
+own code. The original was benchmark commit `ae310d3792`; the final run was the built
+design, Parts 1 to 3 with the entity IRI doc value. JMH ran in sample-time mode, with
+3 × 10 s warmup, 5 × 10 s measurement and one fork. Times are in ms per query.
 
-| Scenario | Baseline p50 | Part 1 p50 | Change | Baseline p90 | Part 1 p90 | Change |
+| Scenario | Original p50 | Final p50 | Change | Original p90 | Final p90 | Change |
 |---|---|---|---|---|---|---|
-| pageText | 0.656 | 0.385 | -41% | 0.702 | 0.413 | -41% |
-| pageTextWithMatch | 0.685 | 0.653 | -5% | 0.726 | 0.699 | -4% |
-| pageTextWithFacet | 1.090 | 0.794 | -27% | 1.149 | 0.835 | -27% |
-| largeFilterOnly | 2,429 | 2,370 | -2% | 2,509 | 2,458 | -2% |
-| largeTextNoMatch | 6,539 | 2,311 | -65% | 6,675 | 2,460 | -63% |
-| largeTextWithMatch, 20,000 hits | 4,035 | 411 | -90% | 4,080 | 427 | -90% |
+| pageText | 0.656 | 0.250 | -62% | 0.702 | 0.260 | -63% |
+| pageTextWithMatch | 0.685 | 0.503 | -27% | 0.726 | 0.543 | -25% |
+| pageTextWithFacet | 1.090 | 0.764 | -30% | 1.149 | 0.818 | -29% |
+| largeFilterOnly | 2,429 | 89.4 | -96% | 2,509 | 92.0 | -96% |
+| largeTextNoMatch | 6,539 | 94.1 | -99% | 6,675 | 96.3 | -99% |
+| largeTextWithMatch, 20,000 hits | 4,035 | 249 | -94% | 4,080 | 263 | -94% |
+| largeIdentifierFields | — | 173 | — | — | 177 | — |
 
-No page scenario is slower. `largeTextNoMatch` no longer computes match details.
-`largeTextWithMatch` no longer scans every cached hit on each `luc:match` call. Across
-300,000 hits it takes 5.6 s at p50 and 5.7 s at p90. The baseline was not run at that
-size: probes up to 40,000 hits grew quadratically, which projects to about 14 minutes.
+No scenario is slower. The large windows that bind `?entity` read it from the doc value
+rather than stored fields, and `largeTextNoMatch` no longer computes match details.
+`largeTextWithMatch` no longer scans every cached hit on each `luc:match` call; with
+Part 1 alone it took 5.6 s at p50 across 300,000 hits, where probes of the original up to
+40,000 hits grew quadratically, projecting to about 14 minutes. `luc:fields` is new, so
+the identifier scenario has no original.
+
+The index grew from 323.5 MB to 342.0 MB (6%) and the index step from 91.3 s to 94.0 s.
+Eligible fields lose their stored copy, but the entity IRI doc value, one unique IRI per
+entity, adds more than that saves: an index built without it was 320.5 MB.
 
 #### Entity IRI doc value
 
@@ -470,6 +477,8 @@ new, warm and with the page cache evicted. Parts 2 and 3 change what is written,
 are measured on a subset of the same data reindexed into a separate directory. The
 identifier query is compared with the triple-pattern baseline above for row count, the set
 of identifiers, time and bytes read.
+
+This check was not run for the built design; the figures above are synthetic only.
 
 ## Open decisions
 
