@@ -282,7 +282,7 @@ These go on the **canonical field**, never on an occurrence.
 |---|---|---|
 | `idx:fieldName` | required | Internal Lucene field name |
 | `idx:fieldType` | `idx:TextField` | `idx:TextField`, `idx:KeywordField`, `idx:IntField`, `idx:LongField`, `idx:DoubleField`, `idx:TemporalField`, `idx:LatLonField` |
-| `idx:stored` | `true` | Keep the value so `luc:match` / `luc:nestedMatch` can project it |
+| `idx:stored` | `true` | The value can be returned by `luc:match`, `luc:nestedMatch` and `luc:fields`. Where it is kept is decided by the indexer; see [Where values are kept](#where-values-are-kept) |
 | `idx:indexed` | `true` | Write searchable terms/points — this is what makes the field **filterable** |
 | `idx:facetable` | `false` | Write facet docvalues — required to appear in `luc:facet` |
 | `idx:sortable` | `false` | Write sort docvalues — required for `ORDER BY` pushdown |
@@ -298,13 +298,47 @@ The four write-side flags are independent, and each buys exactly one capability:
 | Flag | Structure written | Without it |
 |---|---|---|
 | `idx:indexed` | inverted terms / points | filters on the field are **silently dropped** — the clause becomes residual, is logged, and never applied |
-| `idx:stored` | stored value | `luc:match` has nothing to project |
+| `idx:stored` | stored value, or the sort doc value alone for an eligible field | `luc:match`, `luc:nestedMatch` and `luc:fields` have nothing to return |
 | `idx:facetable` | facet docvalues | faceting the field is an error |
 | `idx:sortable` | sort docvalues | no sort pushdown |
 
 Numeric and temporal fields take their facet/sort docvalues from `idx:facetable` **or** `idx:sortable`, independently of `idx:indexed` — so a numeric field can be facetable and sortable but not filterable. That is rarely what you want; see [10-suggested-configuration.md](10-suggested-configuration.md).
 
 `idx:DateField` and `idx:DateTimeField` are accepted as deprecated aliases for `idx:TemporalField`.
+
+### Where values are kept
+
+A field's sort doc value holds its original value when all of these hold:
+
+- `idx:fieldType` is `idx:KeywordField`
+- `idx:sortable true`
+- no `idx:normalizer`, so the doc value is the raw lexical form rather than a sort key
+- `idx:storeLiteralMetadata false`, so there is no datatype or language to pair with it
+
+Such a field with `idx:stored true` is written as the doc value only, with no stored
+copy, and `luc:match`, `luc:nestedMatch` and `luc:fields` read it from the doc value. A
+doc-value read costs no stored-field decompression, which matters when values are read
+for many hits. Every other field with `idx:stored true` gets a stored copy, because its
+doc value, if any, does not hold the original value:
+
+| Field | Doc values written | Holds the original value? |
+|---|---|---|
+| `TEXT` | none | — |
+| `KEYWORD`, `idx:sortable`, `idx:normalizer` set | sort doc value | No: the normalized sort key |
+| `KEYWORD`, `idx:facetable` only | `SortedSetDocValuesFacetField` | Encoded in the shared facet field |
+| `KEYWORD` with `idx:storeLiteralMetadata` | as above | The language tag and datatype are stored separately |
+| `INT`, `LONG`, `DOUBLE` | `SortedNumericDocValuesField` | The number, not the lexical form: `"007"^^xsd:integer` would come back as `7` |
+| `TEMPORAL` | `SortedNumericDocValuesField` on an epoch twin | No: precision and timezone are lost |
+
+The rule applies to root and nested fields. Both sources give the same term: an IRI
+when the value looks like one (`://` or a `urn:` prefix), a plain string otherwise. A
+multi-valued field read from its doc value returns each distinct value once, in byte
+order; stored values come back in indexing order.
+
+An index written before this rule keeps stored copies of eligible fields. The reader
+prefers the doc value and decides per segment: a segment with no doc value for the
+field, for example one written before the field was made sortable, is read from its
+stored copy. Reindex to drop the unused copies.
 
 #### What a filter means on a multi-valued field
 

@@ -34,8 +34,11 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 | `TestTextFacetPF` | 16 | SPARQL `luc:facet` PF: flat/range facets, mixed requests, filters, maxValues, minCount, subject arity checks, empty-string placeholders |
 | `TestTextQueryPFFilters` | 13 | SPARQL `luc:query` with JSON filters, field-IRI scoping, empty-string placeholders, string limits, and end-to-end sort pushdown |
 | `TestSearchExecution` | 10 | Shared execution: key generation, normalisation, index-aware reuse, and sort-sensitive cache keys |
-| `TestLucQueryHitPath` | 22 | The `luc:query` hit path: `(?hit)` decodes no stored field and `(?hit ?entity)` only the entity field, counted through `HitReadObserver`; entity order under relevance and sort; constant `?entity`; no match details without `luc:match`, and only matched fields decoded with it; two searches in one query each resolving their own `?hit`; constant field slots in `luc:match` and `luc:nestedMatch`; negative and zero `limit`; the searcher held while iterating and released on finish, abandon and cancel; late reads with and without a commit; a window re-run reading the new index state; closing a query after its index closed |
+| `TestLucQueryHitPath` | 22 | The `luc:query` hit path: `(?hit)` decodes no stored field and `(?hit ?entity)` only the entity field or its doc value, counted through `HitReadObserver`; entity order under relevance and sort; constant `?entity`; no match details without `luc:match`, and only matched fields decoded with it; two searches in one query each resolving their own `?hit`; constant field slots in `luc:match` and `luc:nestedMatch`; negative and zero `limit`; the searcher held while iterating and released on finish, abandon and cancel; late reads with and without a commit; a window re-run reading the new index state; closing a query after its index closed |
 | `TestLucMatchLargeWindow` | 2 | `luc:match` and `luc:nestedMatch` over 300,000 hits within 90 s, which the earlier per-call scan of every cached hit does not meet |
+| `TestFieldValueStorage` | 9 | Which fields are read from doc values; an eligible stored field written as a doc value only; original terms from doc values and from stored fields (normalized, facet-only, language-tagged, numeric, temporal); indexes with stored copies of eligible fields; a segment written before a field was sortable; the value `luc:match` selects on a multi-valued doc-value field; `luc:nestedMatch` reading child fields from doc values |
+| `TestLucFields` | 14 | `luc:fields`: the identifier query reading no stored field, variable and constant field slots, multi-valued fields, two patterns per hit, joins with `luc:match` in both orders, each error, a late read after a commit, one read per field |
+| `TestEntityDocValue` | 4 | The entity IRI doc value: binary and sorted, the same IRIs under relevance and sort with no stored read, an index without it, and an old segment without it beside a new one with it |
 
 ### SHACL Entity-Per-Document Tests
 
@@ -262,6 +265,12 @@ row count is wrong.
 | `largeFilterOnly` | `*` with the `status` filter, limit 300,000, binds `?entity` | 300,000 |
 | `largeTextNoMatch` | `survey`, limit 300,000, binds `?entity` | 300,000 |
 | `largeTextWithMatch` | `survey` joined to `luc:match`, limit `bench.matchWindow` | 20,000 |
+| `largeIdentifierFields` | `*` with the `status` filter, limit 300,000, binds `?hit` only, `recordId` through `luc:fields` | 300,000 |
+
+`largeIdentifierFields` reads `recordId`, a sortable `KEYWORD`, from its doc value. An
+index built before field values were read from doc values still has a stored copy, so
+build a fresh one with `-Dbench.dir`. `-Djena.text.entityDocValues=none|sorted|binary`
+during the build chooses the entity IRI doc value that `largeFilterOnly` reads.
 
 `largeTextWithMatch` runs at 20,000 hits rather than 300,000. `luc:match` finds each
 incoming hit by scanning every cached hit, so the query time grows with the square of the

@@ -71,6 +71,8 @@ Used with `text:shapes` configuration. SPARQL search via `luc:query` (with filte
 | `ShaclConfigPF` | Implements `luc:config` — matches a triple pattern over the index's configuration subgraph, copied at assembly when `text:exposeConfig true` |
 | `SearchExecution` | Shared execution state. Stored in `ExecutionContext` keyed by normalised query params. Lazy-computes hits, facet counts, and total hit count. Holds the searcher the hits came from and reads entity IRIs, match details and child records on request |
 | `HitReader` | Visits a set of hits in Lucene doc-ID order, one segment at a time; used by every per-hit read |
+| `FieldValueReader` | Reads field values for `luc:match`, `luc:nestedMatch` and `luc:fields`, from doc values where they hold the value and from restricted stored-field decodes otherwise |
+| `TextMatchPF`, `TextNestedMatchPF`, `TextFieldsPF` | Implement `luc:match`, `luc:nestedMatch` and `luc:fields`; each finds its search and hit through `?hit` |
 | `FacetValue` | Immutable (value, count) pair for facet results |
 | `ShaclIndexAssembler` | Parses `text:shapes` RDF config into `ShaclIndexMapping`. Reads `sh:targetClass`, `sh:path`, `sh:alternativePath`. No jena-shacl dependency |
 | `ShaclTextIndexLucene` | Extended `TextIndexLucene` with taxonomy writer/reader for hierarchical facets, `MultiFacets`, and `extractHierarchyDrillDown()` |
@@ -148,13 +150,54 @@ results back onto the hits so rank order is kept:
 
 | Data | Read when | Read how |
 |---|---|---|
-| Entity IRI | `luc:query`'s subject list has an `?entity` slot | `HitReader.OneStringField`, a `StoredFieldVisitor` that decodes the entity field and stops |
-| Match details | First `luc:match` call | `Weight.matches` per hit, then a `DocumentStoredFieldVisitor` restricted to the matched fields and their datatype and language twins |
-| Child records | First `luc:nestedMatch` call | One `ParentChildrenBlockJoinQuery` per hit for each nested clause of the filter |
+| Entity IRI | `luc:query`'s subject list has an `?entity` slot | The entity IRI doc value where the segment has one; otherwise `HitReader.OneStringField`, a `StoredFieldVisitor` that decodes the entity field and stops |
+| Match details | First `luc:match` call | `Weight.matches` per hit, then `FieldValueReader` for the matched fields |
+| Child records | First `luc:nestedMatch` call | One `ParentChildrenBlockJoinQuery` per hit for each nested clause of the filter, then `FieldValueReader` for each child |
+| Field values | First `luc:fields` call for a field | `FieldValueReader` for the requested fields; cached per field by rank in `SearchExecution` |
 
-Match details and child records are computed for the requested hit plus every hit
-`luc:query` has returned that lacks them, so a page is computed in one pass. With `?hit`
-unbound, `luc:match` and `luc:nestedMatch` compute them for every cached hit.
+Match details, child records and field values are computed for the requested hit plus
+every hit `luc:query` has returned that lacks them, so a page is computed in one pass.
+With `?hit` unbound they are computed for every cached hit.
+
+### Value reader
+
+`FieldValueReader` reads a set of fields for documents of one segment in increasing
+doc-ID order. For each field and segment it checks the segment's `FieldInfo` once:
+
+| Field | Segment has | Read from |
+|---|---|---|
+| `FieldDef.isValueInDocValues()` | `SORTED` or `SORTED_SET` doc values under the field's name | The doc value, with forward-only `advanceExact` |
+| `FieldDef.isValueInDocValues()` | a stored copy only (written before the field was sortable) | Stored fields |
+| any other | — | Stored fields |
+| any | no `FieldInfo` | Nothing: no document in the segment has the field |
+
+The stored fields of all fields read from them are decoded together, with one
+`DocumentStoredFieldVisitor` restricted to those fields and their datatype and language
+twins. Values from either source become terms through
+`LiteralFieldSupport.reconstructNode`; a doc value passes no datatype or language, as
+the stored path does for such a field. A field with `idx:stored false` returns nothing
+even when it has a doc value.
+
+`luc:match` passes the values to `selectStoredValue`, which picks the value the text
+query matches. `luc:nestedMatch` reads child documents rather than the hits themselves.
+A block never spans segments and children precede their parent, so with the hits in
+doc-ID order the child doc IDs also only increase through a pass.
+
+### Entity IRI doc value
+
+`docFromMapping` writes the entity IRI as a `BinaryDocValuesField` on parent documents,
+under its own field, `<entity field>__docValue`, beside the stored copy. It cannot be a
+doc value of the entity field itself: child documents carry that field for block
+deletes, and Lucene requires every document with a field to give it the same doc-value
+type.
+
+The type is chosen when the index opens: a new index takes the JVM system property
+`jena.text.entityDocValues` (`binary`, the default; `sorted`; or `none`), which exists
+to compare the three reads in a benchmark. An index that already has the doc-value field
+keeps its type, because Lucene rejects a document that gives an existing field another
+doc-value type. An index written before the doc value existed takes new documents with
+it. `readEntityNodes` checks each segment's `FieldInfo`, and each document, and falls
+back to the one-field visitor where the doc value is absent.
 
 ### Hit lookup
 
@@ -407,13 +450,13 @@ The public SPARQL output for a range bucket is explicit bounds, not a display la
 | FieldType | Lucene indexed field | Lucene stored field | Lucene DocValues |
 |-----------|---------------------|--------------------|--------------------|
 | TEXT | `TextField` | (via `TYPE_STORED`) | — |
-| KEYWORD | `StringField` | (via `Store.YES`) | `SortedSetDocValuesFacetField` (facetable), `SortedDocValuesField` (sortable) |
+| KEYWORD | `StringField` | (via `Store.YES`), except sortable fields with no normalizer and no literal metadata, whose sort doc value holds the value | `SortedSetDocValuesFacetField` (facetable), `SortedDocValuesField` or `SortedSetDocValuesField` (sortable) |
 | INT | `IntPoint` | `StoredField(int)` | `SortedNumericDocValuesField` (facetable and/or sortable) |
 | LONG | `LongPoint` | `StoredField(long)` | `SortedNumericDocValuesField` (facetable and/or sortable) |
 | DOUBLE | `DoublePoint` | `StoredField(double)` | `SortedNumericDocValuesField` (facetable and/or sortable) |
 
 Each entity document also gets:
-- **URI field** (`ftIRI` type) — tokenized=false, stored=true
+- **URI field** (`ftIRI` type) — tokenized=false, stored=true, plus a `BinaryDocValuesField` of the IRI on parent documents, under `<field>__docValue` (see [Entity IRI doc value](#entity-iri-doc-value))
 - **Discriminator field** — `StringField` with the target class local name (e.g., "Book")
 
 ---

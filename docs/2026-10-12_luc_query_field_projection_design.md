@@ -1,7 +1,7 @@
 ---
 title: "Reading less per hit, and luc:fields for identifier queries"
 date: "2026-10-12"
-status: "Part 1 implemented, except the entity IRI doc value; Parts 2 and 3 designed"
+status: "Parts 1, 2 and 3 implemented; the entity IRI doc value awaits the benchmark"
 ---
 
 # Reading Less per Hit, and luc:fields for Identifier Queries
@@ -150,7 +150,7 @@ Where the implementation differs from the text above, and why:
 | Batch for lazy reads | Every cached hit | The requested hit plus every hit `luc:query` has returned; every cached hit when `?hit` is unbound | Page *n* caches `offset + limit` hits but returns `limit`; the skipped hits are never joined |
 | `limit` 0 | Not covered | Still the default page of 10, now documented | 0 was undocumented and mapped to 10; changing it was not part of this design |
 | Unlimited window | Not covered | When the window is at least the reader's `maxDoc`, the hit queue is sized by `IndexSearcher.count` | Lucene sizes its queue at the requested count capped at `maxDoc`, which counts child documents, so an unlimited search would otherwise allocate a queue the size of the index |
-| Entity IRI doc value | Ships if the benchmark favours it | Not implemented | Left for the phase that adds the value reader; its test (doc value, and fallback for segments without it) is not written yet |
+| Entity IRI doc value | Ships if the benchmark favours it | Implemented with Part 2; see [Parts 2 and 3 as implemented](#parts-2-and-3-as-implemented) | Implemented so the benchmark can compare it with the visitor |
 | Read counting | A hook on the value reader | `HitReadObserver` on `ShaclTextIndexLucene` | The value reader is Part 2. The hook reports stored-field decodes and match computations |
 
 `HitReader.inDocOrder` is the doc-ID-ordered primitive the value reader and `luc:fields`
@@ -284,6 +284,30 @@ so these are raised on the first call, not when the query is parsed.
 | The field IRI in the object, `(?hit ?value) luc:fields (field:collarId)` | "Every field" then needs a second form, and the object invites `(?hit ?id ?name) luc:fields (f1 f2)`, which brings back positional alignment and cross-multiplies multi-valued fields inside one call. `luc:config`, `luc:match` and `luc:nestedMatch` put the field in the subject |
 | A separate `idx:returnable` flag | It would describe the same thing as `idx:stored`, and its combinations with `idx:stored` would need rejecting |
 | Extend `luc:match` | It means "fields the text query matched" |
+
+## Parts 2 and 3 as implemented
+
+| Topic | Design | Implemented | Reason |
+|---|---|---|---|
+| Value reader | One class | `FieldValueReader`, used through `HitReader.inDocOrder` by `computeFieldMatches`, `computeNestedMatches` and `readFieldValues` | — |
+| Doc value or stored copy | Prefer the doc value | Decided per segment from `FieldInfo`: an eligible field with `SORTED` or `SORTED_SET` doc values is read from them, otherwise from stored fields; a segment with no `FieldInfo` for the field is not read at all | A segment written before the field was sortable has a stored copy and no doc value; a segment where no document has the field costs nothing |
+| `luc:match` value on a multi-valued doc-value field | Not covered | `selectStoredValue` runs over the doc values; with no matching value it returns the first in byte order rather than the first indexed | Doc values do not keep indexing order. Tested with the matched value last in byte order |
+| `luc:fields` batch | Every cached hit | The requested hit plus every hit `luc:query` has returned; every cached hit when `?hit` is unbound | As Part 1's lazy reads: page *n* caches `offset + limit` hits but returns `limit` |
+| `luc:fields` cache | By hit | Per field, a list indexed by rank, cleared when the search re-runs | No per-hit map at 300,000 hits |
+| Value slot | Variable | Variable or constant, in `luc:fields` and now `luc:match` | ARQ substitutes `?field` and `?value` from the earlier pattern, so shared variables reach the later one as constants. `luc:match` used to reject a constant value |
+| Root field | Not inside `idx:nested` | Has a root occurrence in some shape (`ShaclIndexMapping.getRootFields`); a field bound both at root and in a nested block is returnable | Its root values are on the entity's document |
+| `LATLON` | Not covered | Left out of a variable field slot; a constant gives no rows | A stored geometry has no term `reconstructNode` can build |
+| Entity IRI doc value | A doc value of the entity field, `BinaryDocValues` or `SortedDocValues` chosen by benchmark | A `BinaryDocValuesField` under a separate field, `<entity field>__docValue`. JVM system property `jena.text.entityDocValues` (`binary`, `sorted`, `none`) chooses for a new index; the reader handles all three per segment and per document | Lucene 10 requires every document with a field to give it the same doc-value type, and child documents carry the entity field without one. The separate field also lets an old index take new documents with the doc value, so old and new segments mix; an index keeps the type it was first written with |
+| Read counting | — | `HitReadObserver.docValuesRead` beside `storedFieldsRead` | Tests check that a doc-value field causes no stored read |
+
+Indexes written before Part 2 work unchanged: eligible fields have both a stored copy and
+the doc value, and the reader uses the doc value. Their old segments have no entity IRI
+doc value and are read through the visitor; documents written after the upgrade get it.
+
+An `INT`, `LONG` or `DOUBLE` field without `idx:storeLiteralMetadata` is stored as a
+number, so `"007"^^xsd:integer` comes back as `"7"^^xsd:integer` from stored fields as
+well; this was already so. With `idx:storeLiteralMetadata` the lexical form is stored and
+returned, which is what the Part 2 test checks.
 
 ## Shared execution
 
