@@ -133,4 +133,34 @@ public class TestShaclConditionRejections {
                 ] .
             """, "idx:self");
     }
+
+    /**
+     * A step whose {@code sh:node} shape leads back to itself would expand into an
+     * unbounded chain of steps.
+     */
+    @Test
+    public void testRecursiveStepIsRejected() {
+        assertRejected("""
+            field:v idx:fieldName "v" ; idx:fieldType idx:KeywordField ; idx:multiValued true .
+            ex:PartShape
+                sh:property [ sh:path ex:v ; idx:field field:v ] ;
+                sh:property [ sh:path ex:subPart ; sh:node ex:PartShape ] .
+            ex:Shape sh:targetClass ex:Thing ;
+                sh:property [ sh:path ex:part ; sh:node ex:PartShape ] .
+            """, EX + "PartShape");
+    }
+
+    /**
+     * A {@code sh:property} on a field occurrence is not a value constraint the index
+     * applies; read silently, it would index every value.
+     */
+    @Test
+    public void testPropertyOnOccurrenceIsRejected() {
+        assertRejected("""
+            field:v idx:fieldName "v" ; idx:fieldType idx:KeywordField ; idx:multiValued true .
+            ex:Shape sh:targetClass ex:Thing ;
+                sh:property [ sh:path ex:v ; idx:field field:v ;
+                    sh:property [ sh:path ex:status ; sh:hasValue ex:Active ] ] .
+            """, "sh:property");
+    }
 }
