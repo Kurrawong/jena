@@ -75,7 +75,9 @@ import org.slf4j.LoggerFactory;
  * and no single source graph exists to bind. Graph provenance is instead a doc-level field —
  * see {@code docs/2026-04-08-graph-filtering-target-model.md}.
  * <p>
- * {@code ?hit} is a query-scoped blank node identifier for joining with {@code luc:match}.
+ * {@code ?hit} is a query-scoped blank node identifier for joining with {@code luc:match}
+ * and {@code luc:nestedMatch}. The entity IRI is read from the index only when the subject
+ * list has an {@code ?entity} slot, so {@code (?hit)} reads no stored field.
  * The second string literal is the field specification: {@code "default"} searches all
  * defaultSearch fields, and a JSON array of field IRIs like
  * {@code '["urn:jena:lucene:field#title","urn:jena:lucene:field#description"]'} searches specific fields.
@@ -84,6 +86,8 @@ import org.slf4j.LoggerFactory;
 public class ShaclTextQueryPF extends PropertyFunctionBase {
     private static final Logger log = LoggerFactory.getLogger(ShaclTextQueryPF.class);
     private static final int QUERY_ARG_ARITY = 7;
+    /** Page size when {@code limit} is 0. */
+    private static final int DEFAULT_LIMIT = 10;
 
     private ShaclTextIndexLucene textIndex = null;
     private boolean warningIssued = false;
@@ -177,34 +181,53 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
             execCxt, resolvedTextIndex.identity(), args.searchFields, args.queryString,
             args.cqlFilter, args.sortSpecs, textIndex, null, null);
 
-        int limit = args.limit > 0 ? args.limit : 10;
         int offset = args.offset;
-        List<SearchHit> pageHits = se.getSearchHits(offset, limit);
+        // Negative means unlimited, as documented; 0 keeps the default page of 10.
+        int limit = args.limit < 0 ? Integer.MAX_VALUE - offset
+            : args.limit == 0 ? DEFAULT_LIMIT : args.limit;
 
-        Collection<SearchHit> hits;
-        if (entity != null && !Var.isVar(entity)) {
-            String entityStr = TextQueryFuncs.subjectToString(entity);
-            hits = new ArrayList<>();
-            for (SearchHit sh : pageHits) {
-                if (entityStr.equals(TextQueryFuncs.subjectToString(sh.getEntityNode()))) {
-                    hits.add(sh);
+        // The search holds its searcher while this iterator is open; every path that does
+        // not hand the iterator back releases it here.
+        se.retain();
+        QueryIterator qIter = null;
+        try {
+            List<SearchHit> pageHits = se.getSearchHits(offset, limit);
+
+            // The entity IRI is read only when the subject list has a slot for it.
+            Collection<SearchHit> hits = pageHits;
+            if (entity != null) {
+                se.readEntities(pageHits);
+                String entityStr = Var.isVar(entity) ? null : TextQueryFuncs.subjectToString(entity);
+                List<SearchHit> withEntity = new ArrayList<>(pageHits.size());
+                for (SearchHit sh : pageHits) {
+                    Node entityNode = sh.getEntityNode();
+                    if (entityNode == null) {
+                        continue;
+                    }
+                    if (entityStr == null || entityStr.equals(TextQueryFuncs.subjectToString(entityNode))) {
+                        withEntity.add(sh);
+                    }
                 }
+                hits = withEntity;
             }
-        } else {
-            hits = pageHits;
-        }
 
-        long totalHits = totalHitsNode != null ? se.getTotalHits() : -1;
-        QueryIterator qIter = resultsToQueryIterator(binding, hit, entity, score, rank,
-            totalHitsNode, totalHits, hits, execCxt);
-        return qIter;
+            long totalHits = totalHitsNode != null ? se.getTotalHits() : -1;
+            qIter = resultsToQueryIterator(binding, hit, entity, score, rank,
+                totalHitsNode, totalHits, hits, se, execCxt);
+            return qIter;
+        } finally {
+            if (qIter == null) {
+                se.release();
+            }
+        }
     }
 
     private QueryIterator resultsToQueryIterator(Binding binding,
                                                   Node hitNode, Node entityNode, Node scoreNode,
                                                   Node rankNode,
                                                   Node totalHitsNode, long totalHits,
-                                                  Collection<SearchHit> results, ExecutionContext execCxt) {
+                                                  Collection<SearchHit> results,
+                                                  SearchExecution se, ExecutionContext execCxt) {
         Var hitVar = Var.isVar(hitNode) ? Var.alloc(hitNode) : null;
         Var entityVar = (entityNode != null && Var.isVar(entityNode)) ? Var.alloc(entityNode) : null;
         Var scoreVar = (scoreNode == null) ? null : Var.alloc(scoreNode);
@@ -224,7 +247,34 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         };
 
         Iterator<Binding> bIter = Iter.map(results.iterator(), converter);
-        return QueryIterPlainWrapper.create(bIter, execCxt);
+        return new QueryIterSearchHits(bIter, se, execCxt);
+    }
+
+    /**
+     * The iterator {@code luc:query} returns. Closing it, whether exhausted, cancelled or
+     * closed by its parent when the query is abandoned, releases the search's hold on its
+     * searcher.
+     */
+    private static final class QueryIterSearchHits extends QueryIterPlainWrapper {
+        private SearchExecution search;
+
+        QueryIterSearchHits(Iterator<Binding> bindings, SearchExecution search, ExecutionContext execCxt) {
+            super(bindings, execCxt);
+            this.search = search;
+        }
+
+        @Override
+        protected void closeIterator() {
+            try {
+                super.closeIterator();
+            } finally {
+                SearchExecution se = search;
+                search = null;
+                if (se != null) {
+                    se.release();
+                }
+            }
+        }
     }
 
     /**

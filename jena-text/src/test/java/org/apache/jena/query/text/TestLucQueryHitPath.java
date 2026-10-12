@@ -432,8 +432,13 @@ public class TestLucQueryHitPath {
         assertEquals(before, readerRefs());
     }
 
+    /**
+     * The sorted subquery drains luc:query, whose iterator closes and releases the
+     * searcher, before luc:match runs: luc:match reads against a newly acquired searcher
+     * after checking the reader is unchanged.
+     */
     @Test
-    public void lucMatchInASeparateGroupGivesTheSameRows() {
+    public void lucMatchAfterLucQueryClosedGivesTheSameRows() {
         String query = "(?hit ?entity) luc:query " + luc("alpha", "", "", 10) + " .";
         String match = "(?hit ?field ?value) luc:match () .";
         Set<String> inline = new TreeSet<>();
@@ -441,7 +446,7 @@ public class TestLucQueryHitPath {
             inline.add(lex(b, "entity") + " " + lex(b, "field") + " " + lex(b, "value"));
         }
         Set<String> grouped = new TreeSet<>();
-        for (Binding b : select("{ " + query + " }\n{ " + match + " }")) {
+        for (Binding b : select("{ SELECT * { " + query + " } ORDER BY ?entity }\n" + match)) {
             grouped.add(lex(b, "entity") + " " + lex(b, "field") + " " + lex(b, "value"));
         }
         assertEquals(2, inline.size());

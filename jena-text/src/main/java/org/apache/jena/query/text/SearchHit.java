@@ -21,7 +21,6 @@
 
 package org.apache.jena.query.text;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -29,24 +28,34 @@ import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
 
 /**
- * A search hit with a stable query-scoped identifier for joining with {@code luc:match}.
+ * A search hit with a query-scoped identifier for joining with {@code luc:match},
+ * {@code luc:nestedMatch} and later {@code luc:fields}.
  * <p>
- * Each hit gets a blank node ID like {@code _:hit0}, {@code _:hit1}, etc.
- * that is stable within a single SPARQL query execution.
+ * The identifier is a blank node labelled with the owning search's prefix and the hit's
+ * rank, for example {@code s2h17}, so it is unique within one SPARQL query execution
+ * and names both the search and the position.
+ * <p>
+ * Everything except the rank, score and doc ID is read later and only on request: the
+ * entity IRI when the query binds {@code ?entity}, the match details when it uses
+ * {@code luc:match}, the child records when it uses {@code luc:nestedMatch}.
  */
 public class SearchHit {
     private final Node hitId;
     private final int rank;
-    private final Node entityNode;
     private final float score;
     private final int luceneDocId;
+    private Node entityNode;
+    private boolean entityRead;
     private List<FieldMatch> fieldMatches;
     private List<NestedMatch> nestedMatches;
 
-    public SearchHit(int index, Node entityNode, float score, int luceneDocId) {
-        this.hitId = NodeFactory.createBlankNode("hit" + index);
-        this.rank = index;
-        this.entityNode = entityNode;
+    /**
+     * @param labelPrefix prefix of the blank node label, distinct per search in a query
+     * @param rank        position in the whole result set, counting from 0
+     */
+    public SearchHit(String labelPrefix, int rank, float score, int luceneDocId) {
+        this.hitId = NodeFactory.createBlankNode(labelPrefix + rank);
+        this.rank = rank;
         this.score = score;
         this.luceneDocId = luceneDocId;
     }
@@ -61,29 +70,54 @@ public class SearchHit {
      */
     public int getRank() { return rank; }
 
+    /**
+     * The entity IRI, or null if it has not been read or the document has no entity
+     * field. See {@link #isEntityRead()}.
+     */
     public Node getEntityNode() { return entityNode; }
+
+    /** Whether the entity field has been read for this hit. */
+    public boolean isEntityRead() { return entityRead; }
+
+    void setEntityNode(Node entityNode) {
+        this.entityNode = entityNode;
+        this.entityRead = true;
+    }
+
     public float getScore() { return score; }
     public int getLuceneDocId() { return luceneDocId; }
 
+    /** Match details, or an empty list if none were found or none have been computed. */
     public List<FieldMatch> getFieldMatches() {
         return fieldMatches != null ? fieldMatches : Collections.emptyList();
     }
 
+    /** Whether match details have been computed for this hit. */
+    public boolean hasFieldMatches() {
+        return fieldMatches != null;
+    }
+
     public void setFieldMatches(List<FieldMatch> fieldMatches) {
-        this.fieldMatches = fieldMatches != null ? new ArrayList<>(fieldMatches) : null;
+        this.fieldMatches = fieldMatches != null ? List.copyOf(fieldMatches) : null;
     }
 
     /**
      * The block-join child documents that satisfied the query's filter, each carrying its
      * own grouping node. Empty when the filter had no clause on a nested scope — nothing
-     * selected a child, so there is no "the child that matched" to report.
+     * selected a child, so there is no "the child that matched" to report — or when they
+     * have not been computed. See {@link #hasNestedMatches()}.
      */
     public List<NestedMatch> getNestedMatches() {
         return nestedMatches != null ? nestedMatches : Collections.emptyList();
     }
 
+    /** Whether the child records have been computed for this hit. */
+    public boolean hasNestedMatches() {
+        return nestedMatches != null;
+    }
+
     public void setNestedMatches(List<NestedMatch> nestedMatches) {
-        this.nestedMatches = nestedMatches != null ? new ArrayList<>(nestedMatches) : null;
+        this.nestedMatches = nestedMatches != null ? List.copyOf(nestedMatches) : null;
     }
 
     @Override

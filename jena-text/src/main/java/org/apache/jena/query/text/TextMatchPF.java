@@ -37,7 +37,6 @@ import org.apache.jena.sparql.engine.iterator.QueryIterPlainWrapper;
 import org.apache.jena.sparql.pfunction.PropFuncArg;
 import org.apache.jena.sparql.pfunction.PropertyFunctionBase;
 import org.apache.jena.sparql.util.IterLib;
-import org.apache.jena.sparql.util.Symbol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,7 +52,12 @@ import org.slf4j.LoggerFactory;
  * </pre>
  * <p>
  * The object argument list is empty — all state comes from the shared
- * {@link SearchExecution} stored in the {@link ExecutionContext}.
+ * {@link SearchExecution} stored in the {@link ExecutionContext}. A bound {@code ?hit}
+ * names its search, so it is found with one lookup. A field IRI in the field slot
+ * keeps only matches on that field.
+ * <p>
+ * Match details are computed on the first call, for every hit {@code luc:query} has
+ * returned, against the searcher the search ran on.
  */
 public class TextMatchPF extends PropertyFunctionBase {
     private static final Logger log = LoggerFactory.getLogger(TextMatchPF.class);
@@ -87,8 +91,6 @@ public class TextMatchPF extends PropertyFunctionBase {
             hitNode = argSubject.getArg(0);
             if (argSubject.getArgListSize() > 1) {
                 fieldNode = argSubject.getArg(1);
-                if (!fieldNode.isVariable())
-                    throw new QueryExecException("Field must be a variable: " + argSubject);
             }
             if (argSubject.getArgListSize() > 2) {
                 valueNode = argSubject.getArg(2);
@@ -108,50 +110,36 @@ public class TextMatchPF extends PropertyFunctionBase {
             return IterLib.noResults(execCxt);
         }
 
-        // Find the SearchExecution in the execution context
-        // We scan context symbols for any searchExecution entry
-        SearchExecution se = findSearchExecution(execCxt);
-        if (se == null) {
-            log.warn("luc:match used without a preceding luc:query in the same query");
-            return IterLib.noResults(execCxt);
-        }
-
-        // Use only hits already fetched by luc:query — avoids re-running the search
-        // with a larger window (e.g. 10000) which would be far more expensive.
-        List<SearchHit> allHits = se.getCachedHits();
-
-        // Build result bindings
         Var hitVar = Var.isVar(hitNode) ? Var.alloc(hitNode) : null;
-        Var fieldVar = fieldNode != null ? Var.alloc(fieldNode) : null;
+        Var fieldVar = fieldNode != null && Var.isVar(fieldNode) ? Var.alloc(fieldNode) : null;
+        Node fieldFilter = fieldNode != null && fieldVar == null ? fieldNode : null;
         Var valueVar = valueNode != null ? Var.alloc(valueNode) : null;
         Var snippetVar = snippetNode != null ? Var.alloc(snippetNode) : null;
 
         List<Binding> bindings = new ArrayList<>();
 
-        for (SearchHit sh : allHits) {
-            // If ?hit is already bound, filter to matching hits
-            if (hitVar == null) {
-                // ?hit is bound — check if it matches this hit's ID
-                if (!hitNode.equals(sh.getHitId())) continue;
-            }
-
-            List<FieldMatch> fieldMatches = sh.getFieldMatches();
-            if (fieldMatches.isEmpty()) {
-                // No field matches — emit a row with unbound field/value/snippet
-                // only if ?hit is a variable (to ensure join works)
-                if (hitVar != null) {
-                    BindingBuilder builder = Binding.builder(binding);
-                    builder.add(hitVar, sh.getHitId());
-                    bindings.add(builder.build());
+        if (hitVar == null) {
+            // ?hit bound: it names its search and its rank.
+            SearchExecution se = SearchExecution.forHit(execCxt, hitNode);
+            SearchHit sh = se != null ? se.findHit(hitNode) : null;
+            if (sh == null) {
+                if (SearchExecution.all(execCxt).isEmpty()) {
+                    log.warn("luc:match used without a preceding luc:query in the same query");
                 }
-            } else {
-                for (FieldMatch fm : fieldMatches) {
-                    BindingBuilder builder = Binding.builder(binding);
-                    if (hitVar != null) builder.add(hitVar, sh.getHitId());
-                    if (fieldVar != null && fm.getFieldIRI() != null) builder.add(fieldVar, fm.getFieldIRI());
-                    if (valueVar != null && fm.getValue() != null) builder.add(valueVar, fm.getValue());
-                    if (snippetVar != null && fm.getSnippet() != null) builder.add(snippetVar, fm.getSnippet());
-                    bindings.add(builder.build());
+                return IterLib.noResults(execCxt);
+            }
+            addRows(bindings, binding, null, fieldVar, fieldFilter, valueVar, snippetVar, sh, se.fieldMatches(sh));
+        } else {
+            List<SearchExecution> searches = SearchExecution.all(execCxt);
+            if (searches.isEmpty()) {
+                log.warn("luc:match used without a preceding luc:query in the same query");
+                return IterLib.noResults(execCxt);
+            }
+            // ?hit unbound: every hit of every search in the query.
+            for (SearchExecution se : searches) {
+                for (SearchHit sh : se.hitsWithFieldMatches()) {
+                    addRows(bindings, binding, hitVar, fieldVar, fieldFilter, valueVar, snippetVar,
+                        sh, sh.getFieldMatches());
                 }
             }
         }
@@ -159,26 +147,29 @@ public class TextMatchPF extends PropertyFunctionBase {
         return QueryIterPlainWrapper.create(bindings.iterator(), execCxt);
     }
 
-    /**
-     * Find a SearchExecution in the execution context.
-     * Scans for any symbol matching the searchExecution pattern.
-     */
-    private SearchExecution findSearchExecution(ExecutionContext execCxt) {
-        // Look for any SearchExecution stored by luc:query or luc:facet
-        String prefix = TextQuery.NS + "searchExecution/";
-        // The context doesn't have a list-all-keys method, so we check
-        // a well-known symbol pattern. SearchExecution stores under
-        // "urn:jena:lucene:index#searchExecution/<key>"
-        // We need to find it. Use the context's internal map.
-        org.apache.jena.sparql.util.Context ctx = execCxt.getContext();
-        for (Symbol sym : ctx.keys()) {
-            if (sym.getSymbol().startsWith(prefix)) {
-                Object obj = ctx.get(sym);
-                if (obj instanceof SearchExecution) {
-                    return (SearchExecution) obj;
-                }
+    private static void addRows(List<Binding> bindings, Binding binding, Var hitVar, Var fieldVar,
+                                Node fieldFilter, Var valueVar, Var snippetVar,
+                                SearchHit sh, List<FieldMatch> fieldMatches) {
+        if (fieldMatches.isEmpty()) {
+            // No field matches: a row with only ?hit, so a join on ?hit still succeeds.
+            // Not when a field is named: there is nothing on that field to return.
+            if (hitVar != null && fieldFilter == null) {
+                BindingBuilder builder = Binding.builder(binding);
+                builder.add(hitVar, sh.getHitId());
+                bindings.add(builder.build());
             }
+            return;
         }
-        return null;
+        for (FieldMatch fm : fieldMatches) {
+            if (fieldFilter != null && !fieldFilter.equals(fm.getFieldIRI())) {
+                continue;
+            }
+            BindingBuilder builder = Binding.builder(binding);
+            if (hitVar != null) builder.add(hitVar, sh.getHitId());
+            if (fieldVar != null && fm.getFieldIRI() != null) builder.add(fieldVar, fm.getFieldIRI());
+            if (valueVar != null && fm.getValue() != null) builder.add(valueVar, fm.getValue());
+            if (snippetVar != null && fm.getSnippet() != null) builder.add(snippetVar, fm.getSnippet());
+            bindings.add(builder.build());
+        }
     }
 }
