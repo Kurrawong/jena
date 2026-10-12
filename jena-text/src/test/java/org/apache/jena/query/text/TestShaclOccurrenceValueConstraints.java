@@ -226,4 +226,26 @@ public class TestShaclOccurrenceValueConstraints {
             index.close();
         }
     }
+
+    /**
+     * A check reads only the triples it needs. jena-shacl copies the data graph's
+     * prefixes into each new validation context, which on TDB2 reads the dataset's prefix
+     * table once per checked value; the index never formats a report, so it must not.
+     */
+    @Test
+    public void testCheckingValuesDoesNotReadDataPrefixes() {
+        ShaclTextIndexLucene index = openWithConstraint("sh:datatype xsd:integer");
+        try {
+            org.apache.jena.graph.Graph data = new org.apache.jena.sparql.graph.GraphWrapper(
+                    parse("ex:t a ex:Thing ; ex:v 1 , \"x\" .").getGraph()) {
+                @Override
+                public org.apache.jena.shared.PrefixMapping getPrefixMapping() {
+                    throw new AssertionError("the data graph's prefixes were read");
+                }
+            };
+            assertEquals(List.of("1"), values(build(index, data, uri("t")), "v"));
+        } finally {
+            index.close();
+        }
+    }
 }
