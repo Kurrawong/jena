@@ -379,6 +379,40 @@ public class TestFieldValueStorage {
         assertEquals(Set.of(str("C1")), valuesOfE1("code"));
     }
 
+    // ---- The index's TextHit query methods -------------------------------------------
+
+    /** Each hit's value, by entity IRI. */
+    private static Map<String, Node> byEntity(List<TextHit> hits) {
+        Map<String, Node> values = new TreeMap<>();
+        for (TextHit hit : hits) {
+            values.put(hit.getNode().getURI(), hit.getLiteral());
+        }
+        return values;
+    }
+
+    @Test
+    public void textHitQueriesReturnValuesKeptInDocValuesOnly() {
+        openMemoryAndLoad();
+        Counter counter = count();
+        Map<String, Node> bothRed = Map.of(NS + "e1", str("red"), NS + "e2", str("red"));
+
+        assertEquals(Map.of(NS + "e1", str("blue")),
+            byEntity(textIndex.queryByFields(List.of("tags"), "blue", null, null, 10, null)));
+        // In byte order "blue" comes first; the value returned is the one the query matched.
+        assertEquals(bothRed, byEntity(textIndex.queryByFields(List.of("tags"), "red", null, null, 10, null)));
+        assertEquals(bothRed, byEntity(textIndex.queryWithFilters(List.of(FIELD + "tags"), "red",
+            Map.of("code", List.of("C1", "C2")), null, null, 10, null)));
+        // A sort takes the CQL path rather than delegating to queryByFields.
+        List<TextHit> sorted = textIndex.queryWithCql(List.of(FIELD + "tags"), "red", null,
+            List.of(new SortSpec(FIELD + "code", true)), null, null, 10, null);
+        assertEquals(List.of(NodeFactory.createURI(NS + "e2"), NodeFactory.createURI(NS + "e1")),
+            sorted.stream().map(TextHit::getNode).toList());
+        assertEquals(bothRed, byEntity(sorted));
+
+        assertFalse(counter.anyRead("code"), "code is read from its doc value");
+        assertFalse(counter.anyRead("tags"), "tags is read from its doc value");
+    }
+
     // ---- luc:match and luc:nestedMatch -----------------------------------------------
 
     private static String tagQuery(String tag) {

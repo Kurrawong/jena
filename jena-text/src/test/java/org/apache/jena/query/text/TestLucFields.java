@@ -339,6 +339,73 @@ public class TestLucFields {
         assertEquals(expected, fieldsFirst);
     }
 
+    // ---- Two indexes in one query -----------------------------------------------------
+
+    private static final String OTHER_CONFIG = CONFIG
+        .replace("field:code    idx:fieldName \"code\"", "field:shelf   idx:fieldName \"shelf\"")
+        .replace("idx:field field:code ; sh:path ex:code", "idx:field field:shelf ; sh:path ex:code");
+
+    /** A second index, registered as "other" beside the default, holding o1 with shelf S1. */
+    private Dataset openOtherIndex() {
+        Model config = ModelFactory.createDefaultModel();
+        config.read(new StringReader(OTHER_CONFIG), null, "TTL");
+        Dataset other = (Dataset) Assembler.general().open(config.getResource(NS + "dataset"));
+        ShaclTextIndexLucene otherIndex =
+            (ShaclTextIndexLucene) ((DatasetGraphText) other.asDatasetGraph()).getTextIndex();
+        assertNull(otherIndex.getShaclMapping().findField(FIELD + "code"));
+        Txn.executeWrite(other, () -> addDoc(other.getDefaultModel(), "o1", "alpha other", "other", "S1", "live"));
+        TextIndexRegistry registry = new TextIndexRegistry();
+        registry.register(TextIndexRegistry.DEFAULT_ID, textIndex);
+        registry.register("other", otherIndex);
+        dataset.getContext().set(TextQuery.textIndexRegistry, registry);
+        return other;
+    }
+
+    private static final String BOTH_INDEXES =
+        "{ (?hit ?entity) luc:query " + luc("alpha", "", "", 10) + " }\n"
+        + "UNION { (?hit ?entity) luc:query (\"other\" \"default\" \"alpha\" \"\" \"\" 10 0) }\n";
+
+    @Test
+    public void fieldOfOneIndexGivesNoRowsForTheOther() {
+        Dataset other = openOtherIndex();
+        try {
+            Map<String, String> codes = new TreeMap<>();
+            for (Binding b : select(BOTH_INDEXES + "(?hit field:code ?v) luc:fields () .")) {
+                codes.put(lex(b, "entity"), lex(b, "v"));
+            }
+            assertEquals(Map.of(NS + "e1", "C3", NS + "e2", "C1"), codes);
+
+            Map<String, String> shelves = new TreeMap<>();
+            for (Binding b : select(BOTH_INDEXES + "(?hit field:shelf ?v) luc:fields () .")) {
+                shelves.put(lex(b, "entity"), lex(b, "v"));
+            }
+            assertEquals(Map.of(NS + "o1", "S1"), shelves);
+
+            // A field in neither index is still an error.
+            assertQueryError("nope", BOTH_INDEXES + "(?hit field:nope ?v) luc:fields () .");
+        } finally {
+            other.close();
+        }
+    }
+
+    @Test
+    public void variableFieldSlotResolvesPerIndex() {
+        Dataset other = openOtherIndex();
+        try {
+            Set<String> rows = new TreeSet<>();
+            for (Binding b : select(BOTH_INDEXES + "(?hit ?field ?value) luc:fields () .")) {
+                String field = lex(b, "field");
+                if (field.endsWith("code") || field.endsWith("shelf")) {
+                    rows.add(lex(b, "entity").substring(NS.length()) + " " + field + "=" + lex(b, "value"));
+                }
+            }
+            assertEquals(Set.of("e1 " + FIELD + "code=C3", "e2 " + FIELD + "code=C1", "o1 " + FIELD + "shelf=S1"),
+                rows);
+        } finally {
+            other.close();
+        }
+    }
+
     // ---- Errors ----------------------------------------------------------------------
 
     private void assertQueryError(String fieldLocal, String where) {

@@ -23,6 +23,7 @@ package org.apache.jena.query.text;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.IOException;
 import java.io.StringReader;
 import java.nio.file.Path;
 import java.util.*;
@@ -37,10 +38,14 @@ import org.apache.jena.sparql.engine.binding.Binding;
 import org.apache.jena.sys.JenaSystem;
 import org.apache.jena.system.Txn;
 import org.apache.jena.vocabulary.RDF;
+import org.apache.lucene.index.BinaryDocValues;
 import org.apache.lucene.index.DocValuesType;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FieldInfos;
+import org.apache.lucene.index.LeafReader;
+import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.util.Bits;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -251,6 +256,62 @@ public class TestEntityDocValue {
         assertSameIris();
         assertEquals(6, counter.stored);
         assertEquals(0, counter.docValues);
+    }
+
+    /**
+     * One entry per live document, sorted: the local name of its stored entity field, then
+     * that of its entity doc value, or "-" when it has none.
+     */
+    private List<String> entityDocValuesByDocument() throws IOException {
+        String entityField = textIndex.getDocDef().getEntityField();
+        String docValueField = ShaclTextIndexLucene.entityDocValueField(entityField);
+        IndexSearcher searcher = textIndex.acquireSearcher();
+        try {
+            List<String> docs = new ArrayList<>();
+            for (LeafReaderContext leaf : searcher.getIndexReader().leaves()) {
+                LeafReader reader = leaf.reader();
+                BinaryDocValues values = reader.getBinaryDocValues(docValueField);
+                Bits live = reader.getLiveDocs();
+                for (int i = 0; i < reader.maxDoc(); i++) {
+                    if (live != null && !live.get(i)) {
+                        continue;
+                    }
+                    String entity = reader.storedFields().document(i).get(entityField);
+                    String docValue = values != null && values.advanceExact(i)
+                        ? values.binaryValue().utf8ToString().substring(NS.length()) : "-";
+                    docs.add(entity.substring(NS.length()) + "=" + docValue);
+                }
+            }
+            Collections.sort(docs);
+            return docs;
+        } finally {
+            textIndex.releaseSearcher(searcher);
+        }
+    }
+
+    @Test
+    public void onlyParentDocumentsCarryTheDocValue() throws IOException {
+        open("\"mem\"", null);
+        load();
+        // e1 has one nested child, which carries the entity field but not the doc value.
+        assertEquals(List.of("e1=-", "e1=e1", "e2=e2", "e3=e3"), entityDocValuesByDocument());
+    }
+
+    @Test
+    public void entityUpdateAndDeleteReplaceTheWholeBlock() throws IOException {
+        open("\"mem\"", null);
+        load();
+        Txn.executeWrite(dataset, () -> {
+            Model m = dataset.getDefaultModel();
+            Resource e1 = m.createResource(NS + "e1");
+            e1.removeAll(m.createProperty(NS + "code"));
+            e1.addProperty(m.createProperty(NS + "code"), "C0");
+            m.removeAll(m.createResource(NS + "e2"), null, null);
+        });
+        assertEquals(List.of("e1=-", "e1=e1", "e3=e3"), entityDocValuesByDocument());
+        Counter counter = count();
+        assertEquals(List.of(ex("e1"), ex("e3")), entities(CODE_ASC));
+        assertEquals(0, counter.stored);
     }
 
     @Test
