@@ -458,7 +458,7 @@ Use the root task file for loader publishing:
 
 ```bash
 task -d .. loader-ghcr-push
-task -d .. loader-acr-push ACR_NAME=gswadevacr
+task -d .. loader-acr-push ACR_NAME=<registry>
 ```
 
 For safe text-only reindex from GHCR:
