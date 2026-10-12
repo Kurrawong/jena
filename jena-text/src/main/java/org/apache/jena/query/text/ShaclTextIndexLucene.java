@@ -502,9 +502,11 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         if (searcher == null) {
             return;
         }
+        // What SearcherManager.release does, without the manager: a searcher held by a
+        // query can outlive the manager, which close() and rollback() discard.
         try {
-            searcherManager.release(searcher);
-        } catch (IOException e) {
+            searcher.getIndexReader().decRef();
+        } catch (IOException | org.apache.lucene.store.AlreadyClosedException e) {
             log.warn("Failed to release searcher: {}", e.getMessage());
         }
     }
