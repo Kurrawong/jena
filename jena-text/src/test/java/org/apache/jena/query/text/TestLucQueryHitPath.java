@@ -432,6 +432,17 @@ public class TestLucQueryHitPath {
         assertEquals(before, readerRefs());
     }
 
+    @Test
+    public void closingAQueryAfterTheIndexClosedDoesNotFail() {
+        Txn.executeRead(dataset, () -> {
+            QueryExecution qe = QueryExecution.dataset(dataset).query(PREFIXES + "SELECT * { " + MANY_HITS + " }").build();
+            ResultSet rs = qe.execSelect();
+            rs.next();
+            textIndex.close();
+            assertDoesNotThrow(qe::close);
+        });
+    }
+
     /**
      * The sorted subquery drains luc:query, whose iterator closes and releases the
      * searcher, before luc:match runs: luc:match reads against a newly acquired searcher
