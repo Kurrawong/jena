@@ -11,6 +11,7 @@ This doc set covers the SHACL/entity-per-document search model in `jena-text`.
 | `luc:nestedMatch` | Done | Projects the `idx:nested` child records a filter selected, grouped by `?record` |
 | `luc:facet` | Done | Fixed-position facet API with field IRIs and range facets |
 | `luc:config` | Done | The index configuration as triples, through the query endpoint. Opt-in per index with `text:exposeConfig`. See [2026-10-09_luc_config_property_function_plan.md](2026-10-09_luc_config_property_function_plan.md) |
+| `luc:stats` | Done | Entity, document, term, token and point counts and index size as triples, through the query endpoint. Not gated. See [02-sparql-api.md](02-sparql-api.md#lucstats) |
 | Multi-index selection | Done | Query-time `indexSelector` plus `text:indexes` config |
 | Field IRIs | Done | Public SPARQL uses field IRIs only |
 | Sort pushdown | Done | Sort specs use field IRIs in the public API |

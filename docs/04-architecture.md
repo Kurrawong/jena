@@ -69,6 +69,7 @@ Used with `text:shapes` configuration. SPARQL search via `luc:query` (with filte
 | `ShaclTextQueryPF` | Implements `luc:query` — search with JSON filter support, `?totalHits` binding. Uses `SearchExecution` for shared state with `luc:facet` |
 | `TextFacetPF` | Implements `luc:facet` — facet counts property function. Returns (field, value, count) bindings |
 | `ShaclConfigPF` | Implements `luc:config` — matches a triple pattern over the index's configuration subgraph, copied at assembly when `text:exposeConfig true` |
+| `ShaclStatsPF` | Implements `luc:stats` — matches a triple pattern over figures `ShaclIndexStats` reads from the current searcher, cached per reader generation. Shares `ShaclGraphPF` with `ShaclConfigPF` |
 | `SearchExecution` | Shared execution state. Stored in `ExecutionContext` keyed by normalised query params. Lazy-computes hits, facet counts, and total hit count. Holds the searcher the hits came from and reads entity IRIs, match details and child records on request |
 | `HitReader` | Visits a set of hits in Lucene doc-ID order, one segment at a time; used by every per-hit read |
 | `FieldValueReader` | Reads field values for `luc:match`, `luc:nestedMatch`, `luc:fields` and the `TextHit` query methods (`queryByFields`, `queryWithFilters`, `queryWithCql`), from doc values where they hold the value and from restricted stored-field decodes otherwise |

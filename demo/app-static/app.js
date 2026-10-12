@@ -6,6 +6,8 @@
 
 const APP_CONFIG = window.APP_CONFIG || {};
 const FUSEKI_BASE = APP_CONFIG.fusekiBase || 'http://localhost:3030';
+// The Fuseki service name. Not discoverable: luc:config, which describes the indexes,
+// is itself answered by this dataset's query endpoint. Set it in app-config.js.
 const DATASET = APP_CONFIG.dataset || 'mining';
 // The dataset carries two text indexes: "instance" for the sites, boreholes and reports
 // the app searches, and "reference" for the classes, properties and controlled terms.
@@ -923,11 +925,17 @@ function fetchConfigText(index = INSTANCE_INDEX) {
             });
             if (!resp.ok) {
                 const detail = (await resp.text()).trim().split('\n')[0];
+                const hint = resp.status === 404
+                    ? `. Is the Fuseki dataset named "${DATASET}"? Set APP_CONFIG.dataset in app-config.js if not.`
+                    : '';
                 throw new Error(`Could not read the ${index} index configuration from ${endpoint} `
-                    + `(${resp.status}${detail ? ': ' + detail : ''})`);
+                    + `(${resp.status}${detail ? ': ' + detail : ''})${hint}`);
             }
             return await resp.text();
         })());
+        // Forget a failure, so the next caller asks again rather than inheriting it: a
+        // server still starting, or a transient error, would otherwise last until reload.
+        _configTextPromises.get(index).catch(() => _configTextPromises.delete(index));
     }
     return _configTextPromises.get(index);
 }
@@ -3078,13 +3086,20 @@ function configApp() {
         async show(index) {
             this.index = index;
             this.error = null;
+            let config = null;
+            let configRaw = '';
+            let error = null;
             try {
-                this.config = await loadConfig(index);
-                this.configRaw = await fetchConfigText(index);
+                configRaw = await fetchConfigText(index);
+                config = await loadConfig(index);
             } catch (e) {
-                this.config = null;
-                this.error = `Failed to load config: ${e.message}`;
+                error = `Failed to load config: ${e.message}`;
             }
+            // Another index was chosen while this one loaded: its answer is not ours to show.
+            if (this.index !== index) return;
+            this.config = config;
+            this.configRaw = configRaw;
+            this.error = error;
         },
     };
 }

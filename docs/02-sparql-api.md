@@ -598,6 +598,92 @@ SELECT ?field ?path WHERE {
   that is not a literal are query errors. A subject that is not three slots, or an object
   that is not one selector, is a query build error.
 
+## luc:stats
+
+### Syntax
+
+```sparql
+(?s ?p ?o) luc:stats (indexSelector)
+```
+
+### Purpose
+
+Returns figures about the selected index's Lucene contents as triples: how many entities
+and documents it holds, its size, and per field how many documents, distinct terms,
+tokens or points it has. No setting enables or disables it.
+
+### Arguments
+
+| Position | Meaning |
+|---|---|
+| `indexSelector` | The index, as for `luc:query` |
+
+### Subject slots
+
+As for [`luc:config`](#lucconfig): each of `?s`, `?p` and `?o` is a variable or a
+constant, and the call matches like one triple pattern.
+
+### Returned triples
+
+The subjects are the nodes `luc:config` uses, so the two join. Index-level figures have
+the index resource as subject: the URI or blank node the configuration file declares the
+index with. Field figures have the field IRI. Every value is an `xsd:long`.
+
+| Subject | Predicate | Value |
+|---|---|---|
+| index | `luc:entityCount` | Live entities |
+| index | `luc:documentCount` | Live Lucene documents, including the child documents of `idx:nested` blocks |
+| index | `luc:deletedDocumentCount` | Deleted documents not yet merged away |
+| index | `luc:segmentCount` | Lucene segments |
+| index | `luc:sizeInBytes` | Size of the main index's segment files; the taxonomy index is not included |
+| `TextField`, `KeywordField` | `luc:documentCount` | Documents with at least one term in the field |
+| `TextField`, `KeywordField` | `luc:termCount` | Distinct terms. For a keyword field, distinct values |
+| `TextField`, `KeywordField` | `luc:tokenCount` | Terms indexed, counting repeats |
+| `IntField`, `LongField`, `DoubleField`, `TemporalField`, `LatLonField` | `luc:documentCount` | Documents with at least one value in the field |
+| the same | `luc:pointCount` | Points indexed. A `LatLonField` line or polygon is indexed as several triangles, each counted |
+
+A field with no indexed values reports `0`. A field declared with `idx:indexed false` has
+no terms or points, so it reports `0` too.
+
+### Examples
+
+All figures as RDF:
+
+```sparql
+PREFIX luc: <urn:jena:lucene:index#>
+
+CONSTRUCT { ?s ?p ?o } WHERE { (?s ?p ?o) luc:stats ("default") }
+```
+
+Distinct values of each keyword field, joining with `luc:config`, which needs
+[`text:exposeConfig true`](03-configuration.md#textexposeconfig):
+
+```sparql
+PREFIX luc: <urn:jena:lucene:index#>
+PREFIX idx: <urn:jena:lucene:index#>
+
+SELECT ?field ?values WHERE {
+  (?field idx:fieldType idx:KeywordField) luc:config ("default") .
+  (?field luc:termCount ?values) luc:stats ("default") .
+}
+```
+
+### Limits
+
+- Field figures come from Lucene's index statistics, which include documents that are
+  deleted but not yet merged away. After updates and deletes they can exceed what a
+  query finds, until segment merging removes the deleted documents.
+  `luc:deletedDocumentCount` says how many there are.
+- A field inside an `idx:nested` block is held on child documents, so its
+  `luc:documentCount` counts child records, not entities.
+- The figures come from the searcher `luc:query` uses, so they include every committed
+  update. They are cached until the next commit. With more than one segment,
+  `luc:termCount` is counted by reading every term of every text and keyword field, so on
+  a large index the first call after a commit takes longer than the calls after it.
+- Errors: an unknown selector and a selector that is not a literal are query errors. A
+  subject that is not three slots, or an object that is not one selector, is a query
+  build error.
+
 ## CQL2-JSON Filters
 
 The `property` entry is always a field IRI.

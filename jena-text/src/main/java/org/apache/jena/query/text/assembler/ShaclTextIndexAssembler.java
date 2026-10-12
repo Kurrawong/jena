@@ -154,6 +154,7 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
             }
 
             ShaclTextIndexLucene index = new ShaclTextIndexLucene(directory, taxonomyDirectory, config);
+            index.setIndexResource(root.asNode());
             if (exposeConfig)
                 index.setExposedConfig(configOf(root));
             return index;
