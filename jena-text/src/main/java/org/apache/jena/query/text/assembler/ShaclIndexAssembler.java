@@ -55,6 +55,7 @@ public class ShaclIndexAssembler {
     private static final Property shClass       = SHACLM.class_;
     private static final Property shNodeKind    = SHACLM.nodeKind;
     private static final Property shDatatype    = SHACLM.datatype;
+    private static final Property shNode        = SHACLM.node;
 
     private ShaclIndexAssembler() {}
 
@@ -132,7 +133,8 @@ public class ShaclIndexAssembler {
             if (!propNode.isResource()) {
                 throw new TextIndexException("sh:property on " + shape + " must be a resource");
             }
-            occurrences.add(parseOccurrence(a, propNode.asResource(), canonicalFields, reachableFields, null));
+            parseMember(a, propNode.asResource(), canonicalFields, reachableFields, null,
+                Collections.emptyList(), occurrences);
         }
         return Collections.unmodifiableList(occurrences);
     }
@@ -178,8 +180,8 @@ public class ShaclIndexAssembler {
                 if (!occurrenceNode.isResource()) {
                     throw new TextIndexException("idx:property inside idx:nested must be a resource on " + shape);
                 }
-                nestedOccurrences.add(parseOccurrence(
-                    a, occurrenceNode.asResource(), canonicalFields, reachableFields, nestedName));
+                parseMember(a, occurrenceNode.asResource(), canonicalFields, reachableFields, nestedName,
+                    Collections.emptyList(), nestedOccurrences);
             }
 
             if (nestedOccurrences.isEmpty()) {
@@ -441,10 +443,102 @@ public class ShaclIndexAssembler {
         return Collections.unmodifiableList(hierarchies);
     }
 
+    /**
+     * Parse one member of a scope: a field occurrence, or a step whose {@code sh:node}
+     * shape contributes further occurrences. Either way the resulting occurrences are
+     * appended to {@code out}, each carrying the chain of steps that leads to it.
+     */
+    private static void parseMember(Assembler a, Resource memberRes,
+                                    Map<String, CanonicalFieldSpec> canonicalFields,
+                                    Map<String, FieldDef> reachableFields, String nestedName,
+                                    List<StepDef> steps, List<FieldOccurrence> out) {
+        if (isStep(memberRes)) {
+            parseStep(a, memberRes, canonicalFields, reachableFields, nestedName, steps, out);
+        } else {
+            out.add(parseOccurrence(a, memberRes, canonicalFields, reachableFields, nestedName, steps));
+        }
+    }
+
+    /**
+     * A step is a {@code sh:property} with {@code sh:path} and {@code sh:node}, no
+     * {@code idx:field}, whose {@code sh:node} shape declares at least one field
+     * occurrence. Without a field occurrence underneath, such a property is an ordinary
+     * SHACL constraint, which inside a {@code sh:node} shape makes it part of the filter.
+     */
+    static boolean isStep(Resource memberRes) {
+        return isStep(memberRes, new HashSet<>());
+    }
+
+    private static boolean isStep(Resource memberRes, Set<RDFNode> visiting) {
+        if (memberRes.hasProperty(IndexVocab.pField)
+                || !memberRes.hasProperty(shPath)
+                || !memberRes.hasProperty(shNode)) {
+            return false;
+        }
+        for (Statement nodeStmt : memberRes.listProperties(shNode).toList()) {
+            RDFNode shape = nodeStmt.getObject();
+            if (shape.isResource() && visiting.add(shape) && declaresFields(shape.asResource(), visiting)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean declaresFields(Resource shapeRes, Set<RDFNode> visiting) {
+        for (Statement memberStmt : shapeRes.listProperties(shProperty).toList()) {
+            RDFNode member = memberStmt.getObject();
+            if (!member.isResource()) {
+                continue;
+            }
+            if (member.asResource().hasProperty(IndexVocab.pField) || isStep(member.asResource(), visiting)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void parseStep(Assembler a, Resource stepRes,
+                                  Map<String, CanonicalFieldSpec> canonicalFields,
+                                  Map<String, FieldDef> reachableFields, String nestedName,
+                                  List<StepDef> steps, List<FieldOccurrence> out) {
+        List<Statement> nodeStmts = stepRes.listProperties(shNode).toList();
+        if (nodeStmts.size() != 1 || !nodeStmts.get(0).getObject().isResource()) {
+            throw new TextIndexException("Step " + stepRes + " must have exactly one sh:node shape");
+        }
+        if (stepRes.hasProperty(IndexVocab.pSelf)) {
+            throw new TextIndexException("Step " + stepRes + " has idx:self. A step follows its sh:path; "
+                + "put idx:self on a sh:property inside its sh:node shape instead.");
+        }
+        for (Property constraint : ShaclConstraints.ALL) {
+            if (!constraint.equals(shNode) && stepRes.hasProperty(constraint)) {
+                throw new TextIndexException("Step " + stepRes + " carries " + ShaclConstraints.name(constraint)
+                    + ". A step takes only sh:path and sh:node; put constraints on the nodes it reaches "
+                    + "inside the sh:node shape.");
+            }
+        }
+        Path path = extractOccurrencePath(stepRes);
+        Resource shapeRes = nodeStmts.get(0).getObject().asResource();
+        ShaclShapeCondition filter = ShaclConstraints.filterCondition(shapeRes);
+        StepDef step = new StepDef(path, extractPathVariants(path), filter);
+
+        List<StepDef> chain = new ArrayList<>(steps);
+        chain.add(step);
+        for (Statement memberStmt : shapeRes.listProperties(shProperty).toList()) {
+            RDFNode member = memberStmt.getObject();
+            if (!member.isResource()) {
+                throw new TextIndexException("sh:property on " + shapeRes + " must be a resource");
+            }
+            Resource memberRes = member.asResource();
+            if (memberRes.hasProperty(IndexVocab.pField) || isStep(memberRes)) {
+                parseMember(a, memberRes, canonicalFields, reachableFields, nestedName, chain, out);
+            }
+        }
+    }
+
     private static FieldOccurrence parseOccurrence(Assembler a, Resource occurrenceRes,
                                                    Map<String, CanonicalFieldSpec> canonicalFields,
                                                    Map<String, FieldDef> reachableFields,
-                                                   String nestedName) {
+                                                   String nestedName, List<StepDef> steps) {
         rejectCanonicalFieldPropertiesOnOccurrence(occurrenceRes);
 
         Statement fieldStmt = occurrenceRes.getProperty(IndexVocab.pField);
@@ -470,23 +564,29 @@ public class ShaclIndexAssembler {
         Node requiredClass = getOptionalResourceNode(occurrenceRes, shClass);
         NodeKindConstraint nodeKindConstraint = getOptionalNodeKindConstraint(occurrenceRes);
         Node datatype = getOptionalResourceNode(occurrenceRes, shDatatype);
+        ShaclShapeCondition valueCondition = ShaclConstraints.valueCondition(occurrenceRes);
 
-        if (self) {
-            if (!SELF_BINDABLE_TYPES.contains(field.getFieldType())) {
-                throw new TextIndexException("Field occurrence " + occurrenceRes
-                    + " binds the focus node with idx:self into field "
-                    + field.getFieldIRI().getURI() + ", which has type " + field.getFieldType()
-                    + ". A focus node is a resource, so a self-bound field must be "
-                    + SELF_BINDABLE_TYPES + ".");
-            }
-            return FieldOccurrence.self(field, requiredClass, nodeKindConstraint, datatype, nestedName);
+        if (self && !SELF_BINDABLE_TYPES.contains(field.getFieldType())) {
+            throw new TextIndexException("Field occurrence " + occurrenceRes
+                + " binds the focus node with idx:self into field "
+                + field.getFieldIRI().getURI() + ", which has type " + field.getFieldType()
+                + ". A focus node is a resource, so a self-bound field must be "
+                + SELF_BINDABLE_TYPES + ".");
         }
 
-        List<List<JoinStep>> pathVariants = extractPathVariants(path);
-        Set<Node> predicates = extractLeafPredicates(path);
+        List<List<JoinStep>> pathVariants = List.of(List.of());
+        Set<Node> predicates = new LinkedHashSet<>();
+        for (StepDef step : steps) {
+            pathVariants = ShaclIndexMapping.concatVariants(pathVariants, step.getPathVariants());
+            predicates.addAll(extractLeafPredicates(step.getPath()));
+        }
+        if (path != null) {
+            pathVariants = ShaclIndexMapping.concatVariants(pathVariants, extractPathVariants(path));
+            predicates.addAll(extractLeafPredicates(path));
+        }
 
-        return new FieldOccurrence(field, path, pathVariants, predicates,
-            requiredClass, nodeKindConstraint, datatype, nestedName);
+        return new FieldOccurrence(field, steps, path, pathVariants, predicates,
+            requiredClass, nodeKindConstraint, datatype, valueCondition, nestedName);
     }
 
     /**

@@ -509,8 +509,10 @@ public class TestShaclNodeOccurrenceFilters {
                     ] ;
                 ] .
             """;
-        String data = SITES + SAMPLES + """
-            ex:Company rdfs:subClassOf ex:Organisation .
+        // A change to rdfs:subClassOf is not tracked, so the class hierarchy is loaded
+        // before the instances, as a reindex would see it.
+        String ontology = "ex:Company rdfs:subClassOf ex:Organisation .\n";
+        String data = ontology + SITES + SAMPLES + """
             ex:site1 ex:operator ex:acme , ex:nobody .
             ex:acme a ex:Company .
             ex:nobody a ex:Person .
@@ -520,6 +522,7 @@ public class TestShaclNodeOccurrenceFilters {
         ShaclTextIndexLucene bulk = openIndex(shapes);
         try {
             Dataset dataset = liveDataset(live);
+            load(dataset, ontology);
             load(dataset, data);
             dataset.close();
 
