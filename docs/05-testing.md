@@ -195,6 +195,80 @@ java -jar jena-fuseki2/jena-fuseki-server/target/jena-fuseki-server-*.jar \
 
 ---
 
+## luc:query benchmark
+
+`BenchLucQuery`, in `jena-text/src/test/java/org/apache/jena/query/text/bench/`, is a JMH
+benchmark of `luc:query` over a synthetic index. It is in the test sources but is not a
+test: surefire runs only `TS_*` classes and `TS_Text` does not list it.
+
+### Running it
+
+```bash
+mvn -o -q -pl jena-text test-compile dependency:build-classpath \
+    -Dmdep.outputFile=target/bench.classpath -Dmdep.includeScope=test -Drat.skip
+cd jena-text
+java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED \
+    -cp target/test-classes:target/classes:$(cat target/bench.classpath) \
+    org.apache.jena.query.text.bench.BenchLucQuery -rf json -rff results.json
+```
+
+Arguments after the class name are JMH's. A regex runs a subset: `BenchLucQuery pageText`
+runs the three page scenarios. `-l` builds the index and lists the scenarios without
+running them.
+
+The first run generates the data, loads it into TDB2 with the parallel loader and builds the
+Lucene index with `shacltextindexer`, the same path as a production bulk load. On a 12-core
+machine this took about two and a half minutes. Later runs reuse the build, which lives in
+`jena-text/target/bench-luc-query` and is therefore deleted by `mvn clean`. System
+properties:
+
+| Property | Default | Meaning |
+|---|---|---|
+| `bench.dir` | `jena-text/target/bench-luc-query` | Where the dataset and index are built and reused |
+| `bench.entities` | `500000` | Entity count; both large windows are three fifths of it |
+| `bench.matchWindow` | `20000` | Window of `largeTextWithMatch` |
+
+The benchmark uses JMH's sample-time mode in milliseconds, with 3 warmup and 5 measurement
+iterations of 10 seconds each, in one forked JVM with an 8 GB heap. JMH reports the mean
+and the 50th, 90th, 95th and 99th percentiles. Compare runs at the median, on the same
+machine, with the machine otherwise idle.
+
+### Data
+
+500,000 entities of one SHACL shape, in a TDB2 store on disk. Each entity has two `TEXT`
+fields of about 300 characters drawn from a 5,000-word vocabulary with a Zipf
+distribution, a sortable `KEYWORD` identifier, four facetable `KEYWORD` fields, an `INT`
+year, and two `schema:identifier` children (`schema:propertyID`, `schema:value`) indexed
+through `idx:nested`. Every field except `entityType` is stored. Hit counts are fixed by
+the entity number: the term `survey` matches 300,000 entities, the term `basalt` 10,638,
+and the filter `status = active` 300,000. The index config is
+`jena-text/src/test/resources/bench/luc-query-bench.ttl`.
+
+The store is TDB2 rather than in-memory because production runs on TDB2.
+
+### Scenarios
+
+Each scenario runs one SPARQL query through ARQ in a read transaction and reads every
+binding of every row. Before timing, each scenario runs its query once and fails if the
+row count is wrong.
+
+| Scenario | Query | Rows |
+|---|---|---|
+| `pageText` | `basalt`, page of 20, binds `?entity` | 20 |
+| `pageTextWithMatch` | as `pageText`, joined to `luc:match` | 20 |
+| `pageTextWithFacet` | as `pageText`, in a `UNION` with `luc:facet` over four fields, 10 values each | 51 |
+| `largeFilterOnly` | `*` with the `status` filter, limit 300,000, binds `?entity` | 300,000 |
+| `largeTextNoMatch` | `survey`, limit 300,000, binds `?entity` | 300,000 |
+| `largeTextWithMatch` | `survey` joined to `luc:match`, limit `bench.matchWindow` | 20,000 |
+
+`largeTextWithMatch` runs at 20,000 hits rather than 300,000. `luc:match` finds each
+incoming hit by scanning every cached hit, so the query time grows with the square of the
+window: on the machine above it took 3.5 seconds at 20,000 hits and 15 seconds at 40,000,
+which projects to more than ten minutes per query at 300,000. Run it at 300,000 with
+`-Dbench.matchWindow=300000` once that lookup is linear.
+
+---
+
 ## Adding New Tests
 
 1. Create your test class in `jena-text/src/test/java/org/apache/jena/query/text/`
