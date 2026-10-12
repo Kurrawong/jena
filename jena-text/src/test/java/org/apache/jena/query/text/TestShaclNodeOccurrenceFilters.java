@@ -225,6 +225,35 @@ public class TestShaclNodeOccurrenceFilters {
         }
     }
 
+    @Test
+    public void testPropertyWithFieldlessNodeShapeIsPartOfFilter() {
+        ShaclTextIndexLucene index = openIndex("""
+            field:id idx:fieldName "id" ; idx:fieldType idx:KeywordField ; idx:multiValued true .
+            ex:ActiveShape sh:property [ sh:path ex:status ; sh:hasValue ex:Active ] .
+            ex:Shape sh:targetClass ex:Site ;
+                sh:property [
+                    sh:path schema:identifier ;
+                    sh:node [
+                        sh:property [ sh:path ex:issuer ; sh:node ex:ActiveShape ] ;
+                        sh:property [ sh:path schema:value ; idx:field field:id ] ;
+                    ] ;
+                ] .
+            """);
+        try {
+            Entity site = build(index, graph("""
+                ex:s a ex:Site ;
+                    schema:identifier [ ex:issuer ex:active ; schema:value "kept" ] ,
+                                      [ ex:issuer ex:active , ex:retired ; schema:value "dropped" ] .
+                ex:active ex:status ex:Active .
+                ex:retired ex:status ex:Retired .
+                """), uri("s"));
+            assertEquals(List.of("kept"), values(site, "id"),
+                "a node is kept when every ex:issuer conforms to the named shape");
+        } finally {
+            index.close();
+        }
+    }
+
     private static final String SAMPLE_STEPS = """
         field:sampleId idx:fieldName "sampleId" ; idx:fieldType idx:KeywordField ; idx:multiValued true .
         field:sampleLabel idx:fieldName "sampleLabel" ; idx:fieldType idx:KeywordField ; idx:multiValued true .

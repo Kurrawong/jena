@@ -59,7 +59,7 @@ public class TestShaclOccurrenceValueConstraints {
                 "ex:t ex:v ex:alice , ex:bot . ex:alice a ex:Person . ex:bot a ex:Robot .",
                 List.of(EX + "alice")),
             Arguments.of("sh:datatype xsd:integer",
-                "ex:t ex:v 1 , \"x\" .",
+                "ex:t ex:v 1 , \"x\" , \"abc\"^^xsd:integer .",
                 List.of("1")),
             Arguments.of("sh:nodeKind sh:IRI",
                 "ex:t ex:v ex:a , \"lit\" .",
@@ -164,6 +164,30 @@ public class TestShaclOccurrenceValueConstraints {
                 ] .
             """));
         assertTrue(messageChain(ex).contains("sh:sparql"), messageChain(ex));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = { "sh:zeroOrMorePath", "sh:oneOrMorePath", "sh:zeroOrOnePath" })
+    public void testRepeatingPathIsRejectedOnOccurrenceAndInFilter(String form) {
+        Exception onOccurrence = assertThrows(Exception.class, () -> openIndex("""
+            field:v idx:fieldName "v" ; idx:fieldType idx:KeywordField .
+            ex:Shape sh:targetClass ex:Thing ;
+                sh:property [ sh:path [ %s ex:part ] ; idx:field field:v ] .
+            """.formatted(form)));
+        assertTrue(messageChain(onOccurrence).contains("Unsupported SHACL path"), messageChain(onOccurrence));
+
+        Exception inFilter = assertThrows(Exception.class, () -> openIndex("""
+            field:v idx:fieldName "v" ; idx:fieldType idx:KeywordField .
+            ex:Shape sh:targetClass ex:Thing ;
+                sh:property [
+                    sh:path ex:part ;
+                    sh:node [
+                        sh:property [ sh:path [ %s ex:part ] ; sh:minCount 1 ] ;
+                        sh:property [ sh:path ex:v ; idx:field field:v ] ;
+                    ] ;
+                ] .
+            """.formatted(form)));
+        assertTrue(messageChain(inFilter).contains("Unsupported SHACL path"), messageChain(inFilter));
     }
 
     @Test
