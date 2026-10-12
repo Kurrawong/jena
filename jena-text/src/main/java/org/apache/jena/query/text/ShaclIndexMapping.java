@@ -791,6 +791,7 @@ public class ShaclIndexMapping {
     private final Set<Node> nestedChildPredicates;
     private final Set<Node> nestedJoinPredicates;
     private final Set<Node> relevantPredicates;
+    private final List<FieldDef> rootFields;
 
     public ShaclIndexMapping(List<IndexProfile> profiles) {
         this.profiles = Collections.unmodifiableList(new ArrayList<>(profiles));
@@ -808,10 +809,24 @@ public class ShaclIndexMapping {
         this.relevantPredicates = buildRelevantPredicates(
             topLevelPredicates, nestedChildPredicates, nestedJoinPredicates);
         this.classLookup = Collections.unmodifiableMap(buildClassLookup(this.profiles));
+        Set<FieldDef> roots = new LinkedHashSet<>();
+        for (IndexProfile profile : this.profiles) {
+            roots.addAll(distinctFields(profile.getRootOccurrences()));
+        }
+        this.rootFields = List.copyOf(roots);
     }
 
     public List<IndexProfile> getProfiles() {
         return profiles;
+    }
+
+    /**
+     * Fields with an occurrence at root scope in any profile, in declaration order: the
+     * fields whose values are on the entity's own document. A field bound only inside
+     * {@code idx:nested} blocks is not among them.
+     */
+    public List<FieldDef> getRootFields() {
+        return rootFields;
     }
 
     public boolean isRelevantPredicate(Node predicate) {

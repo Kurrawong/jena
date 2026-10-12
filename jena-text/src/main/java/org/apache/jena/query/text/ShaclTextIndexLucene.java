@@ -1039,6 +1039,42 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         });
     }
 
+    /** Receives the values read for one hit and one field. */
+    @FunctionalInterface
+    interface FieldValuesSink {
+        void accept(SearchHit hit, ShaclIndexMapping.FieldDef field, List<Node> values);
+    }
+
+    /**
+     * Read {@code fields} from each hit's own document, in doc-ID order, for
+     * {@code luc:fields}. Fields read from doc values cost no stored-field access; the
+     * rest share one restricted stored-field decode per hit. {@code sink} gets one call
+     * per hit and field, with an empty list when the hit has no value.
+     * <p>
+     * {@code searcher} must be the one the hits came from.
+     */
+    void readFieldValues(IndexSearcher searcher, Collection<SearchHit> hits,
+            List<ShaclIndexMapping.FieldDef> fields, FieldValuesSink sink) throws IOException {
+        FieldValueReader values = new FieldValueReader(hitReadObserver);
+        HitReader.inDocOrder(searcher.getIndexReader(), hits, new HitReader.LeafReads() {
+            private Set<String> storedNames;
+
+            @Override
+            public void startLeaf(LeafReaderContext leaf) throws IOException {
+                values.startLeaf(leaf);
+                storedNames = values.storedNames(fields);
+            }
+
+            @Override
+            public void read(SearchHit hit, int segmentDocId) throws IOException {
+                Document doc = values.stored(segmentDocId, storedNames);
+                for (ShaclIndexMapping.FieldDef field : fields) {
+                    sink.accept(hit, field, values.values(field, segmentDocId, doc).nodes());
+                }
+            }
+        });
+    }
+
     /**
      * Attach to each hit the block-join child documents that satisfied the filter.
      * <p>

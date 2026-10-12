@@ -54,7 +54,8 @@ import org.slf4j.LoggerFactory;
  * The object argument list is empty — all state comes from the shared
  * {@link SearchExecution} stored in the {@link ExecutionContext}. A bound {@code ?hit}
  * names its search, so it is found with one lookup. A field IRI in the field slot
- * keeps only matches on that field.
+ * keeps only matches on that field, and a constant in the value slot only that value,
+ * as when {@code ?field} and {@code ?value} are shared with an earlier {@code luc:fields}.
  * <p>
  * Match details are computed on the first call, for every hit {@code luc:query} has
  * returned, against the searcher the search ran on.
@@ -94,8 +95,6 @@ public class TextMatchPF extends PropertyFunctionBase {
             }
             if (argSubject.getArgListSize() > 2) {
                 valueNode = argSubject.getArg(2);
-                if (!valueNode.isVariable())
-                    throw new QueryExecException("Value must be a variable: " + argSubject);
             }
             if (argSubject.getArgListSize() > 3) {
                 snippetNode = argSubject.getArg(3);
@@ -113,7 +112,8 @@ public class TextMatchPF extends PropertyFunctionBase {
         Var hitVar = Var.isVar(hitNode) ? Var.alloc(hitNode) : null;
         Var fieldVar = fieldNode != null && Var.isVar(fieldNode) ? Var.alloc(fieldNode) : null;
         Node fieldFilter = fieldNode != null && fieldVar == null ? fieldNode : null;
-        Var valueVar = valueNode != null ? Var.alloc(valueNode) : null;
+        Var valueVar = valueNode != null && Var.isVar(valueNode) ? Var.alloc(valueNode) : null;
+        Node valueFilter = valueNode != null && valueVar == null ? valueNode : null;
         Var snippetVar = snippetNode != null ? Var.alloc(snippetNode) : null;
 
         List<Binding> bindings = new ArrayList<>();
@@ -128,7 +128,8 @@ public class TextMatchPF extends PropertyFunctionBase {
                 }
                 return IterLib.noResults(execCxt);
             }
-            addRows(bindings, binding, null, fieldVar, fieldFilter, valueVar, snippetVar, sh, se.fieldMatches(sh));
+            addRows(bindings, binding, null, fieldVar, fieldFilter, valueVar, valueFilter, snippetVar, sh,
+                se.fieldMatches(sh));
         } else {
             List<SearchExecution> searches = SearchExecution.all(execCxt);
             if (searches.isEmpty()) {
@@ -138,7 +139,7 @@ public class TextMatchPF extends PropertyFunctionBase {
             // ?hit unbound: every hit of every search in the query.
             for (SearchExecution se : searches) {
                 for (SearchHit sh : se.hitsWithFieldMatches()) {
-                    addRows(bindings, binding, hitVar, fieldVar, fieldFilter, valueVar, snippetVar,
+                    addRows(bindings, binding, hitVar, fieldVar, fieldFilter, valueVar, valueFilter, snippetVar,
                         sh, sh.getFieldMatches());
                 }
             }
@@ -148,12 +149,12 @@ public class TextMatchPF extends PropertyFunctionBase {
     }
 
     private static void addRows(List<Binding> bindings, Binding binding, Var hitVar, Var fieldVar,
-                                Node fieldFilter, Var valueVar, Var snippetVar,
+                                Node fieldFilter, Var valueVar, Node valueFilter, Var snippetVar,
                                 SearchHit sh, List<FieldMatch> fieldMatches) {
         if (fieldMatches.isEmpty()) {
             // No field matches: a row with only ?hit, so a join on ?hit still succeeds.
-            // Not when a field is named: there is nothing on that field to return.
-            if (hitVar != null && fieldFilter == null) {
+            // Not when a field or value is named: there is nothing on it to return.
+            if (hitVar != null && fieldFilter == null && valueFilter == null) {
                 BindingBuilder builder = Binding.builder(binding);
                 builder.add(hitVar, sh.getHitId());
                 bindings.add(builder.build());
@@ -162,6 +163,9 @@ public class TextMatchPF extends PropertyFunctionBase {
         }
         for (FieldMatch fm : fieldMatches) {
             if (fieldFilter != null && !fieldFilter.equals(fm.getFieldIRI())) {
+                continue;
+            }
+            if (valueFilter != null && !valueFilter.equals(fm.getValue())) {
                 continue;
             }
             BindingBuilder builder = Binding.builder(binding);

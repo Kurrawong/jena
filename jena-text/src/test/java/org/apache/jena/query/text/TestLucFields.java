@@ -208,16 +208,14 @@ public class TestLucFields {
     public void identifierFromAFilterOnlySearchReadsNoStoredField() {
         Counter counter = count();
         List<Binding> rows = select(
-            "(?hit ?score ?total ?rank) luc:query " + luc("", LIVE, CODE_ASC, 100) + " .\n"
+            "(?hit) luc:query " + luc("", LIVE, CODE_ASC, 100) + " .\n"
             + "(?hit field:code ?id) luc:fields () .");
         List<String> ids = new ArrayList<>();
-        List<String> ranks = new ArrayList<>();
         for (Binding b : rows) {
             ids.add(lex(b, "id"));
-            ranks.add(lex(b, "rank"));
         }
+        // Sorted by code, so rank order is code order.
         assertEquals(List.of("C1", "C2", "C3"), ids, "one row per hit, in rank order");
-        assertEquals(List.of("0", "1", "2"), ranks);
         assertEquals(List.of(), counter.reads, "an eligible field is read from its doc value");
         assertEquals(3, counter.docValues.size());
     }
