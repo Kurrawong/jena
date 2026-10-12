@@ -156,6 +156,8 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     // sh:node steps and filters, occurrence value constraints evaluated by jena-shacl
     , TestShaclNodeOccurrenceFilters.class
     , TestShaclOccurrenceValueConstraints.class
+    , TestShaclStepChangeTracking.class
+    , TestShaclConditionRejections.class
 
     // Offset paging
     , TestOffsetPaging.class

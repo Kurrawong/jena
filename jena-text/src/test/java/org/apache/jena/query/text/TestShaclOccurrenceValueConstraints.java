@@ -207,4 +207,23 @@ public class TestShaclOccurrenceValueConstraints {
             index.close();
         }
     }
+
+    @Test
+    public void testFingerprintChangesWhenValueConstraintChanges() {
+        String first = fingerprint("sh:pattern \"^A\"");
+        assertEquals(first, fingerprint("sh:pattern \"^A\""),
+            "the same configuration parsed twice has the same fingerprint");
+        assertNotEquals(first, fingerprint("sh:pattern \"^B\""),
+            "a changed value constraint changes the fingerprint");
+    }
+
+    private static String fingerprint(String constraint) {
+        ShaclTextIndexLucene index = openWithConstraint(constraint);
+        try {
+            ShaclIndexMapping mapping = index.getShaclMapping();
+            return ShaclConfigFingerprint.fingerprint(mapping, true, mapping.getFacetFieldNames());
+        } finally {
+            index.close();
+        }
+    }
 }
