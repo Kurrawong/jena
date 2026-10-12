@@ -1,7 +1,7 @@
 ---
 title: "Reading less per hit, and luc:fields for identifier queries"
 date: "2026-10-12"
-status: "Designed; nothing implemented"
+status: "Part 1 implemented, except the entity IRI doc value; Parts 2 and 3 designed"
 ---
 
 # Reading Less per Hit, and luc:fields for Identifier Queries
@@ -137,6 +137,34 @@ behaving as a filter on that field, as `luc:fields` does.
 
 A negative `limit` means unlimited, as documented. `ShaclTextQueryPF.exec` stops mapping
 it to 10.
+
+### Part 1 as implemented
+
+Where the implementation differs from the text above, and why:
+
+| Topic | Design | Implemented | Reason |
+|---|---|---|---|
+| Hit lookup | A `Map<Node, SearchHit>` per search | No map. The label is `s<search>h<rank>`; the rank indexes the cached window | Same single lookup with no per-hit map entry, which is 300,000 entries at the identifier window |
+| Window re-run | Release the old searcher, take the new one | Re-run against the held searcher if one is held; acquire the current one otherwise | Pages of one query then see one index state. Values read for the old hits are discarded either way, because the re-run creates new `SearchHit` objects |
+| Child records | Not changed; `computeNestedMatches` stays in the search | Computed on the first `luc:nestedMatch` call, like match details | It runs one block-join query per hit, which a query with a nested filter and no `luc:nestedMatch` paid for nothing |
+| Batch for lazy reads | Every cached hit | The requested hit plus every hit `luc:query` has returned; every cached hit when `?hit` is unbound | Page *n* caches `offset + limit` hits but returns `limit`; the skipped hits are never joined |
+| `limit` 0 | Not covered | Still the default page of 10, now documented | 0 was undocumented and mapped to 10; changing it was not part of this design |
+| Unlimited window | Not covered | When the window is at least the reader's `maxDoc`, the hit queue is sized by `IndexSearcher.count` | Lucene sizes its queue at the requested count capped at `maxDoc`, which counts child documents, so an unlimited search would otherwise allocate a queue the size of the index |
+| Entity IRI doc value | Ships if the benchmark favours it | Not implemented | Left for the phase that adds the value reader; its test (doc value, and fallback for segments without it) is not written yet |
+| Read counting | A hook on the value reader | `HitReadObserver` on `ShaclTextIndexLucene` | The value reader is Part 2. The hook reports stored-field decodes and match computations |
+
+`HitReader.inDocOrder` is the doc-ID-ordered primitive the value reader and `luc:fields`
+can build on: it calls `startLeaf` once per segment (where doc-values iterators are
+opened) and `read` per hit in doc-ID order (where `advanceExact` and a restricted
+`StoredFieldVisitor` run). `SearchExecution.readAgainstSearch` runs such a read against
+the held searcher, or against a newly acquired one after the reader check, so a cache
+keyed by field on `SearchExecution` and filled through it gets the late-read rule for
+free.
+
+A SPARQL query can make a dependent read after `luc:query` has closed. One form that
+does is `luc:match` after a sorted subquery over `luc:query`; the sort drains the
+subquery first. A separate group (`{ luc:query } { luc:match }`) is evaluated with the
+`luc:query` iterator still open.
 
 ## Part 2: one value reader, and the storage rule
 

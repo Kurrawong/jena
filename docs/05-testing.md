@@ -34,6 +34,8 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 | `TestTextFacetPF` | 16 | SPARQL `luc:facet` PF: flat/range facets, mixed requests, filters, maxValues, minCount, subject arity checks, empty-string placeholders |
 | `TestTextQueryPFFilters` | 13 | SPARQL `luc:query` with JSON filters, field-IRI scoping, empty-string placeholders, string limits, and end-to-end sort pushdown |
 | `TestSearchExecution` | 10 | Shared execution: key generation, normalisation, index-aware reuse, and sort-sensitive cache keys |
+| `TestLucQueryHitPath` | 21 | The `luc:query` hit path: `(?hit)` decodes no stored field and `(?hit ?entity)` only the entity field, counted through `HitReadObserver`; entity order under relevance and sort; constant `?entity`; no match details without `luc:match`, and only matched fields decoded with it; two searches in one query each resolving their own `?hit`; constant field slots in `luc:match` and `luc:nestedMatch`; negative and zero `limit`; the searcher held while iterating and released on finish, abandon and cancel; late reads with and without a commit; a window re-run reading the new index state |
+| `TestLucMatchLargeWindow` | 2 | `luc:match` and `luc:nestedMatch` over 300,000 hits within 90 s, which the earlier per-call scan of every cached hit does not meet |
 
 ### SHACL Entity-Per-Document Tests
 

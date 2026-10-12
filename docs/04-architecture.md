@@ -69,7 +69,8 @@ Used with `text:shapes` configuration. SPARQL search via `luc:query` (with filte
 | `ShaclTextQueryPF` | Implements `luc:query` — search with JSON filter support, `?totalHits` binding. Uses `SearchExecution` for shared state with `luc:facet` |
 | `TextFacetPF` | Implements `luc:facet` — facet counts property function. Returns (field, value, count) bindings |
 | `ShaclConfigPF` | Implements `luc:config` — matches a triple pattern over the index's configuration subgraph, copied at assembly when `text:exposeConfig true` |
-| `SearchExecution` | Shared execution state. Stored in `ExecutionContext` keyed by normalised query params. Lazy-computes hits, facet counts, and total hit count |
+| `SearchExecution` | Shared execution state. Stored in `ExecutionContext` keyed by normalised query params. Lazy-computes hits, facet counts, and total hit count. Holds the searcher the hits came from and reads entity IRIs, match details and child records on request |
+| `HitReader` | Visits a set of hits in Lucene doc-ID order, one segment at a time; used by every per-hit read |
 | `FacetValue` | Immutable (value, count) pair for facet results |
 | `ShaclIndexAssembler` | Parses `text:shapes` RDF config into `ShaclIndexMapping`. Reads `sh:targetClass`, `sh:path`, `sh:alternativePath`. No jena-shacl dependency |
 | `ShaclTextIndexLucene` | Extended `TextIndexLucene` with taxonomy writer/reader for hierarchical facets, `MultiFacets`, and `extractHierarchyDrillDown()` |
@@ -112,6 +113,57 @@ sequenceDiagram
 Both PFs build a normalised key from query parameters. `SearchExecution.getOrCreate()` stores/retrieves shared state in `ExecutionContext`.
 
 Key normalisation: property URIs are sorted, filter map keys are sorted, filter values within each key are sorted. This ensures the same logical query always produces the same key regardless of argument ordering.
+
+---
+
+## Hit Path
+
+### Held searcher
+
+A Lucene doc ID is valid only against the reader it came from. `SearchExecution` keeps
+the `IndexSearcher` its search ran on, holding one `SearcherManager` reference, while any
+`luc:query` iterator over that search is open. `ShaclTextQueryPF` calls `retain()` before
+searching and returns a `QueryIterPlainWrapper` subclass whose `closeIterator()` calls
+`release()`; the last release returns the searcher. ARQ calls `closeIterator()` when the
+iterator is exhausted, when the query is cancelled, and when a parent iterator or the
+`QueryExecution` is closed, so an abandoned query releases it too. A `luc:query` call
+that fails before returning its iterator releases in a `finally` block.
+
+Reads that run after the last release, for example `luc:match` evaluated after a sort
+drained `luc:query`, acquire the current searcher and compare its `IndexReader` with
+the one the search used. `SearcherManager` returns the same reader until a commit
+refreshes it, so with no commit in between the doc IDs are still valid and the read
+proceeds. A different reader raises `QueryExecException`.
+
+A larger window re-runs the search. It uses the held searcher when there is one, so the
+pages of one query see one index state, and acquires the current one otherwise. The new
+hits are new `SearchHit` objects, so nothing read for the old ones carries over.
+
+### Lazy per-hit reads
+
+`ShaclTextIndexLucene.searchHits` returns hits with rank, score and Lucene doc ID only.
+The rest is read on request, each time for a batch of hits in doc-ID order through
+`HitReader.inDocOrder`, which sorts the hits, starts each segment once, and writes the
+results back onto the hits so rank order is kept:
+
+| Data | Read when | Read how |
+|---|---|---|
+| Entity IRI | `luc:query`'s subject list has an `?entity` slot | `HitReader.OneStringField`, a `StoredFieldVisitor` that decodes the entity field and stops |
+| Match details | First `luc:match` call | `Weight.matches` per hit, then a `DocumentStoredFieldVisitor` restricted to the matched fields and their datatype and language twins |
+| Child records | First `luc:nestedMatch` call | One `ParentChildrenBlockJoinQuery` per hit for each nested clause of the filter |
+
+Match details and child records are computed for the requested hit plus every hit
+`luc:query` has returned that lacks them, so a page is computed in one pass. With `?hit`
+unbound, `luc:match` and `luc:nestedMatch` compute them for every cached hit.
+
+### Hit lookup
+
+Each `SearchExecution` created in a query gets a number from a per-query registry in the
+`ExecutionContext`, and labels its hits `s<number>h<rank>`. `luc:match` and
+`luc:nestedMatch` parse a bound `?hit` to find the search in the registry and the hit by
+rank in its cached window: one lookup per incoming `?hit`, where each call used to scan
+every cached hit. Two `luc:query` patterns over different searches in one query no longer
+share labels, so each `?hit` resolves to its own search.
 
 ---
 
