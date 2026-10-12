@@ -86,16 +86,17 @@ abstract class ShaclGraphPF extends PropertyFunctionBase {
         }
         String selector = selectorNode.getLiteralLexicalForm();
 
-        ShaclIndexSelection.Resolved resolved;
+        Graph graph;
         try {
-            resolved = ShaclIndexSelection.resolve(execCxt, execCxt.getDataset(), selector);
+            ShaclIndexSelection.Resolved resolved =
+                ShaclIndexSelection.resolve(execCxt, execCxt.getDataset(), selector);
+            if (resolved == null) {
+                throw new QueryExecException(name + ": the dataset has no text index");
+            }
+            graph = graph(resolved.index(), selector);
         } catch (TextIndexException e) {
             throw new QueryExecException(name + ": " + e.getMessage(), e);
         }
-        if (resolved == null) {
-            throw new QueryExecException(name + ": the dataset has no text index");
-        }
-        Graph graph = graph(resolved.index(), selector);
 
         Node s = argSubject.getArg(0);
         Node p = argSubject.getArg(1);

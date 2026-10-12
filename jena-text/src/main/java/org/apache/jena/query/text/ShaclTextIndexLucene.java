@@ -477,7 +477,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
             return stats;
         } catch (IOException e) {
-            throw new TextIndexException("luc:stats", e);
+            throw new TextIndexException("could not read the index: " + e.getMessage(), e);
         } finally {
             releaseSearcher(searcher);
         }
