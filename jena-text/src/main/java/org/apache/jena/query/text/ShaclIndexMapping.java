@@ -23,11 +23,13 @@ package org.apache.jena.query.text;
 
 import java.util.*;
 
+import org.apache.jena.graph.Graph;
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.text.analyzer.EdgeNGramAnalyzer;
 import org.apache.jena.query.text.analyzer.LowerCaseKeywordAnalyzer;
 import org.apache.jena.sparql.path.Path;
+import org.apache.jena.sparql.path.PathFactory;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 
@@ -302,22 +304,107 @@ public class ShaclIndexMapping {
         }
     }
 
+    /**
+     * Concatenate two lists of path variants: every left variant followed by every right
+     * variant.
+     */
+    public static List<List<JoinStep>> concatVariants(List<List<JoinStep>> left, List<List<JoinStep>> right) {
+        List<List<JoinStep>> combined = new ArrayList<>();
+        for (List<JoinStep> lhs : left) {
+            for (List<JoinStep> rhs : right) {
+                List<JoinStep> seq = new ArrayList<>(lhs.size() + rhs.size());
+                seq.addAll(lhs);
+                seq.addAll(rhs);
+                combined.add(Collections.unmodifiableList(seq));
+            }
+        }
+        return Collections.unmodifiableList(combined);
+    }
+
+    /**
+     * A step: a {@code sh:property} with {@code sh:path} and {@code sh:node} and no
+     * {@code idx:field}. It follows its path and keeps each reached node that conforms to
+     * the {@code sh:node} shape's filter; the field occurrences of that shape are then
+     * evaluated from each kept node.
+     * <p>
+     * The filter is the {@code sh:node} shape without its field occurrences and further
+     * steps, so a field occurrence's own value constraints never decide whether a node is
+     * kept. It is null when the shape holds nothing else.
+     */
+    public static class StepDef {
+        private final Path path;
+        private final List<List<JoinStep>> pathVariants;
+        private final ShaclShapeCondition filter;
+
+        public StepDef(Path path, List<List<JoinStep>> pathVariants, ShaclShapeCondition filter) {
+            this.path = Objects.requireNonNull(path);
+            this.pathVariants = FieldOccurrence.deepUnmodifiable(Objects.requireNonNull(pathVariants));
+            this.filter = filter;
+            if (this.pathVariants.isEmpty()) {
+                throw new IllegalArgumentException("StepDef must contain at least one predicate path variant");
+            }
+        }
+
+        public Path getPath()                         { return path; }
+        public List<List<JoinStep>> getPathVariants() { return pathVariants; }
+        /** The filter a reached node must conform to, or null when every reached node is kept. */
+        public ShaclShapeCondition getFilter()        { return filter; }
+
+        /** True when {@code node} passes this step's filter. */
+        public boolean keeps(Graph graph, Node node) {
+            return filter == null || filter.conforms(graph, node);
+        }
+
+        @Override
+        public String toString() {
+            return filter == null ? String.valueOf(path) : path + " filter " + filter;
+        }
+    }
+
     public static class FieldOccurrence {
         private final FieldDef field;
+        private final List<StepDef> steps;
+        private final Path localPath;
         private final Path path;
         private final List<List<JoinStep>> pathVariants;
         private final Set<Node> predicates;
         private final Node requiredClass;
         private final NodeKindConstraint nodeKindConstraint;
         private final Node datatype;
+        private final ShaclShapeCondition valueCondition;
         private final String nestedName;
 
         public FieldOccurrence(FieldDef field, Path path, List<List<JoinStep>> pathVariants,
                                Set<Node> predicates, Node requiredClass,
                                NodeKindConstraint nodeKindConstraint, Node datatype,
                                String nestedName) {
+            this(field, Collections.emptyList(), Objects.requireNonNull(path), pathVariants, predicates,
+                requiredClass, nodeKindConstraint, datatype,
+                ShaclShapeCondition.ofConstraints(requiredClass, nodeKindConstraint, datatype), nestedName);
+        }
+
+        /**
+         * The widest form.
+         *
+         * @param steps          the steps leading from the scope's focus node to the node
+         *                       {@code localPath} starts from; empty for a direct occurrence
+         * @param localPath      the occurrence's own {@code sh:path}, or null when it binds
+         *                       the node it is evaluated from ({@code idx:self})
+         * @param pathVariants   the variants of the whole path, steps then local path
+         * @param predicates     the predicates of the whole path
+         * @param valueCondition the occurrence's value constraints as a node shape applied
+         *                       to each value, or null when it has none. The three
+         *                       preceding constraint arguments are informational; this
+         *                       condition is what is evaluated.
+         */
+        public FieldOccurrence(FieldDef field, List<StepDef> steps, Path localPath,
+                               List<List<JoinStep>> pathVariants, Set<Node> predicates,
+                               Node requiredClass, NodeKindConstraint nodeKindConstraint, Node datatype,
+                               ShaclShapeCondition valueCondition, String nestedName) {
             this.field = Objects.requireNonNull(field);
-            this.path = Objects.requireNonNull(path);
+            this.steps = steps != null ? List.copyOf(steps) : Collections.emptyList();
+            this.localPath = localPath;
+            this.path = joinPath(this.steps, localPath);
             this.pathVariants = pathVariants != null
                 ? deepUnmodifiable(pathVariants)
                 : Collections.emptyList();
@@ -327,25 +414,22 @@ public class ShaclIndexMapping {
             this.requiredClass = requiredClass;
             this.nodeKindConstraint = nodeKindConstraint;
             this.datatype = datatype;
+            this.valueCondition = valueCondition;
             this.nestedName = nestedName;
             if (this.pathVariants.isEmpty()) {
                 throw new IllegalArgumentException("FieldOccurrence must contain at least one predicate path variant");
             }
         }
 
-        private FieldOccurrence(FieldDef field, Node requiredClass,
-                                NodeKindConstraint nodeKindConstraint, Node datatype,
-                                String nestedName) {
-            this.field = Objects.requireNonNull(field);
-            this.path = null;
-            // One variant of zero steps: the identity walk. Not the empty list, which
-            // would mean "no way to reach this field at all".
-            this.pathVariants = List.of(List.of());
-            this.predicates = Collections.emptySet();
-            this.requiredClass = requiredClass;
-            this.nodeKindConstraint = nodeKindConstraint;
-            this.datatype = datatype;
-            this.nestedName = nestedName;
+        private static Path joinPath(List<StepDef> steps, Path localPath) {
+            Path joined = null;
+            for (StepDef step : steps) {
+                joined = joined == null ? step.getPath() : PathFactory.pathSeq(joined, step.getPath());
+            }
+            if (localPath != null) {
+                joined = joined == null ? localPath : PathFactory.pathSeq(joined, localPath);
+            }
+            return joined;
         }
 
         /**
@@ -356,33 +440,55 @@ public class ShaclIndexMapping {
         public static FieldOccurrence self(FieldDef field, Node requiredClass,
                                            NodeKindConstraint nodeKindConstraint, Node datatype,
                                            String nestedName) {
-            return new FieldOccurrence(field, requiredClass, nodeKindConstraint, datatype, nestedName);
+            // One variant of zero steps: the identity walk. Not the empty list, which
+            // would mean "no way to reach this field at all".
+            return new FieldOccurrence(field, Collections.emptyList(), null, List.of(List.of()),
+                Collections.emptySet(), requiredClass, nodeKindConstraint, datatype,
+                ShaclShapeCondition.ofConstraints(requiredClass, nodeKindConstraint, datatype), nestedName);
         }
 
         public FieldDef getField()                { return field; }
-        /** The path from the focus node, or null when this occurrence is self-bound. */
+        /**
+         * The whole path from the scope's focus node: the steps' paths followed by the
+         * occurrence's own path. Null only for a self-bound occurrence reached through no
+         * step.
+         */
         public Path getPath()                     { return path; }
-        /** True when this occurrence binds the focus node itself ({@code idx:self}). */
-        public boolean isSelf()                   { return path == null; }
+        /** The occurrence's own path, from the node the last step kept; null when self-bound. */
+        public Path getLocalPath()                { return localPath; }
+        /** The steps leading to the node this occurrence is evaluated from; empty when direct. */
+        public List<StepDef> getSteps()           { return steps; }
+        /** True when this occurrence binds the node it is evaluated from ({@code idx:self}). */
+        public boolean isSelf()                   { return localPath == null; }
         public List<List<JoinStep>> getPathVariants() { return pathVariants; }
         public Set<Node> getPredicates()          { return predicates; }
         public Node getRequiredClass()            { return requiredClass; }
         public NodeKindConstraint getNodeKindConstraint() { return nodeKindConstraint; }
         public Node getDatatype()                 { return datatype; }
+        /** The value constraints, evaluated by jena-shacl; null when there are none. */
+        public ShaclShapeCondition getValueCondition() { return valueCondition; }
         public String getNestedName()             { return nestedName; }
         public boolean isNestedScoped()           { return nestedName != null; }
         public boolean isRootScoped()             { return nestedName == null; }
         public boolean requiresTypeConstraint()   { return requiredClass != null; }
 
+        /** True when {@code value} satisfies this occurrence's value constraints. */
+        public boolean accepts(Graph graph, Node value) {
+            return valueCondition == null || valueCondition.conforms(graph, value);
+        }
+
         @Override
         public String toString() {
-            String source = isSelf() ? "self" : String.valueOf(path);
+            String source = path == null ? "self" : String.valueOf(path);
+            if (!steps.isEmpty() && isSelf()) {
+                source = source + "/self";
+            }
             return nestedName == null
                 ? field.getFieldName() + " <- " + source
                 : field.getFieldName() + "@" + nestedName + " <- " + source;
         }
 
-        private static List<List<JoinStep>> deepUnmodifiable(List<List<JoinStep>> variants) {
+        static List<List<JoinStep>> deepUnmodifiable(List<List<JoinStep>> variants) {
             List<List<JoinStep>> copy = new ArrayList<>(variants.size());
             for (List<JoinStep> variant : variants) {
                 copy.add(Collections.unmodifiableList(new ArrayList<>(variant)));
@@ -777,6 +883,29 @@ public class ShaclIndexMapping {
     }
 
     /**
+     * A path whose triples decide whether a step's filter or an occurrence's value
+     * constraints hold, joined onto the path from the scope's focus node. Used by change
+     * tracking: a change to one of its predicates rebuilds the entities it reaches back to.
+     */
+    public static class ConditionPath {
+        private final IndexProfile profile;
+        private final NestedDef nestedDef;
+        private final List<List<JoinStep>> pathVariants;
+
+        public ConditionPath(IndexProfile profile, NestedDef nestedDef, List<List<JoinStep>> pathVariants) {
+            this.profile = Objects.requireNonNull(profile);
+            this.nestedDef = nestedDef;
+            this.pathVariants = FieldOccurrence.deepUnmodifiable(pathVariants);
+        }
+
+        public IndexProfile getProfile()              { return profile; }
+        /** The nested block whose child is the focus node, or null at root scope. */
+        public NestedDef getNestedDef()               { return nestedDef; }
+        public boolean isNestedScoped()               { return nestedDef != null; }
+        public List<List<JoinStep>> getPathVariants() { return pathVariants; }
+    }
+
+    /**
      * Reserved CQL filter property URI that resolves to the doc-id field of the
      * active index. See {@link #findDocIdFieldForEntityIriProperty(String)} and
      * issue #73.
@@ -786,6 +915,7 @@ public class ShaclIndexMapping {
     private final List<IndexProfile> profiles;
     private final Map<Node, List<ProfileOccurrence>> predicateLookup;
     private final Map<Node, List<ProfileOccurrence>> classConstraintLookup;
+    private final Map<Node, List<ConditionPath>> conditionPathLookup;
     private final Map<Node, List<IndexProfile>> classLookup;
     private final Set<Node> topLevelPredicates;
     private final Set<Node> nestedChildPredicates;
@@ -803,8 +933,9 @@ public class ShaclIndexMapping {
 
         this.predicateLookup = Collections.unmodifiableMap(buildPredicateLookup(this.profiles));
         this.classConstraintLookup = Collections.unmodifiableMap(buildClassConstraintLookup(this.profiles));
-        this.topLevelPredicates = buildTopLevelPredicates(this.profiles);
-        this.nestedChildPredicates = buildNestedChildPredicates(this.profiles);
+        this.conditionPathLookup = Collections.unmodifiableMap(buildConditionPathLookup(this.profiles));
+        this.topLevelPredicates = buildTopLevelPredicates(this.profiles, conditionPathLookup);
+        this.nestedChildPredicates = buildNestedChildPredicates(this.profiles, conditionPathLookup);
         this.nestedJoinPredicates = buildNestedJoinPredicates(this.profiles);
         this.relevantPredicates = buildRelevantPredicates(
             topLevelPredicates, nestedChildPredicates, nestedJoinPredicates);
@@ -851,6 +982,14 @@ public class ShaclIndexMapping {
 
     public List<ProfileOccurrence> getOccurrencesRequiringClass(Node cls) {
         return classConstraintLookup.getOrDefault(cls, Collections.emptyList());
+    }
+
+    /**
+     * The step-filter and value-constraint paths that read {@code predicate}. For
+     * {@code rdf:type} these are the paths ending at a {@code sh:class} constraint.
+     */
+    public List<ConditionPath> getConditionPathsForPredicate(Node predicate) {
+        return conditionPathLookup.getOrDefault(predicate, Collections.emptyList());
     }
 
     public List<IndexProfile> getProfilesForClass(Node cls) {
@@ -1231,17 +1370,86 @@ public class ShaclIndexMapping {
         return lookup;
     }
 
-    private static Set<Node> buildTopLevelPredicates(List<IndexProfile> profiles) {
+    private static Map<Node, List<ConditionPath>> buildConditionPathLookup(List<IndexProfile> profiles) {
+        Map<Node, List<ConditionPath>> lookup = new LinkedHashMap<>();
+        for (IndexProfile profile : profiles) {
+            addConditionPaths(lookup, profile, null, profile.getRootOccurrences());
+            for (NestedDef nestedDef : profile.getNestedDefs()) {
+                addConditionPaths(lookup, profile, nestedDef, nestedDef.getOccurrences());
+            }
+        }
+        return lookup;
+    }
+
+    /**
+     * Register, for one scope, the paths read by each step filter (once per distinct chain
+     * of steps, since occurrences share their steps) and by each occurrence's value
+     * constraints.
+     */
+    private static void addConditionPaths(Map<Node, List<ConditionPath>> lookup, IndexProfile profile,
+                                          NestedDef nestedDef, List<FieldOccurrence> occurrences) {
+        Set<List<StepDef>> seenChains = new HashSet<>();
+        for (FieldOccurrence occurrence : occurrences) {
+            List<StepDef> steps = occurrence.getSteps();
+            List<List<JoinStep>> prefix = List.of(List.of());
+            for (int i = 0; i < steps.size(); i++) {
+                StepDef step = steps.get(i);
+                prefix = concatVariants(prefix, step.getPathVariants());
+                if (step.getFilter() != null && seenChains.add(steps.subList(0, i + 1))) {
+                    addConditionPath(lookup, profile, nestedDef,
+                        concatVariants(prefix, step.getFilter().getTrackedPaths()));
+                }
+            }
+            if (occurrence.getValueCondition() != null) {
+                addConditionPath(lookup, profile, nestedDef,
+                    concatVariants(occurrence.getPathVariants(), occurrence.getValueCondition().getTrackedPaths()));
+            }
+        }
+    }
+
+    private static void addConditionPath(Map<Node, List<ConditionPath>> lookup, IndexProfile profile,
+                                         NestedDef nestedDef, List<List<JoinStep>> variants) {
+        if (variants.isEmpty()) {
+            return;
+        }
+        ConditionPath conditionPath = new ConditionPath(profile, nestedDef, variants);
+        Set<Node> predicates = new LinkedHashSet<>();
+        for (List<JoinStep> variant : variants) {
+            for (JoinStep step : variant) {
+                predicates.add(step.getPredicate());
+            }
+        }
+        for (Node predicate : predicates) {
+            lookup.computeIfAbsent(predicate, k -> new ArrayList<>()).add(conditionPath);
+        }
+    }
+
+    private static Set<Node> conditionPredicates(Map<Node, List<ConditionPath>> conditionPaths, boolean nested) {
+        Set<Node> predicates = new LinkedHashSet<>();
+        for (Map.Entry<Node, List<ConditionPath>> entry : conditionPaths.entrySet()) {
+            for (ConditionPath conditionPath : entry.getValue()) {
+                if (conditionPath.isNestedScoped() == nested) {
+                    predicates.add(entry.getKey());
+                }
+            }
+        }
+        return predicates;
+    }
+
+    private static Set<Node> buildTopLevelPredicates(List<IndexProfile> profiles,
+                                                     Map<Node, List<ConditionPath>> conditionPaths) {
         Set<Node> predicates = new LinkedHashSet<>();
         for (IndexProfile profile : profiles) {
             for (FieldOccurrence occurrence : profile.getRootOccurrences()) {
                 predicates.addAll(occurrence.getPredicates());
             }
         }
+        predicates.addAll(conditionPredicates(conditionPaths, false));
         return Collections.unmodifiableSet(predicates);
     }
 
-    private static Set<Node> buildNestedChildPredicates(List<IndexProfile> profiles) {
+    private static Set<Node> buildNestedChildPredicates(List<IndexProfile> profiles,
+                                                        Map<Node, List<ConditionPath>> conditionPaths) {
         Set<Node> predicates = new LinkedHashSet<>();
         for (IndexProfile profile : profiles) {
             for (NestedDef nestedDef : profile.getNestedDefs()) {
@@ -1250,6 +1458,7 @@ public class ShaclIndexMapping {
                 }
             }
         }
+        predicates.addAll(conditionPredicates(conditionPaths, true));
         return Collections.unmodifiableSet(predicates);
     }
 

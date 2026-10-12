@@ -74,6 +74,14 @@
       <version>6.2.0-SNAPSHOT</version>
     </dependency>
 
+    <!-- SHACL vocabulary, path parsing and constraint evaluation for text:shapes.
+         Declared directly so that it does not rest on jena-cmds carrying it. -->
+    <dependency>
+      <groupId>org.apache.jena</groupId>
+      <artifactId>jena-shacl</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
     <!-- Lucene dependencies -->
     <dependency>
       <groupId>org.apache.lucene</groupId>

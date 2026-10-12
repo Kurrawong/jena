@@ -38,6 +38,7 @@ import org.apache.jena.query.text.ShaclIndexMapping.HierarchyDef;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.ShaclIndexMapping.JoinStep;
 import org.apache.jena.query.text.ShaclIndexMapping.NestedDef;
+import org.apache.jena.query.text.ShaclIndexMapping.StepDef;
 import org.apache.lucene.analysis.Analyzer;
 
 /**
@@ -87,7 +88,7 @@ public class ShaclConfigFingerprint {
      * does not understand must report "unknown", never "mismatch" — otherwise the first
      * format change makes every deployed index look broken.
      */
-    public static final int FINGERPRINT_VERSION = 1;
+    public static final int FINGERPRINT_VERSION = 2;
 
     private ShaclConfigFingerprint() {}
 
@@ -172,8 +173,31 @@ public class ShaclConfigFingerprint {
              + " requiredClass=" + node(o.getRequiredClass())
              + " nodeKind=" + (o.getNodeKindConstraint() == null ? "null" : o.getNodeKindConstraint().name())
              + " datatype=" + node(o.getDatatype())
+             + " constraints=" + condition(o.getValueCondition())
+             + " steps=" + renderSteps(o.getSteps())
+             + " localPath=" + path(o.getLocalPath())
              + " nestedName=" + str(o.getNestedName())
              + "}";
+    }
+
+    /** Step order is significant: each step starts from the nodes the previous one kept. */
+    private static String renderSteps(List<StepDef> steps) {
+        StringBuilder sb = new StringBuilder("[");
+        boolean first = true;
+        for ( StepDef step : steps ) {
+            if ( !first )
+                sb.append(',');
+            first = false;
+            sb.append("{path=").append(path(step.getPath()))
+              .append(" filter=").append(condition(step.getFilter()))
+              .append('}');
+        }
+        return sb.append(']').toString();
+    }
+
+    /** A SHACL condition, by its canonical rendering, which carries no blank node labels. */
+    private static String condition(ShaclShapeCondition c) {
+        return c == null ? "null" : c.getCanonical();
     }
 
     /** Level order is significant — (continent country state) is not (state country continent). */
