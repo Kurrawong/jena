@@ -283,7 +283,7 @@ jobs:
             -H 'Accept: text/csv' \
             --data-binary 'PREFIX luc: <urn:jena:lucene:index#>
               SELECT (COUNT(*) AS ?n) WHERE {
-                (?hit ?entity ?score) luc:query ("default" "default" "copper" "" "" 1000 0)
+                (?hit ?entity ?score) luc:query ("instance" "default" "copper" "" "" 1000 0)
               }' | tail -n 1 | tr -d '\r')
           echo "copper hits: $hits"
           test "$hits" -gt 0
@@ -298,7 +298,7 @@ jobs:
             --data-binary 'PREFIX luc: <urn:jena:lucene:index#>
               SELECT (COUNT(*) AS ?n) WHERE {
                 (?field ?value ?low ?high ?count) luc:facet
-                  ("default" "default" "*" """["urn:jena:lucene:field#state"]""" "" 20 0)
+                  ("instance" "default" "*" """["urn:jena:lucene:field#state"]""" "" 20 0)
               }' | tail -n 1 | tr -d '\r')
           echo "state facet values: $facets"
           test "$facets" -gt 0
@@ -340,7 +340,7 @@ jobs:
           ## The app reads the index configuration through the query endpoint.
           contains "TextIndexShacl" "$(curl -sf http://localhost:3030/mining/query \
             -H 'Accept: text/turtle' --data-urlencode \
-            'query=PREFIX luc: <urn:jena:lucene:index#> CONSTRUCT { ?s ?p ?o } WHERE { (?s ?p ?o) luc:config ("default") }')" \
+            'query=PREFIX luc: <urn:jena:lucene:index#> CONSTRUCT { ?s ?p ?o } WHERE { (?s ?p ?o) luc:config ("instance") }')" \
             "luc:config"
           ## Opened for the UI's dataset list and statistics page: read-only.
           test "$(curl -s -o /dev/null -w '%{http_code}' \

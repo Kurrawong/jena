@@ -152,7 +152,7 @@ FROM runtime AS demo
 # config file's own location, not the working directory, so the two directories
 # must keep the same relationship they have in the source tree.
 COPY demo/deploy/config.ttl /demo/deploy/config.ttl
-COPY demo/test/data/mining.ttl demo/test/data/generated.ttl /demo/test/data/
+COPY demo/test/data/mining.ttl demo/test/data/generated.ttl demo/test/data/reference.ttl /demo/test/data/
 
 # One static root holding both front ends:
 #

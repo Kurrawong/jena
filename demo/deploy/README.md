@@ -45,6 +45,7 @@ task serve-deployed   # from demo/
 |---|---|---|
 | Data | `ja:MemoryDataset` + `ja:data` | 260 KB of Turtle. Loading it costs less than opening a database, and there is no volume to mount, back up or leave stale |
 | Index | `text:directory "mem"` | The taxonomy follows the index into memory, so hierarchical facets need no separate declaration |
+| Indexes | `instance` and `reference` | Two in-memory indexes over the one dataset: sites, boreholes and reports, and the vocabulary from `reference.ttl`. See [../README.md](../README.md#index-configuration) |
 | Indexing | `text:buildOnStartup true` | Runs the bulk indexer as the dataset is assembled — 524 entities in about a second. See [docs/03-configuration.md](../../docs/03-configuration.md#textbuildonstartup) |
 | App | Fuseki's `--base` | Jetty serves `demo/app-static` itself, so the app is same-origin: no proxy, no CORS, no second process, one port |
 | Writes | none | Query endpoint only. The index is rebuilt from `ja:data` on every start, so a write would not survive a restart anyway |

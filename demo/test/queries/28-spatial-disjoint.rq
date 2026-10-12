@@ -12,7 +12,7 @@
 # and from CQL2 making a predicate with a NULL geometry evaluate to NULL.
 PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?entity ?score WHERE {
-  (?hit ?entity ?score) luc:query ("default" "default" "*"
+  (?hit ?entity ?score) luc:query ("instance" "default" "*"
     '{"op":"s_disjoint","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[118.0,-24.0,121.0,-20.0]}]}'
     ""
     30

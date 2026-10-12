@@ -13,7 +13,7 @@
 # generated data sits here, so this one is an exact result.
 PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?entity ?score WHERE {
-  (?hit ?entity ?score) luc:query ("default" "default" "*"
+  (?hit ?entity ?score) luc:query ("instance" "default" "*"
     '{"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[121.64,-31.22,121.68,-31.18]}]}'
     ""
     20

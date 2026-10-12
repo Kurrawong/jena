@@ -189,29 +189,6 @@ def use_epsg4326(rng: random.Random) -> bool:
     return rng.random() < 0.85
 
 
-def collect_vocab_iris(
-    commodities: set[str],
-    states: set[str],
-    operators: set[str],
-    statuses: set[str],
-) -> str:
-    """Emit rdfs:label triples for all vocabulary IRIs."""
-    lines = ["## --- Vocabulary IRIs ---\n"]
-    for c in sorted(commodities):
-        lines.append(f'commodity:{to_iri_local(c)} rdfs:label "{escape_ttl(c)}" .')
-    lines.append("")
-    for s in sorted(states):
-        lines.append(f'state:{to_iri_local(s)} rdfs:label "{s}" .')
-    lines.append("")
-    for o in sorted(operators):
-        lines.append(f'operator:{to_iri_local(o)} rdfs:label "{escape_ttl(o)}" .')
-    lines.append("")
-    for st in sorted(statuses):
-        lines.append(f'status:{to_iri_local(st)} rdfs:label "{escape_ttl(st)}" .')
-    lines.append("")
-    return "\n".join(lines)
-
-
 def make_site_identifier(state: str, idx: int) -> str:
     return f"SITE-{state}-{idx:04d}"
 
@@ -381,13 +358,6 @@ def main():
     n_boreholes = max(1, (args.count - n_sites) // 2)
     n_reports = args.count - n_sites - n_boreholes
 
-    # Collect all vocabulary values for rdfs:label emission
-    all_commodities: set[str] = set()
-    all_states: set[str] = set()
-    all_operators: set[str] = set()
-    all_statuses: set[str] = set()
-
-    # Pre-generate to collect vocab, then emit
     site_blocks: list[str] = []
     site_locations: list[tuple[float, float, Region]] = []
     borehole_blocks: list[str] = []
@@ -400,10 +370,6 @@ def main():
         ttl, (lat, lon), commodities = generate_site(rng, i, region)
         site_locations.append((lat, lon, region))
         site_blocks.append(ttl)
-        all_commodities.update(commodities)
-        all_states.add(region.state)
-        # Sites use STATUSES list
-        # (status is embedded in ttl, but we know the full set)
 
     for i in range(n_boreholes):
         region = pick_region(rng)
@@ -416,12 +382,6 @@ def main():
         report_blocks.append(ttl)
         author_to_reports.setdefault(author.iri_local, []).append(f"ex:report-{i:04d}")
 
-    # Collect all possible vocab values (superset for labels)
-    all_commodities.update(ALL_COMMODITIES)
-    all_states.update(r.state for r in REGIONS)
-    all_operators.update(OPERATORS)
-    all_statuses.update(STATUSES)
-    all_statuses.update(REPORT_STATUSES)
 
     print("## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0")
     print()
@@ -439,7 +399,8 @@ def main():
     print("@prefix geo:   <http://www.opengis.net/ont/geosparql#> .")
     print()
 
-    print(collect_vocab_iris(all_commodities, all_states, all_operators, all_statuses))
+    # The terms these entities refer to are defined in data/reference.ttl, which is
+    # maintained by hand. A term added to the lists above must be added there too.
 
     print("## --- Sites ---\n")
     for block in site_blocks:

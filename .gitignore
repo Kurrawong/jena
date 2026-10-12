@@ -52,6 +52,7 @@ demo/DB/
 demo/Lucene/
 demo/test/DB/
 demo/test/Lucene/
+demo/test/LuceneReference/
 demo/test/Taxonomy/
 
 # The geochem-external demo was removed when the demos were consolidated, but its

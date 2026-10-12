@@ -7,7 +7,7 @@ PREFIX ex:  <http://example.org/mining/>
 SELECT ?entity ?score ?depth
 WHERE {
     (?hit ?entity ?score) luc:query (
-        "default"
+        "instance"
         "default"
         "*"
         '{"op":"=","args":[{"property":"urn:jena:lucene:field#entityType"},"http://example.org/mining/Borehole"]}'

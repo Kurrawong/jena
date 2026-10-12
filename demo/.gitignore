@@ -12,6 +12,7 @@ drillhole/run/
 # Test mining data
 test/DB/
 test/Lucene/
+test/LuceneReference/
 test/run/
 test/Taxonomy/
 test/fuseki.log

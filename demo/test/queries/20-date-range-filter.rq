@@ -6,7 +6,7 @@ PREFIX luc: <urn:jena:lucene:index#>
 SELECT ?entity ?score
 WHERE {
     (?hit ?entity ?score) luc:query (
-        "default"
+        "instance"
         "default"
         "*"
         '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#entityType"},"http://example.org/mining/MiningReport"]},{"op":"between","args":[{"property":"urn:jena:lucene:field#publishedOn"},"2024-01-01","2024-12-31"]}]}'
