@@ -150,7 +150,7 @@ Where the implementation differs from the text above, and why:
 | Batch for lazy reads | Every cached hit | The requested hit plus every hit `luc:query` has returned; every cached hit when `?hit` is unbound | Page *n* caches `offset + limit` hits but returns `limit`; the skipped hits are never joined |
 | `limit` 0 | Not covered | Still the default page of 10, now documented | 0 was undocumented and mapped to 10; changing it was not part of this design |
 | Unlimited window | Not covered | When the window is at least the reader's `maxDoc`, the hit queue is sized by `IndexSearcher.count` | Lucene sizes its queue at the requested count capped at `maxDoc`, which counts child documents, so an unlimited search would otherwise allocate a queue the size of the index |
-| Entity IRI doc value | Ships if the benchmark favours it | Implemented with Part 2; see [Parts 2 and 3 as implemented](#parts-2-and-3-as-implemented) | Implemented so the benchmark can compare it with the visitor |
+| Entity IRI doc value | Ships if the benchmark favours it | Ships as `BinaryDocValues`, implemented with Part 2; see [Parts 2 and 3 as implemented](#parts-2-and-3-as-implemented) | Faster than the visitor at large windows; see [Entity IRI doc value](#entity-iri-doc-value) |
 | Read counting | A hook on the value reader | `HitReadObserver` on `ShaclTextIndexLucene` | The value reader is Part 2. The hook reports stored-field decodes and match computations |
 
 `HitReader.inDocOrder` is the doc-ID-ordered primitive the value reader and `luc:fields`
@@ -297,7 +297,7 @@ so these are raised on the first call, not when the query is parsed.
 | Value slot | Variable | Variable or constant, in `luc:fields` and now `luc:match` | ARQ substitutes `?field` and `?value` from the earlier pattern, so shared variables reach the later one as constants. `luc:match` used to reject a constant value |
 | Root field | Not inside `idx:nested` | Has a root occurrence in some shape (`ShaclIndexMapping.getRootFields`); a field bound both at root and in a nested block is returnable | Its root values are on the entity's document |
 | `LATLON` | Not covered | Left out of a variable field slot; a constant gives no rows | A stored geometry has no term `reconstructNode` can build |
-| Entity IRI doc value | A doc value of the entity field, `BinaryDocValues` or `SortedDocValues` chosen by benchmark | A `BinaryDocValuesField` under a separate field, `<entity field>__docValue`. JVM system property `jena.text.entityDocValues` (`binary`, `sorted`, `none`) chooses for a new index; the reader handles all three per segment and per document | Lucene 10 requires every document with a field to give it the same doc-value type, and child documents carry the entity field without one. The separate field also lets an old index take new documents with the doc value, so old and new segments mix; an index keeps the type it was first written with |
+| Entity IRI doc value | A doc value of the entity field, `BinaryDocValues` or `SortedDocValues` chosen by benchmark | A `BinaryDocValuesField` under a separate field, `<entity field>__docValue`, on parent documents. The reader falls back to the stored entity field per segment and per document where it is absent | Lucene 10 requires every document with a field to give it the same doc-value type, and child documents carry the entity field without one. The separate field also lets an old index take new documents with the doc value, so old and new segments mix. `BinaryDocValues` won the [benchmark](#entity-iri-doc-value) |
 | Read counting | — | `HitReadObserver.docValuesRead` beside `storedFieldsRead` | Tests check that a doc-value field causes no stored read |
 
 Indexes written before Part 2 work unchanged: eligible fields have both a stored copy and
@@ -337,7 +337,7 @@ measured. The hit-ID map adds one entry per hit.
 |---|---|
 | Held searcher, release on iterator close, reader check for late reads | `SearchExecution`, `ShaclTextQueryPF`, `ShaclTextIndexLucene` |
 | Entity IRI only when the subject has an `?entity` slot; doc-ID-ordered visitor read; nullable `getEntityNode` | `ShaclTextQueryPF`, `ShaclTextIndexLucene.searchWithHitIds`, `SearchHit`, `computeNestedMatches` |
-| Entity IRI doc value with per-segment fallback, if it measures well | `docFromMapping`, the value reader |
+| Entity IRI doc value with per-segment fallback | `docFromMapping`, `readEntityNodes` |
 | Lazy match computation | `SearchExecution`, `TextMatchPF`, `ShaclTextIndexLucene.computeFieldMatches` |
 | Hit-ID map, per-search labels, query-wide lookup; constant field slot | `SearchExecution`, `SearchHit`, `TextMatchPF`, `TextNestedMatchPF` |
 | Negative `limit` | `ShaclTextQueryPF.exec` |
@@ -447,6 +447,21 @@ No page scenario is slower. `largeTextNoMatch` no longer computes match details.
 300,000 hits it takes 5.6 s at p50 and 5.7 s at p90. The baseline was not run at that
 size: probes up to 40,000 hits grew quadratically, which projects to about 14 minutes.
 
+#### Entity IRI doc value
+
+The three ways to read the entity IRI were compared on the same synthetic data, each in an
+index built with only that option, pinned to 8 cores. Times are p50 in ms per query.
+
+| Read | largeFilterOnly | pageText | largeIdentifierFields |
+|---|---|---|---|
+| Stored entity field, one-field visitor | 2,378 | 0.397 | 175 |
+| `SortedDocValues` | 93.6 | 0.251 | 165.7 |
+| `BinaryDocValues` | 85.7 | 0.249 | 160.7 |
+
+The doc value cuts a 300,000-hit window needing the IRI from 2.4 s to under 0.1 s, and
+`BinaryDocValues` is slightly ahead of `SortedDocValues`, so it ships. The switch used to
+choose between them for the benchmark is removed.
+
 ### Production-scale check
 
 Part 1 does not change the index format, so it is measured against a copy of an existing
@@ -458,10 +473,11 @@ of identifiers, time and bytes read.
 
 ## Open decisions
 
-1. **Entity IRI doc value**: decided by the benchmark, as is `BinaryDocValues` versus
-   `SortedDocValues`.
-2. **Regression threshold**: 5% at the median is proposed; noise on the machine used may
+The entity IRI doc value was decided by the benchmark: `BinaryDocValues`, see
+[Entity IRI doc value](#entity-iri-doc-value).
+
+1. **Regression threshold**: 5% at the median is proposed; noise on the machine used may
    call for a wider band or more iterations.
-3. **Numeric doc values**: `INT` and `LONG` could be eligible when the lexical form is
+2. **Numeric doc values**: `INT` and `LONG` could be eligible when the lexical form is
    canonical, but nothing records whether it was. Stored-only until a numeric identifier
    needs it.

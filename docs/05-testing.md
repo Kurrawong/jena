@@ -38,7 +38,7 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 | `TestLucMatchLargeWindow` | 2 | `luc:match` and `luc:nestedMatch` over 300,000 hits within 90 s, which the earlier per-call scan of every cached hit does not meet |
 | `TestFieldValueStorage` | 10 | Which fields are read from doc values; an eligible stored field written as a doc value only; original terms from doc values and from stored fields (normalized, facet-only, language-tagged, numeric, temporal); indexes with stored copies of eligible fields; a segment written before a field was sortable; the value `luc:match` selects on a multi-valued doc-value field; `luc:nestedMatch` reading child fields from doc values; `queryByFields`, `queryWithFilters` and `queryWithCql` returning doc-value-only values |
 | `TestLucFields` | 16 | `luc:fields`: the identifier query reading no stored field, variable and constant field slots, multi-valued fields, two patterns per hit, joins with `luc:match` in both orders, each error, a late read after a commit, one read per field, two indexes in one query |
-| `TestEntityDocValue` | 7 | The entity IRI doc value: binary and sorted, the same IRIs under relevance and sort with no stored read, an index without it, an old segment without it beside a new one with it, an index keeping the type it was written with, parent documents only, and entity updates and deletes |
+| `TestEntityDocValue` | 5 | The entity IRI doc value: written as binary and giving the same IRIs under relevance and sort with no stored read, an index without it, an old segment without it beside a new one with it, parent documents only, and entity updates and deletes |
 | `TestTextIndexDump` | 1 | `textindexdump` printing fields kept in doc values only |
 
 ### SHACL Entity-Per-Document Tests
@@ -280,8 +280,8 @@ row count is wrong.
 
 `largeIdentifierFields` reads `recordId`, a sortable `KEYWORD`, from its doc value. An
 index built before field values were read from doc values still has a stored copy, so
-build a fresh one with `-Dbench.dir`. `-Djena.text.entityDocValues=none|sorted|binary`
-during the build chooses the entity IRI doc value that `largeFilterOnly` reads.
+build a fresh one with `-Dbench.dir`. The same holds for the entity IRI doc value that
+`largeFilterOnly` reads; an older index falls back to the stored entity field.
 
 `largeTextWithMatch` runs at 20,000 hits rather than 300,000. `luc:match` finds each
 incoming hit by scanning every cached hit, so the query time grows with the square of the

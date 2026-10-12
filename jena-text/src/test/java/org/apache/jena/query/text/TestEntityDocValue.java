@@ -103,7 +103,6 @@ public class TestEntityDocValue {
 
     @AfterEach
     public void tearDown() {
-        System.clearProperty(ShaclTextIndexLucene.ENTITY_DOC_VALUES_PROPERTY);
         close();
     }
 
@@ -118,21 +117,13 @@ public class TestEntityDocValue {
         textIndex = null;
     }
 
-    /** Open with the given entity doc-value mode, or the default when null. */
-    private void open(String directory, String mode) {
-        if (mode == null) {
-            System.clearProperty(ShaclTextIndexLucene.ENTITY_DOC_VALUES_PROPERTY);
-        } else {
-            System.setProperty(ShaclTextIndexLucene.ENTITY_DOC_VALUES_PROPERTY, mode);
-        }
-        try {
-            Model config = ModelFactory.createDefaultModel();
-            config.read(new StringReader(config(directory)), null, "TTL");
-            dataset = (Dataset) Assembler.general().open(config.getResource(NS + "dataset"));
-            textIndex = (ShaclTextIndexLucene) ((DatasetGraphText) dataset.asDatasetGraph()).getTextIndex();
-        } finally {
-            System.clearProperty(ShaclTextIndexLucene.ENTITY_DOC_VALUES_PROPERTY);
-        }
+    /** Open; with {@code legacy}, documents are written without the entity doc value. */
+    private void open(String directory, boolean legacy) {
+        Model config = ModelFactory.createDefaultModel();
+        config.read(new StringReader(config(directory)), null, "TTL");
+        dataset = (Dataset) Assembler.general().open(config.getResource(NS + "dataset"));
+        textIndex = (ShaclTextIndexLucene) ((DatasetGraphText) dataset.asDatasetGraph()).getTextIndex();
+        textIndex.setLegacyNoEntityDocValue(legacy);
     }
 
     /** "delta" ranks e1 (three times), e3 (twice), e2 (once); codes sort e2, e3, e1. */
@@ -227,7 +218,7 @@ public class TestEntityDocValue {
 
     @Test
     public void newIndexWritesABinaryDocValueAndReadsIt() {
-        open("\"mem\"", null);
+        open("\"mem\"", false);
         load();
         assertEquals(DocValuesType.BINARY, entityDocValuesType());
         Counter counter = count();
@@ -237,19 +228,8 @@ public class TestEntityDocValue {
     }
 
     @Test
-    public void sortedDocValueGivesTheSameIris() {
-        open("\"mem\"", "sorted");
-        load();
-        assertEquals(DocValuesType.SORTED, entityDocValuesType());
-        Counter counter = count();
-        assertSameIris();
-        assertEquals(0, counter.stored);
-        assertEquals(6, counter.docValues);
-    }
-
-    @Test
     public void indexWithoutTheDocValueFallsBackToTheStoredCopy() {
-        open("\"mem\"", "none");
+        open("\"mem\"", true);
         load();
         assertEquals(DocValuesType.NONE, entityDocValuesType());
         Counter counter = count();
@@ -291,7 +271,7 @@ public class TestEntityDocValue {
 
     @Test
     public void onlyParentDocumentsCarryTheDocValue() throws IOException {
-        open("\"mem\"", null);
+        open("\"mem\"", false);
         load();
         // e1 has one nested child, which carries the entity field but not the doc value.
         assertEquals(List.of("e1=-", "e1=e1", "e2=e2", "e3=e3"), entityDocValuesByDocument());
@@ -299,7 +279,7 @@ public class TestEntityDocValue {
 
     @Test
     public void entityUpdateAndDeleteReplaceTheWholeBlock() throws IOException {
-        open("\"mem\"", null);
+        open("\"mem\"", false);
         load();
         Txn.executeWrite(dataset, () -> {
             Model m = dataset.getDefaultModel();
@@ -315,32 +295,15 @@ public class TestEntityDocValue {
     }
 
     @Test
-    public void indexKeepsTheDocValueTypeItWasWrittenWith(@TempDir Path dir) {
-        String directory = "<" + IRILib.filenameToIRI(dir.toAbsolutePath().toString()) + ">";
-        open(directory, "sorted");
-        load();
-        close();
-
-        // The default is binary; Lucene would reject a binary doc value on this field.
-        open(directory, null);
-        Txn.executeWrite(dataset, () -> addDoc(dataset.getDefaultModel(), "e4", "common delta", "C4"));
-        assertEquals(DocValuesType.SORTED, entityDocValuesType());
-        Counter counter = count();
-        assertEquals(List.of(ex("e2"), ex("e3"), ex("e1"), ex("e4")), entities(CODE_ASC));
-        assertEquals(0, counter.stored);
-        assertEquals(4, counter.docValues);
-    }
-
-    @Test
     public void segmentWithoutTheDocValueFallsBackToTheStoredCopy(@TempDir Path dir) {
         String directory = "<" + IRILib.filenameToIRI(dir.toAbsolutePath().toString()) + ">";
         // Written before the doc value existed.
-        open(directory, "none");
+        open(directory, true);
         load();
         close();
 
         // A new document gets the doc value; the old segment has none.
-        open(directory, null);
+        open(directory, false);
         Txn.executeWrite(dataset, () -> addDoc(dataset.getDefaultModel(), "e4", "common delta", "C4"));
         assertEquals(DocValuesType.BINARY, entityDocValuesType());
         Counter counter = count();

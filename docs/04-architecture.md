@@ -199,14 +199,9 @@ doc value of the entity field itself: child documents carry that field for block
 deletes, and Lucene requires every document with a field to give it the same doc-value
 type.
 
-The type is chosen when the index opens: a new index takes the JVM system property
-`jena.text.entityDocValues` (`binary`, the default; `sorted`; or `none`). The property
-is a temporary switch for comparing the three reads in a benchmark, not configuration,
-and is removed once the benchmark has decided. An index that already has the doc-value field
-keeps its type, because Lucene rejects a document that gives an existing field another
-doc-value type. An index written before the doc value existed takes new documents with
-it. `readEntityNodes` checks each segment's `FieldInfo`, and each document, and falls
-back to the one-field visitor where the doc value is absent.
+An index written before the doc value existed takes new documents with it, so old and
+new segments mix. `readEntityNodes` checks each segment's `FieldInfo`, and each document,
+and falls back to the one-field visitor where the doc value is absent.
 
 ### Hit lookup
 
