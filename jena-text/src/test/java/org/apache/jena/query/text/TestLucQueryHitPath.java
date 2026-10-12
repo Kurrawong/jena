@@ -498,28 +498,102 @@ public class TestLucQueryHitPath {
         assertThrows(QueryExecException.class, () -> se.fieldMatches(hits.get(0)));
     }
 
+    /**
+     * A re-run while the searcher is held uses it, so a commit in between does not show:
+     * every page of one search comes from one index state.
+     */
     @Test
-    public void windowRerunDiscardsValuesReadAgainstTheOldSearcher() {
+    public void windowRerunWhileHeldIgnoresALaterCommit() {
         SearchExecution se = search("gamma");
         se.retain();
-        SearchHit first = se.getSearchHits(0, 1).get(0);
-        assertEquals("gamma three", se.fieldMatches(first).get(0).getValue().getLiteralLexicalForm());
+        try {
+            SearchHit first = se.getSearchHits(0, 1).get(0);
+            assertEquals("gamma three", se.fieldMatches(first).get(0).getValue().getLiteralLexicalForm());
+
+            // Would outrank e3: two occurrences in a shorter title.
+            addLater("e5", "gamma gamma");
+
+            List<SearchHit> wide = se.getSearchHits(0, 10);
+            assertEquals(1, wide.size(), "the re-run must use the held searcher");
+            SearchHit top = se.findHit(first.getHitId());
+            assertNotNull(top);
+            assertEquals("gamma three", se.fieldMatches(top).get(0).getValue().getLiteralLexicalForm());
+        } finally {
+            se.release();
+        }
+    }
+
+    /**
+     * A re-run after the searcher was released proceeds on an unchanged reader. After a
+     * commit it raises: the label {@code s0h0} already returned names e3, and a re-run
+     * on the new reader would give it to the new top hit.
+     */
+    @Test
+    public void windowRerunAfterReleaseAndCommitRaises() {
+        SearchExecution se = search("gamma");
+        se.retain();
+        Node firstId = se.getSearchHits(0, 1).get(0).getHitId();
         se.release();
+
+        se.retain();
+        try {
+            assertEquals(1, se.getSearchHits(0, 10).size(), "no commit, so the re-run proceeds");
+        } finally {
+            se.release();
+        }
 
         // Outranks e3: two occurrences in a shorter title.
         addLater("e5", "gamma gamma");
 
+        int before = readerRefs();
         se.retain();
         try {
-            List<SearchHit> wide = se.getSearchHits(0, 10);
-            assertEquals(2, wide.size());
-            SearchHit top = se.findHit(wide.get(0).getHitId());
-            assertNotNull(top);
-            assertEquals("gamma gamma", se.fieldMatches(top).get(0).getValue().getLiteralLexicalForm());
-            SearchHit second = se.findHit(wide.get(1).getHitId());
-            assertEquals("gamma three", se.fieldMatches(second).get(0).getValue().getLiteralLexicalForm());
+            assertThrows(QueryExecException.class, () -> se.getSearchHits(0, 20));
         } finally {
             se.release();
         }
+        assertEquals(before, readerRefs(), "the searcher acquired for the refused re-run is released");
+        assertThrows(QueryExecException.class, () -> se.fieldMatches(se.findHit(firstId)));
+    }
+
+    /** Two iterators over one search: the searcher is returned when the last one closes. */
+    @Test
+    public void searcherHeldUntilTheLastIteratorCloses() {
+        int before = readerRefs();
+        SearchExecution se = search("common");
+        se.retain();
+        se.retain();
+        se.getSearchHits(0, 10);
+        assertEquals(before + 1, readerRefs());
+        se.release();
+        assertEquals(before + 1, readerRefs(), "one iterator is still open");
+        se.release();
+        assertEquals(before, readerRefs());
+
+        // An extra release is ignored, so the next iterator holds the searcher again.
+        se.release();
+        assertEquals(before, readerRefs());
+        se.retain();
+        try {
+            se.getSearchHits(0, 20);
+            assertEquals(before + 1, readerRefs(), "a re-run with an iterator open holds its searcher");
+        } finally {
+            se.release();
+        }
+        assertEquals(before, readerRefs());
+    }
+
+    /**
+     * Match details are computed for the hits luc:query returned, not for the hits the
+     * offset skipped.
+     */
+    @Test
+    public void lucMatchComputesOnlyTheReturnedPage() {
+        Counter counter = count();
+        List<Binding> rows = select(
+            "(?hit ?entity) luc:query (\"default\" \"default\" \"common\" \"\" \"\" 5 10) .\n"
+            + "(?hit ?field ?value) luc:match () .");
+        assertEquals(5, rows.size());
+        assertEquals(5, counter.matches, "one computation per returned hit; the 10 skipped hits get none");
     }
 }
