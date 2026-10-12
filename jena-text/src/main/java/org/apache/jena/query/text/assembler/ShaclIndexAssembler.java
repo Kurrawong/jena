@@ -29,8 +29,11 @@ import org.apache.jena.graph.Node;
 import org.apache.jena.query.text.*;
 import org.apache.jena.query.text.ShaclIndexMapping.*;
 import org.apache.jena.rdf.model.*;
+import org.apache.jena.shacl.engine.ShaclPaths;
+import org.apache.jena.shacl.parser.ShaclParseException;
+import org.apache.jena.shacl.vocabulary.SHACL;
+import org.apache.jena.shacl.vocabulary.SHACLM;
 import org.apache.jena.sparql.path.*;
-import org.apache.jena.system.G;
 import org.apache.lucene.analysis.Analyzer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,27 +49,12 @@ public class ShaclIndexAssembler {
     private static final Set<FieldType> SELF_BINDABLE_TYPES =
         Collections.unmodifiableSet(EnumSet.of(FieldType.KEYWORD, FieldType.TEXT));
 
-    private static final String SH = "http://www.w3.org/ns/shacl#";
-    private static final String SH_BLANK_NODE = SH + "BlankNode";
-    private static final String SH_IRI = SH + "IRI";
-    private static final String SH_LITERAL = SH + "Literal";
-    private static final String SH_BLANK_NODE_OR_IRI = SH + "BlankNodeOrIRI";
-    private static final String SH_BLANK_NODE_OR_LITERAL = SH + "BlankNodeOrLiteral";
-    private static final String SH_IRI_OR_LITERAL = SH + "IRIOrLiteral";
-
-    private static final Property shTargetClass     = ResourceFactory.createProperty(SH, "targetClass");
-    private static final Property shProperty        = ResourceFactory.createProperty(SH, "property");
-    private static final Property shPath            = ResourceFactory.createProperty(SH, "path");
-    private static final Property shAlternativePath = ResourceFactory.createProperty(SH, "alternativePath");
-    private static final Property shInversePath     = ResourceFactory.createProperty(SH, "inversePath");
-    private static final Property shClass           = ResourceFactory.createProperty(SH, "class");
-    private static final Property shNodeKind        = ResourceFactory.createProperty(SH, "nodeKind");
-    private static final Property shDatatype        = ResourceFactory.createProperty(SH, "datatype");
-
-    private static final Node SH_INVERSE_PATH = shInversePath.asNode();
-    private static final Node SH_ALTERNATIVE_PATH = shAlternativePath.asNode();
-    private static final Node RDF_FIRST = org.apache.jena.vocabulary.RDF.first.asNode();
-    private static final Node RDF_NIL = org.apache.jena.vocabulary.RDF.nil.asNode();
+    private static final Property shTargetClass = SHACLM.targetClass;
+    private static final Property shProperty    = SHACLM.property;
+    private static final Property shPath        = SHACLM.path;
+    private static final Property shClass       = SHACLM.class_;
+    private static final Property shNodeKind    = SHACLM.nodeKind;
+    private static final Property shDatatype    = SHACLM.datatype;
 
     private ShaclIndexAssembler() {}
 
@@ -808,48 +796,45 @@ public class ShaclIndexAssembler {
         return parseShaclPath(graph, pathNode);
     }
 
+    /**
+     * Parse a SHACL path with jena-shacl, then reject the forms the index cannot handle.
+     * Change tracking, the join-path handling and the precomputed path variants support
+     * only predicate, inverse, sequence and alternative paths, so {@code sh:zeroOrMorePath},
+     * {@code sh:oneOrMorePath} and {@code sh:zeroOrOnePath} are rejected here.
+     */
     static Path parseShaclPath(Graph graph, Node node) {
-        if (node.isURI() && !RDF_NIL.equals(node)) {
-            return PathFactory.pathLink(node);
+        Path path;
+        try {
+            path = ShaclPaths.parsePath(graph, node);
+        } catch (ShaclParseException ex) {
+            throw unsupportedPath(node, ex);
         }
-
-        if (isList(graph, node)) {
-            List<Node> nodes = G.rdfList(graph, node);
-            if (nodes.isEmpty()) {
-                throw new TextIndexException("Empty list for path sequence");
-            }
-            Path path = null;
-            for (Node n : nodes) {
-                Path next = parseShaclPath(graph, n);
-                path = path == null ? next : PathFactory.pathSeq(path, next);
-            }
-            return path;
+        if (!isSupportedPath(path)) {
+            throw unsupportedPath(node, null);
         }
-
-        if (node.isBlank()) {
-            if (G.hasProperty(graph, node, SH_INVERSE_PATH)) {
-                Node subPath = G.getOneSP(graph, node, SH_INVERSE_PATH);
-                return PathFactory.pathInverse(parseShaclPath(graph, subPath));
-            }
-
-            if (G.hasProperty(graph, node, SH_ALTERNATIVE_PATH)) {
-                Node pathList = G.getOneSP(graph, node, SH_ALTERNATIVE_PATH);
-                List<Node> nodes = G.rdfList(graph, pathList);
-                Path path = null;
-                for (Node n : nodes) {
-                    Path next = parseShaclPath(graph, n);
-                    path = path == null ? next : PathFactory.pathAlt(path, next);
-                }
-                return path;
-            }
-        }
-
-        throw new TextIndexException("Unsupported SHACL path node: " + node
-            + ". Only predicate, alternative, inverse, and sequence paths are supported.");
+        return path;
     }
 
-    private static boolean isList(Graph graph, Node node) {
-        return RDF_NIL.equals(node) || G.contains(graph, node, RDF_FIRST, null);
+    private static TextIndexException unsupportedPath(Node node, Exception cause) {
+        String message = "Unsupported SHACL path node: " + node
+            + ". Only predicate, alternative, inverse, and sequence paths are supported.";
+        return cause == null ? new TextIndexException(message) : new TextIndexException(message, cause);
+    }
+
+    private static boolean isSupportedPath(Path path) {
+        if (path instanceof P_Link) {
+            return true;
+        }
+        if (path instanceof P_Inverse inverse) {
+            return isSupportedPath(inverse.getSubPath());
+        }
+        if (path instanceof P_Seq seq) {
+            return isSupportedPath(seq.getLeft()) && isSupportedPath(seq.getRight());
+        }
+        if (path instanceof P_Alt alt) {
+            return isSupportedPath(alt.getLeft()) && isSupportedPath(alt.getRight());
+        }
+        return false;
     }
 
     static Set<Node> extractLeafPredicates(Path path) {
@@ -998,13 +983,12 @@ public class ShaclIndexAssembler {
         if (nodeKind == null) {
             return null;
         }
-        String uri = nodeKind.getURI();
-        if (SH_BLANK_NODE.equals(uri)) return NodeKindConstraint.BLANK_NODE;
-        if (SH_IRI.equals(uri)) return NodeKindConstraint.IRI;
-        if (SH_LITERAL.equals(uri)) return NodeKindConstraint.LITERAL;
-        if (SH_BLANK_NODE_OR_IRI.equals(uri)) return NodeKindConstraint.BLANK_NODE_OR_IRI;
-        if (SH_BLANK_NODE_OR_LITERAL.equals(uri)) return NodeKindConstraint.BLANK_NODE_OR_LITERAL;
-        if (SH_IRI_OR_LITERAL.equals(uri)) return NodeKindConstraint.IRI_OR_LITERAL;
+        if (SHACL.BlankNode.equals(nodeKind)) return NodeKindConstraint.BLANK_NODE;
+        if (SHACL.IRI.equals(nodeKind)) return NodeKindConstraint.IRI;
+        if (SHACL.Literal.equals(nodeKind)) return NodeKindConstraint.LITERAL;
+        if (SHACL.BlankNodeOrIRI.equals(nodeKind)) return NodeKindConstraint.BLANK_NODE_OR_IRI;
+        if (SHACL.BlankNodeOrLiteral.equals(nodeKind)) return NodeKindConstraint.BLANK_NODE_OR_LITERAL;
+        if (SHACL.IRIOrLiteral.equals(nodeKind)) return NodeKindConstraint.IRI_OR_LITERAL;
         throw new TextIndexException("Unsupported sh:nodeKind on " + occurrenceRes + ": " + nodeKind);
     }
 }
