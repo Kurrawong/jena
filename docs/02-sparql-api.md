@@ -806,6 +806,7 @@ different searches joins each `?hit` to the right one.
 Entity IRIs, match details and child records are read after the search, and only when
 the query asks for them. They are read against the index state the search used: the
 search holds its Lucene searcher until `luc:query`'s results are consumed or the query
-is closed or cancelled. If a read happens after that and the index has been committed
-in the meantime, the query fails with an error asking for it to be re-run, rather than
-return values from a different index state.
+is closed or cancelled. If a read happens after that, or a later `luc:query` over the
+same search needs more hits than were fetched, and the index has been committed in the
+meantime, the query fails with an error asking for it to be re-run, rather than return
+values from a different index state.

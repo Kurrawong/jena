@@ -99,18 +99,23 @@ sequenceDiagram
 
     S->>QP: luc:query ("default" "learning" '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Tech"]}')
     QP->>SE: getOrCreate(key = "qs=learning|filters=urn:jena:lucene:field#category:Tech")
-    SE->>L: Execute query (first access, lazy)
-    L-->>SE: Hits + reader snapshot
-    SE-->>QP: Hit URIs + scores
+    SE->>L: Search on a held searcher (first access, lazy)
+    L-->>SE: Doc IDs, ranks, scores
+    SE-->>QP: Page of hits
     QP-->>S: (?hit ?s ?score) bindings
 
     S->>FP: luc:facet ("default" "learning" '["urn:jena:lucene:field#category"]')
     FP->>SE: getOrCreate(same key) — reuses existing
-    SE-->>FP: Facet counts (from same snapshot)
+    SE->>L: Facet search on its own searcher (first access per facet request)
+    SE-->>FP: Facet counts
     FP-->>S: (?field ?value ?count) bindings
 ```
 
 Both PFs build a normalised key from query parameters. `SearchExecution.getOrCreate()` stores/retrieves shared state in `ExecutionContext`.
+
+The shared state is the parameters and the cached results, not one index snapshot. Facet
+counts and `?totalHits` each acquire the current searcher, run, and release it. They see
+the same index state as the hits unless a commit refreshed the index in between.
 
 Key normalisation: property URIs are sorted, filter map keys are sorted, filter values within each key are sorted. This ensures the same logical query always produces the same key regardless of argument ordering.
 
@@ -136,8 +141,10 @@ refreshes it, so with no commit in between the doc IDs are still valid and the r
 proceeds. A different reader raises `QueryExecException`.
 
 A larger window re-runs the search. It uses the held searcher when there is one, so the
-pages of one query see one index state, and acquires the current one otherwise. The new
-hits are new `SearchHit` objects, so nothing read for the old ones carries over.
+pages of one query see one index state. Otherwise it acquires the current searcher and
+applies the same reader check: the hit labels already returned name ranks in the earlier
+search, and a re-run on a different reader would give them to different documents. The
+new hits are new `SearchHit` objects, so nothing read for the old ones carries over.
 
 ### Lazy per-hit reads
 

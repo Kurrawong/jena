@@ -145,7 +145,7 @@ Where the implementation differs from the text above, and why:
 | Topic | Design | Implemented | Reason |
 |---|---|---|---|
 | Hit lookup | A `Map<Node, SearchHit>` per search | No map. The label is `s<search>h<rank>`; the rank indexes the cached window | Same single lookup with no per-hit map entry, which is 300,000 entries at the identifier window |
-| Window re-run | Release the old searcher, take the new one | Re-run against the held searcher if one is held; acquire the current one otherwise | Pages of one query then see one index state. Values read for the old hits are discarded either way, because the re-run creates new `SearchHit` objects |
+| Window re-run | Release the old searcher, take the new one | Re-run against the held searcher if one is held. Otherwise acquire the current one, and raise if its reader is not the one the earlier search used | Pages of one query then see one index state, and a hit label already returned never names a different document. Values read for the old hits are discarded either way, because the re-run creates new `SearchHit` objects |
 | Child records | Not changed; `computeNestedMatches` stays in the search | Computed on the first `luc:nestedMatch` call, like match details | It runs one block-join query per hit, which a query with a nested filter and no `luc:nestedMatch` paid for nothing |
 | Batch for lazy reads | Every cached hit | The requested hit plus every hit `luc:query` has returned; every cached hit when `?hit` is unbound | Page *n* caches `offset + limit` hits but returns `limit`; the skipped hits are never joined |
 | `limit` 0 | Not covered | Still the default page of 10, now documented | 0 was undocumented and mapped to 10; changing it was not part of this design |

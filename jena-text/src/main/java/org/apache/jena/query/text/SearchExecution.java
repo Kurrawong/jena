@@ -68,6 +68,9 @@ public class SearchExecution {
     /** Context key of the per-query {@link Registry}. */
     private static final Symbol REGISTRY = Symbol.create(TextQuery.NS + "searchRegistry");
 
+    private static final String REFRESHED = "The text index was refreshed after luc:query searched it; "
+        + "the hits no longer identify the same documents. Re-run the query.";
+
     private final String indexIdentity;
     private final List<String> searchFields;
     private final String queryString;
@@ -307,8 +310,7 @@ public class SearchExecution {
             IndexSearcher searcher = textIndex.acquireSearcher();
             try {
                 if (searcher.getIndexReader() != searchReader) {
-                    throw new QueryExecException("The text index was refreshed after luc:query searched it; "
-                        + "the hits no longer identify the same documents. Re-run the query.");
+                    throw new QueryExecException(REFRESHED);
                 }
                 read.read(searcher);
             } finally {
@@ -327,7 +329,10 @@ public class SearchExecution {
      * entity IRIs, match details and child records are read on request.
      * <p>
      * A larger window re-runs the search, against the held searcher if there is one, and
-     * discards everything read for the previous hits.
+     * discards everything read for the previous hits. Without a held searcher it re-runs
+     * against a newly acquired one if its reader is the one the earlier search used, and
+     * raises {@link QueryExecException} otherwise: the labels already returned name ranks
+     * in the earlier search.
      *
      * @param offset number of leading hits to skip
      * @param limit  maximum number of hits to return
@@ -351,6 +356,12 @@ public class SearchExecution {
         boolean acquired = searcher == null;
         if (acquired) {
             searcher = textIndex.acquireSearcher();
+            // Hit labels already returned name ranks in the earlier search. Re-running on a
+            // different reader would give those labels to different documents.
+            if (searchReader != null && searcher.getIndexReader() != searchReader) {
+                textIndex.releaseSearcher(searcher);
+                throw new QueryExecException(REFRESHED);
+            }
         }
         try {
             List<String> resolved = textIndex.resolveSearchFields(searchFields);
