@@ -60,7 +60,9 @@ import org.slf4j.LoggerFactory;
  * no stored-field access.
  * <p>
  * A field IRI that is not configured, a field with {@code idx:stored false} and a field
- * inside an {@code idx:nested} block each raise a query error naming the field. They are
+ * inside an {@code idx:nested} block each raise a query error naming the field. When the
+ * dataset has several indexes, a field IRI configured in one of them gives no rows for the
+ * hits of the others. They are
  * raised on the first call: the index is known only once {@code luc:query} has run.
  */
 public class TextFieldsPF extends PropertyFunctionBase {
@@ -114,7 +116,7 @@ public class TextFieldsPF extends PropertyFunctionBase {
                 }
                 return IterLib.noResults(execCxt);
             }
-            List<ShaclIndexMapping.FieldDef> fields = fields(se, fieldFilter);
+            List<ShaclIndexMapping.FieldDef> fields = fields(execCxt, se, fieldFilter);
             addRows(bindings, binding, null, fieldVar, valueVar, valueFilter, sh, se.fieldValues(sh, fields));
         } else {
             List<SearchExecution> searches = SearchExecution.all(execCxt);
@@ -124,7 +126,7 @@ public class TextFieldsPF extends PropertyFunctionBase {
             }
             // ?hit unbound: every cached hit of every search in the query.
             for (SearchExecution se : searches) {
-                List<ShaclIndexMapping.FieldDef> fields = fields(se, fieldFilter);
+                List<ShaclIndexMapping.FieldDef> fields = fields(execCxt, se, fieldFilter);
                 for (SearchHit sh : se.hitsWithFieldValues(fields)) {
                     addRows(bindings, binding, hitVar, fieldVar, valueVar, valueFilter, sh,
                         se.fieldValues(sh, fields));
@@ -152,12 +154,44 @@ public class TextFieldsPF extends PropertyFunctionBase {
         }
     }
 
-    /** The fields a slot names in the search's index: one for an IRI, every returnable root field for a variable. */
-    private List<ShaclIndexMapping.FieldDef> fields(SearchExecution se, Node fieldIRI) {
+    /**
+     * The fields a slot names in the search's index: one for an IRI, every returnable root
+     * field for a variable. An IRI configured only in another index searched by the same
+     * query names no field here, so that index's hits give no rows.
+     */
+    private List<ShaclIndexMapping.FieldDef> fields(ExecutionContext execCxt, SearchExecution se, Node fieldIRI) {
         ShaclIndexMapping mapping = se.getTextIndex().getShaclMapping();
         Node key = fieldIRI != null ? fieldIRI : Var.ANON;
         return resolved.computeIfAbsent(mapping, m -> new HashMap<>())
-            .computeIfAbsent(key, k -> fieldIRI != null ? List.of(field(mapping, fieldIRI)) : returnable(mapping));
+            .computeIfAbsent(key, k -> fieldIRI == null ? returnable(mapping)
+                : configuredInOtherIndex(execCxt, mapping, fieldIRI) ? List.of()
+                : List.of(field(mapping, fieldIRI)));
+    }
+
+    /**
+     * Whether {@code fieldIRI}, absent from {@code mapping}, is configured in another
+     * index the query can search: one in the dataset's index registry, or one a search in
+     * this query ran against.
+     */
+    private static boolean configuredInOtherIndex(ExecutionContext execCxt, ShaclIndexMapping mapping,
+                                                  Node fieldIRI) {
+        String iri = fieldIRI.getURI();
+        if (mapping.findField(iri) != null) {
+            return false;
+        }
+        List<TextIndex> indexes = new ArrayList<>();
+        if (execCxt.getContext().get(TextQuery.textIndexRegistry) instanceof TextIndexRegistry registry) {
+            indexes.addAll(registry.all());
+        }
+        for (SearchExecution other : SearchExecution.all(execCxt)) {
+            indexes.add(other.getTextIndex());
+        }
+        for (TextIndex index : indexes) {
+            if (index instanceof ShaclTextIndexLucene shacl && shacl.getShaclMapping().findField(iri) != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static List<ShaclIndexMapping.FieldDef> returnable(ShaclIndexMapping mapping) {

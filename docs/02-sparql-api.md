@@ -410,7 +410,8 @@ produce.
 
 Each raises a query error naming the field:
 
-- a field IRI that is not configured
+- a field IRI that is not configured in any index of the dataset; in a query over two
+  indexes, a field of one gives no rows for the hits of the other
 - a field with `idx:stored false`
 - a field that occurs only inside an `idx:nested` block; `luc:nestedMatch` returns those
 - a read after the index was refreshed under the search (see [Shared Execution](#shared-execution))
