@@ -501,6 +501,11 @@ public class SearchExecution {
         readAgainstSearch(searcher -> textIndex.computeNestedMatches(searcher, search.finalQuery(), batch));
     }
 
+    /** The values of {@code field} for a cached hit, for {@code luc:fields}. Not yet implemented. */
+    public synchronized List<Node> fieldValues(SearchHit hit, ShaclIndexMapping.FieldDef field) {
+        throw new UnsupportedOperationException("fieldValues");
+    }
+
     // ---- Facets and counts -------------------------------------------------------------
 
     /**

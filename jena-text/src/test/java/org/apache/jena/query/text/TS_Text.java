@@ -140,6 +140,9 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     // luc:query hit path: reads per hit, held searcher, hit lookup
     , TestLucQueryHitPath.class
     , TestLucMatchLargeWindow.class
+    , TestFieldValueStorage.class
+    , TestLucFields.class
+    , TestEntityDocValue.class
 
     // Shared field occurrences / fan-in
     , TestSharedFieldOccurrences.class

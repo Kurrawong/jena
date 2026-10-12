@@ -34,4 +34,7 @@ interface HitReadObserver {
 
     /** Match details were computed for one hit. */
     default void matchesComputed(int docId) {}
+
+    /** One field's doc value was read for one document. */
+    default void docValuesRead(int docId, String fieldName) {}
 }

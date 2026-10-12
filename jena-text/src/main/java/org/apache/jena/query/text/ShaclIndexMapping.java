@@ -205,6 +205,9 @@ public class ShaclIndexMapping {
         @Deprecated public boolean isDateLike() { return isTemporal(); }
         public boolean preservesLiteralMetadata() { return storeLiteralMetadata || isTemporal(); }
 
+        /** Whether the field's doc value holds its original value. Not yet implemented. */
+        public boolean isValueInDocValues()  { return false; }
+
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;

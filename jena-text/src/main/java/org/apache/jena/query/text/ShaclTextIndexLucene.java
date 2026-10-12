@@ -247,6 +247,12 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         this.hitReadObserver = observer;
     }
 
+    /** System property choosing the entity IRI doc value. Not yet implemented. */
+    static final String ENTITY_DOC_VALUES_PROPERTY = "jena.text.entityDocValues";
+
+    /** Test hook: write stored copies as indexes built before the storage rule did. Not yet implemented. */
+    void setLegacyStoredCopies(boolean legacy) {}
+
     private void observeStoredRead(int docId, Document doc) {
         HitReadObserver observer = hitReadObserver;
         if (observer != null) {
