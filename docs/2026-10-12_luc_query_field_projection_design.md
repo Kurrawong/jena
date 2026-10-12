@@ -402,6 +402,27 @@ The benchmark is committed first and run at that commit for the baseline. The fi
 scenarios exist at the baseline and must be no more than 5% slower at the median, warm, on
 the same machine. The others are reported.
 
+#### Part 1 results
+
+Both runs used the same machine and index, pinned to 8 of 12 cores. The baseline was
+benchmark commit `ae310d3792` and Part 1 was `324382021e`. JMH ran in sample-time mode,
+with 3 × 10 s warmup, 5 × 10 s measurement and one fork. Times are in ms per query.
+`luc:fields` is Part 3, so the identifier scenario is not in this run.
+
+| Scenario | Baseline p50 | Part 1 p50 | Change | Baseline p90 | Part 1 p90 | Change |
+|---|---|---|---|---|---|---|
+| pageText | 0.656 | 0.385 | -41% | 0.702 | 0.413 | -41% |
+| pageTextWithMatch | 0.685 | 0.653 | -5% | 0.726 | 0.699 | -4% |
+| pageTextWithFacet | 1.090 | 0.794 | -27% | 1.149 | 0.835 | -27% |
+| largeFilterOnly | 2,429 | 2,370 | -2% | 2,509 | 2,458 | -2% |
+| largeTextNoMatch | 6,539 | 2,311 | -65% | 6,675 | 2,460 | -63% |
+| largeTextWithMatch, 20,000 hits | 4,035 | 411 | -90% | 4,080 | 427 | -90% |
+
+No page scenario is slower. `largeTextNoMatch` no longer computes match details.
+`largeTextWithMatch` no longer scans every cached hit on each `luc:match` call. Across
+300,000 hits it takes 5.6 s at p50 and 5.7 s at p90. The baseline was not run at that
+size: probes up to 40,000 hits grew quadratically, which projects to about 14 minutes.
+
 ### Production-scale check
 
 Part 1 does not change the index format, so it is measured against a copy of an existing
