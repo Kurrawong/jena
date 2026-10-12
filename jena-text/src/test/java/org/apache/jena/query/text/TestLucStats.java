@@ -76,11 +76,16 @@ public class TestLucStats {
         + "    idx:defaultSearch true .\n"
         + "field:kind  idx:fieldName \"kind\"  ; idx:fieldType idx:KeywordField .\n"
         + "field:year  idx:fieldName \"year\"  ; idx:fieldType idx:IntField .\n"
+        + "field:made  idx:fieldName \"made\"  ; idx:fieldType idx:TemporalField ;\n"
+        + "    idx:storeLiteralMetadata true .\n"
+        + "field:where idx:fieldName \"where\" ; idx:fieldType idx:LatLonField .\n"
         + "ex:ThingShape\n"
         + "    sh:targetClass ex:Thing ;\n"
         + "    sh:property [ idx:field field:title ; sh:path ex:title ] ;\n"
         + "    sh:property [ idx:field field:kind  ; sh:path ex:kind ] ;\n"
-        + "    sh:property [ idx:field field:year  ; sh:path ex:year ] .\n";
+        + "    sh:property [ idx:field field:year  ; sh:path ex:year ] ;\n"
+        + "    sh:property [ idx:field field:made  ; sh:path ex:made ] ;\n"
+        + "    sh:property [ idx:field field:where ; sh:path ex:where ] .\n";
 
     private static final String OTHER_SHAPE =
         "field:label idx:fieldName \"label\" ; idx:fieldType idx:TextField .\n"
@@ -138,7 +143,10 @@ public class TestLucStats {
         dataset.begin(ReadWrite.WRITE);
         try {
             dataset.getDefaultModel().read(new StringReader(
-                "@prefix ex: <" + NS + "> .\n" + turtle), null, "TTL");
+                "@prefix ex:  <" + NS + "> .\n"
+                + "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n"
+                + "@prefix geo: <http://www.opengis.net/ont/geosparql#> .\n"
+                + turtle), null, "TTL");
             dataset.commit();
         } finally {
             dataset.end();
@@ -249,6 +257,30 @@ public class TestLucStats {
             "a numeric field has points, not terms");
     }
 
+    @Test
+    public void temporalFieldPointsAreCounted() {
+        dataset = single("");
+        load("ex:a a ex:Thing ; ex:made \"2001-02-03\"^^xsd:date .\n"
+            + "ex:b a ex:Thing ; ex:made \"2002-02-03\"^^xsd:date .\n"
+            + "ex:c a ex:Thing .\n");
+        Graph g = stats("default");
+
+        assertEquals(2, value(g, field("made"), "documentCount"));
+        assertEquals(2, value(g, field("made"), "pointCount"));
+    }
+
+    @Test
+    public void spatialFieldGeometriesAreCounted() {
+        dataset = single("");
+        load("ex:a a ex:Thing ; ex:where \"POINT(150 -33)\"^^geo:wktLiteral .\n"
+            + "ex:b a ex:Thing ; ex:where \"POLYGON((150 -33, 151 -33, 151 -34, 150 -34, 150 -33))\"^^geo:wktLiteral .\n");
+        Graph g = stats("default");
+
+        assertEquals(2, value(g, field("where"), "documentCount"));
+        assertTrue(value(g, field("where"), "pointCount") >= 2,
+            "a polygon is indexed as triangles, each counted");
+    }
+
     // ---- freshness
 
     @Test
@@ -257,10 +289,12 @@ public class TestLucStats {
         load(THREE_THINGS);
         assertEquals(3, value(stats("default"), ex("index"), "entityCount"));
 
-        load("ex:d a ex:Thing ; ex:title \"blue boat\" .\n");
+        load("ex:d a ex:Thing ; ex:title \"red boat\" .\n");
         Graph g = stats("default");
         assertEquals(4, value(g, ex("index"), "entityCount"));
-        assertEquals(6, value(g, field("title"), "termCount"));
+        assertEquals(2, value(g, ex("index"), "segmentCount"), "one segment per commit");
+        assertEquals(5, value(g, field("title"), "termCount"),
+            "red is in both segments and is counted once");
     }
 
     // ---- access and selection

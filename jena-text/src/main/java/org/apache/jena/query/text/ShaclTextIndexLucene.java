@@ -132,6 +132,17 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     private final String configFingerprint;
     private volatile Graph exposedConfig;
 
+    /**
+     * Subject of the index-level {@code luc:stats} figures: the index resource of the
+     * configuration when the assembler supplies it, so the figures join with
+     * {@code luc:config}.
+     */
+    private volatile Node indexResource = NodeFactory.createBlankNode();
+
+    /** {@code luc:stats} figures for one reader generation. */
+    private record CachedStats(IndexReader.CacheKey key, Graph stats) {}
+    private volatile CachedStats cachedStats;
+
     /** The stamp found on disk when this index was opened, or null if there was none. */
     private final ShaclIndexStamp.StampData openedStamp;
 
@@ -151,7 +162,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * docIdField, so reads must restrict to parent docs to preserve the entity-per-hit
      * iteration contract). Used by {@link #filterToParents(Query)} on every read site.
      */
-    private static final Query PARENT_DOC_FILTER =
+    static final Query PARENT_DOC_FILTER =
         new TermQuery(new Term(BLOCK_KIND_FIELD, BLOCK_KIND_PARENT));
 
     /** {@link BitSetProducer} over the parent filter — required by {@code ToParentBlockJoinQuery}. */
@@ -440,6 +451,36 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
     public void setExposedConfig(Graph exposedConfig) {
         this.exposedConfig = exposedConfig;
+    }
+
+    public void setIndexResource(Node indexResource) {
+        this.indexResource = indexResource;
+    }
+
+    /**
+     * Figures about this index's Lucene contents, as {@code luc:stats} returns them,
+     * computed from the current searcher. Kept until the searcher is next refreshed,
+     * because counting distinct terms walks every term of every text and keyword field.
+     */
+    public Graph getStats() {
+        IndexSearcher searcher = acquireSearcher();
+        try {
+            IndexReader.CacheHelper helper = searcher.getIndexReader().getReaderCacheHelper();
+            IndexReader.CacheKey key = helper == null ? null : helper.getKey();
+            CachedStats cached = cachedStats;
+            if (key != null && cached != null && cached.key() == key) {
+                return cached.stats();
+            }
+            Graph stats = ShaclIndexStats.compute(searcher, shaclMapping, indexResource);
+            if (key != null) {
+                cachedStats = new CachedStats(key, stats);
+            }
+            return stats;
+        } catch (IOException e) {
+            throw new TextIndexException("luc:stats", e);
+        } finally {
+            releaseSearcher(searcher);
+        }
     }
 
     /** Fingerprint of the configuration this instance is running with. */

@@ -46,6 +46,8 @@ public class IndexVocab {
     /** The index's own configuration as triples. Answers only when the index sets
      *  {@code text:exposeConfig true}. */
     public static final String pfConfig = NS + "config";
+    /** Figures about the index's Lucene contents as triples. Not gated by any setting. */
+    public static final String pfStats = NS + "stats";
 
     // Types
     public static final Resource IndexProfile   = Vocab.resource(NS, "IndexProfile");
@@ -120,4 +122,16 @@ public class IndexVocab {
     public static final Property pDelta             = Vocab.property(NS, "delta");
     /** Column holding ADD/DELETE in a delta file. Defaults to "op". */
     public static final Property pOpColumn          = Vocab.property(NS, "opColumn");
+
+    // luc:stats output. On the index resource:
+    public static final Property pEntityCount          = Vocab.property(NS, "entityCount");
+    public static final Property pDeletedDocumentCount = Vocab.property(NS, "deletedDocumentCount");
+    public static final Property pSegmentCount         = Vocab.property(NS, "segmentCount");
+    public static final Property pSizeInBytes          = Vocab.property(NS, "sizeInBytes");
+    // On the index resource and on each field IRI:
+    public static final Property pDocumentCount        = Vocab.property(NS, "documentCount");
+    // On each field IRI:
+    public static final Property pTermCount            = Vocab.property(NS, "termCount");
+    public static final Property pTokenCount           = Vocab.property(NS, "tokenCount");
+    public static final Property pPointCount           = Vocab.property(NS, "pointCount");
 }
