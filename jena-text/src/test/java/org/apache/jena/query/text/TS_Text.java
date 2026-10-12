@@ -166,6 +166,7 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestShaclOccurrenceValueConstraints.class
     , TestShaclStepChangeTracking.class
     , TestShaclConditionRejections.class
+    , TestLucFieldsThroughNodeStep.class
 
     // Offset paging
     , TestOffsetPaging.class
