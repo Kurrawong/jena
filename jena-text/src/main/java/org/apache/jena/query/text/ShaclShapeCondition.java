@@ -38,7 +38,10 @@ import org.apache.jena.shacl.parser.ShaclParseException;
 import org.apache.jena.shacl.parser.Shape;
 import org.apache.jena.shacl.validation.VLib;
 import org.apache.jena.shacl.vocabulary.SHACL;
+import org.apache.jena.shared.PrefixMapping;
+import org.apache.jena.shared.impl.PrefixMappingImpl;
 import org.apache.jena.sparql.graph.GraphFactory;
+import org.apache.jena.sparql.graph.GraphWrapper;
 import org.apache.jena.sparql.path.*;
 import org.apache.jena.vocabulary.RDF;
 
@@ -137,9 +140,29 @@ public final class ShaclShapeCondition {
 
     /** True when {@code node} conforms to this shape in {@code data}. */
     public boolean conforms(Graph data, Node node) {
-        ValidationContext vCxt = ValidationContext.create(shapes, data);
-        VLib.validateShape(vCxt, data, shape, node);
+        Graph view = new WithoutPrefixes(data);
+        ValidationContext vCxt = ValidationContext.create(shapes, view);
+        VLib.validateShape(vCxt, view, shape, node);
         return !vCxt.hasViolation();
+    }
+
+    /**
+     * The data graph with an empty prefix mapping. A new {@link ValidationContext} copies
+     * the data graph's prefixes into its report builder; for a TDB2 graph that reads the
+     * dataset's prefix table, once per checked node. The index produces no report, so the
+     * prefixes are never used.
+     */
+    private static final class WithoutPrefixes extends GraphWrapper {
+        private static final PrefixMapping NONE = new PrefixMappingImpl().lock();
+
+        WithoutPrefixes(Graph graph) {
+            super(graph);
+        }
+
+        @Override
+        public PrefixMapping getPrefixMapping() {
+            return NONE;
+        }
     }
 
     /**
