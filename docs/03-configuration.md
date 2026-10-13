@@ -110,6 +110,8 @@ one with `text:entityMap`.
 | `text:maxFacetHits` | no | Maximum documents considered during facet collection |
 | `text:analyzer` | no | Index-wide default analyzer |
 | `text:queryAnalyzer` | no | Index-wide query analyzer |
+| `text:splitOnWhitespace` | no, default `true` | Cut the query string at whitespace before each field's analyzer runs. With `false`, a keyword-analyzed field receives the whole string as one term, spaces included |
+| `text:autoGeneratePhraseQueries` | no, default `true` | Where an analyzer splits one word into pieces, the pieces must appear together and in order: `E45/5326` matches `e45` followed by `5326`, not either alone. Needs `text:splitOnWhitespace true`; the index fails to load otherwise |
 | `text:exposeConfig` | no, default `false` | Let [`luc:config`](02-sparql-api.md#lucconfig) return this index's configuration. See below |
 
 If the index resource itself is a URI resource, that URI is also accepted as an `indexSelector`.
