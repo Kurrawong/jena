@@ -10,13 +10,12 @@ This design fixes searches for codes that contain punctuation, such as the tenem
 `E45/5326`. It covers two changes to how jena-facet reads a search, the recommendations for the
 search client, and what the data has to look like for code searches to match.
 
-GSWA reported the problem in ADO #266862: a search for `E45/5326` returns more than 4,000
-results where the user expected 2.
+A search for `E45/5326` returns more than 4,000 results where the user expected 2.
 
 Code references are to `101ea8e036`. The parse results below come from Lucene 10.3.1's classic
-query parser, run outside Fuseki with the analyzers the GSWA configuration uses: the default
-`StandardAnalyzer` on `label` and `LowerCaseKeywordAnalyzer` on `identifier`. Result counts
-against the GSWA index have not been measured.
+query parser, run outside Fuseki with the analyzers of the configuration that showed the
+problem: the default `StandardAnalyzer` on `label` and `LowerCaseKeywordAnalyzer` on
+`identifier`. Result counts against that index have not been measured.
 
 ## How a search reaches Lucene
 
@@ -41,7 +40,8 @@ There are two causes.
 
 - **The query parser reads `/` as the start of a regular expression.** If `E45/5326` reaches
   jena-facet as typed, the search fails, because the regular expression `/5326` is never closed.
-  The reporter got results, so their text was escaped to `E45\/5326` before it reached jena-facet.
+  The reporter got results, so something between the user and jena-facet escaped the text to
+  `E45\/5326`. Whether the search client does this, and with which rules, has not been checked.
 - **Text fields split the code and accept either half.** `E45\/5326` becomes:
 
   ```
@@ -49,8 +49,8 @@ There are two causes.
   ```
 
   `identifier` keeps the code whole and matches it exactly. `label` and the other text fields split
-  it into `e45` and `5326`, and a record matches if its label contains either piece. In the GSWA
-  configuration that includes `tenementLabel`, which copies the linked tenement's label onto
+  it into `e45` and `5326`, and a record matches if its label contains either piece. In that
+  configuration they include `tenementLabel`, which copies the linked tenement's label onto
   Reports and Sites.
 
 ## Changes to jena-facet
@@ -62,9 +62,11 @@ searched for in every field.
 
 **What it does.** Text fields behave as before, because they already split at spaces. Code fields
 change. Today, `E45 5326` is looked up in `identifier` as the single value `e45 5326`. After the
-change, `identifier` is searched for `e45` and for `5326` separately.
+change, `identifier` is searched for `e45` and for `5326` separately, so a code that contains a
+space no longer matches as a whole. See [What the data needs](#what-the-data-needs).
 
-**Why it is needed.** Lucene allows change 2 only when change 1 is on.
+**Why it is needed.** Change 1 has no benefit of its own. It is needed because Lucene allows
+change 2 only when change 1 is on.
 
 ### Change 2: a word's pieces must appear together
 
@@ -88,16 +90,21 @@ The change applies to every word with punctuation inside it. `Fe-rich` now match
 | Search text received by jena-facet | Today | With both changes |
 | --- | --- | --- |
 | `E45\/5326` | `(label:e45 identifier:e45/5326) (label:5326)` | `label:"e45 5326" identifier:e45/5326` |
-| `Fe-rich granite` | `(label:fe identifier:fe-rich granite) (label:rich) (label:granite)` | `(label:"fe rich" identifier:fe-rich) (label:granite identifier:granite)` |
+| `Fe\-rich granite` | `(label:fe identifier:fe-rich granite) (label:rich) (label:granite)` | `(label:"fe rich" identifier:fe-rich) (label:granite identifier:granite)` |
 | `E45 5326` | `(label:e45 identifier:e45 5326) (label:5326)` | `(label:e45 identifier:e45) (label:5326 identifier:5326)` |
+
+The table shows only `label` and `identifier`. The full query repeats each `label` clause for
+every other text field searched by default. The first column is the text after the client
+escaping in [Recommendations for the search client](#recommendations-for-the-search-client).
 
 A quoted label term, such as `label:"e45 5326"`, means the pieces must appear together and in
 order.
 
 ### Configuration and defaults
 
-Each change has an on/off property on the SHACL text index resource, beside `text:storeValues`.
-The names follow the Lucene settings they control.
+Today jena-facet uses Lucene's defaults, which have both changes off. Each change gets a new
+on/off property on the SHACL text index resource, beside `text:storeValues`. The names follow the
+Lucene settings they control.
 
 | Property | Default | Turns on |
 | --- | --- | --- |
@@ -131,7 +138,8 @@ Neither change alters what is stored in the index, so no reindex is needed. Prez
 These recommendations assume users type plain text and never Lucene syntax.
 
 1. **Escape the search text with this function before every search.** It puts `\` before each
-   character the query parser treats as syntax, and before the words `AND`, `OR` and `NOT`.
+   character the query parser treats as syntax, and before the words `AND`, `OR` and `NOT`. If
+   the client already escapes the text, compare its rules with this function.
 
    ```js
    const escapeLucene = (s) =>
@@ -150,8 +158,8 @@ These recommendations assume users type plain text and never Lucene syntax.
 4. **For a search that should return only the record with a code, limit it to the identifier
    field.** Prez's Lucene search endpoints accept a `fields` parameter, which takes field IRIs.
    Sending `fields=urn:jena:lucene:field#identifier` with `q=E45\/5326` searches `identifier`
-   alone. This parameter was found in the Prez code on `edmond/gswa/cql` and has not been tested
-   against the GSWA deployment.
+   alone. This parameter was found in the Prez code and has not been tested against a
+   deployment.
 
 The function escapes these characters. The table shows what each does when it is not escaped.
 
@@ -176,8 +184,7 @@ The function escapes these characters. The table shows what each does when it is
 
 ## What the data needs
 
-These conditions apply to the GSWA configuration in `gswa-prez-config`
-(`fuseki/full_data/configuration/config.ttl`), where `field:identifier` is searched by default and
+These conditions apply to a configuration where `field:identifier` is searched by default and
 uses `LowerCaseKeywordAnalyzer`.
 
 - **The code is in `schema:identifier`.** A shape maps it to `field:identifier` with
@@ -201,5 +208,5 @@ With both changes, a search for `E45/5326` across the default fields returns:
 - any other record whose label or text contains `E45` followed directly by `5326`.
 
 A tenement that matches on more than one field is likely to rank first, but BM25 scoring does not
-guarantee it. Returning only the tenement needs recommendation 4. Whether GSWA tenement labels
+guarantee it. Returning only the tenement needs recommendation 4. Whether tenement labels
 contain the code has not been checked against the data.
