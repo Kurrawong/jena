@@ -145,6 +145,11 @@ for (const [i, ex] of examples.entries()) {
             assert.ok(hits >= ex.minResults,
                 `expected at least ${ex.minResults} results, got ${hits}`);
         }
+        // A ceiling catches a search that has become too broad, which a floor cannot.
+        if (typeof ex.maxResults === 'number') {
+            assert.ok(hits <= ex.maxResults,
+                `expected at most ${ex.maxResults} results, got ${hits}`);
+        }
 
         // A filter that changes nothing is the shape of every silent failure here, so it
         // is a failure whether or not the example declares a minimum.
