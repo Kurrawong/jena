@@ -51,6 +51,7 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 | `TestShaclAssembler` | 9 | Config parsing: valid shapes, SHACL/entity-map exclusivity, hierarchy config, and assembler validation paths |
 | `TestShaclEntityPerDocument` | 7 | End-to-end: text search, SPARQL `luc:query`, facet counts, filtered facets, add after load, entity-per-doc model verification |
 | `TestLuceneQuerySyntax` | 12 | The `queryString` argument reaching Lucene's classic parser: phrase, boolean, required/prohibited, trailing/leading/single-char wildcard, fuzzy, proximity slop, boost, grouping, lexical term range, and the bare `*` match-all short-circuit |
+| `TestQueryParserSettings` | 12 | `text:splitOnWhitespace` and `text:autoGeneratePhraseQueries`: a code's pieces must be adjacent in a text field through `luc:query`, `luc:facet` and a nested scope; separate words still match any word; a code containing a space is not found whole unless escaped; both settings off, splitting only, the rejected pairing and a non-boolean value |
 | `TestDateLiteralRoundTrip` | 4 | TEMPORAL fields: `between` and `>=` over the epoch twin field, typed `xsd:date`/`xsd:dateTime` reconstruction on read, language-tagged literal round trip, and an unparseable date dropping out of range queries without failing the build |
 
 ### Hierarchical Facets Tests

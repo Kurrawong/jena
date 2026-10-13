@@ -6,6 +6,9 @@
   { "label": "Search: \"iron ore exploration\"", "params": "?q=iron+ore+exploration", "minResults": 1 },
   { "label": "Search: \"diamond drill\"", "params": "?q=diamond+drill", "minResults": 1 },
   { "label": "Search: \"Jones\" (author name, ranked by BM25)", "params": "?q=Jones", "minResults": 2 },
+  { "label": "Search: \"copper-gold\" (pieces in order)", "params": "?q=copper-gold", "minResults": 14, "maxResults": 14 },
+  { "label": "Search: \"gold-copper\" (pieces in order)", "params": "?q=gold-copper", "minResults": 9, "maxResults": 9 },
+  { "label": "Search: \"WED-RC-191\" (drill hole code)", "params": "?q=WED-RC-191", "minResults": 1, "maxResults": 1 },
 
   { "group": "Single Facet" },
   { "label": "commodity = Gold", "params": "?filter={\"op\":\"=\",\"args\":[{\"property\":\"commodity\"},\"http://example.org/mining/commodity/Gold\"]}", "minResults": 5 },

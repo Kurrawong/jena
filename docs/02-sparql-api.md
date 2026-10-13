@@ -94,14 +94,24 @@ disables by default and this index enables), fuzzy (`learnimg~1`), proximity
 (`"machine networks"~2`), boosts (`quantum^4`), grouping and term ranges. A bare `*` is
 short-circuited to a match-all.
 
-The string is analyzed with each target field's query analyzer, so behaviour follows the
-field: on a `KEYWORD` field the whole value is a single term.
+The parser cuts the string at whitespace, then analyzes each word with each target field's
+query analyzer, so behaviour follows the field. On a `KEYWORD` field, or a `TEXT` field with a
+keyword analyzer, each word is a single term, and a value containing a space matches only if
+the space is escaped (`A\ 12`). Where an analyzer splits one word into pieces, as
+`StandardAnalyzer` splits `E45/5326` into `e45` and `5326`, the pieces must appear together and
+in order. Separate words still match any of the words. `text:splitOnWhitespace` and
+`text:autoGeneratePhraseQueries` turn this off; see
+[Index Resources](03-configuration.md#index-resources).
+
+A search client that passes user input through as plain text should escape the characters the
+classic parser treats as syntax. `/` is the one that most often appears in codes: unescaped,
+`E45/5326` starts a regular expression and the search fails.
 
 Use `cqlFilter` for structured predicates — `=`, ranges, `in`, `between`, spatial, same-child
 correlation. Field scoping belongs in `fieldSpec`: an embedded `fieldName:value` prefix in the
 query string would use internal Lucene field names and bypass the field-IRI contract.
 
-Pinned by `TestLuceneQuerySyntax`.
+Pinned by `TestLuceneQuerySyntax` and `TestQueryParserSettings`.
 
 ### Return bindings
 

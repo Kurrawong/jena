@@ -60,6 +60,11 @@ public class TextVocab
     /** Let {@code luc:config} return this index's configuration. Off by default: anything
      *  in the configuration, file paths included, becomes readable by anyone who can query. */
     public static final Property pExposeConfig    = Vocab.property(NS, "exposeConfig") ;
+    /** SHACL mode: cut the query text at whitespace before each field's analyzer runs. */
+    public static final Property pSplitOnWhitespace = Vocab.property(NS, "splitOnWhitespace") ;
+    /** SHACL mode: the pieces an analyzer splits one word into must appear together, in order.
+     *  Needs {@link #pSplitOnWhitespace}. */
+    public static final Property pAutoGeneratePhraseQueries = Vocab.property(NS, "autoGeneratePhraseQueries") ;
     public static final Property pQueryAnalyzer     = Vocab.property(NS, "queryAnalyzer") ;
     public static final Property pQueryParser       = Vocab.property(NS, "queryParser") ;
     public static final Property pEntityMap         = Vocab.property(NS, "entityMap") ;

@@ -37,6 +37,8 @@ public class TextIndexConfig {
     int maxBasicQueries = 1024;
     boolean valueStored;
     boolean ignoreIndexErrors;
+    boolean splitOnWhitespace = true;
+    boolean autoGeneratePhraseQueries = true;
     List<String> facetFields = new ArrayList<>();
     int maxFacetHits = 0; // 0 = unlimited
     ShaclIndexMapping shaclMapping = null;
@@ -103,6 +105,24 @@ public class TextIndexConfig {
 
     public void setIgnoreIndexErrors(boolean ignore) {
         this.ignoreIndexErrors = ignore;
+    }
+
+    /** SHACL mode only: whether the query parser cuts the query text at whitespace. */
+    public boolean isSplitOnWhitespace() {
+        return splitOnWhitespace;
+    }
+
+    public void setSplitOnWhitespace(boolean splitOnWhitespace) {
+        this.splitOnWhitespace = splitOnWhitespace;
+    }
+
+    /** SHACL mode only: whether one word's analyzed pieces are searched as a phrase. */
+    public boolean isAutoGeneratePhraseQueries() {
+        return autoGeneratePhraseQueries;
+    }
+
+    public void setAutoGeneratePhraseQueries(boolean autoGeneratePhraseQueries) {
+        this.autoGeneratePhraseQueries = autoGeneratePhraseQueries;
     }
 
     /**

@@ -274,6 +274,8 @@ public class TestDemoExamples {
             final String params = obj.hasKey("params") ? obj.get("params").getAsString().value() : "";
             final int minResults = obj.hasKey("minResults")
                 ? obj.get("minResults").getAsNumber().value().intValue() : 0;
+            final int maxResults = obj.hasKey("maxResults")
+                ? obj.get("maxResults").getAsNumber().value().intValue() : Integer.MAX_VALUE;
             final String name = group + " / " + label;
 
             tests.add(DynamicTest.dynamicTest(name, () -> {
@@ -290,6 +292,9 @@ public class TestDemoExamples {
                 int rows = rowCount(term, filter);
                 assertTrue(rows >= minResults,
                     name + ": got " + rows + " rows, minResults is " + minResults);
+                // A search that has become too broad passes a floor; only a ceiling sees it.
+                assertTrue(rows <= maxResults,
+                    name + ": got " + rows + " rows, maxResults is " + maxResults);
 
                 // The check that catches a filter which quietly does nothing.
                 if (filter != null) {
