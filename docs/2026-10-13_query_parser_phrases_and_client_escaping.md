@@ -1,7 +1,7 @@
 ---
 title: "Searching for codes with punctuation, and what search clients escape"
 date: "2026-10-13"
-status: "Proposed"
+status: "Implemented"
 ---
 
 # Searching for Codes with Punctuation, and What Search Clients Escape
