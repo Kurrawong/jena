@@ -148,6 +148,9 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestEntityDocValue.class
     , TestTextIndexDump.class
 
+    // Query parser settings: text:splitOnWhitespace, text:autoGeneratePhraseQueries
+    , TestQueryParserSettings.class
+
     // Shared field occurrences / fan-in
     , TestSharedFieldOccurrences.class
 
