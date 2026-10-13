@@ -130,6 +130,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     private final List<String> facetFields;
     private final FacetsConfig facetsConfig;
     private final int maxFacetHits;
+    /** Query parser settings from {@code text:splitOnWhitespace} and {@code text:autoGeneratePhraseQueries}. */
+    private final boolean splitOnWhitespace;
+    private final boolean autoGeneratePhraseQueries;
 
     /** Fingerprint of the configuration this instance was built with. */
     private final String configFingerprint;
@@ -297,6 +300,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         super(directory, config);
         this.shaclMapping = config.getShaclMapping();
         this.maxFacetHits = config.getMaxFacetHits();
+        this.splitOnWhitespace = config.isSplitOnWhitespace();
+        this.autoGeneratePhraseQueries = config.isAutoGeneratePhraseQueries();
 
         this.facetFields = new ArrayList<>(config.getFacetFields());
         this.facetsConfig = new FacetsConfig();
@@ -761,6 +766,22 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     }
 
     /**
+     * A classic query parser over {@code fields} with this index's parser settings: a
+     * {@link MultiFieldQueryParser} for more than one field, a {@link QueryParser} for one.
+     * Every SHACL-mode search parses its query string through here.
+     */
+    private QueryParser newQueryParser(List<String> fields) {
+        QueryParser qp = fields.size() == 1
+            ? new QueryParser(fields.get(0), getQueryAnalyzer())
+            : new MultiFieldQueryParser(fields.toArray(new String[0]), getQueryAnalyzer());
+        qp.setAllowLeadingWildcard(true);
+        // Lucene rejects phrase generation while whitespace splitting is off, so split first.
+        qp.setSplitOnWhitespace(splitOnWhitespace);
+        qp.setAutoGeneratePhraseQueries(autoGeneratePhraseQueries);
+        return qp;
+    }
+
+    /**
      * Parse a query string targeting specific fields.
      * Uses MultiFieldQueryParser for multiple fields, standard QueryParser for single.
      */
@@ -785,15 +806,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
         // Fast path: all root-scoped — preserve previous single/multi-field parser behaviour.
         if (fieldsByNestedScope.isEmpty()) {
-            if (rootFields.size() == 1) {
-                QueryParser qp = new QueryParser(rootFields.get(0), getQueryAnalyzer());
-                qp.setAllowLeadingWildcard(true);
-                return qp.parse(queryString);
-            }
-            String[] fieldArray = rootFields.toArray(new String[0]);
-            MultiFieldQueryParser mqp = new MultiFieldQueryParser(fieldArray, getQueryAnalyzer());
-            mqp.setAllowLeadingWildcard(true);
-            return mqp.parse(queryString);
+            return newQueryParser(rootFields).parse(queryString);
         }
 
         // At least one child-scoped field present. Build per-scope queries, wrapping
@@ -801,32 +814,10 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         // anywhere across the listed fields should surface the parent entity).
         List<Query> clauses = new ArrayList<>();
         if (!rootFields.isEmpty()) {
-            Query rootQ;
-            if (rootFields.size() == 1) {
-                QueryParser qp = new QueryParser(rootFields.get(0), getQueryAnalyzer());
-                qp.setAllowLeadingWildcard(true);
-                rootQ = qp.parse(queryString);
-            } else {
-                MultiFieldQueryParser mqp = new MultiFieldQueryParser(
-                    rootFields.toArray(new String[0]), getQueryAnalyzer());
-                mqp.setAllowLeadingWildcard(true);
-                rootQ = mqp.parse(queryString);
-            }
-            clauses.add(rootQ);
+            clauses.add(newQueryParser(rootFields).parse(queryString));
         }
         for (List<String> scopeFields : fieldsByNestedScope.values()) {
-            Query inner;
-            if (scopeFields.size() == 1) {
-                QueryParser qp = new QueryParser(scopeFields.get(0), getQueryAnalyzer());
-                qp.setAllowLeadingWildcard(true);
-                inner = qp.parse(queryString);
-            } else {
-                MultiFieldQueryParser mqp = new MultiFieldQueryParser(
-                    scopeFields.toArray(new String[0]), getQueryAnalyzer());
-                mqp.setAllowLeadingWildcard(true);
-                inner = mqp.parse(queryString);
-            }
-            clauses.add(wrapAsParent(inner));
+            clauses.add(wrapAsParent(newQueryParser(scopeFields).parse(queryString)));
         }
         if (clauses.size() == 1) {
             return clauses.get(0);
@@ -852,9 +843,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         // so a matching child-doc clause surfaces its parent in the result iteration.
         BooleanQuery.Builder bq = new BooleanQuery.Builder();
         for (String fieldName : resolvedFields) {
-            QueryParser qp = new QueryParser(fieldName, getQueryAnalyzer());
-            qp.setAllowLeadingWildcard(true);
-            Query fieldQuery = qp.parse(queryString);
+            Query fieldQuery = newQueryParser(List.of(fieldName)).parse(queryString);
             ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
             String name = fd != null ? fd.getFieldIRI().getURI() : fieldName;
             Query named = NamedMatches.wrapQuery(name, fieldQuery);

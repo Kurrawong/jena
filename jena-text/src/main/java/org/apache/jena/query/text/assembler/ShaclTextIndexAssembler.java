@@ -40,6 +40,7 @@ import org.apache.jena.graph.Graph;
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.Triple;
 import org.apache.jena.query.text.*;
+import org.apache.jena.rdf.model.Property;
 import org.apache.jena.rdf.model.RDFNode;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.Statement;
@@ -144,6 +145,15 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
                 config.setMaxFacetHits(mfhNode.asLiteral().getInt());
             }
 
+            boolean splitOnWhitespace = booleanSetting(root, pSplitOnWhitespace, "text:splitOnWhitespace", true);
+            boolean autoGeneratePhraseQueries =
+                booleanSetting(root, pAutoGeneratePhraseQueries, "text:autoGeneratePhraseQueries", true);
+            if (autoGeneratePhraseQueries && !splitOnWhitespace)
+                throw new TextIndexException("text:autoGeneratePhraseQueries true needs text:splitOnWhitespace true;"
+                    + " Lucene's query parser does not allow phrase generation without whitespace splitting");
+            config.setSplitOnWhitespace(splitOnWhitespace);
+            config.setAutoGeneratePhraseQueries(autoGeneratePhraseQueries);
+
             boolean exposeConfig = false;
             Statement exposeConfigStatement = root.getProperty(pExposeConfig);
             if (exposeConfigStatement != null) {
@@ -162,6 +172,17 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
             IO.exception(e);
             return null;
         }
+    }
+
+    /** The boolean value of {@code property} on {@code root}, or {@code dflt} when absent. */
+    private static boolean booleanSetting(Resource root, Property property, String name, boolean dflt) {
+        Statement statement = root.getProperty(property);
+        if (statement == null)
+            return dflt;
+        RDFNode node = statement.getObject();
+        if (!node.isLiteral() || !(node.asLiteral().getValue() instanceof Boolean))
+            throw new TextIndexException(name + " property must be a boolean : " + node);
+        return node.asLiteral().getBoolean();
     }
 
     /**
