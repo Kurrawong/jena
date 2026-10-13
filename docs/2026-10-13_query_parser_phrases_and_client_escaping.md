@@ -1,193 +1,205 @@
 ---
-title: "Phrase queries for split terms, and what search clients escape"
+title: "Searching for codes with punctuation, and what search clients escape"
 date: "2026-10-13"
 status: "Proposed"
 ---
 
-# Phrase Queries for Split Terms, and What Search Clients Escape
+# Searching for Codes with Punctuation, and What Search Clients Escape
 
-This design changes how the `luc:` query parser treats a search term that an analyzer splits
-into several tokens, such as the tenement code `E45/5326`. It also sets out which characters a
-search client should escape before sending a term, and what the data has to look like for
-identifier searches to match.
+This design fixes searches for codes that contain punctuation, such as the tenement code
+`E45/5326`. It covers two changes to how jena-facet reads a search, the recommendations for the
+search client, and what the data has to look like for code searches to match.
 
 GSWA reported the problem in ADO #266862: a search for `E45/5326` returns more than 4,000
 results where the user expected 2.
 
 Code references are to `101ea8e036`. The parse results below come from Lucene 10.3.1's classic
-`MultiFieldQueryParser`, run outside Fuseki with the analyzers the GSWA configuration uses: the
-default `StandardAnalyzer` on `label` and `LowerCaseKeywordAnalyzer` on `identifier`. Result
-counts against the GSWA index have not been measured.
+query parser, run outside Fuseki with the analyzers the GSWA configuration uses: the default
+`StandardAnalyzer` on `label` and `LowerCaseKeywordAnalyzer` on `identifier`. Result counts
+against the GSWA index have not been measured.
 
-## How a search term reaches Lucene
+## How a search reaches Lucene
 
-1. The search client sends the term to Prez as the `q` parameter.
-2. Prez puts the term into the SPARQL query as a string literal and escapes it for SPARQL only:
-   `"` becomes `\"` and `\` becomes `\\`. Prez does not change Lucene syntax, so the term reaches
-   jena-facet as the client sent it.
-3. jena-facet parses the term with Lucene's classic `QueryParser`, or `MultiFieldQueryParser`
-   when the search covers several fields (`ShaclTextIndexLucene.parseQueryForFields`, from line
-   767). With no field list, the search covers every field marked `idx:defaultSearch true`.
-4. The parser passes each term through the query analyzer of each field.
+1. The search client sends the search text to Prez as the `q` parameter.
+2. Prez puts the text into the SPARQL query as a string, escaping only what SPARQL requires:
+   `"` becomes `\"` and `\` becomes `\\`. Prez does not change Lucene syntax, so jena-facet
+   receives the text the client sent.
+3. jena-facet reads the text with Lucene's classic query parser
+   (`ShaclTextIndexLucene.parseQueryForFields`, from line 767). The text is searched in every field
+   marked `idx:defaultSearch true`, unless the request names its own fields.
+4. Each field breaks the text into searchable pieces with its own analyzer. Text fields such as
+   `label` use `StandardAnalyzer`, which splits on punctuation and spaces and lowercases. Code
+   fields such as `identifier` use `LowerCaseKeywordAnalyzer`, which keeps the whole value as one
+   piece and lowercases it.
 
-Lucene syntax is the client's to use or to escape. Prez stays neutral, so a client that wants
-wildcards or phrases can send them, and a client whose users never type Lucene syntax escapes it.
+The query parser gives meaning to some characters, such as `/`, `:` and `*`. Prez passes them
+through unchanged. Whether a user can use that syntax is the search client's decision.
 
 ## Why `E45/5326` returns thousands of results
 
-There are two separate causes.
+There are two causes.
 
-- **The parser reads `/` as the start of a regular expression.** An unescaped `E45/5326` fails
-  with a `ParseException`, because the regular expression `/5326` is never closed. The reporter
-  got results, so their term was escaped somewhere before it reached jena-facet.
-- **The text fields split the escaped term and OR the parts.** `E45\/5326` parses to:
+- **The query parser reads `/` as the start of a regular expression.** If `E45/5326` reaches
+  jena-facet as typed, the search fails, because the regular expression `/5326` is never closed.
+  The reporter got results, so their text was escaped to `E45\/5326` before it reached jena-facet.
+- **Text fields split the code and accept either half.** `E45\/5326` becomes:
 
   ```
   (label:e45 identifier:e45/5326) (label:5326)
   ```
 
-  `identifier` keeps the code whole and matches it exactly. `label` and the other
-  `StandardAnalyzer` fields split it into `e45` and `5326`, and the parser joins the parts with
-  OR. Any record whose label contains `e45` or `5326` matches. In the GSWA configuration that
-  includes `tenementLabel`, which copies the linked tenement's `rdfs:label` onto Reports and Sites.
+  `identifier` keeps the code whole and matches it exactly. `label` and the other text fields split
+  it into `e45` and `5326`, and a record matches if its label contains either piece. In the GSWA
+  configuration that includes `tenementLabel`, which copies the linked tenement's label onto
+  Reports and Sites.
 
-## The change
+## Changes to jena-facet
 
-Lucene's classic parser has two settings for this:
+### Change 1: each word is searched separately
 
-- `setSplitOnWhitespace(true)` splits the term on whitespace before analysis, so each word is
-  analyzed on its own.
-- `setAutoGeneratePhraseQueries(true)` turns a word that analyzes to several tokens into a phrase
-  query. The tokens then have to appear next to each other, in order. Lucene rejects this setting
-  with an `IllegalArgumentException` unless split-on-whitespace is also on.
+**What it is.** jena-facet cuts the search text at spaces before searching. Each word is then
+searched for in every field.
 
-With both on, `E45\/5326` parses to:
+**What it does.** Text fields behave as before, because they already split at spaces. Code fields
+change. Today, `E45 5326` is looked up in `identifier` as the single value `e45 5326`. After the
+change, `identifier` is searched for `e45` and for `5326` separately.
 
-```
-label:"e45 5326" identifier:e45/5326
-```
+**Why it is needed.** Lucene allows change 2 only when change 1 is on.
 
-The text fields keep their analyzers and their indexed tokens. Only the query changes, so the
-change needs no reindex.
+### Change 2: a word's pieces must appear together
 
-### Steps
+**What it is.** When a text field splits one word into pieces, the pieces have to appear in a
+record next to each other and in the same order. A word means text with no spaces in it:
+`E45/5326`, `Fe-rich` or `and/or`.
 
-1. Add two properties to `TextVocab`: `text:splitOnWhitespace` and
-   `text:autoGeneratePhraseQueries`. Both are booleans set on the SHACL text index resource, beside
-   `text:storeValues`.
-2. Read both in `ShaclTextIndexAssembler`, in the same way as `text:storeValues`, and store them on
-   `TextIndexConfig`. Both default to `true`.
-3. Fail at assembly when `text:autoGeneratePhraseQueries` is `true` and `text:splitOnWhitespace`
-   is `false`. Lucene would otherwise throw on every query.
-4. Add one method in `ShaclTextIndexLucene` that builds a `QueryParser` or `MultiFieldQueryParser`
-   and applies `setAllowLeadingWildcard(true)` and the two settings. Replace the seven places that
-   build a parser today: `parseQueryForFields` (lines 789 to 824) and `buildNamedQuery` (line 855).
-5. Leave both settings out of the index configuration fingerprint. They change how queries are
-   parsed, not what is indexed.
-6. Add parser tests for the cases in the before-and-after table below, and configuration tests for
-   the defaults, for both settings off, and for the rejected combination.
-7. Add both properties to the index property table in `docs/03-configuration.md`.
+**What it does.** `E45/5326` splits into `e45` and `5326` in a text field. Today a label containing
+either piece matches. After the change, a label matches only where `e45` is followed directly by
+`5326`. Labels containing `E45/5326`, `E45-5326` or `E45 5326` match, because the text field
+ignores the punctuation. A label containing only `E45 Project` no longer matches.
 
-The change covers `luc:` queries on the SHACL index only. The upstream `text:query` path in
-`TextIndexLucene` is unchanged.
+Searches with several words still match any of the words. `sand clay` matches records containing
+`sand` or `clay`, as it does today.
 
-### Defaults
+The change applies to every word with punctuation inside it. `Fe-rich` now matches `fe` followed by
+`rich`. Today it matches either `fe` or `rich`.
 
-| Property | Default | Effect when `true` |
-| --- | --- | --- |
-| `text:splitOnWhitespace` | `true` | Each whitespace-separated word is parsed and analyzed on its own |
-| `text:autoGeneratePhraseQueries` | `true` | A word that analyzes to several tokens becomes a phrase query |
+### Results before and after
 
-Backward compatibility is not required, so the defaults change behaviour for every existing
-deployment. A deployment that needs the previous parsing sets both properties to `false`.
-
-### Before and after
-
-| Term sent | Current parse | Parse with both settings on |
+| Search text received by jena-facet | Today | With both changes |
 | --- | --- | --- |
 | `E45\/5326` | `(label:e45 identifier:e45/5326) (label:5326)` | `label:"e45 5326" identifier:e45/5326` |
 | `Fe-rich granite` | `(label:fe identifier:fe-rich granite) (label:rich) (label:granite)` | `(label:"fe rich" identifier:fe-rich) (label:granite identifier:granite)` |
 | `E45 5326` | `(label:e45 identifier:e45 5326) (label:5326)` | `(label:e45 identifier:e45) (label:5326 identifier:5326)` |
 
-The second row shows the change applies to every term with internal punctuation, not only to
-identifiers. `Fe-rich` now needs `fe` followed by `rich`. Before, either word matched.
+A quoted label term, such as `label:"e45 5326"`, means the pieces must appear together and in
+order.
 
-The third row shows the cost. Today an unquoted `E45 5326` reaches `identifier` as the single
-keyword `e45 5326`. With split-on-whitespace, `identifier` sees `e45` and `5326` separately, so a
-keyword value that contains a space only matches when the client quotes the term or escapes the
-space.
+### Configuration and defaults
 
-## Characters the search client should escape
+Each change has an on/off property on the SHACL text index resource, beside `text:storeValues`.
+The names follow the Lucene settings they control.
 
-We strongly recommend that a search client escape every character in this table, unless it offers
-that Lucene feature to its users on purpose. The escape character is `\`, placed before the
-character. "Unescaped" shows what Lucene does with the character as typed.
-
-| Character | Unescaped | Example |
+| Property | Default | Turns on |
 | --- | --- | --- |
-| `/` | Starts a regular expression | `E45/5326` fails with a `ParseException` |
-| `:` | Names a field | `E45:5326` searches a field named `E45` for `5326`, so it matches nothing |
-| `\` | Escapes the next character | `E45\` fails with a `ParseException` |
-| `"` | Starts or ends a phrase | An unbalanced `"E45` fails with a `ParseException` |
-| `(` `)` | Groups clauses | An unbalanced `(E45` fails with a `ParseException` |
-| `[` `]` `{` `}` | Range query | An unbalanced `[E45` fails with a `ParseException` |
-| `^` | Boosts the preceding term | `E45^` fails with a `ParseException` |
-| `~` | Fuzzy match, or phrase slop | `E45~` matches terms within two edits of `e45` |
+| `text:splitOnWhitespace` | `true` | Change 1: each word is searched separately |
+| `text:autoGeneratePhraseQueries` | `true` | Change 2: a word's pieces must appear together |
+
+Both are on by default. Backward compatibility is not required, so existing deployments get the
+new behaviour without a configuration change. A deployment whose codes contain spaces may turn
+both off; see [What the data needs](#what-the-data-needs). The index fails to load if change 2 is
+on and change 1 is off, because Lucene does not allow that combination.
+
+Neither change alters what is stored in the index, so no reindex is needed. Prez needs no change.
+
+### Implementation notes
+
+- Add both properties to `TextVocab`, read them in `ShaclTextIndexAssembler` the way
+  `text:storeValues` is read, and store them on `TextIndexConfig`.
+- Build every query parser in one method in `ShaclTextIndexLucene` that applies
+  `setAllowLeadingWildcard(true)`, `setSplitOnWhitespace` and `setAutoGeneratePhraseQueries`. This
+  replaces the seven places that build a parser today, in `parseQueryForFields` (lines 789 to 824)
+  and `buildNamedQuery` (line 855).
+- Leave both properties out of the index configuration fingerprint, because they do not change
+  what is indexed.
+- Add parser tests for the rows of the before-and-after table, and configuration tests for the
+  defaults, for both off, and for the rejected combination.
+- Add both properties to the index property table in `docs/03-configuration.md`.
+- The upstream `text:query` path in `TextIndexLucene` is unchanged.
+
+## Recommendations for the search client
+
+These recommendations assume users type plain text and never Lucene syntax.
+
+1. **Escape the search text with this function before every search.** It puts `\` before each
+   character the query parser treats as syntax, and before the words `AND`, `OR` and `NOT`.
+
+   ```js
+   const escapeLucene = (s) =>
+     s.replace(/[\\+\-!():^[\]"{}~*?|&/]/g, "\\$&")
+      .replace(/\b(AND|OR|NOT)\b/g, "\\$1");
+   ```
+
+   `E45/5326` becomes `E45\/5326`. `sand OR clay` becomes `sand \OR clay`, which searches for the
+   three words.
+2. **Send the escaped text as `q` and do not escape it again.** Prez escapes it for SPARQL. Escaping
+   for SPARQL in the client as well doubles the backslashes Lucene receives.
+3. **Do not offer wildcards, fuzzy search or quoted phrases.** The function escapes `*`, `?`, `~`
+   and `"`. Offering one of them means removing its character from the function and documenting
+   it for users. A wildcard search matches codes only: `E45\/53*` matches identifiers starting with
+   `e45/53` and matches no label.
+4. **For a search that should return only the record with a code, limit it to the identifier
+   field.** Prez's Lucene search endpoints accept a `fields` parameter, which takes field IRIs.
+   Sending `fields=urn:jena:lucene:field#identifier` with `q=E45\/5326` searches `identifier`
+   alone. This parameter was found in the Prez code on `edmond/gswa/cql` and has not been tested
+   against the GSWA deployment.
+
+The function escapes these characters. The table shows what each does when it is not escaped.
+
+| Character | Unescaped, the query parser reads it as | Example |
+| --- | --- | --- |
+| `/` | The start of a regular expression | `E45/5326` fails |
+| `:` | A field name | `E45:5326` searches a field named `E45`, so it matches nothing |
+| `\` | An escape for the next character | `E45\` fails |
+| `"` | The start or end of a phrase | `"E45` fails |
+| `(` `)` | A group | `(E45` fails |
+| `[` `]` `{` `}` | A range | `[E45` fails |
+| `^` | A boost for the preceding word | `E45^` fails |
+| `~` | Fuzzy matching | `E45~` matches words within two edits of `e45` |
 | `+` | At the start of a word, the word is required | `+E45` |
-| `-` | At the start of a word, excludes the word | `E45 -5326` excludes every record containing `5326` |
-| `!` | At the start of a word, excludes the word; at the end, fails | `!E45` excludes, `E45!` fails |
-| `&` `\|` | Doubled, they are AND and OR | `E45 && 5326` requires both words |
-| `*` `?` | Wildcards | `E45*` matches every term starting with `e45` |
+| `-` | At the start of a word, the word is excluded | `E45 -5326` excludes every record containing `5326` |
+| `!` | At the start of a word, the word is excluded | `!E45`; `E45!` fails |
+| `&` `\|` | Doubled, AND and OR | `E45 && 5326` requires both words |
+| `*` `?` | Wildcards | `E45*` matches every word starting with `e45` |
+| `AND` `OR` `NOT` | Operators, when in capitals | `OR` on its own fails |
 
-The words `AND`, `OR` and `NOT` in capitals are operators. On their own, or at the end of the
-term, they fail with a `ParseException`. Backslash cannot escape a whole word, but escaping its
-first letter works: `\OR` searches for the word `or`.
+"Fails" means the search returns an error, not results.
 
-Lucene's `QueryParserBase.escape` escapes the same characters. A client in JavaScript can use:
+## What the data needs
 
-```js
-const escapeLucene = (s) =>
-  s.replace(/[\\+\-!():^[\]"{}~*?|&/]/g, "\\$&")
-   .replace(/\b(AND|OR|NOT)\b/g, "\\$1");
-```
+These conditions apply to the GSWA configuration in `gswa-prez-config`
+(`fuseki/full_data/configuration/config.ttl`), where `field:identifier` is searched by default and
+uses `LowerCaseKeywordAnalyzer`.
 
-If the client offers wildcards or phrases, remove `*`, `?` or `"` from the character class. A
-wildcard term is not split by the analyzer, so `E45\/53*` matches identifiers starting with
-`e45/53` but matches no label.
+- **The code is in `schema:identifier`.** A shape maps it to `field:identifier` with
+  `sh:path ( schema:identifier schema:value )`, as `:TenementShape` does. A code that appears only
+  in a label is found by change 2, but not as an exact match.
+- **The code has no spaces.** With change 1, a code containing a space is not found as a whole. The
+  client would have to escape the space (`E45\ 5326`) for it to match. A deployment with such codes
+  should either do that in the client or turn both changes off, which brings back the
+  thousands-of-results behaviour on text fields.
+- **The code has no spaces before or after it.** The whole value, spaces included, is one piece, so
+  a stored ` E45/5326` does not match a search for `E45/5326`.
+- **Case does not matter.** Both the stored code and the search are lowercased.
+- **The whole code must match.** `E45\/532` does not find `E45/5326`. A partial code needs a
+  wildcard, which recommendation 3 leaves out.
 
-Escaping a space keeps two words together as one term. `E45\ 5326` reaches `identifier` as
-`e45 5326`, which is how a client can match a keyword value that contains a space.
+With both changes, a search for `E45/5326` across the default fields returns:
 
-Prez escapes the term for SPARQL after the client has escaped it for Lucene. The client must not
-escape for SPARQL as well, or Lucene receives doubled backslashes.
+- the tenement, through an exact `identifier` match, and through its label if the label contains
+  the code;
+- every Report and Site linked to the tenement whose `tenementLabel` contains the code;
+- any other record whose label or text contains `E45` followed directly by `5326`.
 
-## What the data needs for identifier searches
-
-These conditions hold for the GSWA configuration in `gswa-prez-config`
-(`fuseki/full_data/configuration/config.ttl`), where `field:identifier` is a default search field
-that uses `LowerCaseKeywordAnalyzer` for indexing and queries.
-
-- **The code is in `schema:identifier`.** A shape maps the code to `field:identifier` with
-  `sh:path ( schema:identifier schema:value )`. `:TenementShape` does this. A code that appears
-  only in a label is matched by the phrase query, not by `identifier`.
-- **The value has no spaces.** With split-on-whitespace on, a value containing a space matches only
-  when the client quotes the term or escapes the space. A deployment whose identifiers contain
-  spaces either has its client do that, or sets both parser properties to `false`, which brings
-  back the split-and-OR behaviour on text fields.
-- **The value has no leading or trailing whitespace.** The keyword analyzer indexes the whole value
-  as one token, spaces included, so ` E45/5326` does not match `E45/5326`.
-- **Case does not matter.** The keyword analyzer lowercases the indexed value and the query term,
-  including wildcard terms.
-- **Matching is on the whole value.** `E45\/532` does not match `E45/5326`. A partial match needs a
-  wildcard, `E45\/532*`.
-
-With the change, the code also matches on text fields, as a phrase. Any label where `e45` is
-followed directly by `5326` matches, whatever punctuation separates them in the label:
-`E45/5326`, `E45-5326` and `E45 5326` all match. The result set therefore holds the tenement and
-every record whose `label`, `tenementLabel` or other default search text field contains the code.
-A tenement that matches on both `identifier` and `label` is likely to rank above a record that
-matches on one field, but BM25 scoring does not guarantee it.
-
-If GSWA expects only the tenement records, a search restricted to `identifier` gives that. That
-restriction is a choice of fields in the client or the Prez profile, and this change does not
-make it.
+A tenement that matches on more than one field is likely to rank first, but BM25 scoring does not
+guarantee it. Returning only the tenement needs recommendation 4. Whether GSWA tenement labels
+contain the code has not been checked against the data.
