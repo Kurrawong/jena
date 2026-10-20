@@ -786,42 +786,46 @@ some term, and the term belongs to a broader grouping. Faceting on both, correla
 the term itself as a hierarchy level.
 
 ```turtle
-# instance data — an entity may reference several display tables
-ex:doc1  ex:hasDisplayTable  ex:borehole , ex:downholeAssays .
+# instance data — a report may be tagged with several commodities
+ex:report1  dcterms:subject  ex:copper , ex:gold .
 
-# vocabulary — each display table belongs to a grouping
-ex:borehole        ex:hasGrouping  ex:Holes .
-ex:downholeAssays  ex:hasGrouping  ex:Holes .
-ex:geochemResults  ex:hasGrouping  ex:Geochemistry .
+# vocabulary — each commodity has a broader group
+ex:copper  skos:broader  ex:BaseMetals .
+ex:zinc    skos:broader  ex:BaseMetals .
+ex:gold    skos:broader  ex:PreciousMetals .
 ```
 
 ```turtle
-<#DocumentShape>
-    sh:targetClass ex:Document ;
+<#ReportShape>
+    sh:targetClass ex:Report ;
     idx:nested [
-        idx:joinPath ex:hasDisplayTable ;
-        idx:property [ idx:field field:displayTable ; idx:self true ] ;
-        idx:property [ idx:field field:grouping     ; sh:path ex:hasGrouping ] ;
-        idx:facetHierarchy ( field:grouping field:displayTable ) ;
+        idx:joinPath dcterms:subject ;
+        idx:property [ idx:field field:commodity      ; idx:self true ] ;
+        idx:property [ idx:field field:commodityGroup ; sh:path skos:broader ] ;
+        idx:facetHierarchy ( field:commodityGroup field:commodity ) ;
     ] .
 ```
 
-The child node **is** the display table, so its occurrence binds the focus node; the
-grouping is one step off it. Each child record carries one display table and its grouping,
-so the hierarchy is pairwise correct: a document referencing display tables in two
-different groupings produces exactly its two real paths.
+The child node **is** the commodity concept, so its occurrence binds the focus node; the
+group is one `skos:broader` step off it. Each child record carries one commodity and its
+group, so the hierarchy is pairwise correct: `ex:report1` produces exactly its two real
+paths, `BaseMetals / copper` and `PreciousMetals / gold`.
 
-Declaring the two fields as **root** occurrences instead — `sh:path ex:hasDisplayTable` and
-`sh:path ( ex:hasDisplayTable ex:hasGrouping )` — would read each level's values
-independently and emit the cartesian product of the two, including
-`Holes / geochemResults`, which is not in the data. Drilling into a grouping would then
-offer terms that are not in it, and the children would out-count the parent.
+Declaring the two fields as **root** occurrences instead — `sh:path dcterms:subject` and
+`sh:path ( dcterms:subject skos:broader )` — would read each level's values independently
+and emit the cartesian product of the two, including `BaseMetals / gold`, which is not in
+the data. Drilling into a group would then offer commodities that are not in it, and the
+children would out-count the parent.
+
+`sh:path skos:broader` is one step, so each level of the hierarchy is a fixed hop from the
+concept. A broader chain of unknown depth (`skos:broader+`) cannot be declared as a
+hierarchy.
 
 Both fields are child-scoped here, which is what makes them correlated, and it is also
 what determines how they behave elsewhere: they filter same-child, and they are not
 available as entity-level flat facets. If you also want a flat facet over the term across
 all entities, declare a **separate field** with its own name fed by a root occurrence on
-`ex:hasDisplayTable`. One field cannot be both — see the first rule below.
+`dcterms:subject`. One field cannot be both — see the first rule below.
 
 ### Rules
 
