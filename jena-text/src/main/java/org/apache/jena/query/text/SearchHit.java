@@ -32,8 +32,9 @@ import org.apache.jena.graph.NodeFactory;
  * {@code luc:nestedMatch} and later {@code luc:fields}.
  * <p>
  * The identifier is a blank node labelled with the owning search's prefix and the hit's
- * rank, for example {@code s2h17}, so it is unique within one SPARQL query execution
- * and names both the search and the position.
+ * index in that search's hit list, for example {@code s2h17}, so it is unique within one
+ * SPARQL query execution and names both the search and the position. The index equals
+ * the rank unless the search continued from a cursor.
  * <p>
  * Everything except the rank, score and doc ID is read later and only on request: the
  * entity IRI when the query binds {@code ?entity}, the match details when it uses
@@ -41,9 +42,11 @@ import org.apache.jena.graph.NodeFactory;
  */
 public class SearchHit {
     private final Node hitId;
+    private final int index;
     private final int rank;
     private final float score;
     private final int luceneDocId;
+    private Object[] sortValues;
     private Node entityNode;
     private boolean entityRead;
     private List<FieldMatch> fieldMatches;
@@ -54,13 +57,30 @@ public class SearchHit {
      * @param rank        position in the whole result set, counting from 0
      */
     public SearchHit(String labelPrefix, int rank, float score, int luceneDocId) {
-        this.hitId = NodeFactory.createBlankNode(labelPrefix + rank);
+        this(labelPrefix, rank, rank, score, luceneDocId);
+    }
+
+    /**
+     * @param labelPrefix prefix of the blank node label, distinct per search in a query
+     * @param index       position in the search's hit list, counting from 0
+     * @param rank        position in the whole result set, counting from 0
+     */
+    public SearchHit(String labelPrefix, int index, int rank, float score, int luceneDocId) {
+        this.hitId = NodeFactory.createBlankNode(labelPrefix + index);
+        this.index = index;
         this.rank = rank;
         this.score = score;
         this.luceneDocId = luceneDocId;
     }
 
     public Node getHitId() { return hitId; }
+
+    /**
+     * Position in the search's own hit list, counting from 0: what the hit ID names, and
+     * what values read for the search are kept by. A search that continues from a cursor
+     * starts its list at the hit after it, so there it differs from {@link #getRank()}.
+     */
+    public int getIndex() { return index; }
 
     /**
      * Position in the whole result set, counting from 0 — not within the page. A score
@@ -86,6 +106,13 @@ public class SearchHit {
 
     public float getScore() { return score; }
     public int getLuceneDocId() { return luceneDocId; }
+
+    /** The hit's sort values from a cursor-mode search, which its cursor is built from; else null. */
+    Object[] getSortValues() { return sortValues; }
+
+    void setSortValues(Object[] sortValues) {
+        this.sortValues = sortValues;
+    }
 
     /** Match details, or an empty list if none were found or none have been computed. */
     public List<FieldMatch> getFieldMatches() {

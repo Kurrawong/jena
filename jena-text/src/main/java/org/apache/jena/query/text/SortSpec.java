@@ -23,6 +23,8 @@ package org.apache.jena.query.text;
 
 import java.util.Locale;
 
+import org.apache.jena.query.text.assembler.IndexVocab;
+
 /**
  * Sort specification for Lucene query results.
  * <p>
@@ -31,6 +33,10 @@ import java.util.Locale;
  * child docs, choosing the child by a co-located discriminator. The selector is a
  * sort-key chooser, not a result filter: entities with no matching child stay in the
  * result set and are placed per {@link #missing()}.
+ * <p>
+ * The reserved key {@link #ENTITY} in place of a field orders by entity IRI. Every entity
+ * has exactly one, so as the last key it puts tied hits in one order that does not depend
+ * on when their documents were written.
  *
  * @param field         the field identifier (IRI) to sort by; for a selector spec this is
  *                      the child value field
@@ -45,12 +51,20 @@ import java.util.Locale;
 public record SortSpec(String field, boolean descending, String selectorField,
                        String selectorValue, MissingPlacement missing) {
 
+    /** The sort key that orders hits by entity IRI, in code point order. */
+    public static final String ENTITY = IndexVocab.NS + "entity";
+
     /** Where entities with no sort value land in the final result order. */
     public enum MissingPlacement { FIRST, LAST }
 
     /** Flat sort — no child selector, Lucene-default missing-value placement. */
     public SortSpec(String field, boolean descending) {
         this(field, descending, null, null, null);
+    }
+
+    /** True when this spec sorts by entity IRI rather than by a field. */
+    public boolean isEntity() {
+        return ENTITY.equals(field);
     }
 
     /** True when this spec selects its sort key from a nested child doc. */

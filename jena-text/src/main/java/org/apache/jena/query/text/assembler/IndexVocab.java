@@ -45,6 +45,8 @@ public class IndexVocab {
     public static final String pfNestedMatch = NS + "nestedMatch";
     /** Field values for each hit, read from the index. */
     public static final String pfFields = NS + "fields";
+    /** A hit's cursor, which luc:query continues after when given it. */
+    public static final String pfCursor = NS + "cursor";
     /** The index's own configuration as triples. Answers only when the index sets
      *  {@code text:exposeConfig true}. */
     public static final String pfConfig = NS + "config";

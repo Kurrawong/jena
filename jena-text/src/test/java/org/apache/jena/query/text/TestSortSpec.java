@@ -197,12 +197,14 @@ public class TestSortSpec {
     // ---- Nested sort selector: mapping validation in buildLuceneSort ----
 
     /**
-     * Two nested blocks plus a flat field, so the selector's scope rules have something to
+     * Two nested blocks plus flat fields, so the selector's scope rules have something to
      * be wrong about: identifier(identifierType, identifierValue) and
-     * attribution(attributionRole, agentName), with a root-scoped {@code year}.
+     * attribution(attributionRole, agentName), with a root-scoped {@code year} and
+     * {@code code}.
      */
     private static ShaclTextIndexLucene selectorTestIndex() {
         Node yearPred = NodeFactory.createURI("http://example.org/year");
+        Node codePred = NodeFactory.createURI("http://example.org/code");
         Node identifierPred = NodeFactory.createURI("http://example.org/identifier");
         Node idTypePred = NodeFactory.createURI("http://example.org/propertyID");
         Node idValuePred = NodeFactory.createURI("http://example.org/value");
@@ -211,6 +213,8 @@ public class TestSortSpec {
         Node agentPred = NodeFactory.createURI("http://example.org/agent");
 
         FieldDef yearField = new FieldDef("year", FieldType.INT, null,
+            true, true, false, true, false, false);
+        FieldDef codeField = new FieldDef("code", FieldType.KEYWORD, null,
             true, true, false, true, false, false);
         FieldDef idType = new FieldDef("identifierType", FieldType.KEYWORD, null,
             true, true, true, false, true, false);
@@ -243,9 +247,10 @@ public class TestSortSpec {
             NodeFactory.createURI("http://example.org/Shape"),
             Collections.singleton(NodeFactory.createURI("http://example.org/Thing")),
             "uri", "docType",
-            Arrays.asList(yearField, idType, idValue, idLabel, role, agentName),
-            Collections.singletonList(
-                occurrence(yearField, PathFactory.pathLink(yearPred), Collections.singleton(yearPred))),
+            Arrays.asList(yearField, codeField, idType, idValue, idLabel, role, agentName),
+            Arrays.asList(
+                occurrence(yearField, PathFactory.pathLink(yearPred), Collections.singleton(yearPred)),
+                occurrence(codeField, PathFactory.pathLink(codePred), Collections.singleton(codePred))),
             Collections.emptyList(),
             Arrays.asList(identifierNest, attributionNest));
 
@@ -310,10 +315,26 @@ public class TestSortSpec {
                 .getSort()[0];
             assertEquals(Integer.MIN_VALUE, yearDesc.getMissingValue());
 
-            SortField value = textIndex.buildLuceneSort(List.of(
-                new SortSpec(FP + "identifierValue", false, null, null,
+            SortField code = textIndex.buildLuceneSort(List.of(
+                new SortSpec(FP + "code", false, null, null,
                     SortSpec.MissingPlacement.FIRST))).getSort()[0];
-            assertEquals(SortField.STRING_FIRST, value.getMissingValue());
+            assertEquals(SortField.STRING_FIRST, code.getMissingValue());
+        } finally {
+            textIndex.close();
+        }
+    }
+
+    /**
+     * A flat sort on a field that exists only in nested blocks has no value on any parent
+     * document, so it would order nothing; it is refused, pointing at the selector.
+     */
+    @Test
+    public void testFlatSpecOnNestedOnlyFieldThrows() {
+        ShaclTextIndexLucene textIndex = selectorTestIndex();
+        try {
+            TextIndexException ex = assertThrows(TextIndexException.class,
+                () -> textIndex.buildLuceneSort(List.of(new SortSpec(FP + "identifierValue", false))));
+            assertTrue(ex.getMessage(), ex.getMessage().contains("selector"));
         } finally {
             textIndex.close();
         }
