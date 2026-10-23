@@ -40,8 +40,8 @@ import org.apache.lucene.util.BytesRef;
 
 /**
  * A position in a total order of {@code luc:query} hits: the sort values of one hit and
- * its rank. {@code luc:cursor} gives one per hit; {@code luc:query} takes one back as its
- * eighth argument and continues with the hits that sort after it.
+ * its rank. {@code luc:query} gives one per hit in its sixth subject element, and takes one
+ * back as its eighth argument to continue with the hits that sort after it.
  * <p>
  * A cursor names sort values, not a Lucene document, so it survives commits, merges and
  * re-inserted entities: the next page is every hit that sorts after those values, whichever
@@ -74,12 +74,12 @@ final class SearchCursor {
     private static final byte FLOAT = 4;
     private static final byte DOUBLE = 5;
 
-    /** Marker starting the error for a string that is not a cursor {@code luc:cursor} returned. */
+    /** Marker starting the error for a string that is not a cursor {@code luc:query} returned. */
     static final String MALFORMED = "[LUC_CURSOR_MALFORMED]";
     /** Marker starting the error for a cursor read from a search with a different sort. */
     static final String OTHER_SORT = "[LUC_CURSOR_OTHER_SORT]";
 
-    private static final String NOT_A_CURSOR = MALFORMED + " luc:query: '%s' is not a cursor luc:cursor returned";
+    private static final String NOT_A_CURSOR = MALFORMED + " luc:query: '%s' is not a cursor luc:query returned";
 
     /**
      * A total order hits are paged through: its definition, which a cursor is checked

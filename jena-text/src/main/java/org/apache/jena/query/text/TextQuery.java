@@ -95,12 +95,6 @@ public class TextQuery
                     return new TextFieldsPF() ;
                 }
             });
-            PropertyFunctionRegistry.get().put(IndexVocab.pfCursor, new PropertyFunctionFactory() {
-                @Override
-                public PropertyFunction create(String uri) {
-                    return new TextCursorPF() ;
-                }
-            });
             PropertyFunctionRegistry.get().put(IndexVocab.pfConfig, new PropertyFunctionFactory() {
                 @Override
                 public PropertyFunction create(String uri) {

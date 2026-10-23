@@ -438,28 +438,16 @@ public class SearchExecution {
         }
     }
 
-    /** Whether this search is paged by cursor, so its hits have cursors. */
-    public boolean isPagedByCursor() {
-        return cursor != null;
-    }
-
     /**
-     * The cursor naming {@code hit}'s place in the search's order, for {@code luc:cursor}.
-     * Raises if the search is not paged by cursor: its order is not total, so a cursor from
-     * it could not be continued without skipping or repeating hits.
+     * The cursor naming {@code hit}'s place in the search's order, for {@code luc:query}'s
+     * sixth subject element. Only a search paged by cursor has one: any other order is not
+     * total, so a cursor from it could not be continued without skipping or repeating hits.
      */
     public synchronized String cursor(SearchHit hit) {
         if (cursor == null) {
-            throw notPagedByCursor();
+            throw new IllegalStateException("The search is not paged by cursor");
         }
         return SearchCursor.encode(search.order(), hit.getRank(), hit.getSortValues());
-    }
-
-    /** The error for a cursor asked of a search not paged by cursor. */
-    static QueryExecException notPagedByCursor() {
-        return new QueryExecException("luc:cursor needs a luc:query paged by cursor: pass \""
-            + SearchCursor.START_TOKEN + "\" as its eighth argument for the first page, then "
-            + "the last hit's cursor for the next.");
     }
 
     /**
