@@ -146,6 +146,8 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestFieldValueStorage.class
     , TestLucFields.class
     , TestEntityDocValue.class
+    // luc:query ties by entity IRI, cursor paging and luc:cursor
+    , TestCursorPaging.class
     , TestTextIndexDump.class
 
     // Query parser settings: text:splitOnWhitespace, text:autoGeneratePhraseQueries

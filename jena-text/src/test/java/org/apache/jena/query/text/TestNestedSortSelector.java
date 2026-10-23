@@ -22,18 +22,19 @@
 package org.apache.jena.query.text;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.TreeSet;
 
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.Dataset;
 import org.apache.jena.query.DatasetFactory;
+import org.apache.jena.query.QueryExecException;
 import org.apache.jena.query.QueryExecution;
 import org.apache.jena.query.QueryExecutionFactory;
 import org.apache.jena.query.QuerySolution;
@@ -245,7 +246,8 @@ public class TestNestedSortSelector {
     /**
      * The core claim: parents order by the identifier value taken from the companyID child.
      * The same field without a selector cannot express this — nested values live on the child
-     * docs, so every parent is keyless and the flat sort imposes no order at all.
+     * docs, so every parent is keyless. That flat sort is an error rather than an order that
+     * silently orders nothing.
      */
     @Test
     public void testSortByNestedValueWhereDiscriminatorMatches() {
@@ -256,11 +258,9 @@ public class TestNestedSortSelector {
         assertEquals("parents must order by the companyID identifier value",
             Arrays.asList("bh2", "bh1", "bh4", "bh3"), selectorOrder);
 
-        List<String> flatOrder = query("{\"field\":\"" + FP + "identifierValue\",\"order\":\"asc\"}");
-        assertEquals("the flat sort still returns every entity",
-            new TreeSet<>(selectorOrder), new TreeSet<>(flatOrder));
-        assertNotEquals("the selector must discriminate, not fall back to the flat sort",
-            flatOrder, selectorOrder);
+        QueryExecException ex = assertThrows(QueryExecException.class,
+            () -> query("{\"field\":\"" + FP + "identifierValue\",\"order\":\"asc\"}"));
+        assertTrue(ex.getMessage(), ex.getMessage().contains("selector"));
     }
 
     /** Descending reverses the matched-child keys and still keeps the unmatched entity last. */
@@ -319,6 +319,49 @@ public class TestNestedSortSelector {
         String sort = selectorSort("identifierValue", "identifierType", "companyID", "asc", null);
         assertEquals(Arrays.asList("bh2", "bh1"), query(sort, "", 2, 0));
         assertEquals(Arrays.asList("bh4", "bh3"), query(sort, "", 2, 2));
+    }
+
+    /**
+     * A cursor carries the key the selector chose, so a cursor walk one hit at a time visits
+     * every entity once in selector order, the keyless one last, for a string and a numeric
+     * child value.
+     */
+    @Test
+    public void testCursorWalkAcrossPageBoundaries() {
+        addStandardFixtures();
+
+        assertEquals(Arrays.asList("bh2", "bh1", "bh4", "bh3"),
+            cursorWalk(selectorSort("identifierValue", "identifierType", "companyID", "asc", null)));
+        assertEquals(Arrays.asList("bh2", "bh1", "bh4", "bh3"),
+            cursorWalk(selectorSort("identifierRank", "identifierType", "companyID", "desc", null)));
+    }
+
+    /** Page through {@code luc:query} one hit at a time by cursor. */
+    private List<String> cursorWalk(String sortSpec) {
+        List<String> walked = new ArrayList<>();
+        String after = "*";
+        for (int i = 0; i < 10; i++) {
+            String sparql =
+                "PREFIX luc: <urn:jena:lucene:index#>\n" +
+                "SELECT ?s ?cursor WHERE {\n" +
+                "  (?hit ?s) luc:query (\"default\" \"default\" \"borehole\" \"\" " +
+                "    '" + sortSpec + "' 1 0 \"" + after + "\") .\n" +
+                "  ?hit luc:cursor ?cursor .\n" +
+                "}";
+            dataset.begin(ReadWrite.READ);
+            try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
+                ResultSet rs = qe.execSelect();
+                if (!rs.hasNext()) {
+                    return walked;
+                }
+                QuerySolution sol = rs.next();
+                walked.add(sol.getResource("s").getURI().substring(NS.length()));
+                after = sol.getLiteral("cursor").getLexicalForm();
+            } finally {
+                dataset.end();
+            }
+        }
+        throw new AssertionError("The cursor walk did not end: " + walked);
     }
 
     /**
