@@ -49,7 +49,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Ordering ties by entity IRI, and cursor paging through {@code luc:query}'s eighth
- * argument and {@code luc:cursor}.
+ * argument and sixth subject element, {@code ?cursor}.
  * <p>
  * The fixture is the shape a search client sorts on: a case-folded sortable KEYWORD field
  * and a multi-valued sortable INT field. Six items load in the order e, b, a, c, d, f. b
@@ -196,15 +196,15 @@ public class TestCursorPaging {
 
     /**
      * One page. {@code after} null uses the seven-argument form; any other value is passed as
-     * the eighth argument, and a non-empty one also binds each hit's cursor.
+     * the eighth argument, and a non-empty one also binds each hit's cursor in the sixth
+     * subject element.
      */
     private List<Row> page(String qs, String sort, int limit, int offset, String after) {
         String args = "(\"default\" \"default\" \"" + qs + "\" \"\" '" + sort + "' " + limit + " " + offset
             + (after == null ? "" : " \"" + after + "\"") + ")";
-        String cursor = after == null || after.isEmpty() ? "" : "  ?hit luc:cursor ?cursor .\n";
+        String cursor = after == null || after.isEmpty() ? "" : " ?cursor";
         List<Binding> rows = select("SELECT ?entity ?rank ?cursor WHERE {\n"
-            + "  (?hit ?entity ?score ?totalHits ?rank) luc:query " + args + " .\n"
-            + cursor
+            + "  (?hit ?entity ?score ?totalHits ?rank" + cursor + ") luc:query " + args + " .\n"
             + "} ORDER BY ?rank");
         List<Row> page = new ArrayList<>();
         for (Binding b : rows) {
@@ -471,37 +471,45 @@ public class TestCursorPaging {
         }
     }
 
+    /**
+     * Without an eighth argument the order is not total, so there is no cursor to bind: a
+     * sixth subject element is refused when the query is built. This is also what keeps a
+     * query written for the removed sixth slot, {@code ?graph}, failing.
+     */
     @Test
-    public void lucCursorNeedsACursorModeSearch() {
+    public void cursorSlotWithoutTheEighthArgumentIsAnError() {
         QueryException ex = assertThrows(QueryException.class, () -> select(
             "SELECT * WHERE {\n"
-            + "  (?hit ?entity) luc:query (\"default\" \"default\" \"\" \"\" \"\" 10 0) .\n"
-            + "  ?hit luc:cursor ?cursor .\n"
+            + "  (?hit ?entity ?score ?totalHits ?rank ?cursor) luc:query (\"default\" \"default\" \"\" \"\" \"\" 10 0) .\n"
+            + "}"));
+        assertTrue(ex.getMessage().contains("\"*\""), ex.getMessage());
+    }
+
+    /** An empty eighth argument is no cursor paging, so the sixth element is refused there too. */
+    @Test
+    public void cursorSlotWithAnEmptyEighthArgumentIsAnError() {
+        QueryException ex = assertThrows(QueryException.class, () -> select(
+            "SELECT * WHERE {\n"
+            + "  (?hit ?entity ?score ?totalHits ?rank ?cursor) luc:query (\"default\" \"default\" \"\" \"\" \"\" 10 0 \"\") .\n"
             + "}"));
         assertTrue(ex.getMessage().contains("\"*\""), ex.getMessage());
     }
 
     @Test
-    public void lucCursorWithAConstantCursorKeepsThatHit() {
-        Row b = page("", sort(TITLE_ASC, N_ASC), 10, 0, "*").get(1);
-        List<Binding> rows = select("SELECT ?entity WHERE {\n"
-            + "  (?hit ?entity) luc:query (\"default\" \"default\" \"\" \"\" '" + sort(TITLE_ASC, N_ASC) + "' 10 0 \"*\") .\n"
-            + "  ?hit luc:cursor \"" + b.cursor() + "\" .\n"
-            + "}");
-        assertEquals(1, rows.size());
-        assertEquals(NS + "b", rows.get(0).get("entity").getURI());
+    public void cursorSlotMustBeAVariable() {
+        assertThrows(QueryException.class, () -> select(
+            "SELECT * WHERE {\n"
+            + "  (?hit ?entity ?score ?totalHits ?rank \"x\") luc:query (\"default\" \"default\" \"\" \"\" \"\" 10 0 \"*\") .\n"
+            + "}"));
     }
 
-    /** With ?hit unbound, every cached hit of the search paged by cursor, each with its own cursor. */
     @Test
-    public void lucCursorWithHitUnboundGivesEveryCachedHit() {
-        List<Row> page = page("", sort(TITLE_ASC, N_ASC), 3, 0, "*");
-        List<Binding> rows = select("SELECT DISTINCT ?h ?cursor WHERE {\n"
-            + "  (?hit) luc:query (\"default\" \"default\" \"\" \"\" '" + sort(TITLE_ASC, N_ASC) + "' 3 0 \"*\") .\n"
-            + "  ?h luc:cursor ?cursor .\n"
-            + "}");
-        assertEquals(page.stream().map(Row::cursor).sorted().toList(),
-            rows.stream().map(b -> b.get("cursor").getLiteralLexicalForm()).sorted().toList());
+    public void sevenSubjectElementsIsAnError() {
+        QueryException ex = assertThrows(QueryException.class, () -> select(
+            "SELECT * WHERE {\n"
+            + "  (?hit ?entity ?score ?totalHits ?rank ?cursor ?x) luc:query (\"default\" \"default\" \"\" \"\" \"\" 10 0 \"*\") .\n"
+            + "}"));
+        assertTrue(ex.getMessage().contains("must be 1-6"), ex.getMessage());
     }
 
     @Test

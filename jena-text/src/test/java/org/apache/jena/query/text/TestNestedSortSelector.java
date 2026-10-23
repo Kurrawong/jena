@@ -344,9 +344,8 @@ public class TestNestedSortSelector {
             String sparql =
                 "PREFIX luc: <urn:jena:lucene:index#>\n" +
                 "SELECT ?s ?cursor WHERE {\n" +
-                "  (?hit ?s) luc:query (\"default\" \"default\" \"borehole\" \"\" " +
+                "  (?hit ?s ?score ?totalHits ?rank ?cursor) luc:query (\"default\" \"default\" \"borehole\" \"\" " +
                 "    '" + sortSpec + "' 1 0 \"" + after + "\") .\n" +
-                "  ?hit luc:cursor ?cursor .\n" +
                 "}";
             dataset.begin(ReadWrite.READ);
             try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
