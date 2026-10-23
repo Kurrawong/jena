@@ -393,6 +393,31 @@ public class TestCursorPaging {
         assertEquals(order, entities(walk("copper", "", 2)));
     }
 
+    /**
+     * Look ahead: fetch one more than a page to learn whether another follows, show the page,
+     * and continue from the last hit shown. The extra hit is not skipped, and a short fetch
+     * marks the last page.
+     */
+    @Test
+    public void lookAheadContinuesFromTheLastHitShown() {
+        String sort = sort(TITLE_ASC, N_ASC);
+        List<String> shown = new ArrayList<>();
+        String after = "*";
+        int pages = 0;
+        while (true) {
+            List<Row> fetched = page("", sort, 3, 0, after);
+            pages++;
+            List<Row> page = fetched.subList(0, Math.min(2, fetched.size()));
+            shown.addAll(entities(page));
+            if (fetched.size() < 3) {
+                break;
+            }
+            after = page.get(page.size() - 1).cursor();
+        }
+        assertEquals(TITLE_ORDER, shown);
+        assertEquals(3, pages);
+    }
+
     /** A cursor names sort values, not a document, so it outlives the documents it was read from. */
     @Test
     public void cursorSurvivesReinsertingEveryItem() {

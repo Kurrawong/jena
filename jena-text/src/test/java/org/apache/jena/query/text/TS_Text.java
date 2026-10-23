@@ -146,7 +146,7 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestFieldValueStorage.class
     , TestLucFields.class
     , TestEntityDocValue.class
-    // luc:query ties by entity IRI, cursor paging and luc:cursor
+    // luc:query ties by entity IRI, and cursor paging with the ?cursor subject element
     , TestCursorPaging.class
     , TestTextIndexDump.class
 

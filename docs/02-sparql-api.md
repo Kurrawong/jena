@@ -18,8 +18,8 @@ Public API rules:
 - Index selection is explicit and always the first object argument.
 - Field references are always field IRIs, never `idx:fieldName`.
 - `luc:query` returns `?hit`; per-hit match detail comes from `luc:match`, the
-  nested child records that satisfied the filter from `luc:nestedMatch`, field
-  values from `luc:fields`, and the hit's paging cursor from `luc:cursor`.
+  nested child records that satisfied the filter from `luc:nestedMatch`, and field
+  values from `luc:fields`.
 - `luc:query` no longer returns `?match`.
 - Parsing is fixed-position and fixed-arity, except for `luc:query`'s optional eighth
   argument, `after`. There is no shape-based argument inference.
@@ -34,25 +34,27 @@ Public API rules:
 (?hit ?entity ?score ?totalHits)
   luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)
 
-(?hit ?entity ?score ?totalHits)
+(?hit ?entity ?score ?totalHits ?rank ?cursor)
   luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset after)
 ```
 
-Subject arity may be 1 to 5:
+Subject arity may be 1 to 6:
 
 - `?hit`
 - `?hit ?entity`
 - `?hit ?entity ?score`
 - `?hit ?entity ?score ?totalHits`
 - `?hit ?entity ?score ?totalHits ?rank`
+- `?hit ?entity ?score ?totalHits ?rank ?cursor`, only with the eighth argument, `after`
 
 The entity IRI is read from the index only when the subject list has an `?entity` slot,
 as a variable or as an IRI to filter on. `(?hit)` alone reads no stored field, which
 suits a query that needs only `luc:match` or `luc:nestedMatch` rows.
 
-`?rank` sits last rather than beside `?score`, where it would read more naturally. It was
-added after the earlier positions were already in use, and appending it was the only
-placement that left an existing subject list binding what it already bound.
+`?rank` follows `?totalHits` rather than sitting beside `?score`, where it would read more
+naturally. It was added after the earlier positions were already in use, and appending it
+was the only placement that left an existing subject list binding what it already bound.
+`?cursor` follows it for the same reason.
 
 There is no `?graph` slot. A sixth position briefly existed and never bound a value: a
 SHACL document is assembled from a union view over every graph, so an entity's indexed
@@ -60,6 +62,9 @@ values may come from several graphs at once and there is no single source graph 
 Graph provenance is modelled as a doc-level field instead — see
 [graph filtering target model](2026-04-08-graph-filtering-target-model.md) and
 [source graph indexing](2026-07-31_source_graph_indexing_design.md), both design-only.
+The sixth position is now `?cursor`, which is allowed only with the eighth argument. No
+query written for `?graph` has one, so such a query is still refused when it is built,
+rather than binding `?graph` to the rank.
 A query still naming the old slot is rejected at build time rather than silently binding
 `?graph` to a rank integer.
 
@@ -76,7 +81,7 @@ Object arity is 7, or 8 with `after` for [cursor paging](#cursor-paging).
 | 5 | `sortSpec` | string literal | Yes | JSON sort object/array, or `""` |
 | 6 | `limit` | integer literal | Yes | Page size. Negative means unlimited. `0` gives the default page of 10 |
 | 7 | `offset` | integer literal | Yes | Number of leading hits to skip. `0` = first page. Must be non-negative. `offset + limit` must fit in a signed 32-bit int. With `after`, counted from the hit after the cursor |
-| 8 | `after` | string literal | No | Cursor paging: `"*"` for the first page, or a cursor from `luc:cursor` to continue after that hit. `""`, like leaving it out, is no cursor paging. See [Cursor paging](#cursor-paging) |
+| 8 | `after` | string literal | No | Cursor paging: `"*"` for the first page, or a hit's `?cursor` to continue after that hit. `""`, like leaving it out, is no cursor paging. See [Cursor paging](#cursor-paging) |
 
 ### `fieldSpec`
 
@@ -127,6 +132,7 @@ Pinned by `TestLuceneQuerySyntax` and `TestQueryParserSettings`.
 | `?score` | float | Lucene relevance score; for a sorted search, `1/(1+rank)` (see below) |
 | `?totalHits` | `xsd:integer` | Total matching hits across the whole result set, independent of `limit` and `offset` |
 | `?rank` | `xsd:integer` | Position in the whole result set, counting from 0. Continues across pages: `offset 5` starts at rank 5, and a page after a cursor continues from the cursor's rank |
+| `?cursor` | string literal | The hit's cursor: passed back as `after`, it continues with the hits after this one. Only with `after`; see [Cursor paging](#cursor-paging) |
 
 `?match` is not part of `luc:query`.
 
@@ -248,14 +254,13 @@ A deep `offset` is costly: Lucene collects `offset + limit` hits to return `limi
 them. A cursor instead names a hit's place in the order, and the next page is the
 `limit` hits after it, however deep.
 
-Pass `"*"` as the eighth argument for the first page, and ask each hit for its cursor
-with [`luc:cursor`](#luccursor):
+Pass `"*"` as the eighth argument for the first page, and bind each hit's cursor in the
+sixth subject element:
 
 ```sparql
 SELECT ?entity ?rank ?cursor WHERE {
-  (?hit ?entity ?score ?totalHits ?rank)
+  (?hit ?entity ?score ?totalHits ?rank ?cursor)
     luc:query ("default" "default" "" "" '[{"field":"urn:jena:lucene:field#title"}]' 10 0 "*") .
-  ?hit luc:cursor ?cursor .
 } ORDER BY ?rank
 ```
 
@@ -266,7 +271,14 @@ For the next page, keep every other argument and pass the last hit's cursor as t
              "<the last hit's cursor>") .
 ```
 
-An empty page means the walk is over.
+An empty page means the walk is over. To know without fetching it, look ahead: ask for
+one hit more than a page, show the page, and continue from the cursor of the last hit
+shown, not the extra one. Fewer hits than asked for means this is the last page. Every hit
+has its own cursor for this reason.
+
+A sixth subject element without `after`, or with an empty one, is a query error: such a
+search's order is not total, so a cursor from it could not be continued without skipping
+or repeating hits.
 
 **Cost.** Over 60,000 hits of 100,000 entities, a page after a cursor in an order sorted
 on a field, or on the IRI key, cost 1–5 ms at any depth, against 11–35 ms for the same
@@ -292,7 +304,7 @@ commits, merges and re-inserted entities: the next page is the hits that sort af
 the index as it is now. It does not expire.
 
 - A cursor is tied to the sort it was read from. Used with a different `sortSpec` it is a
-  query error, as is a string that is not a cursor `luc:cursor` returned. It is not tied
+  query error, as is a string that is not a cursor `luc:query` returned. It is not tied
   to `queryString` or `cqlFilter`.
 - `?rank`, and a sorted search's `?score`, continue from the cursor's rank. If the index
   has changed since the cursor was read, they count from where the hit was then.
@@ -310,7 +322,7 @@ parsing the message:
 
 | Marker | Raised when |
 |---|---|
-| `[LUC_CURSOR_MALFORMED]` | `after` is not a cursor `luc:cursor` returned: not base64url, truncated, extended, or holding values of the wrong types |
+| `[LUC_CURSOR_MALFORMED]` | `after` is not a cursor `luc:query` returned: not base64url, truncated, extended, or holding values of the wrong types |
 | `[LUC_CURSOR_OTHER_SORT]` | `after` is a cursor read from a search with a different `sortSpec`, relevance order included |
 | `[LUC_ENTITY_SORT_NEEDS_REBUILD]` | the IRI key is used, by `sortSpec` or by paging by cursor, on an index with documents older than the entity IRI doc value |
 
@@ -519,36 +531,6 @@ has run.
 The first call for a field reads it for every hit `luc:query` has returned, in one pass
 in Lucene doc-ID order, and caches the values; later calls are lookups. With `?hit`
 unbound, it reads every hit `luc:query` cached. The cache holds one entry per value.
-
-## luc:cursor
-
-### Syntax
-
-```sparql
-?hit luc:cursor ?cursor
-```
-
-### Purpose
-
-`luc:cursor` returns a hit's cursor: a string literal that, passed back as `luc:query`'s
-eighth argument, continues with the hits after this one. See
-[Cursor paging](#cursor-paging). It joins to `luc:query` through `?hit`, as `luc:match`
-does.
-
-Only a `luc:query` paged by cursor, given `"*"` or a cursor as its eighth argument, has
-cursors. Asking for one from any other search is a query error: its order is not total,
-so a cursor from it could not be continued without skipping or repeating hits.
-
-### Return bindings
-
-| Variable | Type | Meaning |
-|---|---|---|
-| `?hit` | blank node | Join key from `luc:query` |
-| `?cursor` | string literal | The hit's cursor. A constant keeps only the hit with that cursor |
-
-A cursor is built from the sort values the search already holds, so it reads nothing from
-the index. With `?hit` unbound it gives a row for every cached hit of every search paged
-by cursor in the query.
 
 ## luc:facet
 
@@ -1140,7 +1122,7 @@ Facet-specific parameters such as requested facet fields, `maxValues`, and `minC
 A `luc:query` paged by cursor is a search of its own, keyed also by its `after` argument;
 `luc:facet` does not share it.
 
-`luc:match`, `luc:nestedMatch`, `luc:fields` and `luc:cursor` find their search through `?hit`: each search in a
+`luc:match`, `luc:nestedMatch` and `luc:fields` find their search through `?hit`: each search in a
 query labels its hits with its own prefix, so a query with two `luc:query` patterns over
 different searches joins each `?hit` to the right one.
 
