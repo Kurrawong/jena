@@ -271,10 +271,19 @@ For the next page, keep every other argument and pass the last hit's cursor as t
              "<the last hit's cursor>") .
 ```
 
-An empty page means the walk is over. To know without fetching it, look ahead: ask for
-one hit more than a page, show the page, and continue from the cursor of the last hit
-shown, not the extra one. Fewer hits than asked for means this is the last page. Every hit
-has its own cursor for this reason.
+An empty page means the walk is over. There are two ways to know a page is the last
+without fetching the empty one after it:
+
+- **Compare with `?totalHits`.** Another page follows while the last hit's `?rank` plus one
+  is less than `?totalHits`. Binding `?totalHits` runs a separate count. If the index
+  changes during a walk, ranks still count from where each cursor's hit was when it was
+  read, so the comparison can be off by the entities added or removed since.
+- **Look ahead.** Ask for one hit more than a page, show the page, and continue from the
+  cursor of the last hit shown, not the extra one. Fewer hits than asked for means this is
+  the last page. This needs no count and is exact for the index as it is now.
+
+Every hit has its own cursor so that looking ahead, and resuming a walk partway through a
+page, can continue from a hit other than the last one fetched.
 
 A sixth subject element without `after`, or with an empty one, is a query error: such a
 search's order is not total, so a cursor from it could not be continued without skipping

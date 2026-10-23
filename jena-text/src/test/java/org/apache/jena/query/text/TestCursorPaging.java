@@ -418,6 +418,38 @@ public class TestCursorPaging {
         assertEquals(3, pages);
     }
 
+    /**
+     * The other way to know whether a page follows: one does while the last hit's rank plus
+     * one is less than ?totalHits. The walk ends on the last full page, with no empty fetch.
+     */
+    @Test
+    public void totalHitsTellsWhetherAnotherPageFollows() {
+        String sort = sort(TITLE_ASC, N_ASC);
+        List<String> shown = new ArrayList<>();
+        String after = "*";
+        int pages = 0;
+        while (true) {
+            List<Binding> rows = select("SELECT ?entity ?rank ?totalHits ?cursor WHERE {\n"
+                + "  (?hit ?entity ?score ?totalHits ?rank ?cursor) luc:query (\"default\" \"default\" \"\" \"\" '"
+                + sort + "' 2 0 \"" + after + "\") .\n"
+                + "} ORDER BY ?rank");
+            pages++;
+            assertFalse(rows.isEmpty(), "fetched an empty page");
+            for (Binding b : rows) {
+                shown.add(b.get("entity").getURI().substring(NS.length()));
+            }
+            Binding last = rows.get(rows.size() - 1);
+            int rank = Integer.parseInt(last.get("rank").getLiteralLexicalForm());
+            long totalHits = Long.parseLong(last.get("totalHits").getLiteralLexicalForm());
+            if (rank + 1 >= totalHits) {
+                break;
+            }
+            after = last.get("cursor").getLiteralLexicalForm();
+        }
+        assertEquals(TITLE_ORDER, shown);
+        assertEquals(3, pages);
+    }
+
     /** A cursor names sort values, not a document, so it outlives the documents it was read from. */
     @Test
     public void cursorSurvivesReinsertingEveryItem() {
