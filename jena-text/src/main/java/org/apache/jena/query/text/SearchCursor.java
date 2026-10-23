@@ -55,6 +55,10 @@ import org.apache.lucene.util.BytesRef;
  * type tag and its bytes. Floating-point values are kept as their bits, so a relevance
  * score continues exactly. The hash lets a cursor used with a different sort be refused
  * rather than misread.
+ * <p>
+ * A refused cursor's error message starts with {@value #MALFORMED} or
+ * {@value #OTHER_SORT}, which clients match to report a bad request. They are part of
+ * the API: change them only with the clients.
  */
 final class SearchCursor {
 
@@ -70,7 +74,12 @@ final class SearchCursor {
     private static final byte FLOAT = 4;
     private static final byte DOUBLE = 5;
 
-    private static final String NOT_A_CURSOR = "luc:query: '%s' is not a cursor luc:cursor returned";
+    /** Marker starting the error for a string that is not a cursor {@code luc:cursor} returned. */
+    static final String MALFORMED = "[LUC_CURSOR_MALFORMED]";
+    /** Marker starting the error for a cursor read from a search with a different sort. */
+    static final String OTHER_SORT = "[LUC_CURSOR_OTHER_SORT]";
+
+    private static final String NOT_A_CURSOR = MALFORMED + " luc:query: '%s' is not a cursor luc:cursor returned";
 
     /**
      * A total order hits are paged through: its definition, which a cursor is checked
@@ -177,8 +186,8 @@ final class SearchCursor {
         }
         SortField[] fields = order.sort().getSort();
         if (orderHash != order.hash() || values.length != fields.length) {
-            throw new QueryExecException("luc:query: the cursor was read from a search with a different "
-                + "sort; continue with that sort, or start again with \"" + START_TOKEN + "\"");
+            throw new QueryExecException(OTHER_SORT + " luc:query: the cursor was read from a search with "
+                + "a different sort; continue with that sort, or start again with \"" + START_TOKEN + "\"");
         }
         for (int i = 0; i < fields.length; i++) {
             if (tag(values[i]) != expectedTag(fields[i]) && !(values[i] == null && expectedTag(fields[i]) == BYTES)) {

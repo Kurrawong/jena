@@ -289,6 +289,12 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     }
 
     /**
+     * Marker starting the error for a sort by entity IRI on an index with documents written
+     * before the entity IRI doc value. Clients match it; change it only with them.
+     */
+    static final String ENTITY_SORT_NEEDS_REBUILD = "[LUC_ENTITY_SORT_NEEDS_REBUILD]";
+
+    /**
      * Segment cores in which every live parent document has the entity IRI doc value; see
      * {@link #requireEntityDocValues}. An entry is dropped when its core closes.
      */
@@ -3364,9 +3370,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 continue;
             }
             if (lacksEntityDocValue(leaf, field)) {
-                throw new TextIndexException("Sorting by entity IRI ('" + SortSpec.ENTITY + "', and "
-                    + "every luc:query paged by cursor) reads the entity IRI doc value, and this index "
-                    + "has documents written before it existed; rebuild the index.");
+                throw new TextIndexException(ENTITY_SORT_NEEDS_REBUILD + " Sorting by entity IRI ('"
+                    + SortSpec.ENTITY + "', and every luc:query paged by cursor) reads the entity IRI "
+                    + "doc value, and this index has documents written before it existed; rebuild the index.");
             }
             if (core != null && entityDocValueCores.add(core.getKey())) {
                 core.addClosedListener(entityDocValueCores::remove);
