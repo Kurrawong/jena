@@ -272,8 +272,10 @@ An empty page means the walk is over.
 on a field, or on the IRI key, cost 1–5 ms at any depth, against 11–35 ms for the same
 page by `offset` at depths of 24,000 and 59,990. In relevance order each page scores and
 compares every hit, about 10 ms for 60,000 hits at any depth, so to harvest a whole result
-set, sort it, by the IRI key if by nothing else. `"*"` with a large `offset` cost two to
-four times a plain `offset` jump: use it for shallow jumps.
+set, sort it, by the IRI key if by nothing else. The IRI key makes a deep `offset` dearer
+where ties are common, as every hit tied on the earlier keys is compared by IRI: at depth
+59,990, twice the cost on a year sort and four times in relevance order, against no
+difference on a sort whose values are unique. The first pages cost the same either way.
 
 **The order is total.** Paged by cursor, `luc:query` appends the
 [entity IRI key](#entity-iri), ascending, unless `sortSpec` already sorts by it. With no
@@ -302,6 +304,20 @@ the index as it is now. It does not expire.
 - An entity that matches two shapes has a document for each, with the same IRI. If both
   tie on every key and a page ends between them, the second is not returned.
 - The IRI key needs the entity IRI doc value: see [Entity IRI](#entity-iri).
+
+**Errors.** Three errors start with a fixed marker, so a client can tell them apart without
+parsing the message:
+
+| Marker | Raised when |
+|---|---|
+| `[LUC_CURSOR_MALFORMED]` | `after` is not a cursor `luc:cursor` returned: not base64url, truncated, extended, or holding values of the wrong types |
+| `[LUC_CURSOR_OTHER_SORT]` | `after` is a cursor read from a search with a different `sortSpec`, relevance order included |
+| `[LUC_ENTITY_SORT_NEEDS_REBUILD]` | the IRI key is used, by `sortSpec` or by paging by cursor, on an index with documents older than the entity IRI doc value |
+
+The markers are part of the API and change only with notice. Other errors, an unknown sort
+field among them, carry none. Through Fuseki every `luc:query` error, these included, is an
+HTTP 500 whose `text/plain` body is the message, marker first; Fuseki gives no 4xx for an
+error raised while a query runs, so map the markers to a client error yourself.
 
 ## luc:match
 
@@ -1013,9 +1029,11 @@ written. Without it, hits that tie on every key keep Lucene's index order, which
 when an entity is updated or re-inserted. It works like any other key too: `"desc"`,
 alone, or first.
 
-IRIs compare by code point. That is SPARQL's `ORDER BY` order for any IRI without
-characters beyond U+FFFF. `missing` has no effect, since every entity has an IRI, and a
-`selector` is an error.
+IRIs compare by code point: the bytes of their UTF-8 form, in order. Jena's own
+`ORDER BY STR(?entity)` compares UTF-16 code units instead. The two agree on every pair of
+IRIs except where the first difference sets a character beyond U+FFFF against one from
+U+E000 to U+FFFF: the key puts `x\uFF21` before `x\U0001F600`, Jena's `ORDER BY` the other way
+round. `missing` has no effect, since every entity has an IRI, and a `selector` is an error.
 
 The key reads the entity IRI doc value, which indexes have written since 2026-10-12
 (`d6f0091`, #195). An index holding any document written before then has no value to sort
