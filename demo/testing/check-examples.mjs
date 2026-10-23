@@ -70,16 +70,43 @@ function expandFieldNames(node) {
     return node;
 }
 
-/** ?sort=year:desc — the app's parseSortParam then buildSortSpec, for the plain case. */
+/**
+ * Nested sortable fields, each with the sibling field that selects which child supplies
+ * the sort value. A copy of NESTED_SORT_DISCRIMINATOR in app.js, which a browser script
+ * this checker cannot import.
+ */
+const NESTED_SORT_DISCRIMINATOR = { identifierValueExact: 'identifierType' };
+
+/** The app's shortName: a field's local name, whether given bare or as an IRI. */
+function shortName(uri) {
+    const h = uri.lastIndexOf('#');
+    if (h >= 0) return uri.substring(h + 1);
+    const s = uri.lastIndexOf('/');
+    if (s >= 0) return uri.substring(s + 1);
+    return uri;
+}
+
+/**
+ * ?sort=year:desc, or ?sort=urn:jena:lucene:field#identifierValueExact@anumber:asc for a
+ * nested field: the app's parseSortParam then buildSortSpec. The field is reduced to its
+ * local name before taking the namespace, as the app does, so an IRI is not prefixed
+ * twice. A nested field keeps its selector: no entity document carries a nested value,
+ * so the server refuses the field sorted without one.
+ */
 function sortSpecFrom(sortParam) {
     if (!sortParam) return '';
     const idx = sortParam.lastIndexOf(':');
     const field = idx >= 0 ? sortParam.substring(0, idx) : sortParam;
     const order = (idx >= 0 ? sortParam.substring(idx + 1) : 'asc') === 'desc' ? 'desc' : 'asc';
-    // A nested sort (field@selector) needs a discriminator table this checker does not
-    // carry; the field alone is a valid sort and still exercises the query.
-    const plainField = field.split('@')[0];
-    return JSON.stringify({ field: FIELD_NS + plainField, order });
+    const [rawName, childValue] = field.split('@');
+    const name = shortName(rawName);
+    const spec = { field: FIELD_NS + name, order };
+    const discriminator = NESTED_SORT_DISCRIMINATOR[name];
+    if (childValue && discriminator) {
+        spec.selector = { field: FIELD_NS + discriminator, eq: childValue };
+        spec.missing = 'last';
+    }
+    return JSON.stringify(spec);
 }
 
 function sparqlQuote(s) {
