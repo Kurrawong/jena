@@ -83,10 +83,15 @@ final class SearchCursor {
 
     /**
      * A total order hits are paged through: its definition, which a cursor is checked
-     * against, and the Lucene sort that applies it.
+     * against by hash, and the Lucene sort that applies it. The hash is taken once, as every
+     * cursor of a search carries it.
      */
-    record Order(String definition, Sort sort) {
-        int hash() {
+    record Order(String definition, Sort sort, int hash) {
+        Order(String definition, Sort sort) {
+            this(definition, sort, hash(definition));
+        }
+
+        private static int hash(String definition) {
             CRC32 crc = new CRC32();
             crc.update(definition.getBytes(StandardCharsets.UTF_8));
             return (int) crc.getValue();
