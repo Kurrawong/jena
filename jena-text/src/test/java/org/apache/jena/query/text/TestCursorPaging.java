@@ -282,13 +282,38 @@ public class TestCursorPaging {
             entities(page("", sort(ENTITY_DESC), 10, 0, null)));
     }
 
+    /**
+     * IRIs compare by code point. U+FF21 sorts before U+1F600 by code point, but after it by
+     * UTF-16 code unit, where U+1F600 is the surrogate pair D83D DE00. Jena's own
+     * {@code ORDER BY STR(?s)} compares UTF-16 code units, so on exactly this pair the two
+     * disagree; on IRIs without characters beyond U+FFFF they agree.
+     */
+    @Test
+    public void entityKeyComparesCodePoints() {
+        String fullwidth = "x\uFF21";
+        String emoji = "x\uD83D\uDE00";
+        insert(emoji);
+        insert(fullwidth);
+        List<String> byKey = entities(page("", sort(ENTITY_ASC), 10, 0, null));
+        assertEquals(List.of("a", "b", "c", "d", "e", "f", fullwidth, emoji), byKey);
+        assertEquals(byKey, entities(walk("", sort(ENTITY_ASC), 1)));
+
+        List<String> bySparql = new ArrayList<>();
+        for (Binding b : select("SELECT ?s WHERE { ?s a ex:Item } ORDER BY STR(?s)")) {
+            bySparql.add(b.get("s").getURI().substring(NS.length()));
+        }
+        assertEquals(List.of("a", "b", "c", "d", "e", "f", emoji, fullwidth), bySparql);
+    }
+
     @Test
     public void entityKeyOnAnIndexWithoutTheIriDocValueIsAnError() {
         textIndex.setLegacyNoEntityDocValue(true);
         insert("g");
         QueryException ex = failure("", sort(TITLE_ASC, ENTITY_ASC), null);
+        assertTrue(ex.getMessage().startsWith("[LUC_ENTITY_SORT_NEEDS_REBUILD] "), ex.getMessage());
         assertTrue(ex.getMessage().contains("rebuild"), ex.getMessage());
-        assertThrows(QueryException.class, () -> page("", "", 10, 0, "*"));
+        ex = assertThrows(QueryException.class, () -> page("", "", 10, 0, "*"));
+        assertTrue(ex.getMessage().startsWith("[LUC_ENTITY_SORT_NEEDS_REBUILD] "), ex.getMessage());
     }
 
     // ---- Sort fields that cannot sort ------------------------------------------------
@@ -431,14 +456,19 @@ public class TestCursorPaging {
     public void cursorFromAnotherSortIsAnError() {
         String cursor = page("", sort(TITLE_ASC, N_ASC), 2, 0, "*").get(1).cursor();
         QueryException ex = failure("", sort(N_ASC), cursor);
+        assertTrue(ex.getMessage().startsWith("[LUC_CURSOR_OTHER_SORT] "), ex.getMessage());
         assertTrue(ex.getMessage().contains("sort"), ex.getMessage());
-        failure("", "", cursor);
+        ex = failure("", "", cursor);
+        assertTrue(ex.getMessage().startsWith("[LUC_CURSOR_OTHER_SORT] "), ex.getMessage());
     }
 
     @Test
     public void malformedCursorIsAnError() {
-        failure("", "", "not-a-cursor");
-        failure("", "", "!!");
+        String cursor = page("", "", 2, 0, "*").get(1).cursor();
+        for (String token : List.of("not-a-cursor", "!!", cursor.substring(0, cursor.length() - 4), cursor + "AA")) {
+            QueryException ex = failure("", "", token);
+            assertTrue(ex.getMessage().startsWith("[LUC_CURSOR_MALFORMED] "), token + ": " + ex.getMessage());
+        }
     }
 
     @Test
@@ -514,8 +544,9 @@ public class TestCursorPaging {
     public void tokenOfAnotherOrderIsRejected() {
         Sort sort = new Sort(new SortField("i", SortField.Type.INT));
         String token = SearchCursor.encode(new SearchCursor.Order("one", sort), 0, new Object[] {1});
-        assertThrows(QueryExecException.class,
+        QueryExecException ex = assertThrows(QueryExecException.class,
             () -> SearchCursor.parse(token).after(new SearchCursor.Order("two", sort), 100));
+        assertTrue(ex.getMessage().startsWith("[LUC_CURSOR_OTHER_SORT] "), ex.getMessage());
     }
 
     @Test
@@ -523,7 +554,8 @@ public class TestCursorPaging {
         Sort ints = new Sort(new SortField("i", SortField.Type.INT));
         Sort longs = new Sort(new SortField("i", SortField.Type.LONG));
         String token = SearchCursor.encode(new SearchCursor.Order("same", ints), 0, new Object[] {1});
-        assertThrows(QueryExecException.class,
+        QueryExecException ex = assertThrows(QueryExecException.class,
             () -> SearchCursor.parse(token).after(new SearchCursor.Order("same", longs), 100));
+        assertTrue(ex.getMessage().startsWith("[LUC_CURSOR_MALFORMED] "), ex.getMessage());
     }
 }
