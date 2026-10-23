@@ -21,7 +21,8 @@ Public API rules:
   nested child records that satisfied the filter from `luc:nestedMatch`, and field
   values from `luc:fields`.
 - `luc:query` no longer returns `?match`.
-- Parsing is fixed-position and fixed-arity. There is no shape-based argument inference.
+- Parsing is fixed-position and fixed-arity, except for `luc:query`'s optional eighth
+  argument, `after`. There is no shape-based argument inference.
 - Use `""` as the placeholder for an unused `cqlFilter` or `sortSpec`.
 - Highlight is reserved for later and is not part of the active supported `luc:query` signature.
 
@@ -32,23 +33,28 @@ Public API rules:
 ```sparql
 (?hit ?entity ?score ?totalHits)
   luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)
+
+(?hit ?entity ?score ?totalHits ?rank ?cursor)
+  luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset after)
 ```
 
-Subject arity may be 1 to 5:
+Subject arity may be 1 to 6:
 
 - `?hit`
 - `?hit ?entity`
 - `?hit ?entity ?score`
 - `?hit ?entity ?score ?totalHits`
 - `?hit ?entity ?score ?totalHits ?rank`
+- `?hit ?entity ?score ?totalHits ?rank ?cursor`, only with the eighth argument, `after`
 
 The entity IRI is read from the index only when the subject list has an `?entity` slot,
 as a variable or as an IRI to filter on. `(?hit)` alone reads no stored field, which
 suits a query that needs only `luc:match` or `luc:nestedMatch` rows.
 
-`?rank` sits last rather than beside `?score`, where it would read more naturally. It was
-added after the earlier positions were already in use, and appending it was the only
-placement that left an existing subject list binding what it already bound.
+`?rank` follows `?totalHits` rather than sitting beside `?score`, where it would read more
+naturally. It was added after the earlier positions were already in use, and appending it
+was the only placement that left an existing subject list binding what it already bound.
+`?cursor` follows it for the same reason.
 
 There is no `?graph` slot. A sixth position briefly existed and never bound a value: a
 SHACL document is assembled from a union view over every graph, so an entity's indexed
@@ -56,10 +62,13 @@ values may come from several graphs at once and there is no single source graph 
 Graph provenance is modelled as a doc-level field instead — see
 [graph filtering target model](2026-04-08-graph-filtering-target-model.md) and
 [source graph indexing](2026-07-31_source_graph_indexing_design.md), both design-only.
+The sixth position is now `?cursor`, which is allowed only with the eighth argument. No
+query written for `?graph` has one, so such a query is still refused when it is built,
+rather than binding `?graph` to the rank.
 A query still naming the old slot is rejected at build time rather than silently binding
 `?graph` to a rank integer.
 
-Object arity is always exactly 7.
+Object arity is 7, or 8 with `after` for [cursor paging](#cursor-paging).
 
 ### Arguments
 
@@ -71,7 +80,8 @@ Object arity is always exactly 7.
 | 4 | `cqlFilter` | string literal | Yes | CQL2-JSON object, or `""` |
 | 5 | `sortSpec` | string literal | Yes | JSON sort object/array, or `""` |
 | 6 | `limit` | integer literal | Yes | Page size. Negative means unlimited. `0` gives the default page of 10 |
-| 7 | `offset` | integer literal | Yes | Number of leading hits to skip. `0` = first page. Must be non-negative. `offset + limit` must fit in a signed 32-bit int |
+| 7 | `offset` | integer literal | Yes | Number of leading hits to skip. `0` = first page. Must be non-negative. `offset + limit` must fit in a signed 32-bit int. With `after`, counted from the hit after the cursor |
+| 8 | `after` | string literal | No | Cursor paging: `"*"` for the first page, or a hit's `?cursor` to continue after that hit. `""`, like leaving it out, is no cursor paging. See [Cursor paging](#cursor-paging) |
 
 ### `fieldSpec`
 
@@ -121,7 +131,8 @@ Pinned by `TestLuceneQuerySyntax` and `TestQueryParserSettings`.
 | `?entity` | IRI | Matched entity |
 | `?score` | float | Lucene relevance score; for a sorted search, `1/(1+rank)` (see below) |
 | `?totalHits` | `xsd:integer` | Total matching hits across the whole result set, independent of `limit` and `offset` |
-| `?rank` | `xsd:integer` | Position in the whole result set, counting from 0. Continues across pages: `offset 5` starts at rank 5 |
+| `?rank` | `xsd:integer` | Position in the whole result set, counting from 0. Continues across pages: `offset 5` starts at rank 5, and a page after a cursor continues from the cursor's rank |
+| `?cursor` | string literal | The hit's cursor: passed back as `after`, it continues with the hits after this one. Only with `after`; see [Cursor paging](#cursor-paging) |
 
 `?match` is not part of `luc:query`.
 
@@ -233,6 +244,101 @@ Notes:
 - Lucene fetches `offset + limit` hits internally and the PF exposes only the slice. Very deep offsets therefore cost proportionally more.
 - When `luc:query` and `luc:facet` share a search (same selector, field spec, query string, filter, sort), the cached hit list grows to the largest window seen in the query; each caller gets its own slice.
 - A negative `offset` is a query error. A negative `limit` returns every hit from `offset` on. A `limit` of `0` returns the default page of 10.
+- Ties keep Lucene's index order, which changes when an entity is re-inserted. Add the
+  [entity IRI key](#entity-iri) as the last sort key for an order that does not, or page
+  by cursor, which adds it for you.
+
+### Cursor paging
+
+A deep `offset` is costly: Lucene collects `offset + limit` hits to return `limit` of
+them. A cursor instead names a hit's place in the order, and the next page is the
+`limit` hits after it, however deep.
+
+Pass `"*"` as the eighth argument for the first page, and bind each hit's cursor in the
+sixth subject element:
+
+```sparql
+SELECT ?entity ?rank ?cursor WHERE {
+  (?hit ?entity ?score ?totalHits ?rank ?cursor)
+    luc:query ("default" "default" "" "" '[{"field":"urn:jena:lucene:field#title"}]' 10 0 "*") .
+} ORDER BY ?rank
+```
+
+For the next page, keep every other argument and pass the last hit's cursor as the eighth:
+
+```sparql
+  luc:query ("default" "default" "" "" '[{"field":"urn:jena:lucene:field#title"}]' 10 0
+             "<the last hit's cursor>") .
+```
+
+An empty page means the walk is over. There are two ways to know a page is the last
+without fetching the empty one after it:
+
+- **Compare with `?totalHits`.** Another page follows while the last hit's `?rank` plus one
+  is less than `?totalHits`. Binding `?totalHits` runs a separate count. If the index
+  changes during a walk, ranks still count from where each cursor's hit was when it was
+  read, so the comparison can be off by the entities added or removed since.
+- **Look ahead.** Ask for one hit more than a page, show the page, and continue from the
+  cursor of the last hit shown, not the extra one. Fewer hits than asked for means this is
+  the last page. This needs no count and is exact for the index as it is now.
+
+Every hit has its own cursor so that looking ahead, and resuming a walk partway through a
+page, can continue from a hit other than the last one fetched.
+
+A sixth subject element without `after`, or with an empty one, is a query error: such a
+search's order is not total, so a cursor from it could not be continued without skipping
+or repeating hits.
+
+**Cost.** Over 60,000 hits of 100,000 entities, a page after a cursor in an order sorted
+on a field, or on the IRI key, cost 1–5 ms at any depth, against 11–35 ms for the same
+page by `offset` at depths of 24,000 and 59,990. In relevance order each page scores and
+compares every hit, about 10 ms for 60,000 hits at any depth, so to harvest a whole result
+set, sort it, by the IRI key if by nothing else. The IRI key makes a deep `offset` dearer
+where ties are common, as every hit tied on the earlier keys is compared by IRI: at depth
+59,990, twice the cost on a year sort and four times in relevance order, against no
+difference on a sort whose values are unique. The first pages cost the same either way.
+
+**The order is total.** Paged by cursor, `luc:query` appends the
+[entity IRI key](#entity-iri), ascending, unless `sortSpec` already sorts by it. With no
+`sortSpec`, hits order by relevance and then entity IRI. A page that starts from `"*"`
+and a page that continues from a cursor are in the same order, so start every walk from
+`"*"`. To jump to a page whose `next` link should be a cursor, pass `"*"` with an
+`offset`: `offset` then counts from the start, and the page's cursors continue the same
+order.
+
+**Cursors.** A cursor is opaque. It is unpadded base64url (`A-Z a-z 0-9 - _`), so it can
+go in a URL query parameter unescaped, and it holds the hit's sort values, its entity IRI
+and its rank. It names values rather than a Lucene document, so it stays valid across
+commits, merges and re-inserted entities: the next page is the hits that sort after it in
+the index as it is now. It does not expire.
+
+- A cursor is tied to the sort it was read from. Used with a different `sortSpec` it is a
+  query error, as is a string that is not a cursor `luc:query` returned. It is not tied
+  to `queryString` or `cqlFilter`.
+- `?rank`, and a sorted search's `?score`, continue from the cursor's rank. If the index
+  has changed since the cursor was read, they count from where the hit was then.
+- In relevance order over a text query, BM25 scores depend on index statistics, which a
+  commit, and even a merge, can change. A page after such a change continues from the
+  cursor's score among the new scores, so hits near the boundary can be skipped or
+  repeated. A sort on fields, or a search with no `queryString`, whose hits all score the
+  same, is not affected.
+- An entity that matches two shapes has a document for each, with the same IRI. If both
+  tie on every key and a page ends between them, the second is not returned.
+- The IRI key needs the entity IRI doc value: see [Entity IRI](#entity-iri).
+
+**Errors.** Three errors start with a fixed marker, so a client can tell them apart without
+parsing the message:
+
+| Marker | Raised when |
+|---|---|
+| `[LUC_CURSOR_MALFORMED]` | `after` is not a cursor `luc:query` returned: not base64url, truncated, extended, or holding values of the wrong types |
+| `[LUC_CURSOR_OTHER_SORT]` | `after` is a cursor read from a search with a different `sortSpec`, relevance order included |
+| `[LUC_ENTITY_SORT_NEEDS_REBUILD]` | the IRI key is used, by `sortSpec` or by paging by cursor, on an index with documents older than the entity IRI doc value |
+
+The markers are part of the API and change only with notice. Other errors, an unknown sort
+field among them, carry none. Through Fuseki every `luc:query` error, these included, is an
+HTTP 500 whose `text/plain` body is the message, marker first; Fuseki gives no 4xx for an
+error raised while a query runs, so map the markers to a client error yourself.
 
 ## luc:match
 
@@ -868,6 +974,18 @@ Related deferred design:
 
 Sort fields are field IRIs, not Lucene field names.
 
+A sort the index cannot carry out is a query error rather than a key that silently orders
+nothing:
+
+- an unknown field IRI, including a misspelled [entity IRI key](#entity-iri)
+- a field without sort doc values: a `KEYWORD` field needs `idx:sortable`; a numeric or
+  temporal field needs `idx:sortable` or `idx:facetable`, which write the same doc values
+- a `TEXT` or `LatLon` field
+- a field that occurs only inside `idx:nested` blocks, without a [selector](#nested-sort-selector)
+
+A search that fails, for any of these reasons or because its `queryString` does not
+parse, raises an error rather than returning zero hits.
+
 Single sort:
 
 ```json
@@ -885,6 +1003,33 @@ Multi-sort:
 
 Any sort object may also carry `"missing": "first" | "last"` to place entities that have no
 value for the sort field. Omit it to keep Lucene's own default placement.
+
+### Entity IRI
+
+The reserved key `urn:jena:lucene:index#entity` sorts by entity IRI:
+
+```json
+[
+  {"field":"urn:jena:lucene:field#title","order":"asc","missing":"last"},
+  {"field":"urn:jena:lucene:index#entity","order":"asc"}
+]
+```
+
+As the last key it breaks ties in an order that does not depend on when documents were
+written. Without it, hits that tie on every key keep Lucene's index order, which changes
+when an entity is updated or re-inserted. It works like any other key too: `"desc"`,
+alone, or first.
+
+IRIs compare by code point: the bytes of their UTF-8 form, in order. Jena's own
+`ORDER BY STR(?entity)` compares UTF-16 code units instead. The two agree on every pair of
+IRIs except where the first difference sets a character beyond U+FFFF against one from
+U+E000 to U+FFFF: the key puts `x\uFF21` before `x\U0001F600`, Jena's `ORDER BY` the other way
+round. `missing` has no effect, since every entity has an IRI, and a `selector` is an error.
+
+The key reads the entity IRI doc value, which indexes have written since 2026-10-12
+(`d6f0091`, #195). An index holding any document written before then has no value to sort
+that document by, so sorting by the key, or paging by cursor, raises an error asking for
+the index to be rebuilt.
 
 ### Nested Sort Selector
 
@@ -930,8 +1075,8 @@ come back; a sort reads its key from doc-values on a document that has already b
 picked. Filtering on the discriminator therefore does nothing at all to the sort key.
 
 Concretely: nested values live on the child documents, not the parent, so a plain
-`{"field":"urn:jena:lucene:field#identifierValue"}` sort finds no key on any parent and
-imposes no order — whatever `cqlFilter` says. And even where a value *is* flattened onto
+`{"field":"urn:jena:lucene:field#identifierValue"}` sort finds no key on any parent, and
+is refused as an error — whatever `cqlFilter` says. And even where a value *is* flattened onto
 the parent, the sort collapses the entity's whole bag: an entity whose companyID is
 `C-200` but whose govID is `A-000` sorts on `A-000`. The filter chose the entity; the
 sort key still came from the wrong record.
@@ -982,6 +1127,9 @@ single Lucene execution when these match:
 - sort spec
 
 Facet-specific parameters such as requested facet fields, `maxValues`, and `minCount` are applied after the shared search step.
+
+A `luc:query` paged by cursor is a search of its own, keyed also by its `after` argument;
+`luc:facet` does not share it.
 
 `luc:match`, `luc:nestedMatch` and `luc:fields` find their search through `?hit`: each search in a
 query labels its hits with its own prefix, so a query with two `luc:query` patterns over

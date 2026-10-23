@@ -285,13 +285,15 @@ public class TestOffsetPaging {
     }
 
     /**
-     * Five is the whole subject list. There was a sixth slot, {@code ?graph}, which never
-     * bound a value — a SHACL document is assembled from a union view over every graph, so
-     * a hit has no single source graph. It was removed rather than left as a hole that
-     * pushed ?rank out of position; graph provenance belongs in a doc-level field instead
-     * (docs/2026-04-08-graph-filtering-target-model.md). Rejecting six keeps the removal
-     * loud: a query still naming the old slot fails at build rather than silently binding
-     * ?graph to a rank integer.
+     * Without cursor paging, five is the whole subject list. There was a sixth slot,
+     * {@code ?graph}, which never bound a value — a SHACL document is assembled from a union
+     * view over every graph, so a hit has no single source graph. It was removed rather than
+     * left as a hole that pushed ?rank out of position; graph provenance belongs in a
+     * doc-level field instead (docs/2026-04-08-graph-filtering-target-model.md).
+     * <p>
+     * The sixth element is now {@code ?cursor}, allowed only with the eighth argument that
+     * pages by cursor. A query written for the old slot predates that argument, so it still
+     * fails at build rather than silently binding ?graph to a rank integer.
      */
     @Test
     public void testSixElementSubjectListRejected() {
@@ -305,8 +307,8 @@ public class TestOffsetPaging {
             qe.execSelect().hasNext();
             fail("A six-element subject list should be rejected");
         } catch (QueryBuildException e) {
-            assertTrue("Message should state the permitted arity: " + e.getMessage(),
-                e.getMessage().contains("must be 1-5"));
+            assertTrue("Message should say the sixth element needs cursor paging: " + e.getMessage(),
+                e.getMessage().contains("eighth"));
         } finally {
             dataset.end();
         }

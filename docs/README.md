@@ -24,13 +24,14 @@ This doc set covers the SHACL/entity-per-document search model in `jena-text`.
 | SHACL class semantics | Designed | `sh:targetClass` and `sh:class` to match subclass instances, with `sh:hasValue` for an exact type. See [2026-10-09_shacl_class_semantics_and_jena_shacl_reuse.md](2026-10-09_shacl_class_semantics_and_jena_shacl_reuse.md) |
 | Hit path and `luc:fields` | Built | `luc:query` reads the entity IRI only when bound, from a doc value, and computes matches only for `luc:match`; `luc:fields` returns field values per hit from doc values or stored fields. See [2026-10-12_luc_query_field_projection_design.md](2026-10-12_luc_query_field_projection_design.md) |
 | `sh:node` occurrence filters | Built | Feed a field from nodes selected by a node shape, with occurrence constraints evaluated by jena-shacl. See [2026-10-12_shacl_node_occurrence_filters_design.md](2026-10-12_shacl_node_occurrence_filters_design.md) |
+| IRI sort key and cursor paging | Built | `urn:jena:lucene:index#entity` orders ties by entity IRI; `luc:query`'s eighth argument pages by cursor, and its sixth subject element, `?cursor`, gives each hit's cursor. See [SPARQL API: cursor paging](02-sparql-api.md#cursor-paging) |
 | Highlight API | Deferred | Reserved for later, not active in the current `luc:query` signature |
 
 ## Core Rules
 
-- `luc:query` object arguments are exactly `(indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)`.
+- `luc:query` object arguments are exactly `(indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)`, or those and `after` for cursor paging.
 - `luc:facet` object arguments are exactly `(indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount)`.
-- `luc:query`'s subject list is 1 to 5 of `(?hit ?entity ?score ?totalHits ?rank)`; there is no `?graph` slot.
+- `luc:query`'s subject list is 1 to 6 of `(?hit ?entity ?score ?totalHits ?rank ?cursor)`, the sixth only with `after`; there is no `?graph` slot.
 - `luc:query` does not expose `?match`.
 - `luc:match` is the only match-detail API.
 - Use `""` placeholders for unused `cqlFilter` and `sortSpec`.

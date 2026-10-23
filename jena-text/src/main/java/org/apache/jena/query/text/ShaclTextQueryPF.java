@@ -58,17 +58,28 @@ import org.slf4j.LoggerFactory;
  * <p>
  * Supported argument format:
  * <pre>
- * (?hit ?entity ?score ?totalHits ?rank) luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)
+ * (?hit ?entity ?score ?totalHits ?rank [?cursor]) luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset [after])
  * </pre>
+ * <p>
+ * The optional eighth argument pages by cursor. {@code "*"} starts at the first hit, and a
+ * hit's cursor continues with the hits after it; {@code offset} then counts from there.
+ * Paged by cursor, the order is total: the entity IRI is appended to {@code sortSpec}
+ * unless it already sorts by it, and with no {@code sortSpec} hits order by relevance, then
+ * entity IRI. An empty eighth argument is the same as none.
+ * <p>
+ * {@code ?cursor}, the sixth subject element, binds each hit's cursor. It is allowed only
+ * with an eighth argument: without one the order is not total, so there is no cursor to
+ * give. That also keeps a query written for the removed sixth slot, {@code ?graph}, failing
+ * rather than binding it to the rank.
  * <p>
  * {@code ?rank} is the hit's position in the whole result set, counting from 0. Result
  * order cannot be recovered from {@code ?score}: a match-all query scores every document
  * identically and relevance scores tie, so a consumer that receives an unordered result
  * set — a {@code CONSTRUCT} graph — needs the rank to restore the order.
  * <p>
- * It is last, rather than next to {@code ?score} where it reads more naturally, because it
- * was added after the earlier positions were in use; appending was the only placement that
- * left an existing subject list binding what it already bound.
+ * It follows {@code ?totalHits}, rather than sitting next to {@code ?score} where it reads
+ * more naturally, because it was added after the earlier positions were in use; appending
+ * was the only placement that left an existing subject list binding what it already bound.
  * <p>
  * There is deliberately no {@code ?graph} slot. A SHACL-mode document is built from a union
  * view over every graph, so an entity's indexed values may come from several graphs at once
@@ -86,6 +97,13 @@ import org.slf4j.LoggerFactory;
 public class ShaclTextQueryPF extends PropertyFunctionBase {
     private static final Logger log = LoggerFactory.getLogger(ShaclTextQueryPF.class);
     private static final int QUERY_ARG_ARITY = 7;
+    /** With the optional {@code after} cursor. */
+    private static final int QUERY_ARG_ARITY_AFTER = 8;
+    private static final String ARGS = "(indexSelector fieldSpec queryString cqlFilter sortSpec limit offset [after])";
+    private static final String SUBJECT = "(?hit ?entity ?score ?totalHits ?rank ?cursor)";
+    private static final String CURSOR_NEEDS_PAGING = "luc:query's sixth subject element, ?cursor, needs "
+        + "paging by cursor: pass \"" + SearchCursor.START_TOKEN + "\" as the eighth object argument for the "
+        + "first page, then the last hit's cursor for the next.";
     /** Page size when {@code limit} is 0. */
     private static final int DEFAULT_LIMIT = 10;
 
@@ -100,20 +118,23 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
 
         if (argSubject.isList()) {
             int size = argSubject.getArgListSize();
-            if (size == 0 || size > 5) {
-                throw new QueryBuildException("Subject has " + size + " elements, must be 1-5 " +
-                    "(?hit ?entity ?score ?totalHits ?rank): " + argSubject);
+            if (size == 0 || size > 6) {
+                throw new QueryBuildException("Subject has " + size + " elements, must be 1-6 "
+                    + SUBJECT + ": " + argSubject);
             }
         }
 
         if (!argObject.isList()) {
-            throw new QueryBuildException("luc:query expects exactly " + QUERY_ARG_ARITY
-                + " object arguments: (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)");
+            throw new QueryBuildException("luc:query expects " + QUERY_ARG_ARITY + " or "
+                + QUERY_ARG_ARITY_AFTER + " object arguments: " + ARGS);
         }
         int size = argObject.getArgListSize();
-        if (size != QUERY_ARG_ARITY) {
-            throw new QueryBuildException("luc:query expects exactly " + QUERY_ARG_ARITY
-                + " object arguments (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset), got " + size);
+        if (size != QUERY_ARG_ARITY && size != QUERY_ARG_ARITY_AFTER) {
+            throw new QueryBuildException("luc:query expects " + QUERY_ARG_ARITY + " or "
+                + QUERY_ARG_ARITY_AFTER + " object arguments " + ARGS + ", got " + size);
+        }
+        if (argSubject.isList() && argSubject.getArgListSize() == 6 && size != QUERY_ARG_ARITY_AFTER) {
+            throw new QueryBuildException(CURSOR_NEEDS_PAGING);
         }
     }
 
@@ -132,8 +153,8 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         argSubject = Substitute.substitute(argSubject, binding);
         argObject = Substitute.substitute(argObject, binding);
 
-        // Subject shape: (?hit ?entity ?score ?totalHits ?rank)
-        Node hit = null, entity = null, score = null, rank = null, totalHitsNode = null;
+        // Subject shape: (?hit ?entity ?score ?totalHits ?rank ?cursor)
+        Node hit = null, entity = null, score = null, rank = null, totalHitsNode = null, cursor = null;
 
         if (argSubject.isList()) {
             hit = argSubject.getArg(0);
@@ -155,6 +176,11 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
                 if (!rank.isVariable())
                     throw new QueryExecException("Rank is not a variable: " + argSubject);
             }
+            if (argSubject.getArgListSize() > 5) {
+                cursor = argSubject.getArg(5);
+                if (!cursor.isVariable())
+                    throw new QueryExecException("Cursor is not a variable: " + argSubject);
+            }
         } else {
             hit = argSubject.getArg();
         }
@@ -165,6 +191,9 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         QueryArgs args = parseArgs(argObject);
         if (args == null)
             return IterLib.noResults(execCxt);
+        if (cursor != null && args.after == null) {
+            throw new QueryExecException(CURSOR_NEEDS_PAGING);
+        }
 
         ShaclIndexSelection.Resolved resolvedTextIndex = ShaclIndexSelection.resolve(execCxt, execCxt.getDataset(), args.indexSelector);
         if (resolvedTextIndex == null) {
@@ -179,7 +208,7 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         // Use SearchExecution for shared state with luc:facet and luc:match
         SearchExecution se = SearchExecution.getOrCreate(
             execCxt, resolvedTextIndex.identity(), args.searchFields, args.queryString,
-            args.cqlFilter, args.sortSpecs, textIndex, null, null);
+            args.cqlFilter, args.sortSpecs, args.after, textIndex, null, null);
 
         int offset = args.offset;
         // Negative means unlimited, as documented; 0 keeps the default page of 10.
@@ -212,7 +241,7 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
             }
 
             long totalHits = totalHitsNode != null ? se.getTotalHits() : -1;
-            qIter = resultsToQueryIterator(binding, hit, entity, score, rank,
+            qIter = resultsToQueryIterator(binding, hit, entity, score, rank, cursor,
                 totalHitsNode, totalHits, hits, se, execCxt);
             return qIter;
         } finally {
@@ -224,7 +253,7 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
 
     private QueryIterator resultsToQueryIterator(Binding binding,
                                                   Node hitNode, Node entityNode, Node scoreNode,
-                                                  Node rankNode,
+                                                  Node rankNode, Node cursorNode,
                                                   Node totalHitsNode, long totalHits,
                                                   Collection<SearchHit> results,
                                                   SearchExecution se, ExecutionContext execCxt) {
@@ -232,6 +261,7 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         Var entityVar = (entityNode != null && Var.isVar(entityNode)) ? Var.alloc(entityNode) : null;
         Var scoreVar = (scoreNode == null) ? null : Var.alloc(scoreNode);
         Var rankVar = (rankNode == null) ? null : Var.alloc(rankNode);
+        Var cursorVar = (cursorNode == null) ? null : Var.alloc(cursorNode);
         Var totalHitsVar = (totalHitsNode == null) ? null : Var.alloc(totalHitsNode);
         Node totalHitsValue = totalHitsVar != null
             ? NodeFactory.createLiteralDT(String.valueOf(totalHits), XSDDatatype.XSDinteger) : null;
@@ -242,6 +272,7 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
             if (entityVar != null) bmap.add(entityVar, sh.getEntityNode());
             if (scoreVar != null) bmap.add(scoreVar, NodeFactoryExtra.floatToNode(sh.getScore()));
             if (rankVar != null) bmap.add(rankVar, NodeFactoryExtra.intToNode(sh.getRank()));
+            if (cursorVar != null) bmap.add(cursorVar, NodeFactory.createLiteralString(se.cursor(sh)));
             if (totalHitsVar != null) bmap.add(totalHitsVar, totalHitsValue);
             return bmap.build();
         };
@@ -280,17 +311,17 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
     /**
      * Parse object arguments.
      * <p>
-     * Arg order: (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)
+     * Arg order: (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset [after])
      */
     private QueryArgs parseArgs(PropFuncArg argObject) {
         if (!argObject.isList()) {
-            throw new QueryExecException("luc:query expects exactly " + QUERY_ARG_ARITY
-                + " object arguments (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)");
+            throw new QueryExecException("luc:query expects " + QUERY_ARG_ARITY + " or "
+                + QUERY_ARG_ARITY_AFTER + " object arguments " + ARGS);
         }
         List<Node> list = argObject.getArgList();
-        if (list.size() != QUERY_ARG_ARITY) {
-            throw new QueryExecException("luc:query expects exactly " + QUERY_ARG_ARITY
-                + " object arguments (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset), got " + list.size());
+        if (list.size() != QUERY_ARG_ARITY && list.size() != QUERY_ARG_ARITY_AFTER) {
+            throw new QueryExecException("luc:query expects " + QUERY_ARG_ARITY + " or "
+                + QUERY_ARG_ARITY_AFTER + " object arguments " + ARGS + ", got " + list.size());
         }
 
         String indexSelector = requireLiteralString(list.get(0), "indexSelector");
@@ -301,14 +332,25 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         List<SortSpec> sortSpecs = parseSortSpec(requireLiteralString(list.get(4), "sortSpec"));
         int limit = parseLimit(list.get(5));
         int offset = parseOffset(list.get(6));
+        SearchCursor after = list.size() == QUERY_ARG_ARITY_AFTER ? parseAfter(list.get(7)) : null;
 
         long windowSize = (long) offset + limit;
         if (windowSize > Integer.MAX_VALUE) {
             throw new QueryExecException("luc:query offset + limit exceeds maximum (" +
                 Integer.MAX_VALUE + "): offset=" + offset + ", limit=" + limit);
         }
+        if (after != null && windowSize + after.firstRank() > Integer.MAX_VALUE) {
+            throw new QueryExecException("luc:query cursor position + offset + limit exceeds maximum ("
+                + Integer.MAX_VALUE + ")");
+        }
 
-        return new QueryArgs(indexSelector, searchFields, queryString, cqlFilter, sortSpecs, limit, offset);
+        return new QueryArgs(indexSelector, searchFields, queryString, cqlFilter, sortSpecs, limit, offset, after);
+    }
+
+    /** The cursor to page from, or null for the empty string, which is no cursor paging. */
+    private static SearchCursor parseAfter(Node node) {
+        String token = requireLiteralString(node, "after");
+        return token.isEmpty() ? null : SearchCursor.parse(token);
     }
 
     private static String requireLiteralString(Node node, String label) {
@@ -375,10 +417,11 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         final List<SortSpec> sortSpecs;
         final int limit;
         final int offset;
+        final SearchCursor after;
 
         QueryArgs(String indexSelector, List<String> searchFields, String queryString,
                   CqlExpression cqlFilter, List<SortSpec> sortSpecs,
-                  int limit, int offset) {
+                  int limit, int offset, SearchCursor after) {
             this.indexSelector = indexSelector;
             this.searchFields = searchFields;
             this.queryString = queryString;
@@ -386,6 +429,7 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
             this.sortSpecs = sortSpecs;
             this.limit = limit;
             this.offset = offset;
+            this.after = after;
         }
     }
 }

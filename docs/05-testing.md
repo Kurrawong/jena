@@ -69,6 +69,7 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 |-------|-------|---------------|
 | `TestSortSpec` | 9 | Sort JSON parsing, field-IRI sort specs, Lucene sort construction, numeric selector semantics, invalid text-field sorting |
 | `TestTextQueryPFFilters` | 13 | End-to-end SPARQL `luc:query` sorting with field IRIs, including descending and filtered ascending order |
+| `TestCursorPaging` | 35 | The entity IRI sort key: ties in IRI order, before and after re-insertion, ascending and descending, code point order where Jena's `ORDER BY` differs, and an error on an index without the IRI doc value. Unknown, unsortable, `TEXT` and facetable-only numeric sort fields; a failed search raising. Cursor walks over a normalized keyword, a multi-valued numeric, an explicit IRI key and relevance order; ending a walk on `?totalHits` and on looking ahead one hit, continuing from the last hit shown; a cursor surviving re-insertion of every entity; `offset` from a cursor; the empty eighth argument; a cursor used with another query, another sort, or malformed, including truncated and extended; the marker each client-facing error starts with; the sixth subject element, `?cursor`, without an eighth argument, with an empty one, and as a constant, and a seventh element; the token round trip and its checks |
 
 ### External Content Tests
 

@@ -24,6 +24,7 @@ package org.apache.jena.query.text;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 import org.apache.jena.geosparql.implementation.GeometryWrapper;
 import org.apache.jena.geosparql.implementation.datatype.GMLDatatype;
@@ -64,6 +65,7 @@ import org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyReader;
 import org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyWriter;
 import org.apache.lucene.index.BinaryDocValues;
 import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.DocValuesType;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.IndexReader;
@@ -88,6 +90,8 @@ import org.apache.lucene.search.NamedMatches;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.util.BitSet;
+import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.NumericUtils;
 import org.locationtech.jts.geom.*;
@@ -283,6 +287,18 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     static String entityDocValueField(String entityField) {
         return entityField + "__docValue";
     }
+
+    /**
+     * Marker starting the error for a sort by entity IRI on an index with documents written
+     * before the entity IRI doc value. Clients match it; change it only with them.
+     */
+    static final String ENTITY_SORT_NEEDS_REBUILD = "[LUC_ENTITY_SORT_NEEDS_REBUILD]";
+
+    /**
+     * Segment cores in which every live parent document has the entity IRI doc value; see
+     * {@link #requireEntityDocValues}. An entry is dropped when its core closes.
+     */
+    private final Set<IndexReader.CacheKey> entityDocValueCores = ConcurrentHashMap.newKeySet();
 
     /** Test hook: also store copies of fields read from doc values, as indexes written before that rule do. */
     private volatile boolean legacyStoredCopies = false;
@@ -868,8 +884,10 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * @param textQuery  the text part, for match details; a {@link MatchAllDocsQuery}
      *                   when there is no query string
      * @param finalQuery the text part combined with the compiled filter, for child records
+     * @param order      the total order a cursor-mode search ran in, which its hits' cursors
+     *                   are read in; null otherwise
      */
-    record HitSearch(List<SearchHit> hits, Query textQuery, Query finalQuery) {}
+    record HitSearch(List<SearchHit> hits, Query textQuery, Query finalQuery, SearchCursor.Order order) {}
 
     /**
      * Execute a search and return hits with their entity IRIs, match details and child
@@ -883,7 +901,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             String graphURI, String lang, int limit) {
         IndexSearcher searcher = acquireSearcher();
         try {
-            HitSearch search = searchHits(searcher, resolvedFields, qs, cqlFilter, sortSpecs, limit, "hit");
+            HitSearch search = searchHits(searcher, resolvedFields, qs, cqlFilter, sortSpecs, null, limit, "hit");
             List<SearchHit> results = search.hits();
             readEntityNodes(searcher, results);
             results.removeIf(hit -> hit.getEntityNode() == null);
@@ -900,12 +918,18 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     /**
      * Run a search against {@code searcher}, which the caller holds, and return hits that
      * carry rank, score and Lucene doc ID only. Nothing is read from stored fields.
+     * <p>
+     * With a {@code cursor} the search runs in the total {@link #cursorOrder} and keeps each
+     * hit's sort values for its own cursor. It starts at the first hit, or after the cursor's
+     * hit, ranking from the cursor's position.
      *
+     * @param cursor      where cursor paging continues from, or null for no cursor paging
      * @param limit       hits to return; zero or less means {@link #MAX_N}
      * @param labelPrefix prefix of each hit's blank node label
      */
     HitSearch searchHits(IndexSearcher searcher, List<String> resolvedFields, String qs,
-            CqlExpression cqlFilter, List<SortSpec> sortSpecs, int limit, String labelPrefix) {
+            CqlExpression cqlFilter, List<SortSpec> sortSpecs, SearchCursor cursor, int limit,
+            String labelPrefix) {
         try {
             Query textQuery;
             if (qs == null || qs.isEmpty()) {
@@ -940,22 +964,40 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             if (maxHits >= searcher.getIndexReader().maxDoc()) {
                 maxHits = Math.max(1, searcher.count(searchQuery));
             }
-            Sort luceneSort = buildLuceneSort(sortSpecs);
+            SearchCursor.Order order = cursor != null ? cursorOrder(sortSpecs) : null;
+            Sort luceneSort = order != null ? order.sort() : buildLuceneSort(sortSpecs);
+            if (order != null || sortsByEntity(sortSpecs)) {
+                requireEntityDocValues(searcher);
+            }
 
             TopDocs topDocs;
-            if (luceneSort != null) {
+            if (cursor != null && !cursor.isStart()) {
+                FieldDoc after = cursor.after(order, searcher.getIndexReader().maxDoc());
+                topDocs = searcher.searchAfter(after, searchQuery, maxHits, luceneSort);
+            } else if (luceneSort != null) {
                 topDocs = searcher.search(searchQuery, maxHits, luceneSort);
             } else {
                 topDocs = searcher.search(searchQuery, maxHits);
             }
 
+            // A relevance-first sort carries the score as its first sort value; Lucene leaves
+            // ScoreDoc.score unset under a sort.
+            boolean scored = luceneSort == null || luceneSort.getSort()[0].getType() == SortField.Type.SCORE;
+            int firstRank = cursor != null ? cursor.firstRank() : 0;
             List<SearchHit> results = new ArrayList<>(topDocs.scoreDocs.length);
             int idx = 0;
             for (ScoreDoc sd : topDocs.scoreDocs) {
-                float score = luceneSort == null ? sd.score : rankScore(idx);
-                results.add(new SearchHit(labelPrefix, idx++, score, sd.doc));
+                int rank = firstRank + idx;
+                float score = luceneSort == null ? sd.score
+                    : scored ? (Float) ((FieldDoc) sd).fields[0]
+                    : rankScore(rank);
+                SearchHit hit = new SearchHit(labelPrefix, idx++, rank, score, sd.doc);
+                if (order != null) {
+                    hit.setSortValues(((FieldDoc) sd).fields);
+                }
+                results.add(hit);
             }
-            return new HitSearch(results, textQuery, finalQuery);
+            return new HitSearch(results, textQuery, finalQuery, order);
         } catch (IOException ex) {
             throw new TextIndexException("searchHits", ex);
         } catch (ParseException ex) {
@@ -2813,7 +2855,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     if (!fieldValues.isEmpty()) {
                         SelectedStoredValue selected =
                             selectStoredValue(fd.getFieldName(), fieldValues.lexicals(), valueQuery);
-                        valueNodes[hit.getRank()] = fieldValues.node(selected.index());
+                        valueNodes[hit.getIndex()] = fieldValues.node(selected.index());
                         return;
                     }
                 }
@@ -2825,7 +2867,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         for (SearchHit hit : hits) {
             if (hit.getEntityNode() != null) {
                 float score = ranked ? rankScore(results.size()) : hit.getScore();
-                results.add(new TextHit(hit.getEntityNode(), score, valueNodes[hit.getRank()], null, fieldNode));
+                results.add(new TextHit(hit.getEntityNode(), score, valueNodes[hit.getIndex()], null, fieldNode));
             }
         }
         return results;
@@ -3062,6 +3104,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
             int maxHits = limit > 0 ? limit : MAX_N;
             Sort luceneSort = buildLuceneSort(sortSpecs);
+            if (sortsByEntity(sortSpecs)) {
+                requireEntityDocValues(searcher);
+            }
 
             TopDocs topDocs;
             if (luceneSort != null) {
@@ -3197,6 +3242,12 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
     // ---- Sort ----
 
+    /**
+     * The Lucene sort for {@code sortSpecs}, or null when there are none. A spec this index
+     * cannot sort by — an unknown field, one without sort doc values, a flat sort on a field
+     * that exists only in {@code idx:nested} blocks — is an error, not a key that silently
+     * orders nothing.
+     */
     public Sort buildLuceneSort(List<SortSpec> sortSpecs) {
         if (sortSpecs == null || sortSpecs.isEmpty()) {
             return null;
@@ -3206,20 +3257,36 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         for (int i = 0; i < sortSpecs.size(); i++) {
             SortSpec spec = sortSpecs.get(i);
 
+            if (spec.isEntity()) {
+                if (spec.hasSelector()) {
+                    throw new TextIndexException("Sort key '" + SortSpec.ENTITY
+                        + "' orders by entity IRI and takes no selector.");
+                }
+                fields[i] = entitySortField(spec.descending());
+                continue;
+            }
+
             // Resolve field identifier (IRI) to Lucene field name
             ShaclIndexMapping.FieldDef fd = shaclMapping.findField(spec.field());
-            String luceneFieldName = fd != null ? LiteralFieldSupport.queryFieldName(fd) : spec.field();
-            SortField.Type sortType = fd != null ? sortTypeFor(fd, spec.field()) : SortField.Type.STRING;
+            if (fd == null) {
+                throw new TextIndexException("Unknown sort field: '" + spec.field() + "'. Sort by a "
+                    + "configured field IRI, or by '" + SortSpec.ENTITY + "' for the entity IRI. "
+                    + "Available fields: " + shaclMapping.getAllFieldNames());
+            }
+            String luceneFieldName = LiteralFieldSupport.queryFieldName(fd);
+            SortField.Type sortType = sortTypeFor(fd, spec.field());
 
             if (spec.hasSelector()) {
                 fields[i] = buildSelectorSortField(spec, fd, luceneFieldName, sortType);
-            } else if (fd != null && isNumericField(fd)) {
+                continue;
+            }
+            requireFlatSortable(fd, spec.field());
+            if (isNumericField(fd)) {
                 SortedNumericSelector.Type selector = spec.descending()
                     ? SortedNumericSelector.Type.MAX
                     : SortedNumericSelector.Type.MIN;
                 fields[i] = new SortedNumericSortField(luceneFieldName, sortType, spec.descending(), selector);
-            } else if (fd != null && fd.getFieldType() == ShaclIndexMapping.FieldType.KEYWORD
-                    && fd.isMultiValued()) {
+            } else if (fd.getFieldType() == ShaclIndexMapping.FieldType.KEYWORD && fd.isMultiValued()) {
                 SortedSetSelector.Type selector = spec.descending()
                     ? SortedSetSelector.Type.MAX
                     : SortedSetSelector.Type.MIN;
@@ -3228,12 +3295,107 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 fields[i] = new SortField(luceneFieldName, sortType, spec.descending());
             }
 
-            // A selector spec has already applied its (defaulted) missing placement.
-            if (!spec.hasSelector()) {
-                applyMissingPlacement(fields[i], spec.missing(), sortType, spec.descending());
-            }
+            applyMissingPlacement(fields[i], spec.missing(), sortType, spec.descending());
         }
         return new Sort(fields);
+    }
+
+    /**
+     * Raise unless a flat sort on {@code fd} finds a value on the entity's own document: the
+     * field needs a root occurrence and sort doc values. Numeric fields write the same doc
+     * values for {@code idx:facetable}, so either flag will do there.
+     */
+    private void requireFlatSortable(ShaclIndexMapping.FieldDef fd, String fieldIRI) {
+        if (!shaclMapping.getRootFields().contains(fd)) {
+            throw new TextIndexException("Sort field '" + fieldIRI + "' is only inside idx:nested "
+                + "blocks, so no entity document has a value for it. Add a \"selector\" choosing "
+                + "the child to take the value from.");
+        }
+        boolean docValues = fd.getFieldType() == ShaclIndexMapping.FieldType.KEYWORD
+            ? fd.isSortable()
+            : fd.isSortable() || fd.isFacetable();
+        if (!docValues) {
+            throw new TextIndexException("Sort field '" + fieldIRI + "' is not idx:sortable, so it "
+                + "has no sort doc values.");
+        }
+    }
+
+    /**
+     * Sort by entity IRI. The IRI's doc value is {@code BINARY}, which a
+     * {@link SortField.Type#STRING_VAL} sort compares by value, bytewise: UTF-8 byte order,
+     * which is code point order. It is no slower than an ordinal sort where it matters, as
+     * the last key, compared only between hits that tie on every key before it.
+     */
+    private SortField entitySortField(boolean descending) {
+        return new SortField(entityDocValueField(getDocDef().getEntityField()),
+            SortField.Type.STRING_VAL, descending);
+    }
+
+    private static boolean sortsByEntity(List<SortSpec> sortSpecs) {
+        return sortSpecs != null && sortSpecs.stream().anyMatch(SortSpec::isEntity);
+    }
+
+    /**
+     * The total order a cursor-mode search pages through: the sort specs with the entity IRI
+     * appended unless they already sort by it, or with none, relevance and then entity IRI.
+     * A cursor holds the values of every key, so two hits it cannot tell apart would be one
+     * position, and a page boundary between them would skip the second.
+     */
+    SearchCursor.Order cursorOrder(List<SortSpec> sortSpecs) {
+        SortSpec byEntity = new SortSpec(SortSpec.ENTITY, false);
+        if (sortSpecs == null || sortSpecs.isEmpty()) {
+            return new SearchCursor.Order("relevance," + byEntity.toCanonical(),
+                new Sort(SortField.FIELD_SCORE, entitySortField(false)));
+        }
+        List<SortSpec> total = new ArrayList<>(sortSpecs);
+        if (!sortsByEntity(total)) {
+            total.add(byEntity);
+        }
+        String definition = total.stream().map(SortSpec::toCanonical).collect(Collectors.joining(","));
+        return new SearchCursor.Order(definition, buildLuceneSort(total));
+    }
+
+    /**
+     * Raise unless every live parent document has the entity IRI doc value, which a sort by
+     * entity IRI reads. Documents written before the doc value existed have none; sorted by
+     * it they would all tie, in index order, which is the instability the sort exists to
+     * remove. A segment that passes is remembered: deletions only take documents away, so it
+     * passes for as long as it exists.
+     */
+    private void requireEntityDocValues(IndexSearcher searcher) throws IOException {
+        String field = entityDocValueField(getDocDef().getEntityField());
+        for (LeafReaderContext leaf : searcher.getIndexReader().leaves()) {
+            IndexReader.CacheHelper core = leaf.reader().getCoreCacheHelper();
+            if (core != null && entityDocValueCores.contains(core.getKey())) {
+                continue;
+            }
+            if (lacksEntityDocValue(leaf, field)) {
+                throw new TextIndexException(ENTITY_SORT_NEEDS_REBUILD + " Sorting by entity IRI ('"
+                    + SortSpec.ENTITY + "', and every luc:query paged by cursor) reads the entity IRI "
+                    + "doc value, and this index has documents written before it existed; rebuild the index.");
+            }
+            if (core != null && entityDocValueCores.add(core.getKey())) {
+                core.addClosedListener(entityDocValueCores::remove);
+            }
+        }
+    }
+
+    private static boolean lacksEntityDocValue(LeafReaderContext leaf, String field) throws IOException {
+        BitSet parents = PARENTS_FILTER.getBitSet(leaf);
+        if (parents == null) {
+            return false;
+        }
+        BinaryDocValues values = DocValues.getBinary(leaf.reader(), field);
+        Bits live = leaf.reader().getLiveDocs();
+        int maxDoc = leaf.reader().maxDoc();
+        int doc = parents.nextSetBit(0);
+        while (doc != DocIdSetIterator.NO_MORE_DOCS) {
+            if ((live == null || live.get(doc)) && !values.advanceExact(doc)) {
+                return true;
+            }
+            doc = doc + 1 < maxDoc ? parents.nextSetBit(doc + 1) : DocIdSetIterator.NO_MORE_DOCS;
+        }
+        return false;
     }
 
     /** The Lucene sort value type for a mapped field, rejecting the types that have no order. */
@@ -3262,10 +3424,6 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      */
     private SortField buildSelectorSortField(SortSpec spec, ShaclIndexMapping.FieldDef fd,
             String luceneFieldName, SortField.Type sortType) {
-        if (fd == null) {
-            throw new TextIndexException("Unknown sort field: '" + spec.field() + "'. "
-                + "Available fields: " + shaclMapping.getAllFieldNames());
-        }
         ShaclIndexMapping.NestedDef scope = shaclMapping.findNestedDefForFieldName(fd.getFieldName());
         if (scope == null) {
             throw new TextIndexException("Sort selector requires a nested field: '" + spec.field()

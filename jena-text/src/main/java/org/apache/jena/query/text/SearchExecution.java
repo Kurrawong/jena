@@ -43,7 +43,8 @@ import org.slf4j.LoggerFactory;
  * <p>
  * When {@code luc:query} and {@code luc:facet} appear in the same query with matching
  * parameters (same index, search fields, query string, CQL filter and sort), they share
- * one SearchExecution stored in the ExecutionContext, so the Lucene query runs once.
+ * one SearchExecution stored in the ExecutionContext, so the Lucene query runs once. A
+ * {@code luc:query} paged by cursor is a search of its own, keyed by its cursor.
  * {@code luc:match} and {@code luc:nestedMatch} find it through the {@code ?hit} they are
  * given: each search labels its hits with its own prefix.
  *
@@ -76,6 +77,8 @@ public class SearchExecution {
     private final String queryString;
     private final CqlExpression filter;
     private final List<SortSpec> sortSpecs;
+    /** Where cursor paging continues from, or null when the search is not paged by cursor. */
+    private final SearchCursor cursor;
     private final ShaclTextIndexLucene textIndex;
     private final String graphURI;
     private final String lang;
@@ -87,11 +90,11 @@ public class SearchExecution {
     private int searchHitsFetchedWindow = 0;
     private ShaclTextIndexLucene.HitSearch search;
     private List<String> resolvedFields;
-    /** Ranks returned to luc:query since the last search; dependent reads batch over these. */
+    /** Indexes of hits returned to luc:query since the last search; dependent reads batch over these. */
     private final BitSet returned = new BitSet();
     private final Map<FacetRequestKey, Map<String, List<FacetValue>>> facetCountsCache = new HashMap<>();
     /**
-     * Values read by {@code luc:fields}: per field, a list indexed by rank holding each
+     * Values read by {@code luc:fields}: per field, a list indexed by hit index holding each
      * hit's values, or null where the hit has not been read. Cleared when the search re-runs.
      */
     private final Map<ShaclIndexMapping.FieldDef, List<List<Node>>> fieldValues = new HashMap<>();
@@ -106,17 +109,18 @@ public class SearchExecution {
     public SearchExecution(String indexIdentity, List<String> searchFields, String queryString,
                            CqlExpression filter, List<SortSpec> sortSpecs,
                            ShaclTextIndexLucene textIndex, String graphURI, String lang) {
-        this(0, indexIdentity, searchFields, queryString, filter, sortSpecs, textIndex, graphURI, lang);
+        this(0, indexIdentity, searchFields, queryString, filter, sortSpecs, null, textIndex, graphURI, lang);
     }
 
     private SearchExecution(int id, String indexIdentity, List<String> searchFields, String queryString,
-                            CqlExpression filter, List<SortSpec> sortSpecs,
+                            CqlExpression filter, List<SortSpec> sortSpecs, SearchCursor cursor,
                             ShaclTextIndexLucene textIndex, String graphURI, String lang) {
         this.indexIdentity = indexIdentity;
         this.searchFields = searchFields != null ? new ArrayList<>(searchFields) : new ArrayList<>();
         this.queryString = queryString;
         this.filter = filter;
         this.sortSpecs = sortSpecs != null ? List.copyOf(sortSpecs) : List.of();
+        this.cursor = cursor;
         this.textIndex = textIndex;
         this.graphURI = graphURI;
         this.lang = lang;
@@ -155,7 +159,25 @@ public class SearchExecution {
                                               List<SortSpec> sortSpecs,
                                               ShaclTextIndexLucene textIndex,
                                               String graphURI, String lang) {
+        return getOrCreate(execCxt, indexIdentity, searchFields, queryString, filter, sortSpecs, null,
+            textIndex, graphURI, lang);
+    }
+
+    /**
+     * Get or create a SearchExecution in the given ExecutionContext, paged by {@code cursor}
+     * when it is not null. If one already exists with the same key, it is reused.
+     */
+    static SearchExecution getOrCreate(ExecutionContext execCxt,
+                                       String indexIdentity,
+                                       List<String> searchFields,
+                                       String queryString, CqlExpression filter,
+                                       List<SortSpec> sortSpecs, SearchCursor cursor,
+                                       ShaclTextIndexLucene textIndex,
+                                       String graphURI, String lang) {
         String key = buildKey(indexIdentity, searchFields, queryString, filter, sortSpecs);
+        if (cursor != null) {
+            key += "|after=" + cursor.token();
+        }
         Symbol symbol = Symbol.create(TextQuery.NS + "searchExecution/" + key);
         Context ctx = execCxt.getContext();
 
@@ -169,7 +191,7 @@ public class SearchExecution {
             Registry registry = registry(ctx, true);
             int id = registry.nextId++;
             SearchExecution se = new SearchExecution(id, indexIdentity, searchFields, queryString, filter,
-                sortSpecs, textIndex, graphURI, lang);
+                sortSpecs, cursor, textIndex, graphURI, lang);
             registry.byId.put(id, se);
             ctx.put(symbol, se);
             log.trace("Created SearchExecution {} for key: {}", id, key);
@@ -307,7 +329,8 @@ public class SearchExecution {
     /**
      * Get search hits with stable hit IDs. Caches the largest window seen so far and
      * returns the requested page slice. The hits carry rank, score and doc ID; their
-     * entity IRIs, match details and child records are read on request.
+     * entity IRIs, match details and child records are read on request. A search paged by
+     * cursor counts {@code offset} from the hit after its cursor.
      * <p>
      * A larger window re-runs the search, against the held searcher if there is one, and
      * discards everything read for the previous hits. Without a held searcher it re-runs
@@ -346,15 +369,18 @@ public class SearchExecution {
         }
         try {
             List<String> resolved = textIndex.resolveSearchFields(searchFields);
-            search = textIndex.searchHits(searcher, resolved, queryString, filter, sortSpecs, window, hitPrefix);
+            search = textIndex.searchHits(searcher, resolved, queryString, filter, sortSpecs, cursor,
+                window, hitPrefix);
             resolvedFields = resolved;
             searchHits = search.hits();
             searchHitsFetchedWindow = window;
-        } catch (Exception e) {
-            log.error("Error computing search hits: {}", e.getMessage());
+        } catch (RuntimeException e) {
+            // A search that cannot run is an error for the query, not an empty result: zero
+            // hits would read as "nothing matched", and a client paging by cursor as "done".
             search = null;
-            searchHits = Collections.emptyList();
+            searchHits = null;
             searchHitsFetchedWindow = 0;
+            throw e;
         } finally {
             returned.clear();
             fieldValues.clear();
@@ -370,8 +396,8 @@ public class SearchExecution {
     }
 
     /**
-     * The cached hit with this ID, or null. The label carries the rank, so this is an
-     * index into the cached window.
+     * The cached hit with this ID, or null. The label carries the hit's index, so this is
+     * a lookup in the cached window.
      */
     public synchronized SearchHit findHit(Node hitId) {
         if (searchHits == null || hitId == null || !hitId.isBlank()) {
@@ -381,16 +407,16 @@ public class SearchExecution {
         if (!label.startsWith(hitPrefix)) {
             return null;
         }
-        int rank;
+        int index;
         try {
-            rank = Integer.parseInt(label.substring(hitPrefix.length()));
+            index = Integer.parseInt(label.substring(hitPrefix.length()));
         } catch (NumberFormatException ex) {
             return null;
         }
-        if (rank < 0 || rank >= searchHits.size()) {
+        if (index < 0 || index >= searchHits.size()) {
             return null;
         }
-        SearchHit hit = searchHits.get(rank);
+        SearchHit hit = searchHits.get(index);
         return hit.getHitId().equals(hitId) ? hit : null;
     }
 
@@ -410,6 +436,18 @@ public class SearchExecution {
         if (!missing.isEmpty()) {
             readAgainstSearch(searcher -> textIndex.readEntityNodes(searcher, missing));
         }
+    }
+
+    /**
+     * The cursor naming {@code hit}'s place in the search's order, for {@code luc:query}'s
+     * sixth subject element. Only a search paged by cursor has one: any other order is not
+     * total, so a cursor from it could not be continued without skipping or repeating hits.
+     */
+    public synchronized String cursor(SearchHit hit) {
+        if (cursor == null) {
+            throw new IllegalStateException("The search is not paged by cursor");
+        }
+        return SearchCursor.encode(search.order(), hit.getRank(), hit.getSortValues());
     }
 
     /**
@@ -449,11 +487,11 @@ public class SearchExecution {
     private List<SearchHit> pending(SearchHit hit, Predicate<SearchHit> done) {
         List<SearchHit> batch = new ArrayList<>();
         batch.add(hit);
-        for (int rank = returned.nextSetBit(0); rank >= 0; rank = returned.nextSetBit(rank + 1)) {
-            if (rank >= searchHits.size()) {
+        for (int index = returned.nextSetBit(0); index >= 0; index = returned.nextSetBit(index + 1)) {
+            if (index >= searchHits.size()) {
                 break;
             }
-            SearchHit other = searchHits.get(rank);
+            SearchHit other = searchHits.get(index);
             if (other != hit && !done.test(other)) {
                 batch.add(other);
             }
@@ -525,7 +563,7 @@ public class SearchExecution {
     private boolean hasFieldValues(SearchHit hit, List<ShaclIndexMapping.FieldDef> fields) {
         for (ShaclIndexMapping.FieldDef field : fields) {
             List<List<Node>> column = fieldValues.get(field);
-            if (column == null || column.get(hit.getRank()) == null) {
+            if (column == null || column.get(hit.getIndex()) == null) {
                 return false;
             }
         }
@@ -537,7 +575,7 @@ public class SearchExecution {
         Map<ShaclIndexMapping.FieldDef, List<Node>> result = new LinkedHashMap<>();
         for (ShaclIndexMapping.FieldDef field : fields) {
             List<List<Node>> column = fieldValues.get(field);
-            List<Node> values = column != null ? column.get(hit.getRank()) : null;
+            List<Node> values = column != null ? column.get(hit.getIndex()) : null;
             result.put(field, values != null ? values : List.of());
         }
         return result;
@@ -552,7 +590,7 @@ public class SearchExecution {
             fieldValues.computeIfAbsent(field, f -> new ArrayList<>(Collections.nCopies(size, null)));
         }
         readAgainstSearch(searcher -> textIndex.readFieldValues(searcher, batch, fields,
-            (hit, field, values) -> fieldValues.get(field).set(hit.getRank(), values)));
+            (hit, field, values) -> fieldValues.get(field).set(hit.getIndex(), values)));
     }
 
     /** The index this search ran against. */
@@ -591,12 +629,7 @@ public class SearchExecution {
      */
     public synchronized long getTotalHits() {
         if (totalHits < 0) {
-            try {
-                totalHits = textIndex.countQueryWithCql(queryString, searchFields, filter);
-            } catch (Exception e) {
-                log.error("Error computing total hits: {}", e.getMessage());
-                totalHits = 0;
-            }
+            totalHits = textIndex.countQueryWithCql(queryString, searchFields, filter);
         }
         return totalHits;
     }
