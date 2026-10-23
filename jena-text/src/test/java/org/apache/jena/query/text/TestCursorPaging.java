@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.jena.assembler.Assembler;
 import org.apache.jena.query.*;
@@ -55,13 +56,13 @@ import org.junit.jupiter.api.Test;
  * and e tie on both fields and on relevance, so index order puts e first, and re-inserting
  * either one flips it. Only an IRI tiebreak gives one answer throughout.
  * <pre>
- *   item  title    n       body
- *   a     Alpha    3       copper
- *   b     beta     1, 5    copper copper
- *   c     Gamma    2       copper
- *   d     -        4       copper copper copper
- *   e     Beta     1, 5    copper copper
- *   f     delta    -       copper
+ *   item  title    n       body                  rating
+ *   a     Alpha    3       copper                2
+ *   b     beta     1, 5    copper copper         4
+ *   c     Gamma    2       copper                1
+ *   d     -        4       copper copper copper  5
+ *   e     Beta     1, 5    copper copper         3
+ *   f     delta    -       copper                6
  * </pre>
  */
 public class TestCursorPaging {
@@ -93,12 +94,14 @@ public class TestCursorPaging {
         + "    idx:multiValued true .\n"
         + "field:body  idx:fieldName \"body\" ; idx:fieldType idx:TextField ; idx:defaultSearch true .\n"
         + "field:note  idx:fieldName \"note\" ; idx:fieldType idx:KeywordField .\n"
+        + "field:rating idx:fieldName \"rating\" ; idx:fieldType idx:IntField ; idx:facetable true .\n"
         + "ex:ItemShape\n"
         + "    sh:targetClass ex:Item ;\n"
         + "    sh:property [ idx:field field:title ; sh:path ex:title ] ;\n"
         + "    sh:property [ idx:field field:n ; sh:path ex:n ] ;\n"
         + "    sh:property [ idx:field field:body ; sh:path ex:body ] ;\n"
-        + "    sh:property [ idx:field field:note ; sh:path ex:note ] .\n"
+        + "    sh:property [ idx:field field:note ; sh:path ex:note ] ;\n"
+        + "    sh:property [ idx:field field:rating ; sh:path ex:rating ] .\n"
         + "ex:dataset rdf:type text:TextDataset ;\n"
         + "    text:dataset ex:base ;\n"
         + "    text:index ex:index .\n"
@@ -113,6 +116,8 @@ public class TestCursorPaging {
     private static final String N_DESC = "{\"field\":\"" + FIELD + "n\",\"order\":\"desc\",\"missing\":\"last\"}";
     private static final String ENTITY_ASC = "{\"field\":\"" + ENTITY + "\",\"order\":\"asc\"}";
     private static final String ENTITY_DESC = "{\"field\":\"" + ENTITY + "\",\"order\":\"desc\"}";
+
+    private static final Map<String, Integer> RATINGS = Map.of("a", 2, "b", 4, "c", 1, "d", 5, "e", 3, "f", 6);
 
     /** title asc, n asc, ties by IRI. */
     private static final List<String> TITLE_ORDER = List.of("a", "b", "e", "f", "c", "d");
@@ -156,6 +161,10 @@ public class TestCursorPaging {
                 case "e" -> describe(m, r, "Beta", "copper copper", 1, 5);
                 case "f" -> describe(m, r, "delta", "copper");
                 default -> describe(m, r, item, "copper");
+            }
+            Integer rating = RATINGS.get(item);
+            if (rating != null) {
+                r.addLiteral(m.createProperty(NS + "rating"), m.createTypedLiteral(rating.intValue()));
             }
         });
     }
@@ -301,6 +310,13 @@ public class TestCursorPaging {
         assertTrue(ex.getMessage().contains("idx:sortable"), ex.getMessage());
     }
 
+    /** A numeric field writes its sort doc values for idx:facetable as well as idx:sortable. */
+    @Test
+    public void numericFacetableFieldSorts() {
+        assertEquals(List.of("c", "a", "e", "b", "d", "f"),
+            entities(page("", sort("{\"field\":\"" + FIELD + "rating\"}"), 10, 0, null)));
+    }
+
     @Test
     public void textFieldSortIsAnError() {
         failure("", sort("{\"field\":\"" + FIELD + "body\"}"), null);
@@ -382,6 +398,14 @@ public class TestCursorPaging {
         assertEquals(List.of(4, 5), ranks(skipped));
     }
 
+    /** A cursor is a position in the sort, so a different query string or filter can continue from it. */
+    @Test
+    public void cursorIsNotTiedToTheQuery() {
+        String sort = sort(TITLE_ASC, N_ASC);
+        String cursor = page("", sort, 2, 0, "*").get(1).cursor();
+        assertEquals(List.of("e", "f", "c", "d"), entities(page("copper", sort, 10, 0, cursor)));
+    }
+
     @Test
     public void cursorPastTheLastHitGivesAnEmptyPage() {
         List<Row> all = page("", sort(TITLE_ASC, N_ASC), 10, 0, "*");
@@ -425,6 +449,29 @@ public class TestCursorPaging {
             + "  ?hit luc:cursor ?cursor .\n"
             + "}"));
         assertTrue(ex.getMessage().contains("\"*\""), ex.getMessage());
+    }
+
+    @Test
+    public void lucCursorWithAConstantCursorKeepsThatHit() {
+        Row b = page("", sort(TITLE_ASC, N_ASC), 10, 0, "*").get(1);
+        List<Binding> rows = select("SELECT ?entity WHERE {\n"
+            + "  (?hit ?entity) luc:query (\"default\" \"default\" \"\" \"\" '" + sort(TITLE_ASC, N_ASC) + "' 10 0 \"*\") .\n"
+            + "  ?hit luc:cursor \"" + b.cursor() + "\" .\n"
+            + "}");
+        assertEquals(1, rows.size());
+        assertEquals(NS + "b", rows.get(0).get("entity").getURI());
+    }
+
+    /** With ?hit unbound, every cached hit of the search paged by cursor, each with its own cursor. */
+    @Test
+    public void lucCursorWithHitUnboundGivesEveryCachedHit() {
+        List<Row> page = page("", sort(TITLE_ASC, N_ASC), 3, 0, "*");
+        List<Binding> rows = select("SELECT DISTINCT ?h ?cursor WHERE {\n"
+            + "  (?hit) luc:query (\"default\" \"default\" \"\" \"\" '" + sort(TITLE_ASC, N_ASC) + "' 3 0 \"*\") .\n"
+            + "  ?h luc:cursor ?cursor .\n"
+            + "}");
+        assertEquals(page.stream().map(Row::cursor).sorted().toList(),
+            rows.stream().map(b -> b.get("cursor").getLiteralLexicalForm()).sorted().toList());
     }
 
     @Test
