@@ -1800,7 +1800,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             case INT -> addIntegerLiteralField(doc, fieldDef, lexical);
             case LONG -> addLongLiteralField(doc, fieldDef, lexical);
             case DOUBLE -> addDoubleLiteralField(doc, fieldDef, lexical);
-            case TEMPORAL -> addTemporalLiteralField(doc, fieldDef, lexical);
+            case TEMPORAL -> addTemporalLiteralField(doc, fieldDef, node);
             case LATLON -> {
                 List<IndexableField> spatialFields = parseGeometryToLuceneFields(
                     fieldName, lexical, node.getLiteralDatatypeURI(), fieldDef.isStored());
@@ -1871,11 +1871,20 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         }
     }
 
-    private void addTemporalLiteralField(Document doc, ShaclIndexMapping.FieldDef fieldDef, String lexical) {
+    /**
+     * The epoch twin holds when the value starts: from its datatype where it has a temporal
+     * one, so a date with an offset starts at midnight at that offset, and otherwise from a
+     * date-shaped lexical form, so an untyped date still compares.
+     */
+    private void addTemporalLiteralField(Document doc, ShaclIndexMapping.FieldDef fieldDef, Node literal) {
+        String lexical = literal.getLiteralLexicalForm();
         if (fieldDef.isStored()) {
             doc.add(new StoredField(fieldDef.getFieldName(), lexical));
         }
-        Long epoch = LiteralFieldSupport.toEpochMillis(fieldDef.getFieldType(), lexical);
+        TemporalSpan span = TemporalSpan.of(literal);
+        Long epoch = span != null
+            ? Long.valueOf(span.start())
+            : LiteralFieldSupport.toEpochMillis(fieldDef.getFieldType(), lexical);
         if (epoch == null) {
             log.warn("Failed to parse {} literal for field '{}': {}", fieldDef.getFieldType(), fieldDef.getFieldName(), lexical);
             return;
