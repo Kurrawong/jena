@@ -193,7 +193,10 @@ public class TestTemporalOperators {
                 """, Set.of("founded-0900-06")),
             Arguments.of("""
                 {"op": "t_meets", "args": [{"property": "%sfounded"}, {"interval": ["2022-01-01", ".."]}]}
-                """, Set.of("founded-2021-12"))
+                """, Set.of("founded-2021-12")),
+            Arguments.of("""
+                {"op": "t_disjoint", "args": [{"property": "%stemporal"}, {"timestamp": "2021-06-30T15:00:00Z"}]}
+                """, union(DATETIMES, "date-offset"))
         );
     }
 
