@@ -40,6 +40,7 @@ PREFIX skos:    <http://www.w3.org/2004/02/skos/core#>
 PREFIX ex:      <http://example.org/mining/>
 PREFIX prov:    <http://www.w3.org/ns/prov#>
 PREFIX schema:  <https://schema.org/>
+PREFIX time:    <http://www.w3.org/2006/time#>
 
 ## --- Fuseki server ---
 
@@ -149,6 +150,13 @@ field:indexedAt
     idx:stored false ;
     idx:sortable true ;
     idx:storeLiteralMetadata true .
+
+## When a site operated: an OWL-Time interval per period, its start kept with its own end.
+## A site that closed and reopened has two; one still operating has no end.
+field:operating
+    idx:fieldName "operating" ;
+    idx:fieldType idx:PeriodField ;
+    idx:multiValued true .
 
 ## Searchable from the main box: the notes are prose, they are the only multilingual
 ## values in the dataset, and a note in French should be findable by a French word.
@@ -334,6 +342,12 @@ field:location
     sh:property [ idx:field field:state ; sh:path ex:state ] ;
     sh:property [ idx:field field:status ; sh:path ex:status ] ;
     sh:property [ idx:field field:location ; sh:path <http://www.opengis.net/ont/geosparql#asWKT> ] ;
+    sh:property [
+        idx:field field:operating ;
+        sh:path ex:operatingPeriod ;
+        idx:periodStart ( time:hasBeginning time:inXSDDate ) ;
+        idx:periodEnd   ( time:hasEnd time:inXSDDate ) ;
+    ] ;
     idx:facetHierarchy ( field:state field:commodity ) .
 
 ## =====================================================================================
