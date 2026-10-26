@@ -45,9 +45,10 @@ public class ShaclIndexAssembler {
     private static final Logger log = LoggerFactory.getLogger(ShaclIndexAssembler.class);
 
     /** Field types an {@code idx:self} occurrence can feed. A focus node is a resource,
-     *  so the numeric and temporal types have nothing to convert. */
+     *  so the numeric and temporal types have nothing to convert. A period reads its start
+     *  and end from the node, which may be the focus node itself. */
     private static final Set<FieldType> SELF_BINDABLE_TYPES =
-        Collections.unmodifiableSet(EnumSet.of(FieldType.KEYWORD, FieldType.TEXT));
+        Collections.unmodifiableSet(EnumSet.of(FieldType.KEYWORD, FieldType.TEXT, FieldType.PERIOD));
 
     private static final Property shTargetClass = SHACLM.targetClass;
     private static final Property shProperty    = SHACLM.property;
@@ -610,8 +611,11 @@ public class ShaclIndexAssembler {
             return null;
         }
         Graph graph = occurrenceRes.getModel().getGraph();
-        return new FieldOccurrence.PeriodPaths(
-            parseShaclPath(graph, start.getObject().asNode()), parseShaclPath(graph, end.getObject().asNode()));
+        Path startPath = parseShaclPath(graph, start.getObject().asNode());
+        Path endPath = parseShaclPath(graph, end.getObject().asNode());
+        List<List<JoinStep>> variants = new ArrayList<>(extractPathVariants(startPath));
+        variants.addAll(extractPathVariants(endPath));
+        return new FieldOccurrence.PeriodPaths(startPath, endPath, variants);
     }
 
     /**

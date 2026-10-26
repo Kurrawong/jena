@@ -364,9 +364,14 @@ public class ShaclIndexMapping {
     public static class FieldOccurrence {
         /**
          * Where a PeriodField occurrence finds its start and its end: paths from the period
-         * node the occurrence reaches.
+         * node the occurrence reaches. {@code variants} are both paths' predicate walks,
+         * which change tracking follows.
          */
-        public record PeriodPaths(Path start, Path end) {}
+        public record PeriodPaths(Path start, Path end, List<List<JoinStep>> variants) {
+            public PeriodPaths {
+                variants = deepUnmodifiable(variants);
+            }
+        }
 
         private final FieldDef field;
         private final List<StepDef> steps;
@@ -1423,6 +1428,11 @@ public class ShaclIndexMapping {
             if (occurrence.getValueCondition() != null) {
                 addConditionPath(lookup, profile, nestedDef,
                     concatVariants(occurrence.getPathVariants(), occurrence.getValueCondition().getTrackedPaths()));
+            }
+            if (occurrence.getPeriodPaths() != null) {
+                // A period's start and end are read from the node the occurrence reaches.
+                addConditionPath(lookup, profile, nestedDef,
+                    concatVariants(occurrence.getPathVariants(), occurrence.getPeriodPaths().variants()));
             }
         }
     }
