@@ -187,6 +187,8 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     // The interval a temporal literal spans, in UTC
     , TestTemporalSpan.class
     , TestTemporalComparisonsByStart.class
+    // CQL2's temporal operators over a value's span
+    , TestTemporalOperators.class
 
     // Classic Lucene query syntax reaching the queryString argument
     , TestLuceneQuerySyntax.class
