@@ -35,11 +35,15 @@ import org.apache.jena.query.ARQ;
 import org.apache.jena.sparql.path.Path;
 import org.apache.jena.sparql.path.eval.PathEval;
 import org.apache.jena.sparql.util.Context;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Builds parent entities and nested child records from a graph and a parsed index profile.
  */
 final class ShaclEntityBuilder {
+
+    private static final Logger log = LoggerFactory.getLogger(ShaclEntityBuilder.class);
 
     private ShaclEntityBuilder() {}
 
@@ -163,6 +167,10 @@ final class ShaclEntityBuilder {
      * The span of a period node: from its start value's start to its end value's end, so a
      * period ending on a date runs to the end of that day. A missing bound is open, as an
      * ongoing period has no end; a node with neither bound has no span.
+     * <p>
+     * A period that cannot be read is logged and skipped, as an unparseable date is: two
+     * starts or two ends do not say which pairs with which, and a period cannot end before
+     * it starts.
      */
     private static TemporalSpan periodSpan(Graph graph, Node period, FieldOccurrence.PeriodPaths paths) {
         List<Node> starts = reached(graph, period, paths.start());
@@ -171,6 +179,8 @@ final class ShaclEntityBuilder {
             return null;
         }
         if (starts.size() > 1 || ends.size() > 1) {
+            log.warn("Skipping period {}: it has {} starts and {} ends, and a period has at most one of each",
+                period, starts.size(), ends.size());
             return null;
         }
         TemporalSpan start = starts.isEmpty() ? new TemporalSpan(Long.MIN_VALUE, Long.MIN_VALUE)
@@ -178,6 +188,12 @@ final class ShaclEntityBuilder {
         TemporalSpan end = ends.isEmpty() ? new TemporalSpan(Long.MAX_VALUE, Long.MAX_VALUE)
             : TemporalSpan.of(ends.get(0));
         if (start == null || end == null) {
+            log.warn("Skipping period {}: {} is not a date or a time", period,
+                start == null ? starts.get(0) : ends.get(0));
+            return null;
+        }
+        if (start.start() > end.end()) {
+            log.warn("Skipping period {}: it ends ({}) before it starts ({})", period, ends.get(0), starts.get(0));
             return null;
         }
         return new TemporalSpan(start.start(), end.end());
