@@ -191,6 +191,7 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestTemporalOperators.class
     , TestTemporalOperatorOracle.class
     , TestTemporalOperatorSemantics.class
+    , TestNestedTemporalOperators.class
 
     // Classic Lucene query syntax reaching the queryString argument
     , TestLuceneQuerySyntax.class
