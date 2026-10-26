@@ -169,7 +169,11 @@ public class TestTemporalOperators {
                 """, Set.of("date", "year-month")),
             Arguments.of("""
                 {"op": "t_contains", "args": [{"interval": ["2021-01-01", "2021-12-31"]}, {"property": "%stemporal"}]}
-                """, union(DATETIMES, "date", "date-offset", "year-month"))
+                """, union(DATETIMES, "date", "date-offset", "year-month")),
+            Arguments.of("""
+                {"op": "t_overlaps", "args": [{"interval": [{"property": "%stemporal"}, {"property": "%stemporal"}]},
+                                              {"interval": ["2021-06-30T13:00:00Z", "2021-07-15"]}]}
+                """, Set.of("date", "date-offset", "year-month"))
         );
     }
 
