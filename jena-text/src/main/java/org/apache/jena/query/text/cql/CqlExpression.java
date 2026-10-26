@@ -40,6 +40,7 @@ public sealed interface CqlExpression
             CqlExpression.CqlBetween,
             CqlExpression.CqlLike,
             CqlExpression.CqlSpatial,
+            CqlExpression.CqlTemporal,
             CqlExpression.CqlTextQuery {
 
     String toCanonical();
@@ -136,6 +137,40 @@ public sealed interface CqlExpression
             return distanceMetres == null
                 ? op + "(" + property + "," + geometry + ")"
                 : op + "(" + property + "," + geometry + "," + distanceMetres + ")";
+        }
+    }
+
+    /**
+     * A temporal predicate relating the intervals its two operands span. Operand order
+     * is significant, so the canonical form keeps it.
+     */
+    record CqlTemporal(String op, TemporalOperand first, TemporalOperand second) implements CqlExpression {
+        @Override
+        public String toCanonical() {
+            return op + "(" + first.toCanonical() + "," + second.toCanonical() + ")";
+        }
+    }
+
+    /** An operand of a temporal predicate: a property, a date or timestamp, or an interval. */
+    sealed interface TemporalOperand permits TemporalProperty, TemporalInstant {
+        String toCanonical();
+    }
+
+    record TemporalProperty(String property) implements TemporalOperand {
+        @Override
+        public String toCanonical() {
+            return "property(" + property + ")";
+        }
+    }
+
+    /**
+     * A {@code {"timestamp": …}} or {@code {"date": …}} literal. Its form, not its key,
+     * decides what it spans, as in Prez: a date is its whole day, a timestamp an instant.
+     */
+    record TemporalInstant(String lexical) implements TemporalOperand {
+        @Override
+        public String toCanonical() {
+            return "instant(" + lexical + ")";
         }
     }
 

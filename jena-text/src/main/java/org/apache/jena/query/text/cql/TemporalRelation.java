@@ -1,0 +1,76 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ *
+ *   SPDX-License-Identifier: Apache-2.0
+ */
+
+package org.apache.jena.query.text.cql;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * A CQL2 temporal relation, as comparisons between the ends of its two operands' spans:
+ * all of them hold, or with {@code anyOf} at least one. The definitions are OGC
+ * 21-065r2's Tables 5 and 6 and the OWL-Time relations Table 6 cites. Every comparison is
+ * strict or an equality, so spans are closed at both ends.
+ */
+record TemporalRelation(List<Condition> conditions, boolean anyOf) {
+
+    enum End { START, END }
+
+    enum Comparison {
+        LT, LE, GT, GE, EQ;
+
+        boolean holds(long left, long right) {
+            return switch (this) {
+                case LT -> left < right;
+                case LE -> left <= right;
+                case GT -> left > right;
+                case GE -> left >= right;
+                case EQ -> left == right;
+            };
+        }
+
+        /** The same comparison with its operands swapped: {@code a < b} is {@code b > a}. */
+        Comparison flipped() {
+            return switch (this) {
+                case LT -> GT;
+                case LE -> GE;
+                case GT -> LT;
+                case GE -> LE;
+                case EQ -> EQ;
+            };
+        }
+    }
+
+    /** {@code first}'s end compared with {@code second}'s end. */
+    record Condition(End first, Comparison comparison, End second) {}
+
+    private static final Map<String, TemporalRelation> RELATIONS = Map.of(
+        "t_after", allOf(new Condition(End.START, Comparison.GT, End.END)));
+
+    /** The relation an operator names, or null if it names none. */
+    static TemporalRelation forOperator(String op) {
+        return RELATIONS.get(op);
+    }
+
+    private static TemporalRelation allOf(Condition... conditions) {
+        return new TemporalRelation(List.of(conditions), false);
+    }
+}

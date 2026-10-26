@@ -34,11 +34,14 @@ import org.apache.jena.atlas.json.JSON;
 import org.apache.jena.atlas.json.JsonArray;
 import org.apache.jena.atlas.json.JsonObject;
 import org.apache.jena.atlas.json.JsonValue;
+import org.apache.jena.datatypes.xsd.XSDDatatype;
+import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.text.LiteralFieldSupport;
 import org.apache.jena.query.text.ShaclIndexMapping;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.HierarchyDef;
+import org.apache.jena.query.text.TemporalSpan;
 import org.apache.jena.query.text.TextIndexException;
 import org.apache.lucene.facet.DrillDownQuery;
 import org.apache.lucene.facet.FacetsConfig;
@@ -143,6 +146,7 @@ public class CqlToLuceneCompiler {
             case CqlExpression.CqlBetween btw -> compileBetween(btw);
             case CqlExpression.CqlLike like -> compileLike(like);
             case CqlExpression.CqlSpatial spatial -> compileSpatial(spatial);
+            case CqlExpression.CqlTemporal temporal -> new CompileResult(compileTemporal(temporal), null);
             case CqlExpression.CqlTextQuery tq -> compileTextQuery(tq);
         };
     }
@@ -917,6 +921,213 @@ public class CqlToLuceneCompiler {
      * (multi-token, positional). Empty token streams produce {@link MatchNoDocsQuery}
      * rather than matching everything.
      */
+    /**
+     * One value of a property operand. A plain property operand is one binding, so its
+     * start and end come from the same value; each property end of an interval is a
+     * binding of its own, as Prez's SPARQL binds each to its own variable.
+     */
+    private static final class SpanBinding {
+        final FieldDef field;
+        final long[] lower = { Long.MIN_VALUE, Long.MIN_VALUE };
+        final long[] upper = { Long.MAX_VALUE, Long.MAX_VALUE };
+
+        SpanBinding(FieldDef field) {
+            this.field = field;
+        }
+    }
+
+    /** An end of an operand's span: a fixed time, or the start or end of a bound value. */
+    private sealed interface SpanEnd permits FixedEnd, BoundEnd {}
+
+    /** Epoch milliseconds; an open end is {@code Long.MIN_VALUE} or {@code Long.MAX_VALUE}. */
+    private record FixedEnd(long millis) implements SpanEnd {}
+
+    /** {@code dimension} 0 is the start, 1 the end, as the span field indexes them. */
+    private record BoundEnd(SpanBinding binding, int dimension) implements SpanEnd {}
+
+    /** A bound end confined to {@code [lower, upper]}; empty when lower exceeds upper. */
+    private record SpanConstraint(SpanBinding binding, int dimension, long lower, long upper) {}
+
+    /**
+     * A temporal predicate as point queries over span fields. Each comparison the relation
+     * makes is a constant, when both ends are fixed, or a range on one end of one binding.
+     * Every binding must have a value: a predicate on a missing value is NULL, not true
+     * (OGC 21-065r2 Req 14C).
+     */
+    private Query compileTemporal(CqlExpression.CqlTemporal temporal) {
+        String clause = "'" + temporal.op() + "'";
+        TemporalRelation relation = TemporalRelation.forOperator(temporal.op());
+        if (relation == null) {
+            throw new TextIndexException("Temporal operator " + clause + " is not supported.");
+        }
+        List<SpanBinding> bindings = new ArrayList<>();
+        SpanEnd[] first = spanEnds(temporal.first(), clause, bindings);
+        SpanEnd[] second = spanEnds(temporal.second(), clause, bindings);
+
+        List<SpanConstraint> constraints = new ArrayList<>();
+        boolean anyHeld = false;
+        boolean allHeld = true;
+        for (TemporalRelation.Condition condition : relation.conditions()) {
+            SpanEnd left = first[condition.first().ordinal()];
+            SpanEnd right = second[condition.second().ordinal()];
+            if (left instanceof FixedEnd l && right instanceof FixedEnd r) {
+                boolean holds = condition.comparison().holds(l.millis(), r.millis());
+                anyHeld |= holds;
+                allHeld &= holds;
+            } else if (left instanceof BoundEnd b && right instanceof FixedEnd r) {
+                constraints.add(constraint(b, condition.comparison(), r.millis()));
+            } else if (left instanceof FixedEnd l && right instanceof BoundEnd b) {
+                constraints.add(constraint(b, condition.comparison().flipped(), l.millis()));
+            } else {
+                throw new TextIndexException("CQL " + clause + " compares two properties, which a "
+                    + "Lucene query cannot do. One operand must be a date, a timestamp or an interval of them.");
+            }
+        }
+
+        if (relation.anyOf()) {
+            return anyOfSpans(bindings, constraints, anyHeld);
+        }
+        if (!allHeld) {
+            return new MatchNoDocsQuery();
+        }
+        for (SpanConstraint c : constraints) {
+            c.binding().lower[c.dimension()] = Math.max(c.binding().lower[c.dimension()], c.lower());
+            c.binding().upper[c.dimension()] = Math.min(c.binding().upper[c.dimension()], c.upper());
+        }
+        List<Query> clauses = new ArrayList<>();
+        for (SpanBinding b : bindings) {
+            clauses.add(spanQuery(b.field, b.lower, b.upper));
+        }
+        return allOf(clauses);
+    }
+
+    /**
+     * A relation that holds when any of its comparisons does: every binding has a value,
+     * and at least one comparison holds of it.
+     */
+    private Query anyOfSpans(List<SpanBinding> bindings, List<SpanConstraint> constraints, boolean anyHeld) {
+        List<Query> clauses = new ArrayList<>();
+        for (SpanBinding b : bindings) {
+            clauses.add(spanQuery(b.field, b.lower, b.upper));
+        }
+        if (!anyHeld) {
+            if (constraints.isEmpty()) {
+                return new MatchNoDocsQuery();
+            }
+            BooleanQuery.Builder any = new BooleanQuery.Builder();
+            for (SpanConstraint c : constraints) {
+                long[] lower = c.binding().lower.clone();
+                long[] upper = c.binding().upper.clone();
+                lower[c.dimension()] = c.lower();
+                upper[c.dimension()] = c.upper();
+                any.add(spanQuery(c.binding().field, lower, upper), BooleanClause.Occur.SHOULD);
+            }
+            clauses.add(any.build());
+        }
+        return allOf(clauses);
+    }
+
+    private static Query allOf(List<Query> clauses) {
+        if (clauses.isEmpty()) {
+            return new MatchAllDocsQuery();
+        }
+        if (clauses.size() == 1) {
+            return clauses.get(0);
+        }
+        BooleanQuery.Builder all = new BooleanQuery.Builder();
+        for (Query q : clauses) {
+            all.add(q, BooleanClause.Occur.MUST);
+        }
+        return all.build();
+    }
+
+    /** The values whose (start, end) lies in the box, lifted to the parent from a child field. */
+    private Query spanQuery(FieldDef field, long[] lower, long[] upper) {
+        for (int d = 0; d < 2; d++) {
+            if (lower[d] > upper[d]) {
+                return new MatchNoDocsQuery();
+            }
+        }
+        return maybeLiftToParent(field, LongPoint.newRangeQuery(
+            LiteralFieldSupport.spanField(field.getFieldName()), lower, upper));
+    }
+
+    /**
+     * {@code end comparison value} as a range on that end. A strict bound past an open end
+     * is empty rather than an overflow: nothing starts before {@code -∞}.
+     */
+    private static SpanConstraint constraint(BoundEnd end, TemporalRelation.Comparison comparison, long value) {
+        long lower = Long.MIN_VALUE;
+        long upper = Long.MAX_VALUE;
+        switch (comparison) {
+            case LT -> {
+                if (value == Long.MIN_VALUE) {
+                    lower = Long.MAX_VALUE;
+                    upper = Long.MIN_VALUE;
+                } else {
+                    upper = value - 1;
+                }
+            }
+            case LE -> upper = value;
+            case GT -> {
+                if (value == Long.MAX_VALUE) {
+                    lower = Long.MAX_VALUE;
+                    upper = Long.MIN_VALUE;
+                } else {
+                    lower = value + 1;
+                }
+            }
+            case GE -> lower = value;
+            case EQ -> {
+                lower = value;
+                upper = value;
+            }
+        }
+        return new SpanConstraint(end.binding(), end.dimension(), lower, upper);
+    }
+
+    /** An operand's start and end. */
+    private SpanEnd[] spanEnds(CqlExpression.TemporalOperand operand, String clause, List<SpanBinding> bindings) {
+        return switch (operand) {
+            case CqlExpression.TemporalProperty p -> {
+                SpanBinding binding = bind(p.property(), clause, bindings);
+                yield new SpanEnd[] { new BoundEnd(binding, 0), new BoundEnd(binding, 1) };
+            }
+            case CqlExpression.TemporalInstant instant -> {
+                TemporalSpan span = literalSpan(instant.lexical(), clause);
+                yield new SpanEnd[] { new FixedEnd(span.start()), new FixedEnd(span.end()) };
+            }
+        };
+    }
+
+    private SpanBinding bind(String property, String clause, List<SpanBinding> bindings) {
+        if (isEntityIriProperty(property)) {
+            throw unsupportedOnEntityIri(clause);
+        }
+        FieldDef field = requireField(property, clause);
+        if (field.getFieldType() != FieldType.TEMPORAL) {
+            throw unusableForType(clause, property, field.getFieldType(), "a TemporalField");
+        }
+        SpanBinding binding = new SpanBinding(field);
+        bindings.add(binding);
+        return binding;
+    }
+
+    /**
+     * What a date or timestamp written in a filter spans. Its form decides, as in Prez: a
+     * date is its whole day, in UTC unless it carries an offset, and a timestamp an instant,
+     * in UTC unless it carries an offset.
+     */
+    private static TemporalSpan literalSpan(String lexical, String clause) {
+        TemporalSpan span = TemporalSpan.of(NodeFactory.createLiteralDT(lexical,
+            lexical.contains("T") ? XSDDatatype.XSDdateTime : XSDDatatype.XSDdate));
+        if (span == null) {
+            throw new TextIndexException("CQL " + clause + " has '" + lexical
+                + "', which is not a date or a timestamp.");
+        }
+        return span;
+    }
+
     private Query buildAnalyzedTextQuery(FieldDef field, String value) {
         String fieldName = field.getFieldName();
         org.apache.lucene.analysis.Analyzer analyzer = field.getQueryAnalyzer() != null

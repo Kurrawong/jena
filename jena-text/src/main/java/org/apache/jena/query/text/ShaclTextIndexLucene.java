@@ -1882,6 +1882,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             doc.add(new StoredField(fieldDef.getFieldName(), lexical));
         }
         TemporalSpan span = TemporalSpan.of(literal);
+        if (span != null && fieldDef.isIndexed()) {
+            doc.add(new LongPoint(LiteralFieldSupport.spanField(fieldDef.getFieldName()), span.start(), span.end()));
+        }
         Long epoch = span != null
             ? Long.valueOf(span.start())
             : LiteralFieldSupport.toEpochMillis(fieldDef.getFieldType(), lexical);

@@ -52,6 +52,9 @@ public class CqlParser {
         "s_dwithin"
     );
 
+    /** CQL2's temporal operators, cased as the CQL2-JSON schema writes them. */
+    private static final Set<String> TEMPORAL_OPS = Set.of("t_after");
+
     /**
      * The one spatial operator taking a third argument, a distance in metres. An
      * extension: CQL2 1.0 defines no distance operator.
@@ -88,6 +91,8 @@ public class CqlParser {
                     yield parseComparison(op, args);
                 } else if (SPATIAL_OPS.contains(op)) {
                     yield parseSpatial(op, args);
+                } else if (TEMPORAL_OPS.contains(op)) {
+                    yield parseTemporal(op, args);
                 }
                 throw new TextIndexException("Unknown CQL2 operator: " + op);
             }
@@ -194,6 +199,37 @@ public class CqlParser {
             }
         }
         return new CqlExpression.CqlSpatial(op, property, geometry, distanceMetres);
+    }
+
+    /** Either operand may be a property or a literal, in either order. */
+    private static CqlExpression.CqlTemporal parseTemporal(String op, JsonArray args) {
+        if (args.size() != 2) {
+            throw new TextIndexException("CQL2 '" + op + "' requires exactly 2 arguments, got " + args.size());
+        }
+        return new CqlExpression.CqlTemporal(op,
+            parseTemporalOperand(op, args.get(0)), parseTemporalOperand(op, args.get(1)));
+    }
+
+    private static CqlExpression.TemporalOperand parseTemporalOperand(String op, JsonValue val) {
+        if (val.isObject()) {
+            JsonObject obj = val.getAsObject();
+            if (obj.hasKey("property")) {
+                return new CqlExpression.TemporalProperty(extractProperty(val));
+            }
+            if (obj.hasKey("timestamp")) {
+                return new CqlExpression.TemporalInstant(stringMember(op, obj, "timestamp"));
+            }
+        }
+        throw new TextIndexException("CQL2 '" + op + "' operand must be a property, "
+            + "{\"timestamp\": …}, {\"date\": …} or {\"interval\": [start, end]}, got: " + val);
+    }
+
+    private static String stringMember(String op, JsonObject obj, String key) {
+        JsonValue member = obj.get(key);
+        if (!member.isString()) {
+            throw new TextIndexException("CQL2 '" + op + "' " + key + " must be a string, got: " + member);
+        }
+        return member.getAsString().value();
     }
 
     static String extractProperty(JsonValue val) {
