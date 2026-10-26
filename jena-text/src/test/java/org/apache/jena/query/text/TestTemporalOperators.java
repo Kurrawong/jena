@@ -153,6 +153,9 @@ public class TestTemporalOperators {
                 """, DATETIMES),
             Arguments.of("""
                 {"op": "t_before", "args": [{"property": "%stemporal"}, {"timestamp": "2021-07-01T00:00:00Z"}]}
+                """, union(DATETIMES, "date-offset")),
+            Arguments.of("""
+                {"op": "t_during", "args": [{"property": "%stemporal"}, {"interval": ["2021-06-01", "2021-06-30"]}]}
                 """, union(DATETIMES, "date-offset"))
         );
     }
