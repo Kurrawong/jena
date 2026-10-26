@@ -163,6 +163,30 @@ public class TestPeriodField {
             """.formatted(VALIDITY)));
     }
 
+    /** With {@code idx:self} the entity is the period node: its own start and end dates. */
+    @Test
+    public void theEntityItselfCanBeThePeriod() {
+        load(PREFIXES + """
+            @prefix schema: <https://schema.org/> .
+            field:active idx:fieldName "active" ; idx:fieldType idx:PeriodField .
+            ex:CampaignShape sh:targetClass ex:Campaign ;
+                sh:property [
+                    idx:field field:active ;
+                    idx:self true ;
+                    idx:periodStart schema:startDate ;
+                    idx:periodEnd   schema:endDate ;
+                ] .
+            """, PREFIXES + """
+            @prefix schema: <https://schema.org/> .
+            ex:march a ex:Campaign ; schema:startDate "2021-03-01"^^xsd:date ; schema:endDate "2021-03-31"^^xsd:date .
+            ex:next-year a ex:Campaign ; schema:startDate "2022-03-01"^^xsd:date ; schema:endDate "2022-03-31"^^xsd:date .
+            """);
+
+        assertEquals(Set.of("march"), matching("urn:jena:lucene:field#active", """
+            {"op": "t_during", "args": [{"property": "urn:jena:lucene:field#active"}, {"interval": ["2021-01-01", "2021-12-31"]}]}
+            """));
+    }
+
     private void load(String config, String data) {
         Model model = ModelFactory.createDefaultModel();
         model.read(new StringReader(config), null, "TTL");
@@ -187,8 +211,12 @@ public class TestPeriodField {
     }
 
     private Set<String> matching(String cqlJson) {
+        return matching(VALIDITY, cqlJson);
+    }
+
+    private Set<String> matching(String field, String cqlJson) {
         Set<String> names = new TreeSet<>();
-        for (TextHit hit : textIndex.queryWithCql(List.of(VALIDITY), null, CqlParser.parse(cqlJson),
+        for (TextHit hit : textIndex.queryWithCql(List.of(field), null, CqlParser.parse(cqlJson),
                 null, null, null, 100, null)) {
             names.add(hit.getNode().getURI().substring(NS.length()));
         }
