@@ -146,7 +146,7 @@ public class CqlToLuceneCompiler {
             case CqlExpression.CqlBetween btw -> compileBetween(btw);
             case CqlExpression.CqlLike like -> compileLike(like);
             case CqlExpression.CqlSpatial spatial -> compileSpatial(spatial);
-            case CqlExpression.CqlTemporal temporal -> new CompileResult(compileTemporal(temporal), null);
+            case CqlExpression.CqlTemporal temporal -> new CompileResult(compileTemporal(temporal, true), null);
             case CqlExpression.CqlTextQuery tq -> compileTextQuery(tq);
         };
     }
@@ -408,6 +408,7 @@ public class CqlToLuceneCompiler {
             case CqlExpression.CqlBetween b -> b.property();
             case CqlExpression.CqlLike l -> l.property();
             case CqlExpression.CqlTextQuery tq -> tq.property();
+            case CqlExpression.CqlTemporal t -> foldableTemporalProperty(t);
             default -> null;
         };
         if (property == null) return null;
@@ -443,8 +444,33 @@ public class CqlToLuceneCompiler {
             case CqlExpression.CqlBetween btw -> buildInnerForBetween(btw);
             case CqlExpression.CqlLike like -> buildInnerForLike(like);
             case CqlExpression.CqlTextQuery tq -> buildInnerForTextQuery(tq);
+            case CqlExpression.CqlTemporal t -> compileTemporal(t, false);
             default -> null;
         };
+    }
+
+    /**
+     * The property of a temporal clause with exactly one binding: one property operand
+     * against a literal. Its query is then one child's box, which can join a same-scope
+     * fold. A clause binding two values, through an interval's property ends, is lifted
+     * one binding at a time instead, as each binding is independent.
+     */
+    private static String foldableTemporalProperty(CqlExpression.CqlTemporal t) {
+        if (hasPropertyEnd(t.first()) || hasPropertyEnd(t.second())) {
+            return null;
+        }
+        boolean first = t.first() instanceof CqlExpression.TemporalProperty;
+        boolean second = t.second() instanceof CqlExpression.TemporalProperty;
+        if (first == second) {
+            return null;
+        }
+        return ((CqlExpression.TemporalProperty) (first ? t.first() : t.second())).property();
+    }
+
+    private static boolean hasPropertyEnd(CqlExpression.TemporalOperand operand) {
+        return operand instanceof CqlExpression.TemporalInterval interval
+            && (interval.start() instanceof CqlExpression.TemporalProperty
+                || interval.end() instanceof CqlExpression.TemporalProperty);
     }
 
     private Query buildInnerForTextQuery(CqlExpression.CqlTextQuery tq) {
@@ -953,8 +979,11 @@ public class CqlToLuceneCompiler {
      * makes is a constant, when both ends are fixed, or a range on one end of one binding.
      * Every binding must have a value: a predicate on a missing value is NULL, not true
      * (OGC 21-065r2 Req 14C).
+     *
+     * @param lift whether to lift a child field's query to its parent; false when a
+     *             same-scope fold combines the child queries and lifts once
      */
-    private Query compileTemporal(CqlExpression.CqlTemporal temporal) {
+    private Query compileTemporal(CqlExpression.CqlTemporal temporal, boolean lift) {
         String clause = "'" + temporal.op() + "'";
         TemporalRelation relation = TemporalRelation.forOperator(temporal.op());
         if (relation == null) {
@@ -985,7 +1014,7 @@ public class CqlToLuceneCompiler {
         }
 
         if (relation.anyOf()) {
-            return anyOfSpans(bindings, constraints, anyHeld);
+            return anyOfSpans(bindings, constraints, anyHeld, lift);
         }
         if (!allHeld) {
             return new MatchNoDocsQuery();
@@ -996,7 +1025,7 @@ public class CqlToLuceneCompiler {
         }
         List<Query> clauses = new ArrayList<>();
         for (SpanBinding b : bindings) {
-            clauses.add(spanQuery(b.field, b.lower, b.upper));
+            clauses.add(spanQuery(b.field, b.lower, b.upper, lift));
         }
         return allOf(clauses);
     }
@@ -1005,10 +1034,11 @@ public class CqlToLuceneCompiler {
      * A relation that holds when any of its comparisons does: every binding has a value,
      * and at least one comparison holds of it.
      */
-    private Query anyOfSpans(List<SpanBinding> bindings, List<SpanConstraint> constraints, boolean anyHeld) {
+    private Query anyOfSpans(List<SpanBinding> bindings, List<SpanConstraint> constraints, boolean anyHeld,
+                             boolean lift) {
         List<Query> clauses = new ArrayList<>();
         for (SpanBinding b : bindings) {
-            clauses.add(spanQuery(b.field, b.lower, b.upper));
+            clauses.add(spanQuery(b.field, b.lower, b.upper, lift));
         }
         if (!anyHeld) {
             if (constraints.isEmpty()) {
@@ -1020,7 +1050,7 @@ public class CqlToLuceneCompiler {
                 long[] upper = c.binding().upper.clone();
                 lower[c.dimension()] = c.lower();
                 upper[c.dimension()] = c.upper();
-                any.add(spanQuery(c.binding().field, lower, upper), BooleanClause.Occur.SHOULD);
+                any.add(spanQuery(c.binding().field, lower, upper, lift), BooleanClause.Occur.SHOULD);
             }
             clauses.add(any.build());
         }
@@ -1042,14 +1072,14 @@ public class CqlToLuceneCompiler {
     }
 
     /** The values whose (start, end) lies in the box, lifted to the parent from a child field. */
-    private Query spanQuery(FieldDef field, long[] lower, long[] upper) {
+    private Query spanQuery(FieldDef field, long[] lower, long[] upper, boolean lift) {
         for (int d = 0; d < 2; d++) {
             if (lower[d] > upper[d]) {
                 return new MatchNoDocsQuery();
             }
         }
-        return maybeLiftToParent(field, LongPoint.newRangeQuery(
-            LiteralFieldSupport.spanField(field.getFieldName()), lower, upper));
+        Query box = LongPoint.newRangeQuery(LiteralFieldSupport.spanField(field.getFieldName()), lower, upper);
+        return lift ? maybeLiftToParent(field, box) : box;
     }
 
     /**
