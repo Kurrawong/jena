@@ -53,7 +53,8 @@ public class CqlParser {
     );
 
     /** CQL2's temporal operators, cased as the CQL2-JSON schema writes them. */
-    private static final Set<String> TEMPORAL_OPS = Set.of("t_after", "t_before", "t_during", "t_intersects");
+    private static final Set<String> TEMPORAL_OPS = Set.of("t_after", "t_before", "t_during", "t_equals",
+        "t_intersects");
 
     /** An unbounded interval end (OGC 21-065r2 §7.8.1). */
     private static final String OPEN_END = "..";
@@ -221,6 +222,9 @@ public class CqlParser {
             }
             if (obj.hasKey("timestamp")) {
                 return new CqlExpression.TemporalInstant(stringMember(op, obj, "timestamp"));
+            }
+            if (obj.hasKey("date")) {
+                return new CqlExpression.TemporalInstant(stringMember(op, obj, "date"));
             }
             if (obj.hasKey("interval")) {
                 JsonValue ends = obj.get("interval");
