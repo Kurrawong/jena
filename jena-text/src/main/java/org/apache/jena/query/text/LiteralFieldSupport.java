@@ -103,7 +103,8 @@ public final class LiteralFieldSupport {
                 lexical.contains("T")
                     ? org.apache.jena.datatypes.xsd.XSDDatatype.XSDdateTime
                     : org.apache.jena.datatypes.xsd.XSDDatatype.XSDdate);
-            case LATLON -> null;
+            // A period is two values, not one, so there is no literal to rebuild.
+            case LATLON, PERIOD -> null;
         };
     }
 

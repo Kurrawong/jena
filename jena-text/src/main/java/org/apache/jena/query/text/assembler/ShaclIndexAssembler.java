@@ -598,7 +598,20 @@ public class ShaclIndexAssembler {
         }
 
         return new FieldOccurrence(field, steps, path, pathVariants, predicates,
-            requiredClass, nodeKindConstraint, datatype, valueCondition, nestedName);
+            requiredClass, nodeKindConstraint, datatype, valueCondition, nestedName,
+            parsePeriodPaths(occurrenceRes));
+    }
+
+    /** A PeriodField occurrence's start and end paths, or null when it has none. */
+    private static FieldOccurrence.PeriodPaths parsePeriodPaths(Resource occurrenceRes) {
+        Statement start = occurrenceRes.getProperty(IndexVocab.pPeriodStart);
+        Statement end = occurrenceRes.getProperty(IndexVocab.pPeriodEnd);
+        if (start == null || end == null) {
+            return null;
+        }
+        Graph graph = occurrenceRes.getModel().getGraph();
+        return new FieldOccurrence.PeriodPaths(
+            parseShaclPath(graph, start.getObject().asNode()), parseShaclPath(graph, end.getObject().asNode()));
     }
 
     /**
@@ -1044,6 +1057,7 @@ public class ShaclIndexAssembler {
         if (IndexVocab.DateField.getURI().equals(uri)) return FieldType.TEMPORAL;
         if (IndexVocab.DateTimeField.getURI().equals(uri)) return FieldType.TEMPORAL;
         if (IndexVocab.LatLonField.getURI().equals(uri)) return FieldType.LATLON;
+        if (IndexVocab.PeriodField.getURI().equals(uri)) return FieldType.PERIOD;
         throw new TextIndexException("Unknown idx:fieldType: " + uri);
     }
 

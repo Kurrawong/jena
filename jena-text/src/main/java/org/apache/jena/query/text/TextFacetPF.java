@@ -214,7 +214,7 @@ public class TextFacetPF extends PropertyFunctionBase {
             case DOUBLE  -> NodeFactory.createLiteralDT(value, XSDDatatype.XSDdouble);
             case TEMPORAL -> NodeFactory.createLiteralDT(value,
                 value.contains("T") ? XSDDatatype.XSDdateTime : XSDDatatype.XSDdate);
-            case LATLON  -> NodeFactory.createLiteralString(value);
+            case LATLON, PERIOD -> NodeFactory.createLiteralString(value);
         };
     }
 

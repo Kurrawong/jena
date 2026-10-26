@@ -1637,6 +1637,14 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             addNodeFieldToDoc(doc, fieldDef, node);
             return;
         }
+        if (value instanceof TemporalSpan period) {
+            // A PeriodField value: only the span, for the temporal operators.
+            if (fieldDef.isIndexed()) {
+                doc.add(new LongPoint(LiteralFieldSupport.spanField(fieldDef.getFieldName()),
+                    period.start(), period.end()));
+            }
+            return;
+        }
 
         String fieldName = fieldDef.getFieldName();
 
@@ -3422,6 +3430,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 "Cannot sort on TEXT field '" + fieldIRI + "'. Use KEYWORD for sortable fields.");
             case LATLON -> throw new TextIndexException(
                 "Cannot sort on LATLON field '" + fieldIRI + "'.");
+            case PERIOD -> throw new TextIndexException(
+                "Cannot sort on PERIOD field '" + fieldIRI + "'. A PeriodField is for the temporal operators only.");
         };
     }
 
@@ -3518,7 +3528,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 case INT -> IntPoint.newExactQuery(fieldName, Integer.parseInt(value));
                 case LONG -> LongPoint.newExactQuery(fieldName, Long.parseLong(value));
                 case DOUBLE -> DoublePoint.newExactQuery(fieldName, Double.parseDouble(value));
-                case TEMPORAL, LATLON -> throw new TextIndexException(
+                case TEMPORAL, LATLON, PERIOD -> throw new TextIndexException(
                     "Sort selector field '" + fieldName + "' has unsupported type "
                         + selectorFd.getFieldType() + "; use a KEYWORD discriminator.");
             };

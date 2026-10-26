@@ -32,6 +32,7 @@ import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.ShaclIndexMapping.NestedDef;
 import org.apache.jena.query.text.ShaclIndexMapping.StepDef;
 import org.apache.jena.query.ARQ;
+import org.apache.jena.sparql.path.Path;
 import org.apache.jena.sparql.path.eval.PathEval;
 import org.apache.jena.sparql.util.Context;
 
@@ -149,11 +150,37 @@ final class ShaclEntityBuilder {
         if (!occurrence.accepts(graph, endpoint)) {
             return;
         }
-        Object value = nodeToValue(endpoint, occurrence.getField().getFieldType(),
-            occurrence.getField().preservesLiteralMetadata());
+        Object value = occurrence.getPeriodPaths() != null
+            ? periodSpan(graph, endpoint, occurrence.getPeriodPaths())
+            : nodeToValue(endpoint, occurrence.getField().getFieldType(),
+                occurrence.getField().preservesLiteralMetadata());
         if (value != null) {
             values.add(value);
         }
+    }
+
+    /**
+     * The span of a period node: from its start value's start to its end value's end, so a
+     * period ending on a date runs to the end of that day.
+     */
+    private static TemporalSpan periodSpan(Graph graph, Node period, FieldOccurrence.PeriodPaths paths) {
+        List<Node> starts = reached(graph, period, paths.start());
+        List<Node> ends = reached(graph, period, paths.end());
+        if (starts.size() != 1 || ends.size() != 1) {
+            return null;
+        }
+        TemporalSpan start = TemporalSpan.of(starts.get(0));
+        TemporalSpan end = TemporalSpan.of(ends.get(0));
+        if (start == null || end == null) {
+            return null;
+        }
+        return new TemporalSpan(start.start(), end.end());
+    }
+
+    private static List<Node> reached(Graph graph, Node from, Path path) {
+        List<Node> nodes = new ArrayList<>();
+        PathEval.eval(graph, from, path, indexingContext()).forEachRemaining(nodes::add);
+        return nodes;
     }
 
     /** The nodes reached from {@code focus} through {@code steps}, each kept by its step's filter. */

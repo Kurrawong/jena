@@ -1158,8 +1158,8 @@ public class CqlToLuceneCompiler {
             throw unsupportedOnEntityIri(clause);
         }
         FieldDef field = requireField(property, clause);
-        if (field.getFieldType() != FieldType.TEMPORAL) {
-            throw unusableForType(clause, property, field.getFieldType(), "a TemporalField");
+        if (field.getFieldType() != FieldType.TEMPORAL && field.getFieldType() != FieldType.PERIOD) {
+            throw unusableForType(clause, property, field.getFieldType(), "a TemporalField or a PeriodField");
         }
         SpanBinding binding = new SpanBinding(field);
         bindings.add(binding);
@@ -1242,6 +1242,8 @@ public class CqlToLuceneCompiler {
                 LiteralFieldSupport.epochField(fieldName),
                 toEpochMillis(ft, value));
             case LATLON -> throw new TextIndexException("Equality queries not supported on LATLON field '" + fieldName + "'");
+            case PERIOD -> throw new TextIndexException("Equality queries not supported on PERIOD field '" + fieldName
+                + "'. Use t_equals, which compares both ends.");
         };
     }
 
@@ -1280,6 +1282,7 @@ public class CqlToLuceneCompiler {
             }
             case KEYWORD, TEXT -> null; // Range queries on keywords not supported
             case LATLON -> null; // Range queries not applicable to spatial fields
+            case PERIOD -> null; // A period has two ends; the temporal operators say which to compare
         };
     }
 
