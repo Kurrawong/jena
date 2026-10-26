@@ -157,8 +157,18 @@ public sealed interface CqlExpression
     }
 
     /** One end of an interval operand. */
-    sealed interface IntervalEnd permits LiteralEnd {
+    sealed interface IntervalEnd permits LiteralEnd, OpenEnd {
         String toCanonical();
+    }
+
+    /** {@code ".."}: before any time as a start, after any time as an end. */
+    enum OpenEnd implements IntervalEnd {
+        OPEN;
+
+        @Override
+        public String toCanonical() {
+            return "..";
+        }
     }
 
     /**

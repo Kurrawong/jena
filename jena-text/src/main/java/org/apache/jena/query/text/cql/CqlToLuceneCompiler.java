@@ -1109,6 +1109,7 @@ public class CqlToLuceneCompiler {
                 TemporalSpan span = literalSpan(literal.lexical(), clause);
                 yield new FixedEnd(dimension == 0 ? span.start() : span.end());
             }
+            case CqlExpression.OpenEnd open -> new FixedEnd(dimension == 0 ? Long.MIN_VALUE : Long.MAX_VALUE);
         };
     }
 

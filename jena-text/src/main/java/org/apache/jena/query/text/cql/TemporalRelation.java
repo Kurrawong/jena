@@ -62,12 +62,16 @@ record TemporalRelation(List<Condition> conditions, boolean anyOf) {
     /** {@code first}'s end compared with {@code second}'s end. */
     record Condition(End first, Comparison comparison, End second) {}
 
-    private static final Map<String, TemporalRelation> RELATIONS = Map.of(
-        "t_after", allOf(new Condition(End.START, Comparison.GT, End.END)),
-        "t_before", allOf(new Condition(End.END, Comparison.LT, End.START)),
-        "t_during", allOf(
+    private static final Map<String, TemporalRelation> RELATIONS = Map.ofEntries(
+        Map.entry("t_after", allOf(new Condition(End.START, Comparison.GT, End.END))),
+        Map.entry("t_before", allOf(new Condition(End.END, Comparison.LT, End.START))),
+        Map.entry("t_during", allOf(
             new Condition(End.START, Comparison.GT, End.START),
-            new Condition(End.END, Comparison.LT, End.END)));
+            new Condition(End.END, Comparison.LT, End.END))),
+        // NOT t_disjoint, applied to each value: neither before nor after.
+        Map.entry("t_intersects", allOf(
+            new Condition(End.START, Comparison.LE, End.END),
+            new Condition(End.END, Comparison.GE, End.START))));
 
     /** The relation an operator names, or null if it names none. */
     static TemporalRelation forOperator(String op) {

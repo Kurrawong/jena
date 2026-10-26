@@ -53,7 +53,10 @@ public class CqlParser {
     );
 
     /** CQL2's temporal operators, cased as the CQL2-JSON schema writes them. */
-    private static final Set<String> TEMPORAL_OPS = Set.of("t_after", "t_before", "t_during");
+    private static final Set<String> TEMPORAL_OPS = Set.of("t_after", "t_before", "t_during", "t_intersects");
+
+    /** An unbounded interval end (OGC 21-065r2 §7.8.1). */
+    private static final String OPEN_END = "..";
 
     /**
      * The one spatial operator taking a third argument, a distance in metres. An
@@ -234,7 +237,8 @@ public class CqlParser {
 
     private static CqlExpression.IntervalEnd parseIntervalEnd(String op, JsonValue val) {
         if (val.isString()) {
-            return new CqlExpression.LiteralEnd(val.getAsString().value());
+            String lexical = val.getAsString().value();
+            return OPEN_END.equals(lexical) ? CqlExpression.OpenEnd.OPEN : new CqlExpression.LiteralEnd(lexical);
         }
         throw new TextIndexException("CQL2 '" + op + "' interval end must be a date, a timestamp, "
             + "\"..\" or a property, got: " + val);
