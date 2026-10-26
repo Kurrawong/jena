@@ -62,6 +62,7 @@ public class TestTemporalOperators {
     private static final String SCHEMA = "https://schema.org/";
 
     private static final Set<String> DATETIMES = Set.of("datetime-utc", "datetime-offset", "datetime-no-timezone");
+    private static final Set<String> PERIODS = Set.of("date", "date-offset", "year-month", "year");
 
     private static final String FIXTURE = """
         @prefix ex:     <http://example.org/temporal/> .
@@ -156,7 +157,10 @@ public class TestTemporalOperators {
                 """, union(DATETIMES, "date-offset")),
             Arguments.of("""
                 {"op": "t_during", "args": [{"property": "%stemporal"}, {"interval": ["2021-06-01", "2021-06-30"]}]}
-                """, union(DATETIMES, "date-offset"))
+                """, union(DATETIMES, "date-offset")),
+            Arguments.of("""
+                {"op": "t_intersects", "args": [{"property": "%stemporal"}, {"interval": ["2021-06-30T13:00:00Z", ".."]}]}
+                """, PERIODS)
         );
     }
 
