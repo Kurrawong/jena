@@ -190,6 +190,7 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     // CQL2's temporal operators over a value's span
     , TestTemporalOperators.class
     , TestTemporalOperatorOracle.class
+    , TestTemporalOperatorSemantics.class
 
     // Classic Lucene query syntax reaching the queryString argument
     , TestLuceneQuerySyntax.class
