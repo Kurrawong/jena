@@ -27,6 +27,7 @@ import java.util.Set;
 
 import org.apache.jena.atlas.json.JSON;
 import org.apache.jena.atlas.json.JsonArray;
+import org.apache.jena.atlas.json.JsonException;
 import org.apache.jena.atlas.json.JsonObject;
 import org.apache.jena.atlas.json.JsonValue;
 import org.apache.jena.query.text.TextIndexException;
@@ -66,9 +67,14 @@ public class CqlParser {
      */
     private static final String DISTANCE_OP = "s_dwithin";
 
+    /** @throws CqlFilterException if {@code json} is not a CQL2-JSON filter this parser accepts */
     public static CqlExpression parse(String json) {
-        JsonObject obj = JSON.parse(json);
-        return parseNode(obj);
+        try {
+            JsonObject obj = JSON.parse(json);
+            return parseNode(obj);
+        } catch (TextIndexException | JsonException ex) {
+            throw CqlFilterException.of(ex);
+        }
     }
 
     static CqlExpression parseNode(JsonObject obj) {

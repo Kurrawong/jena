@@ -132,8 +132,13 @@ public class CqlToLuceneCompiler {
         this.defaultQueryAnalyzer = defaultQueryAnalyzer;
     }
 
+    /** @throws CqlFilterException if the filter asks for something the index cannot filter on */
     public CompileResult compile(CqlExpression expr) {
-        return compileExpr(expr);
+        try {
+            return compileExpr(expr);
+        } catch (TextIndexException ex) {
+            throw CqlFilterException.of(ex);
+        }
     }
 
     private CompileResult compileExpr(CqlExpression expr) {
