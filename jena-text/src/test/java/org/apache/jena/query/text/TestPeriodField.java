@@ -223,6 +223,40 @@ public class TestPeriodField {
         assertEquals(Set.of("lease"), matching(in2015), "with no end the lease is open-ended");
     }
 
+    /**
+     * A PeriodField in an {@code idx:nested} block: a holding's holder and its term must be
+     * the same holding's. Permit B was Acme's in 2016; permit A was Acme's, but not then.
+     */
+    @Test
+    public void aNestedPeriodCorrelatesWithItsChildsOtherFields() {
+        load(PREFIXES + """
+            @prefix schema: <https://schema.org/> .
+            field:holder idx:fieldName "holder" ; idx:fieldType idx:KeywordField .
+            field:term   idx:fieldName "term"   ; idx:fieldType idx:PeriodField .
+            ex:PermitShape sh:targetClass ex:Permit ;
+                idx:nested [
+                    idx:joinPath ex:holding ;
+                    idx:property [ idx:field field:holder ; sh:path ex:holder ] ;
+                    idx:property [ idx:field field:term ; idx:self true ;
+                                   idx:periodStart schema:startDate ; idx:periodEnd schema:endDate ] ;
+                ] .
+            """, PREFIXES + """
+            @prefix schema: <https://schema.org/> .
+            ex:permit-a a ex:Permit ; ex:holding ex:a1 , ex:a2 .
+            ex:a1 ex:holder "Acme" ; schema:startDate "2010-01-01"^^xsd:date ; schema:endDate "2014-12-31"^^xsd:date .
+            ex:a2 ex:holder "Bolt" ; schema:startDate "2015-01-01"^^xsd:date ; schema:endDate "2020-12-31"^^xsd:date .
+            ex:permit-b a ex:Permit ; ex:holding ex:b1 , ex:b2 .
+            ex:b1 ex:holder "Bolt" ; schema:startDate "2010-01-01"^^xsd:date ; schema:endDate "2014-12-31"^^xsd:date .
+            ex:b2 ex:holder "Acme" ; schema:startDate "2015-01-01"^^xsd:date ; schema:endDate "2020-12-31"^^xsd:date .
+            """);
+
+        assertEquals(Set.of("permit-b"), matching("urn:jena:lucene:field#holder", """
+            {"op": "and", "args": [
+                {"op": "=", "args": [{"property": "urn:jena:lucene:field#holder"}, "Acme"]},
+                {"op": "t_intersects", "args": [{"property": "urn:jena:lucene:field#term"}, {"date": "2016-06-30"}]}]}
+            """));
+    }
+
     private void update(String sparqlUpdate) {
         String update = sparqlUpdate.replace("@prefix ", "PREFIX ").replaceAll(" \\.\n", "\n");
         dataset.begin(ReadWrite.WRITE);
