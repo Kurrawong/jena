@@ -137,6 +137,32 @@ public class TestPeriodField {
             """.formatted(VALIDITY)), "a period node with neither bound has no span");
     }
 
+    /** Each is logged and skipped; the entity is still indexed, with its other periods. */
+    @Test
+    public void aPeriodThatCannotBeReadIsSkipped() {
+        load(OWL_TIME_CONFIG, PREFIXES + """
+            ex:two-starts a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDate "2010-01-01"^^xsd:date ] ,
+                                    [ time:inXSDDate "2011-01-01"^^xsd:date ] ;
+                  time:hasEnd       [ time:inXSDDate "2012-12-31"^^xsd:date ] ] .
+            ex:ends-before-it-starts a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDate "2020-01-01"^^xsd:date ] ;
+                  time:hasEnd       [ time:inXSDDate "2010-12-31"^^xsd:date ] ] .
+            ex:not-a-date a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDate "soon"^^xsd:date ] ;
+                  time:hasEnd       [ time:inXSDDate "2010-12-31"^^xsd:date ] ] .
+            ex:one-good-one-bad a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDate "2020-01-01"^^xsd:date ] ;
+                  time:hasEnd       [ time:inXSDDate "2010-12-31"^^xsd:date ] ] ,
+                [ time:hasBeginning [ time:inXSDDate "2001-01-01"^^xsd:date ] ;
+                  time:hasEnd       [ time:inXSDDate "2001-12-31"^^xsd:date ] ] .
+            """);
+
+        assertEquals(Set.of("one-good-one-bad"), matching("""
+            {"op": "t_intersects", "args": [{"property": "%s"}, {"interval": ["..", ".."]}]}
+            """.formatted(VALIDITY)));
+    }
+
     private void load(String config, String data) {
         Model model = ModelFactory.createDefaultModel();
         model.read(new StringReader(config), null, "TTL");
