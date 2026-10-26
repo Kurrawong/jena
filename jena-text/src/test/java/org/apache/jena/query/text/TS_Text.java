@@ -196,6 +196,7 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     // idx:PeriodField: a start and an end read from one period node, kept paired
     , TestPeriodField.class
     , TestPeriodFieldOracle.class
+    , org.apache.jena.query.text.assembler.TestPeriodFieldConfig.class
     // A filter that cannot be run is a parse error, which Fuseki answers with a 400
     , TestCqlFilterErrors.class
 
