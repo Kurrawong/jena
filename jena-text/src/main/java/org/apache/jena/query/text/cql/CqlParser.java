@@ -53,7 +53,7 @@ public class CqlParser {
     );
 
     /** CQL2's temporal operators, cased as the CQL2-JSON schema writes them. */
-    private static final Set<String> TEMPORAL_OPS = Set.of("t_after");
+    private static final Set<String> TEMPORAL_OPS = Set.of("t_after", "t_before");
 
     /**
      * The one spatial operator taking a third argument, a distance in metres. An
