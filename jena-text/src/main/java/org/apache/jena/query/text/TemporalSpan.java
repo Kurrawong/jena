@@ -44,7 +44,8 @@ public record TemporalSpan(long start, long end) {
         String datatype = literal.getLiteralDatatypeURI();
         String lexical = literal.getLiteralLexicalForm();
         try {
-            if (XSDDatatype.XSDdateTime.getURI().equals(datatype)) {
+            if (XSDDatatype.XSDdateTime.getURI().equals(datatype)
+                    || XSDDatatype.XSDdateTimeStamp.getURI().equals(datatype)) {
                 long t = dateTimeMillis(lexical);
                 return new TemporalSpan(t, t);
             }
