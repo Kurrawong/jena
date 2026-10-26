@@ -37,6 +37,7 @@ import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
 import org.apache.jena.query.text.cql.CqlExpression;
+import org.apache.jena.query.text.cql.CqlParser;
 import org.apache.jena.rdf.model.Literal;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.Resource;
@@ -133,6 +134,18 @@ public class TestTemporalComparisonsByStart {
     @Test
     public void aDateShapedStringStillCompares() {
         assertEquals(Set.of("date", "untyped"), matching(new CqlExpression.CqlComparison("=", FP + "when", "2021-06-30")));
+    }
+
+    /** CQL2-JSON writes a temporal value as {@code {"date": …}} or {@code {"timestamp": …}}. */
+    @Test
+    public void aTypedLiteralComparesAsItsLexicalForm() {
+        assertEquals(Set.of("date", "untyped"), matching(CqlParser.parse("""
+            {"op": "=", "args": [{"property": "%swhen"}, {"date": "2021-06-30"}]}
+            """.formatted(FP))));
+        assertEquals(Set.of("date-offset"), matching(CqlParser.parse("""
+            {"op": "between", "args": [{"property": "%swhen"},
+                {"timestamp": "2021-06-29T00:00:00Z"}, {"timestamp": "2021-06-29T23:59:59Z"}]}
+            """.formatted(FP))));
     }
 
     private Set<String> matching(CqlExpression filter) {
