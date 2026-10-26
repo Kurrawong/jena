@@ -79,6 +79,16 @@ public class TestTemporalSpan {
             "an offset is ignored");
     }
 
+    /** In UTC, ignoring any offset, as Prez's SPARQL does. */
+    @Test
+    public void aYearSpansItsWholeYear() {
+        assertEquals(span("2021-01-01T00:00:00Z", "2022-01-01T00:00:00Z"),
+            TemporalSpan.of(literal("2021", XSDDatatype.XSDgYear)));
+        assertEquals(span("2021-01-01T00:00:00Z", "2022-01-01T00:00:00Z"),
+            TemporalSpan.of(literal("2021Z", XSDDatatype.XSDgYear)),
+            "an offset is ignored");
+    }
+
     private static Node literal(String lexical, XSDDatatype datatype) {
         return NodeFactory.createLiteralDT(lexical, datatype);
     }
