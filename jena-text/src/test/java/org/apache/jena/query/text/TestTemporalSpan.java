@@ -55,12 +55,26 @@ public class TestTemporalSpan {
             TemporalSpan.of(literal("2021-06-30T22:00:00+10:00", XSDDatatype.XSDdateTimeStamp)));
     }
 
+    /** A day ends when the next one starts, so consecutive days meet. */
+    @Test
+    public void aDateSpansItsWholeDay() {
+        assertEquals(span("2021-06-30T00:00:00Z", "2021-07-01T00:00:00Z"),
+            TemporalSpan.of(literal("2021-06-30", XSDDatatype.XSDdate)),
+            "no timezone is taken as UTC");
+        assertEquals(span("2021-06-29T14:00:00Z", "2021-06-30T14:00:00Z"),
+            TemporalSpan.of(literal("2021-06-30+10:00", XSDDatatype.XSDdate)),
+            "a date's day starts at midnight at its own offset");
+    }
+
     private static Node literal(String lexical, XSDDatatype datatype) {
         return NodeFactory.createLiteralDT(lexical, datatype);
     }
 
     private static TemporalSpan instant(String utc) {
-        long t = Instant.parse(utc).toEpochMilli();
-        return new TemporalSpan(t, t);
+        return span(utc, utc);
+    }
+
+    private static TemporalSpan span(String startUtc, String endUtc) {
+        return new TemporalSpan(Instant.parse(startUtc).toEpochMilli(), Instant.parse(endUtc).toEpochMilli());
     }
 }
