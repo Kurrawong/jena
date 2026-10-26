@@ -48,6 +48,13 @@ public class TestTemporalSpan {
             "no timezone is taken as UTC");
     }
 
+    /** OWL-Time's {@code time:inXSDDateTimeStamp} is typed this way. */
+    @Test
+    public void aDateTimeStampIsAnInstantInUtc() {
+        assertEquals(instant("2021-06-30T12:00:00Z"),
+            TemporalSpan.of(literal("2021-06-30T22:00:00+10:00", XSDDatatype.XSDdateTimeStamp)));
+    }
+
     private static Node literal(String lexical, XSDDatatype datatype) {
         return NodeFactory.createLiteralDT(lexical, datatype);
     }
