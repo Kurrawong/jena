@@ -257,6 +257,36 @@ public class TestPeriodField {
             """));
     }
 
+    /**
+     * Where a missing end means "unknown" rather than "ongoing", a value constraint on the
+     * occurrence, which filters the period node, indexes only closed periods. This is the
+     * shape 10-suggested-configuration.md recommends.
+     */
+    @Test
+    public void aValueConstraintCanKeepOnlyClosedPeriods() {
+        load(PREFIXES + """
+            field:validity idx:fieldName "validity" ; idx:fieldType idx:PeriodField ; idx:multiValued true .
+            ex:TenementShape sh:targetClass ex:Tenement ;
+                sh:property [
+                    idx:field field:validity ;
+                    sh:path ex:validity ;
+                    sh:node [ sh:property [ sh:path time:hasEnd ; sh:minCount 1 ] ] ;
+                    idx:periodStart ( time:hasBeginning time:inXSDDate ) ;
+                    idx:periodEnd   ( time:hasEnd time:inXSDDate ) ;
+                ] .
+            """, PREFIXES + """
+            ex:closed a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDate "2015-01-01"^^xsd:date ] ;
+                  time:hasEnd       [ time:inXSDDate "2016-12-31"^^xsd:date ] ] .
+            ex:end-unknown a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDate "2015-01-01"^^xsd:date ] ] .
+            """);
+
+        assertEquals(Set.of("closed"), matching("""
+            {"op": "t_intersects", "args": [{"property": "%s"}, {"interval": ["..", ".."]}]}
+            """.formatted(VALIDITY)));
+    }
+
     private void update(String sparqlUpdate) {
         String update = sparqlUpdate.replace("@prefix ", "PREFIX ").replaceAll(" \\.\n", "\n");
         dataset.begin(ReadWrite.WRITE);
