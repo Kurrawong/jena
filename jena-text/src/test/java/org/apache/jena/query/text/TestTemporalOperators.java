@@ -150,7 +150,10 @@ public class TestTemporalOperators {
         return Stream.of(
             Arguments.of("""
                 {"op": "t_after", "args": [{"property": "%stemporal"}, {"timestamp": "2021-06-30T11:00:00Z"}]}
-                """, DATETIMES)
+                """, DATETIMES),
+            Arguments.of("""
+                {"op": "t_before", "args": [{"property": "%stemporal"}, {"timestamp": "2021-07-01T00:00:00Z"}]}
+                """, union(DATETIMES, "date-offset"))
         );
     }
 
@@ -158,6 +161,12 @@ public class TestTemporalOperators {
     @MethodSource("prezCases")
     public void matchesPrez(String filterTemplate, Set<String> expected) {
         assertEquals(expected, matching(filterTemplate.formatted(FP, FP, FP, FP)));
+    }
+
+    private static Set<String> union(Set<String> names, String... more) {
+        Set<String> all = new TreeSet<>(names);
+        all.addAll(List.of(more));
+        return all;
     }
 
     private Set<String> matching(String cqlJson) {
