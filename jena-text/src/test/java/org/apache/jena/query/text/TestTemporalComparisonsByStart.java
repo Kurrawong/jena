@@ -99,6 +99,7 @@ public class TestTemporalComparisonsByStart {
             addEvent(model, "date-offset", ResourceFactory.createTypedLiteral("2021-06-30+10:00", XSDDatatype.XSDdate));
             addEvent(model, "year-month", ResourceFactory.createTypedLiteral("2021-06", XSDDatatype.XSDgYearMonth));
             addEvent(model, "year", ResourceFactory.createTypedLiteral("2021", XSDDatatype.XSDgYear));
+            addEvent(model, "untyped", ResourceFactory.createStringLiteral("2021-06-30"));
             dataset.commit();
         } finally {
             dataset.end();
@@ -123,6 +124,15 @@ public class TestTemporalComparisonsByStart {
     public void aYearAndAYearMonthCompareByTheirFirstDay() {
         assertEquals(Set.of("year"), matching(new CqlExpression.CqlComparison("=", FP + "when", "2021-01-01")));
         assertEquals(Set.of("year-month"), matching(new CqlExpression.CqlComparison("=", FP + "when", "2021-06-01")));
+    }
+
+    /**
+     * A string has no span, so the epoch falls back to reading a date-shaped lexical
+     * form, as it always has. The temporal operators never read it.
+     */
+    @Test
+    public void aDateShapedStringStillCompares() {
+        assertEquals(Set.of("date", "untyped"), matching(new CqlExpression.CqlComparison("=", FP + "when", "2021-06-30")));
     }
 
     private Set<String> matching(CqlExpression filter) {
