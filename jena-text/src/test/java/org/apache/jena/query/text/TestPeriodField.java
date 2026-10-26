@@ -110,6 +110,21 @@ public class TestPeriodField {
             """.formatted(VALIDITY)));
     }
 
+    /** The timestamp variant 10-suggested-configuration.md gives for OWL-Time. */
+    @Test
+    public void owlTimeTimestampsAreInstants() {
+        load(OWL_TIME_CONFIG.replace("time:inXSDDate )", "time:inXSDDateTimeStamp )"), PREFIXES + """
+            ex:morning a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDateTimeStamp "2021-06-30T08:00:00+10:00"^^xsd:dateTimeStamp ] ;
+                  time:hasEnd       [ time:inXSDDateTimeStamp "2021-06-30T12:00:00+10:00"^^xsd:dateTimeStamp ] ] .
+            """);
+
+        assertEquals(Set.of("morning"), matching("""
+            {"op": "t_equals", "args": [{"property": "%s"},
+                {"interval": ["2021-06-29T22:00:00Z", "2021-06-30T02:00:00Z"]}]}
+            """.formatted(VALIDITY)));
+    }
+
     /**
      * A missing bound is open: a tenement with no end date is still current. Open ends
      * compare as infinities, so an ongoing period finishes with an interval open at its end.

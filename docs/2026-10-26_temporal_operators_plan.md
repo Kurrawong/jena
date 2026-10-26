@@ -1,7 +1,7 @@
 ---
 title: "Temporal: CQL2 temporal operators over spans and periods"
 date: "2026-10-26"
-status: "Stages 1 and 2 built: spans and the fifteen operators on a TemporalField. idx:PeriodField and the demo are not built"
+status: "Stages 1 to 3 built: spans, the fifteen operators, and idx:PeriodField. The demo (stage 4) is not built"
 issues: ""
 ---
 

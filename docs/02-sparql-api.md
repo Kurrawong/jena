@@ -854,7 +854,8 @@ When to choose which:
 
 ### Temporal operators
 
-CQL2's fifteen temporal operators work on a `TemporalField`: `t_after`, `t_before`,
+CQL2's fifteen temporal operators work on a `TemporalField` and on a
+[`PeriodField`](03-configuration.md#periods): `t_after`, `t_before`,
 `t_contains`, `t_disjoint`, `t_during`, `t_equals`, `t_finishedBy`, `t_finishes`,
 `t_intersects`, `t_meets`, `t_metBy`, `t_overlappedBy`, `t_overlaps`, `t_startedBy` and
 `t_starts`, cased as the CQL2-JSON schema writes them.
@@ -870,6 +871,7 @@ CQL2's fifteen temporal operators work on a `TemporalField`: `t_after`, `t_befor
 | an `xsd:dateTime` or `xsd:dateTimeStamp` value, or `{"timestamp": "2021-06-30T12:00:00Z"}` | that instant; no timezone is taken as UTC |
 | an `xsd:date` value | its whole day, at its own offset: `"2021-06-30+10:00"` is `[2021-06-29T14:00Z, 2021-06-30T14:00Z]` |
 | an `xsd:gYearMonth` or `xsd:gYear` value | its whole month or year, in UTC |
+| a `PeriodField` value | from its start's start to its end's end; a missing bound is open |
 | `{"date": "2021-06-30"}` | its whole day, in UTC |
 | `{"interval": [start, end]}` | from `start`'s start to `end`'s end |
 
@@ -1012,7 +1014,8 @@ cannot turn into a Lucene query raises:
 | a range operator on a `KEYWORD` field | no ordering to compare against |
 | any operator other than `=` and `<>` on `entityIri` | only those two are defined for it |
 | a property naming no field, or a field that is not indexed | nothing to filter on |
-| a `t_` operator on a field that is not a `TemporalField` | no span to compare |
+| a `t_` operator on a field that is not a `TemporalField` or a `PeriodField` | no span to compare |
+| `=`, `<`, `between` and the rest on a `PeriodField` | a period has two ends; the `t_` operators say which to compare |
 | a `t_` operator with a property on both sides | a query cannot compare two values of one document |
 | a filter that is not valid JSON or not CQL2 the parser accepts | nothing to apply |
 

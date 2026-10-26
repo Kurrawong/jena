@@ -283,7 +283,7 @@ These go on the **canonical field**, never on an occurrence.
 | Property | Default | Meaning |
 |---|---|---|
 | `idx:fieldName` | required | Internal Lucene field name |
-| `idx:fieldType` | `idx:TextField` | `idx:TextField`, `idx:KeywordField`, `idx:IntField`, `idx:LongField`, `idx:DoubleField`, `idx:TemporalField`, `idx:LatLonField` |
+| `idx:fieldType` | `idx:TextField` | `idx:TextField`, `idx:KeywordField`, `idx:IntField`, `idx:LongField`, `idx:DoubleField`, `idx:TemporalField`, `idx:LatLonField`, `idx:PeriodField` (see [Periods](#periods)) |
 | `idx:stored` | `true` | The value can be returned by `luc:match`, `luc:nestedMatch` and `luc:fields`. Where it is kept is decided by the indexer; see [Where values are kept](#where-values-are-kept) |
 | `idx:indexed` | `true` | Write searchable terms/points — this is what makes the field **filterable** |
 | `idx:facetable` | `false` | Write facet docvalues — required to appear in `luc:facet` |
@@ -383,6 +383,7 @@ one field cannot end up with two different definitions.
 | `sh:path` | yes¹ | Direct, sequence, inverse, or alternative path from the entity (or, inside `idx:nested`, from the child node) |
 | `idx:self` | yes¹ | Bind the focus node itself instead of a path from it — see [Indexing the focus node](#indexing-the-focus-node) |
 | `sh:class`, `sh:datatype`, `sh:nodeKind`, … | no | Value constraints: only index the values that satisfy them — see [Value constraints](#value-constraints) |
+| `idx:periodStart`, `idx:periodEnd` | on a `PeriodField` only, and then both | Paths from the node the occurrence reaches to the period's start and to its end — see [Periods](#periods) |
 
 ¹ Exactly one of `sh:path` / `idx:self`. Neither is an error, and so is both.
 
@@ -404,7 +405,8 @@ The value constraints still apply — they filter the focus node itself, so
 
 A focus node is a resource, so a self-bound field must be `idx:KeywordField` or
 `idx:TextField`; the numeric and temporal types have nothing to convert and are rejected at
-config time. Blank nodes yield no value at all — their labels are not stable across a
+config time. The exception is `idx:PeriodField`, which reads its start and end *from* the
+focus node: see [Periods](#periods). Blank nodes yield no value at all — their labels are not stable across a
 reload, so indexing them would be meaningless — and the field is simply absent from that
 document.
 
@@ -502,6 +504,73 @@ The change listener follows a step: a change to a triple on any path the filter 
 to an `rdf:type` checked by `sh:class` in it, rebuilds the entities whose step reaches the
 changed node. Changing an identifier's `schema:propertyID` from `ex:CollarId` to another
 kind removes its value from `field:collarId`.
+
+### Periods
+
+An `idx:PeriodField` holds periods: a start and an end read from **one** node, kept
+together. The temporal operators query it as the span from the start's start to the end's
+end; see [02-sparql-api.md → Temporal operators](02-sparql-api.md#temporal-operators).
+
+Two date fields cannot do this. An entity with two periods has two starts and two ends,
+and nothing in a pair of fields says which start goes with which end, so a tenement held
+2010–2012 and again 2018–2020 would match "during 2011–2019" on the 2018 start and the 2012
+end. A PeriodField indexes each period as one point, so it does not.
+
+```turtle
+field:validity
+    idx:fieldName "validity" ;
+    idx:fieldType idx:PeriodField ;
+    idx:multiValued true .
+
+ex:TenementShape
+    sh:targetClass ex:Tenement ;
+    sh:property [
+        idx:field field:validity ;
+        sh:path ex:validity ;                                # reaches the period node
+        idx:periodStart ( time:hasBeginning time:inXSDDate ) ;
+        idx:periodEnd   ( time:hasEnd time:inXSDDate ) ;
+    ] .
+```
+
+`sh:path` (or `idx:self`) reaches the **period node**; `idx:periodStart` and
+`idx:periodEnd` are paths from it, in any of the [path forms](#paths). Both go on the
+occurrence, so one field can be fed from OWL-Time on one shape and from
+`schema:startDate`/`schema:endDate` on another. When the start and end sit on the entity
+itself, bind the entity with `idx:self`:
+
+```turtle
+sh:property [
+    idx:field field:active ;
+    idx:self true ;
+    idx:periodStart schema:startDate ;
+    idx:periodEnd   schema:endDate ;
+] .
+```
+
+Reading a period node:
+
+- **Spans.** The start and the end are temporal values with the spans of a
+  [`TemporalField`](10-suggested-configuration.md#dates). A period from the date
+  2020-01-01 to the date 2020-12-31 runs to 2021-01-01T00:00Z, the end of its last day.
+- **A missing bound is open.** A period with a start and no end is ongoing, and one with
+  an end and no start has always held. Open ends compare as infinities, and an open end
+  equals an open end of a query interval. A node with neither bound gives no period.
+- **Skipped and logged.** A period with two starts or two ends (nothing says which pairs
+  with which), a bound that is not a date or a time, or an end before its start. The
+  entity is still indexed, with its other periods.
+- **Value constraints filter the period node**, not the start and end literals. To
+  index only closed periods, where a missing end means "unknown" rather than "ongoing":
+  `sh:node [ sh:property [ sh:path time:hasEnd ; sh:minCount 1 ] ]` on the occurrence.
+- **Live updates** follow the start and end paths: changing the date two hops below the
+  entity, or removing the link to the end, rebuilds the entity.
+
+A PeriodField is for the temporal operators only. It is not stored, facetable, sortable,
+default-searched or a level of a hierarchy, and it has no literal metadata; each of those
+set `true` is an error at config time, as are `idx:periodStart` and `idx:periodEnd` on
+any other field type, on a canonical field or on a step. `=`, `<` and `between` on it are
+refused, since a period has two ends to compare; `t_equals` and `t_during` say which.
+
+*[TestPeriodField](../jena-text/src/test/java/org/apache/jena/query/text/TestPeriodField.java), [TestPeriodFieldConfig](../jena-text/src/test/java/org/apache/jena/query/text/assembler/TestPeriodFieldConfig.java), [TestPeriodFieldOracle](../jena-text/src/test/java/org/apache/jena/query/text/TestPeriodFieldOracle.java)*
 
 ## Choosing an Analyzer for a TEXT Field
 
@@ -1100,6 +1169,7 @@ Every term the assembler reads, and where it is defined above:
 |---|---|---|
 | `idx:field` | occurrence, `idx:column` | [Occurrence properties](#occurrence-properties) |
 | `idx:self` | occurrence | [Indexing the focus node](#indexing-the-focus-node) |
+| `idx:periodStart` `idx:periodEnd` | `PeriodField` occurrence | [Periods](#periods) |
 | `idx:fieldName` `idx:fieldType` | canonical field | [Field Properties](#field-properties) |
 | `idx:stored` `idx:indexed` `idx:facetable` `idx:sortable` `idx:multiValued` `idx:defaultSearch` | canonical field | [Field Properties](#field-properties) |
 | `idx:analyzer` `idx:queryAnalyzer` `idx:normalizer` | canonical field | [Field Properties](#field-properties) |
@@ -1116,7 +1186,7 @@ Resources rather than properties:
 
 | Term | Used as |
 |---|---|
-| `idx:TextField` `idx:KeywordField` `idx:IntField` `idx:LongField` `idx:DoubleField` `idx:TemporalField` `idx:LatLonField` | `idx:fieldType` value |
+| `idx:TextField` `idx:KeywordField` `idx:IntField` `idx:LongField` `idx:DoubleField` `idx:TemporalField` `idx:LatLonField` `idx:PeriodField` | `idx:fieldType` value |
 | `idx:DateField` `idx:DateTimeField` | deprecated aliases for `idx:TemporalField` |
 | `idx:CsvFile` `idx:TsvFile` | `idx:format` value |
 
