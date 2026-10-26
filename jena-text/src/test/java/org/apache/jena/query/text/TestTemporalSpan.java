@@ -66,6 +66,19 @@ public class TestTemporalSpan {
             "a date's day starts at midnight at its own offset");
     }
 
+    /** In UTC, ignoring any offset, as Prez's SPARQL does. */
+    @Test
+    public void aYearMonthSpansItsWholeMonth() {
+        assertEquals(span("2021-06-01T00:00:00Z", "2021-07-01T00:00:00Z"),
+            TemporalSpan.of(literal("2021-06", XSDDatatype.XSDgYearMonth)));
+        assertEquals(span("2021-12-01T00:00:00Z", "2022-01-01T00:00:00Z"),
+            TemporalSpan.of(literal("2021-12", XSDDatatype.XSDgYearMonth)),
+            "December ends when the next year starts");
+        assertEquals(span("2021-06-01T00:00:00Z", "2021-07-01T00:00:00Z"),
+            TemporalSpan.of(literal("2021-06+10:00", XSDDatatype.XSDgYearMonth)),
+            "an offset is ignored");
+    }
+
     private static Node literal(String lexical, XSDDatatype datatype) {
         return NodeFactory.createLiteralDT(lexical, datatype);
     }
