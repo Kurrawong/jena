@@ -68,6 +68,9 @@ record TemporalRelation(List<Condition> conditions, boolean anyOf) {
         Map.entry("t_during", allOf(
             new Condition(End.START, Comparison.GT, End.START),
             new Condition(End.END, Comparison.LT, End.END))),
+        Map.entry("t_contains", allOf(
+            new Condition(End.START, Comparison.LT, End.START),
+            new Condition(End.END, Comparison.GT, End.END))),
         Map.entry("t_meets", allOf(new Condition(End.END, Comparison.EQ, End.START))),
         Map.entry("t_equals", allOf(
             new Condition(End.START, Comparison.EQ, End.START),
