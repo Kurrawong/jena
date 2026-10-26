@@ -25,10 +25,12 @@ import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
+import java.util.regex.Pattern;
 
 import org.apache.jena.datatypes.xsd.XSDDatatype;
 import org.apache.jena.graph.Node;
@@ -37,6 +39,9 @@ import org.apache.jena.graph.Node;
  * The interval a temporal value spans, as UTC epoch milliseconds, closed at both ends.
  */
 public record TemporalSpan(long start, long end) {
+
+    /** The timezone an XSD lexical form may end with. */
+    private static final Pattern TIMEZONE = Pattern.compile("(Z|[+-]\\d{2}:\\d{2})$");
 
     /** The span of a temporal literal, or null if it names no point in time. */
     public static TemporalSpan of(Node literal) {
@@ -53,6 +58,10 @@ public record TemporalSpan(long start, long end) {
             }
             if (XSDDatatype.XSDdate.getURI().equals(datatype)) {
                 return dateSpan(lexical);
+            }
+            if (XSDDatatype.XSDgYearMonth.getURI().equals(datatype)) {
+                YearMonth month = YearMonth.parse(withoutTimezone(lexical));
+                return utcSpan(month.atDay(1), month.plusMonths(1).atDay(1));
             }
         } catch (DateTimeException ex) {
             return null;
@@ -73,6 +82,20 @@ public record TemporalSpan(long start, long end) {
         return new TemporalSpan(
             date.atStartOfDay(offset).toInstant().toEpochMilli(),
             date.plusDays(1).atStartOfDay(offset).toInstant().toEpochMilli());
+    }
+
+    /**
+     * From midnight UTC on {@code first} to midnight UTC on {@code next}. A year-month's
+     * or a year's own offset is ignored, as Prez's SPARQL ignores it.
+     */
+    private static TemporalSpan utcSpan(LocalDate first, LocalDate next) {
+        return new TemporalSpan(
+            first.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+            next.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli());
+    }
+
+    private static String withoutTimezone(String lexical) {
+        return TIMEZONE.matcher(lexical).replaceFirst("");
     }
 
     /** An xsd:dateTime as an instant, taking one without a timezone as UTC. */
