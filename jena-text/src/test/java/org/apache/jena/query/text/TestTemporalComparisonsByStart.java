@@ -97,6 +97,8 @@ public class TestTemporalComparisonsByStart {
             Model model = dataset.getDefaultModel();
             addEvent(model, "date", ResourceFactory.createTypedLiteral("2021-06-30", XSDDatatype.XSDdate));
             addEvent(model, "date-offset", ResourceFactory.createTypedLiteral("2021-06-30+10:00", XSDDatatype.XSDdate));
+            addEvent(model, "year-month", ResourceFactory.createTypedLiteral("2021-06", XSDDatatype.XSDgYearMonth));
+            addEvent(model, "year", ResourceFactory.createTypedLiteral("2021", XSDDatatype.XSDgYear));
             dataset.commit();
         } finally {
             dataset.end();
@@ -115,6 +117,12 @@ public class TestTemporalComparisonsByStart {
         assertEquals(Set.of("date-offset"), matching(new CqlExpression.CqlComparison("=", FP + "when", "2021-06-29T14:00:00Z")));
         assertEquals(Set.of("date-offset"), matching(new CqlExpression.CqlBetween(FP + "when",
             "2021-06-29T00:00:00Z", "2021-06-29T23:59:59Z")));
+    }
+
+    @Test
+    public void aYearAndAYearMonthCompareByTheirFirstDay() {
+        assertEquals(Set.of("year"), matching(new CqlExpression.CqlComparison("=", FP + "when", "2021-01-01")));
+        assertEquals(Set.of("year-month"), matching(new CqlExpression.CqlComparison("=", FP + "when", "2021-06-01")));
     }
 
     private Set<String> matching(CqlExpression filter) {
