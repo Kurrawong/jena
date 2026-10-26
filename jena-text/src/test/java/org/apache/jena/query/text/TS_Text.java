@@ -192,6 +192,8 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestTemporalOperatorOracle.class
     , TestTemporalOperatorSemantics.class
     , TestNestedTemporalOperators.class
+    // A filter that cannot be run is a parse error, which Fuseki answers with a 400
+    , TestCqlFilterErrors.class
 
     // Classic Lucene query syntax reaching the queryString argument
     , TestLuceneQuerySyntax.class
