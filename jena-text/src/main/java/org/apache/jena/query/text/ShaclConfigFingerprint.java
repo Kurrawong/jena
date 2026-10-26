@@ -34,6 +34,7 @@ import org.apache.jena.query.text.ShaclIndexMapping.ColumnBinding;
 import org.apache.jena.query.text.ShaclIndexMapping.ExternalSourceDef;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldDef;
 import org.apache.jena.query.text.ShaclIndexMapping.FieldOccurrence;
+import org.apache.jena.query.text.ShaclIndexMapping.FieldType;
 import org.apache.jena.query.text.ShaclIndexMapping.HierarchyDef;
 import org.apache.jena.query.text.ShaclIndexMapping.IndexProfile;
 import org.apache.jena.query.text.ShaclIndexMapping.JoinStep;
@@ -151,7 +152,7 @@ public class ShaclConfigFingerprint {
         // field with every flag false would render identically to no field at all.
         return "{name=" + str(f.getFieldName())
              + " iri=" + node(f.getFieldIRI())
-             + " type=" + f.getFieldType()
+             + " type=" + layout(f.getFieldType())
              + " analyzer=" + analyzer(f.getAnalyzer())
              + " queryAnalyzer=" + analyzer(f.getQueryAnalyzer())
              + " normalizer=" + analyzer(f.getNormalizer())
@@ -163,6 +164,16 @@ public class ShaclConfigFingerprint {
              + " defaultSearch=" + f.isDefaultSearch()
              + " storeLiteralMetadata=" + f.isStoreLiteralMetadata()
              + "}";
+    }
+
+    /**
+     * A field type, naming what it writes where that changed with no change to the
+     * configuration. A TemporalField writes a span per value for the temporal operators,
+     * so an index built before then reports a mismatch instead of matching while it cannot
+     * answer them.
+     */
+    private static String layout(FieldType type) {
+        return type == FieldType.TEMPORAL ? "TEMPORAL/span" : type.name();
     }
 
     private static String renderOccurrence(FieldOccurrence o) {
