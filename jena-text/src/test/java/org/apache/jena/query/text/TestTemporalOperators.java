@@ -160,7 +160,10 @@ public class TestTemporalOperators {
                 """, union(DATETIMES, "date-offset")),
             Arguments.of("""
                 {"op": "t_intersects", "args": [{"property": "%stemporal"}, {"interval": ["2021-06-30T13:00:00Z", ".."]}]}
-                """, PERIODS)
+                """, PERIODS),
+            Arguments.of("""
+                {"op": "t_equals", "args": [{"property": "%stemporal"}, {"date": "2021-06-30"}]}
+                """, Set.of("date"))
         );
     }
 
