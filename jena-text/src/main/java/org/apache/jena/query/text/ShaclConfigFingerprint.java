@@ -188,7 +188,17 @@ public class ShaclConfigFingerprint {
              + " steps=" + renderSteps(o.getSteps())
              + " localPath=" + path(o.getLocalPath())
              + " nestedName=" + str(o.getNestedName())
+             + period(o.getPeriodPaths())
              + "}";
+    }
+
+    /**
+     * A PeriodField occurrence's start and end paths, named in order: they are not covered
+     * by the sorted variants and predicates, which are the same when the two are swapped.
+     * Nothing for any other occurrence, so those fingerprints are unchanged.
+     */
+    private static String period(FieldOccurrence.PeriodPaths paths) {
+        return paths == null ? "" : " periodStart=" + path(paths.start()) + " periodEnd=" + path(paths.end());
     }
 
     /** Step order is significant: each step starts from the nodes the previous one kept. */
