@@ -25,6 +25,7 @@ import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.Year;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -62,6 +63,10 @@ public record TemporalSpan(long start, long end) {
             if (XSDDatatype.XSDgYearMonth.getURI().equals(datatype)) {
                 YearMonth month = YearMonth.parse(withoutTimezone(lexical));
                 return utcSpan(month.atDay(1), month.plusMonths(1).atDay(1));
+            }
+            if (XSDDatatype.XSDgYear.getURI().equals(datatype)) {
+                Year year = Year.parse(withoutTimezone(lexical));
+                return utcSpan(year.atDay(1), year.plusYears(1).atDay(1));
             }
         } catch (DateTimeException ex) {
             return null;
