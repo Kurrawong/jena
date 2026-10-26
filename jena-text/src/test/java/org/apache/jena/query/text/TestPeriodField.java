@@ -109,6 +109,34 @@ public class TestPeriodField {
             """.formatted(VALIDITY)));
     }
 
+    /**
+     * A missing bound is open: a tenement with no end date is still current. Open ends
+     * compare as infinities, so an ongoing period finishes with an interval open at its end.
+     */
+    @Test
+    public void aMissingBoundIsOpen() {
+        load(OWL_TIME_CONFIG, PREFIXES + """
+            ex:current a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDate "2015-01-01"^^xsd:date ] ] .
+            ex:since-forever a ex:Tenement ; ex:validity
+                [ time:hasEnd [ time:inXSDDate "2000-12-31"^^xsd:date ] ] .
+            ex:neither a ex:Tenement ; ex:validity [ ex:note "no dates" ] .
+            """);
+
+        assertEquals(Set.of("current"), matching("""
+            {"op": "t_intersects", "args": [{"property": "%s"}, {"interval": ["2030-01-01", "2030-12-31"]}]}
+            """.formatted(VALIDITY)));
+        assertEquals(Set.of("since-forever"), matching("""
+            {"op": "t_before", "args": [{"property": "%s"}, {"date": "2001-06-01"}]}
+            """.formatted(VALIDITY)));
+        assertEquals(Set.of("current"), matching("""
+            {"op": "t_finishes", "args": [{"property": "%s"}, {"interval": ["2010-01-01", ".."]}]}
+            """.formatted(VALIDITY)));
+        assertEquals(Set.of("current", "since-forever"), matching("""
+            {"op": "t_intersects", "args": [{"property": "%s"}, {"interval": ["..", ".."]}]}
+            """.formatted(VALIDITY)), "a period node with neither bound has no span");
+    }
+
     private void load(String config, String data) {
         Model model = ModelFactory.createDefaultModel();
         model.read(new StringReader(config), null, "TTL");
