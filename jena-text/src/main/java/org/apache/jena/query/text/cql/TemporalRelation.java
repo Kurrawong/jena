@@ -75,7 +75,26 @@ record TemporalRelation(List<Condition> conditions, boolean anyOf) {
             new Condition(End.START, Comparison.LT, End.START),
             new Condition(End.END, Comparison.GT, End.START),
             new Condition(End.END, Comparison.LT, End.END))),
+        Map.entry("t_overlappedBy", allOf(
+            new Condition(End.START, Comparison.GT, End.START),
+            new Condition(End.START, Comparison.LT, End.END),
+            new Condition(End.END, Comparison.GT, End.END))),
         Map.entry("t_meets", allOf(new Condition(End.END, Comparison.EQ, End.START))),
+        Map.entry("t_metBy", allOf(new Condition(End.START, Comparison.EQ, End.END))),
+        // Table 6 links T_STARTS and T_STARTEDBY to each other's OWL-Time relation; its
+        // Figure 6 and test data follow Allen, as these do.
+        Map.entry("t_starts", allOf(
+            new Condition(End.START, Comparison.EQ, End.START),
+            new Condition(End.END, Comparison.LT, End.END))),
+        Map.entry("t_startedBy", allOf(
+            new Condition(End.START, Comparison.EQ, End.START),
+            new Condition(End.END, Comparison.GT, End.END))),
+        Map.entry("t_finishes", allOf(
+            new Condition(End.START, Comparison.GT, End.START),
+            new Condition(End.END, Comparison.EQ, End.END))),
+        Map.entry("t_finishedBy", allOf(
+            new Condition(End.START, Comparison.LT, End.START),
+            new Condition(End.END, Comparison.EQ, End.END))),
         Map.entry("t_equals", allOf(
             new Condition(End.START, Comparison.EQ, End.START),
             new Condition(End.END, Comparison.EQ, End.END))),

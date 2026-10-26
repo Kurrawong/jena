@@ -54,7 +54,8 @@ public class CqlParser {
 
     /** CQL2's temporal operators, cased as the CQL2-JSON schema writes them. */
     private static final Set<String> TEMPORAL_OPS = Set.of("t_after", "t_before", "t_contains", "t_disjoint",
-        "t_during", "t_equals", "t_intersects", "t_meets", "t_overlaps");
+        "t_during", "t_equals", "t_finishedBy", "t_finishes", "t_intersects", "t_meets", "t_metBy",
+        "t_overlappedBy", "t_overlaps", "t_startedBy", "t_starts");
 
     /** An unbounded interval end (OGC 21-065r2 §7.8.1). */
     private static final String OPEN_END = "..";
