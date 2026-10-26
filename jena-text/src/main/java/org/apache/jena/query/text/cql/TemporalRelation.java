@@ -64,7 +64,10 @@ record TemporalRelation(List<Condition> conditions, boolean anyOf) {
 
     private static final Map<String, TemporalRelation> RELATIONS = Map.of(
         "t_after", allOf(new Condition(End.START, Comparison.GT, End.END)),
-        "t_before", allOf(new Condition(End.END, Comparison.LT, End.START)));
+        "t_before", allOf(new Condition(End.END, Comparison.LT, End.START)),
+        "t_during", allOf(
+            new Condition(End.START, Comparison.GT, End.START),
+            new Condition(End.END, Comparison.LT, End.END)));
 
     /** The relation an operator names, or null if it names none. */
     static TemporalRelation forOperator(String op) {

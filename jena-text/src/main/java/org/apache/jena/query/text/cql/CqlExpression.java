@@ -152,8 +152,32 @@ public sealed interface CqlExpression
     }
 
     /** An operand of a temporal predicate: a property, a date or timestamp, or an interval. */
-    sealed interface TemporalOperand permits TemporalProperty, TemporalInstant {
+    sealed interface TemporalOperand permits TemporalProperty, TemporalInstant, TemporalInterval {
         String toCanonical();
+    }
+
+    /** One end of an interval operand. */
+    sealed interface IntervalEnd permits LiteralEnd {
+        String toCanonical();
+    }
+
+    /**
+     * An {@code {"interval": [start, end]}} literal: from its start's start to its end's
+     * end, so a date at the end runs to the end of that day.
+     */
+    record TemporalInterval(IntervalEnd start, IntervalEnd end) implements TemporalOperand {
+        @Override
+        public String toCanonical() {
+            return "interval(" + start.toCanonical() + "," + end.toCanonical() + ")";
+        }
+    }
+
+    /** A date or timestamp written as an interval end. */
+    record LiteralEnd(String lexical) implements IntervalEnd {
+        @Override
+        public String toCanonical() {
+            return lexical;
+        }
     }
 
     record TemporalProperty(String property) implements TemporalOperand {

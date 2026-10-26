@@ -1097,6 +1097,18 @@ public class CqlToLuceneCompiler {
                 TemporalSpan span = literalSpan(instant.lexical(), clause);
                 yield new SpanEnd[] { new FixedEnd(span.start()), new FixedEnd(span.end()) };
             }
+            case CqlExpression.TemporalInterval interval -> new SpanEnd[] {
+                intervalEnd(interval.start(), 0, clause), intervalEnd(interval.end(), 1, clause) };
+        };
+    }
+
+    /** An interval's start is where its first end starts, and its end where its second ends. */
+    private SpanEnd intervalEnd(CqlExpression.IntervalEnd end, int dimension, String clause) {
+        return switch (end) {
+            case CqlExpression.LiteralEnd literal -> {
+                TemporalSpan span = literalSpan(literal.lexical(), clause);
+                yield new FixedEnd(dimension == 0 ? span.start() : span.end());
+            }
         };
     }
 

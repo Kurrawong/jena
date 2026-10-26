@@ -53,7 +53,7 @@ public class CqlParser {
     );
 
     /** CQL2's temporal operators, cased as the CQL2-JSON schema writes them. */
-    private static final Set<String> TEMPORAL_OPS = Set.of("t_after", "t_before");
+    private static final Set<String> TEMPORAL_OPS = Set.of("t_after", "t_before", "t_during");
 
     /**
      * The one spatial operator taking a third argument, a distance in metres. An
@@ -219,9 +219,25 @@ public class CqlParser {
             if (obj.hasKey("timestamp")) {
                 return new CqlExpression.TemporalInstant(stringMember(op, obj, "timestamp"));
             }
+            if (obj.hasKey("interval")) {
+                JsonValue ends = obj.get("interval");
+                if (!ends.isArray() || ends.getAsArray().size() != 2) {
+                    throw new TextIndexException("CQL2 '" + op + "' interval must be [start, end], got: " + ends);
+                }
+                return new CqlExpression.TemporalInterval(
+                    parseIntervalEnd(op, ends.getAsArray().get(0)), parseIntervalEnd(op, ends.getAsArray().get(1)));
+            }
         }
         throw new TextIndexException("CQL2 '" + op + "' operand must be a property, "
             + "{\"timestamp\": …}, {\"date\": …} or {\"interval\": [start, end]}, got: " + val);
+    }
+
+    private static CqlExpression.IntervalEnd parseIntervalEnd(String op, JsonValue val) {
+        if (val.isString()) {
+            return new CqlExpression.LiteralEnd(val.getAsString().value());
+        }
+        throw new TextIndexException("CQL2 '" + op + "' interval end must be a date, a timestamp, "
+            + "\"..\" or a property, got: " + val);
     }
 
     private static String stringMember(String op, JsonObject obj, String key) {
