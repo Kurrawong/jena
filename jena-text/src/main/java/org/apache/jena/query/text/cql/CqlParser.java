@@ -288,6 +288,14 @@ public class CqlParser {
             return l;
         } else if (val.isBoolean()) {
             return val.getAsBoolean().value();
+        } else if (val.isObject()) {
+            // A CQL2 temporal literal: compared as its lexical form, as a bare string is.
+            JsonObject obj = val.getAsObject();
+            for (String key : List.of("date", "timestamp")) {
+                if (obj.hasKey(key) && obj.get(key).isString()) {
+                    return obj.get(key).getAsString().value();
+                }
+            }
         }
         throw new TextIndexException("Cannot extract CQL value from: " + val);
     }
