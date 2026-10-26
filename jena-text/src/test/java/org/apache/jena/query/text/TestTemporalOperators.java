@@ -163,7 +163,10 @@ public class TestTemporalOperators {
                 """, PERIODS),
             Arguments.of("""
                 {"op": "t_equals", "args": [{"property": "%stemporal"}, {"date": "2021-06-30"}]}
-                """, Set.of("date"))
+                """, Set.of("date")),
+            Arguments.of("""
+                {"op": "t_meets", "args": [{"property": "%stemporal"}, {"interval": ["2021-07-01", ".."]}]}
+                """, Set.of("date", "year-month"))
         );
     }
 
