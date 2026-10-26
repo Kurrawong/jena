@@ -59,6 +59,7 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 | `TestTemporalOperatorOracle` | 1 | All fifteen operators, against 120 generated timestamps, dates and intervals in both operand orders (3,600 checks), agree with OGC 21-065r2's definitions evaluated directly, on a six-hour grid where ends coincide often |
 | `TestTemporalOperatorSemantics` | 6 | A property operand keeps each value's start with its own end; an interval's property ends are bound separately; a multi-valued field matches when any value does, `t_disjoint` included; an entity with no value matches no operator, only a `not`; two literals are a constant; and the filters that raise |
 | `TestNestedTemporalOperators` | 2 | A temporal clause on a child field surfaces the parent, and an `and` of it with a keyword clause on the same scope must hold of one child |
+| `TestCqlTemporalParsing` | 3 | The `t_` operator names are cased as the CQL2-JSON schema writes them (`t_finishedby` is unknown); every operand form parses; and the canonical form keeps operand order, so `luc:query` and `luc:facet` do not share a search across swapped operands |
 | `TestCqlFilterErrors` | 3 | `luc:query` and `luc:facet` raise a filter they cannot run, or malformed filter JSON, as a `QueryParseException`, which Fuseki answers with a 400; `luc:facet` no longer answers it with no rows |
 
 ### Hierarchical Facets Tests

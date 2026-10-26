@@ -111,6 +111,7 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
 
     // CQL and multi-index tests
     , TestCqlParser.class
+    , org.apache.jena.query.text.cql.TestCqlTemporalParsing.class
     , TestCqlToLuceneCompiler.class
     , TestSortSpec.class
     // Nested sort selector: order by a child value where the co-located discriminator = X
