@@ -429,6 +429,10 @@ public class ShaclIndexAssembler {
                         "idx:facetHierarchy references unknown canonical field IRI: " + levelIRI
                         + ". Hierarchy levels must reference fields populated in the same scope.");
                 }
+                if (field.getFieldType() == FieldType.PERIOD) {
+                    throw new TextIndexException("idx:facetHierarchy on " + owner + " names " + levelIRI
+                        + ", a PeriodField. A period has no value to facet on, so it cannot be a level of a hierarchy.");
+                }
                 levels.add(field);
                 if (dimNameBuilder.length() > 0) {
                     dimNameBuilder.append("_");
@@ -513,6 +517,11 @@ public class ShaclIndexAssembler {
         if (stepRes.hasProperty(IndexVocab.pSelf)) {
             throw new TextIndexException("Step " + stepRes + " has idx:self. A step follows its sh:path; "
                 + "put idx:self on a sh:property inside its sh:node shape instead.");
+        }
+        if (stepRes.hasProperty(IndexVocab.pPeriodStart) || stepRes.hasProperty(IndexVocab.pPeriodEnd)) {
+            throw new TextIndexException("Step " + stepRes + " carries idx:periodStart or idx:periodEnd. "
+                + "A step takes only sh:path and sh:node; put them on the PeriodField occurrence inside "
+                + "its sh:node shape.");
         }
         for (Property constraint : ShaclConstraints.ALL) {
             if (!constraint.equals(shNode) && stepRes.hasProperty(constraint)) {
@@ -600,15 +609,28 @@ public class ShaclIndexAssembler {
 
         return new FieldOccurrence(field, steps, path, pathVariants, predicates,
             requiredClass, nodeKindConstraint, datatype, valueCondition, nestedName,
-            parsePeriodPaths(occurrenceRes));
+            parsePeriodPaths(occurrenceRes, field));
     }
 
-    /** A PeriodField occurrence's start and end paths, or null when it has none. */
-    private static FieldOccurrence.PeriodPaths parsePeriodPaths(Resource occurrenceRes) {
+    /**
+     * A PeriodField occurrence's start and end paths, both required; null for an occurrence
+     * of any other type, which may carry neither.
+     */
+    private static FieldOccurrence.PeriodPaths parsePeriodPaths(Resource occurrenceRes, FieldDef field) {
         Statement start = occurrenceRes.getProperty(IndexVocab.pPeriodStart);
         Statement end = occurrenceRes.getProperty(IndexVocab.pPeriodEnd);
-        if (start == null || end == null) {
+        if (field.getFieldType() != FieldType.PERIOD) {
+            if (start != null || end != null) {
+                throw new TextIndexException("Field occurrence " + occurrenceRes + " feeds "
+                    + field.getFieldIRI().getURI() + ", which has type " + field.getFieldType()
+                    + ". idx:periodStart and idx:periodEnd go only on a PeriodField occurrence.");
+            }
             return null;
+        }
+        if (start == null || end == null) {
+            throw new TextIndexException("Field occurrence " + occurrenceRes + " feeds the PeriodField "
+                + field.getFieldIRI().getURI() + ", which needs idx:periodStart and idx:periodEnd: the paths "
+                + "from the node the occurrence reaches to the period's start and to its end.");
         }
         Graph graph = occurrenceRes.getModel().getGraph();
         Path startPath = parseShaclPath(graph, start.getObject().asNode());
@@ -754,13 +776,22 @@ public class ShaclIndexAssembler {
             normalizerNode = normalizerStmt.getObject().asNode();
         }
 
-        boolean stored = getOptionalBoolean(fieldRes, IndexVocab.pStored, true);
+        // A period has no single literal to return, so it is not stored by default.
+        boolean stored = getOptionalBoolean(fieldRes, IndexVocab.pStored, fieldType != FieldType.PERIOD);
         boolean indexed = getOptionalBoolean(fieldRes, IndexVocab.pIndexed, true);
         boolean facetable = getOptionalBoolean(fieldRes, IndexVocab.pFacetable, false);
         boolean sortable = getOptionalBoolean(fieldRes, IndexVocab.pSortable, false);
         boolean multiValued = getOptionalBoolean(fieldRes, IndexVocab.pMultiValued, false);
         boolean defaultSearch = getOptionalBoolean(fieldRes, IndexVocab.pDefaultSearch, false);
         boolean storeLiteralMetadata = getOptionalBoolean(fieldRes, IndexVocab.pStoreLiteralMetadata, false);
+
+        if (fieldType == FieldType.PERIOD) {
+            rejectOnPeriodField(fieldName, IndexVocab.pStored, stored);
+            rejectOnPeriodField(fieldName, IndexVocab.pFacetable, facetable);
+            rejectOnPeriodField(fieldName, IndexVocab.pSortable, sortable);
+            rejectOnPeriodField(fieldName, IndexVocab.pDefaultSearch, defaultSearch);
+            rejectOnPeriodField(fieldName, IndexVocab.pStoreLiteralMetadata, storeLiteralMetadata);
+        }
 
         Node fieldIRI = fieldRes.isURIResource() ? fieldRes.asNode() : null;
         FieldDef fieldDef = new FieldDef(fieldName, fieldType, analyzer, queryAnalyzer,
@@ -771,12 +802,25 @@ public class ShaclIndexAssembler {
         return new CanonicalFieldSpec(fieldDef, analyzerNode, queryAnalyzerNode, normalizerNode);
     }
 
+    /**
+     * A PeriodField writes only the span the temporal operators query: there is no single
+     * value to store, facet, sort, search as text or rebuild as a literal.
+     */
+    private static void rejectOnPeriodField(String fieldName, Property flag, boolean set) {
+        if (set) {
+            throw new TextIndexException("PeriodField '" + fieldName + "' cannot have idx:" + flag.getLocalName()
+                + " true. A PeriodField is for the temporal operators only.");
+        }
+    }
+
     private static void rejectOccurrencePropertiesOnCanonicalField(Resource fieldRes) {
         if (fieldRes.hasProperty(shPath)
                 || fieldRes.hasProperty(IndexVocab.pPath)
                 || fieldRes.hasProperty(shClass)
                 || fieldRes.hasProperty(shNodeKind)
                 || fieldRes.hasProperty(shDatatype)
+                || fieldRes.hasProperty(IndexVocab.pPeriodStart)
+                || fieldRes.hasProperty(IndexVocab.pPeriodEnd)
                 || fieldRes.hasProperty(IndexVocab.pField)) {
             throw new TextIndexException(
                 "Canonical field " + fieldRes + " must not carry occurrence properties such as sh:path or idx:field");
