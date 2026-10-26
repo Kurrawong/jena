@@ -1,0 +1,21 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# Why a PeriodField keeps each period's start with its own end.
+#
+# Six named sites closed and later reopened, so each has two periods. On 30 June 2000
+# none of them was operating: each was between its two periods. Paired start-to-end, as
+# the index keeps them, they are excluded.
+#
+# Exactly 4 rows: site-brolga-ridge, site-spinifex-dome, site-wattle-downs and
+# site-kurrajong-valley, which were operating continuously through 2000.
+#
+# Two date fields, one for openings and one for closings, cannot say which goes with
+# which. site-rail-spur would hold openings in 1970 and 2001 and one closing, in 1999,
+# and nothing in either field would record that the 2001 opening has not closed.
+PREFIX luc: <urn:jena:lucene:index#>
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score) luc:query ("instance" "default" "*"
+    '{"op":"t_intersects","args":[{"property":"urn:jena:lucene:field#operating"},{"date":"2000-06-30"}]}'
+    ""
+    20
+    0)
+}

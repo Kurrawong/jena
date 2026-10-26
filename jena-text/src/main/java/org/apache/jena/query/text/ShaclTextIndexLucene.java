@@ -1637,6 +1637,14 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             addNodeFieldToDoc(doc, fieldDef, node);
             return;
         }
+        if (value instanceof TemporalSpan period) {
+            // A PeriodField value: only the span, for the temporal operators.
+            if (fieldDef.isIndexed()) {
+                doc.add(new LongPoint(LiteralFieldSupport.spanField(fieldDef.getFieldName()),
+                    period.start(), period.end()));
+            }
+            return;
+        }
 
         String fieldName = fieldDef.getFieldName();
 
@@ -1800,7 +1808,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             case INT -> addIntegerLiteralField(doc, fieldDef, lexical);
             case LONG -> addLongLiteralField(doc, fieldDef, lexical);
             case DOUBLE -> addDoubleLiteralField(doc, fieldDef, lexical);
-            case TEMPORAL -> addTemporalLiteralField(doc, fieldDef, lexical);
+            case TEMPORAL -> addTemporalLiteralField(doc, fieldDef, node);
             case LATLON -> {
                 List<IndexableField> spatialFields = parseGeometryToLuceneFields(
                     fieldName, lexical, node.getLiteralDatatypeURI(), fieldDef.isStored());
@@ -1871,11 +1879,23 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         }
     }
 
-    private void addTemporalLiteralField(Document doc, ShaclIndexMapping.FieldDef fieldDef, String lexical) {
+    /**
+     * The epoch twin holds when the value starts: from its datatype where it has a temporal
+     * one, so a date with an offset starts at midnight at that offset, and otherwise from a
+     * date-shaped lexical form, so an untyped date still compares.
+     */
+    private void addTemporalLiteralField(Document doc, ShaclIndexMapping.FieldDef fieldDef, Node literal) {
+        String lexical = literal.getLiteralLexicalForm();
         if (fieldDef.isStored()) {
             doc.add(new StoredField(fieldDef.getFieldName(), lexical));
         }
-        Long epoch = LiteralFieldSupport.toEpochMillis(fieldDef.getFieldType(), lexical);
+        TemporalSpan span = TemporalSpan.of(literal);
+        if (span != null && fieldDef.isIndexed()) {
+            doc.add(new LongPoint(LiteralFieldSupport.spanField(fieldDef.getFieldName()), span.start(), span.end()));
+        }
+        Long epoch = span != null
+            ? Long.valueOf(span.start())
+            : LiteralFieldSupport.toEpochMillis(fieldDef.getFieldType(), lexical);
         if (epoch == null) {
             log.warn("Failed to parse {} literal for field '{}': {}", fieldDef.getFieldType(), fieldDef.getFieldName(), lexical);
             return;
@@ -3410,6 +3430,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 "Cannot sort on TEXT field '" + fieldIRI + "'. Use KEYWORD for sortable fields.");
             case LATLON -> throw new TextIndexException(
                 "Cannot sort on LATLON field '" + fieldIRI + "'.");
+            case PERIOD -> throw new TextIndexException(
+                "Cannot sort on PERIOD field '" + fieldIRI + "'. A PeriodField is for the temporal operators only.");
         };
     }
 
@@ -3506,7 +3528,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 case INT -> IntPoint.newExactQuery(fieldName, Integer.parseInt(value));
                 case LONG -> LongPoint.newExactQuery(fieldName, Long.parseLong(value));
                 case DOUBLE -> DoublePoint.newExactQuery(fieldName, Double.parseDouble(value));
-                case TEMPORAL, LATLON -> throw new TextIndexException(
+                case TEMPORAL, LATLON, PERIOD -> throw new TextIndexException(
                     "Sort selector field '" + fieldName + "' has unsupported type "
                         + selectorFd.getFieldType() + "; use a KEYWORD discriminator.");
             };

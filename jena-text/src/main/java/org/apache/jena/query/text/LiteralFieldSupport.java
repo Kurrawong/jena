@@ -35,6 +35,7 @@ public final class LiteralFieldSupport {
     static final String DATATYPE_SUFFIX = "__datatype";
     static final String LANG_SUFFIX = "__lang";
     static final String EPOCH_SUFFIX = "__epoch";
+    static final String SPAN_SUFFIX = "__span";
 
     private LiteralFieldSupport() {}
 
@@ -48,6 +49,14 @@ public final class LiteralFieldSupport {
 
     public static String epochField(String fieldName) {
         return fieldName + EPOCH_SUFFIX;
+    }
+
+    /**
+     * The 2-D point field holding each value's {@link TemporalSpan} as (start, end), which
+     * the temporal operators query.
+     */
+    public static String spanField(String fieldName) {
+        return fieldName + SPAN_SUFFIX;
     }
 
     public static String queryFieldName(FieldDef fieldDef) {
@@ -94,7 +103,8 @@ public final class LiteralFieldSupport {
                 lexical.contains("T")
                     ? org.apache.jena.datatypes.xsd.XSDDatatype.XSDdateTime
                     : org.apache.jena.datatypes.xsd.XSDDatatype.XSDdate);
-            case LATLON -> null;
+            // A period is two values, not one, so there is no literal to rebuild.
+            case LATLON, PERIOD -> null;
         };
     }
 

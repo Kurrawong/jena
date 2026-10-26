@@ -67,6 +67,7 @@ public class IndexVocab {
     /** @deprecated alias for {@link #TemporalField}; both resolve to {@code FieldType.TEMPORAL}. */
     @Deprecated public static final Resource DateTimeField  = Vocab.resource(NS, "DateTimeField");
     public static final Resource LatLonField    = Vocab.resource(NS, "LatLonField");
+    public static final Resource PeriodField    = Vocab.resource(NS, "PeriodField");
 
     // External source formats (idx:format)
     public static final Resource CsvFile        = Vocab.resource(NS, "CsvFile");
@@ -93,6 +94,10 @@ public class IndexVocab {
     public static final Property pStoreLiteralMetadata = Vocab.property(NS, "storeLiteralMetadata");
     public static final Property pPath          = Vocab.property(NS, "path");
     public static final Property pSelf          = Vocab.property(NS, "self");
+    /** On a PeriodField occurrence: the path from its period node to the period's start. */
+    public static final Property pPeriodStart   = Vocab.property(NS, "periodStart");
+    /** On a PeriodField occurrence: the path from its period node to the period's end. */
+    public static final Property pPeriodEnd     = Vocab.property(NS, "periodEnd");
     public static final Property pJoinPath      = Vocab.property(NS, "joinPath");
     public static final Property pProperty      = Vocab.property(NS, "property");
 

@@ -36,6 +36,7 @@ import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.QueryBuildException;
 import org.apache.jena.query.QueryExecException;
 import org.apache.jena.query.text.cql.CqlExpression;
+import org.apache.jena.query.text.cql.CqlFilterException;
 import org.apache.jena.query.text.cql.CqlParser;
 import org.apache.jena.sparql.core.Substitute;
 import org.apache.jena.sparql.core.Var;
@@ -94,10 +95,21 @@ public class TextFacetPF extends PropertyFunctionBase {
         }
     }
 
+    /** A filter that cannot be run is a bad request, which Fuseki answers with a 400. */
     @Override
     public QueryIterator exec(Binding binding,
                               PropFuncArg argSubject, Node predicate, PropFuncArg argObject,
                               ExecutionContext execCxt) {
+        try {
+            return execute(binding, argSubject, predicate, argObject, execCxt);
+        } catch (CqlFilterException ex) {
+            throw ex.asParseError();
+        }
+    }
+
+    private QueryIterator execute(Binding binding,
+                                  PropFuncArg argSubject, Node predicate, PropFuncArg argObject,
+                                  ExecutionContext execCxt) {
 
         argSubject = Substitute.substitute(argSubject, binding);
         argObject = Substitute.substitute(argObject, binding);
@@ -138,6 +150,9 @@ public class TextFacetPF extends PropertyFunctionBase {
                 execCxt, resolvedTextIndex.identity(), validatedArgs.searchFields, validatedArgs.queryString,
                 validatedArgs.cqlFilter, null, textIndex, null, null);
             facetCounts = se.getFacetCounts(validatedArgs.facetRequest, validatedArgs.maxValues, validatedArgs.minCount);
+        } catch (CqlFilterException e) {
+            // Not applying a filter would count more than was asked for.
+            throw e;
         } catch (Exception e) {
             log.error("Error getting facet counts: {}", e.getMessage());
             return IterLib.noResults(execCxt);
@@ -199,7 +214,7 @@ public class TextFacetPF extends PropertyFunctionBase {
             case DOUBLE  -> NodeFactory.createLiteralDT(value, XSDDatatype.XSDdouble);
             case TEMPORAL -> NodeFactory.createLiteralDT(value,
                 value.contains("T") ? XSDDatatype.XSDdateTime : XSDDatatype.XSDdate);
-            case LATLON  -> NodeFactory.createLiteralString(value);
+            case LATLON, PERIOD -> NodeFactory.createLiteralString(value);
         };
     }
 

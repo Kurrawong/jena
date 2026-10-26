@@ -33,7 +33,8 @@ What to write, not what the defaults are. `idx:indexed` and `idx:stored` both de
 | Entity class | `rdf:type` → `Borehole` | `KeywordField` | ✗ | ✓ | — | ✗ |
 | Year or count | `2023`, `42` | `IntField` | ✗ | ✓ | ✓ | ✗ |
 | Measurement / grade / score | `12.4` | `DoubleField` | ✗ | ✓ | ✓ | ✗ |
-| Full date or timestamp | `2023-04-01`, `2023-04-01T09:00:00Z` | `TemporalField` | ✗ | ✓ | ✓ | ✗ |
+| Period: a start and an end together | a validity, a tenure, `schema:startDate`/`endDate` | [`PeriodField`](#periods) | — | — | — | ✗ |
+| Date, timestamp, month or year | `2023-04-01`, `2023-04-01T09:00:00Z`, `"2023"^^xsd:gYear` | `TemporalField` | ✗ | ✓ | ✓ | ✗ |
 | Geometry | `POINT(151.2 -33.9)` | `LatLonField` | ✗ | — | rejected | ✗ |
 | Repeated correlated record | an assay, an observation, a qualified identifier | ordinary fields inside an [`idx:nested`](#observations-sosa-style) block | ✗ | ✓ | ✓ | ✗ |
 
@@ -246,8 +247,9 @@ filter is dropped silently, not rejected. Leave `idx:indexed` alone.
 
 ## Dates
 
-`TemporalField` is a full date or timestamp — `xsd:date` or `xsd:dateTime`. A bare year is an
-`IntField`.
+`TemporalField` holds a point or a period in time: an `xsd:dateTime` or `xsd:dateTimeStamp`,
+or an `xsd:date`, `xsd:gYearMonth` or `xsd:gYear`. A year held as a number,
+`"2023"^^xsd:integer`, is an `IntField`.
 
 ```turtle
 field:publishedOn
@@ -259,8 +261,19 @@ field:publishedOn
     idx:storeLiteralMetadata true .   # required — config fails without it
 ```
 
-Values are indexed as epoch millis in a companion field, so filtering and sorting are numeric
-and date-only values are start-of-day UTC. Range facet boundaries are ISO strings.
+Values are indexed as epoch millis in a companion field, so filtering and sorting are numeric.
+The number is when the value **starts**, in UTC:
+
+| Value | Starts |
+|---|---|
+| `xsd:dateTime`, `xsd:dateTimeStamp` | at that instant; no timezone is taken as UTC |
+| `xsd:date` | at midnight at its own offset, or in UTC if it has none: `"2021-06-30+10:00"` starts at `2021-06-29T14:00:00Z` |
+| `xsd:gYearMonth`, `xsd:gYear` | on its first day, at midnight UTC; any offset is ignored |
+| a date-shaped string | read from its lexical form, as a date or a dateTime |
+
+So `=`, `<`, `between`, sort and range facets compare starts. A filter on the date
+`2021-06-30` does not match `"2021-06-30+10:00"^^xsd:date`, which starts ten hours
+earlier. Range facet boundaries are ISO strings.
 
 `idx:storeLiteralMetadata true` is mandatory on `TEMPORAL`
 (`ShaclIndexMapping.validateLiteralMetadataRequirements`), including on an unstored field
@@ -272,7 +285,68 @@ so bad dates narrow results silently. Validate on the way in.
 **Don't** use `KEYWORD` for sortable dates: lexical order is correct only for zero-padded ISO,
 and range filters are gone.
 
-*[TestDateLiteralRoundTrip](../jena-text/src/test/java/org/apache/jena/query/text/TestDateLiteralRoundTrip.java), [TestRangeFacetCounts](../jena-text/src/test/java/org/apache/jena/query/text/TestRangeFacetCounts.java)*
+*[TestDateLiteralRoundTrip](../jena-text/src/test/java/org/apache/jena/query/text/TestDateLiteralRoundTrip.java), [TestTemporalComparisonsByStart](../jena-text/src/test/java/org/apache/jena/query/text/TestTemporalComparisonsByStart.java), [TestTemporalSpan](../jena-text/src/test/java/org/apache/jena/query/text/TestTemporalSpan.java), [TestRangeFacetCounts](../jena-text/src/test/java/org/apache/jena/query/text/TestRangeFacetCounts.java)*
+
+## Periods
+
+A validity, a tenure or a campaign is a start and an end that belong together. Index it
+as a `PeriodField`, not as two `TemporalField`s: with two fields an entity holding two
+periods matches on one period's start and the other's end. The temporal operators then
+ask the questions you would expect, such as "active at any time in 2015"
+(`t_intersects`) or "wholly within the decade" (`t_during`).
+
+**OWL-Time**, where the period node reaches each end through an instant:
+
+```turtle
+field:validity
+    idx:fieldName "validity" ;
+    idx:fieldType idx:PeriodField ;
+    idx:multiValued true .
+
+ex:TenementShape
+    sh:targetClass ex:Tenement ;
+    sh:property [
+        idx:field field:validity ;
+        sh:path ex:validity ;
+        idx:periodStart ( time:hasBeginning time:inXSDDate ) ;
+        idx:periodEnd   ( time:hasEnd time:inXSDDate ) ;
+    ] .
+```
+
+For timestamps, read `time:inXSDDateTimeStamp` instead of `time:inXSDDate`; an
+`xsd:dateTimeStamp` is an instant like an `xsd:dateTime`.
+
+**`schema:startDate` / `schema:endDate`** on the entity itself, with `idx:self`:
+
+```turtle
+field:active idx:fieldName "active" ; idx:fieldType idx:PeriodField .
+
+ex:CampaignShape
+    sh:targetClass ex:Campaign ;
+    sh:property [
+        idx:field field:active ;
+        idx:self true ;
+        idx:periodStart schema:startDate ;
+        idx:periodEnd   schema:endDate ;
+    ] .
+```
+
+A missing end is read as **ongoing**. If in your data it means "not recorded", index only
+closed periods by constraining the period node:
+
+```turtle
+    sh:property [
+        idx:field field:validity ;
+        sh:path ex:validity ;
+        sh:node [ sh:property [ sh:path time:hasEnd ; sh:minCount 1 ] ] ;
+        idx:periodStart ( time:hasBeginning time:inXSDDate ) ;
+        idx:periodEnd   ( time:hasEnd time:inXSDDate ) ;
+    ] .
+```
+
+A period is for the temporal operators only: it cannot be stored, faceted or sorted.
+
+*[TestPeriodField](../jena-text/src/test/java/org/apache/jena/query/text/TestPeriodField.java), [TestPeriodFieldConfig](../jena-text/src/test/java/org/apache/jena/query/text/assembler/TestPeriodFieldConfig.java)*
 
 ## Observations (SOSA-style)
 

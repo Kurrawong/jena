@@ -42,7 +42,7 @@ import org.apache.lucene.analysis.standard.StandardAnalyzer;
 public class ShaclIndexMapping {
 
     public enum FieldType {
-        TEXT, KEYWORD, INT, LONG, DOUBLE, TEMPORAL, LATLON
+        TEXT, KEYWORD, INT, LONG, DOUBLE, TEMPORAL, LATLON, PERIOD
     }
 
     public enum NodeKindConstraint {
@@ -362,6 +362,17 @@ public class ShaclIndexMapping {
     }
 
     public static class FieldOccurrence {
+        /**
+         * Where a PeriodField occurrence finds its start and its end: paths from the period
+         * node the occurrence reaches. {@code variants} are both paths' predicate walks,
+         * which change tracking follows.
+         */
+        public record PeriodPaths(Path start, Path end, List<List<JoinStep>> variants) {
+            public PeriodPaths {
+                variants = deepUnmodifiable(variants);
+            }
+        }
+
         private final FieldDef field;
         private final List<StepDef> steps;
         private final Path localPath;
@@ -373,6 +384,7 @@ public class ShaclIndexMapping {
         private final Node datatype;
         private final ShaclShapeCondition valueCondition;
         private final String nestedName;
+        private final PeriodPaths periodPaths;
 
         public FieldOccurrence(FieldDef field, Path path, List<List<JoinStep>> pathVariants,
                                Set<Node> predicates, Node requiredClass,
@@ -401,6 +413,17 @@ public class ShaclIndexMapping {
                                List<List<JoinStep>> pathVariants, Set<Node> predicates,
                                Node requiredClass, NodeKindConstraint nodeKindConstraint, Node datatype,
                                ShaclShapeCondition valueCondition, String nestedName) {
+            this(field, steps, localPath, pathVariants, predicates, requiredClass, nodeKindConstraint,
+                datatype, valueCondition, nestedName, null);
+        }
+
+        /** @param periodPaths a PeriodField occurrence's start and end paths; null for any other */
+        public FieldOccurrence(FieldDef field, List<StepDef> steps, Path localPath,
+                               List<List<JoinStep>> pathVariants, Set<Node> predicates,
+                               Node requiredClass, NodeKindConstraint nodeKindConstraint, Node datatype,
+                               ShaclShapeCondition valueCondition, String nestedName,
+                               PeriodPaths periodPaths) {
+            this.periodPaths = periodPaths;
             this.field = Objects.requireNonNull(field);
             this.steps = steps != null ? List.copyOf(steps) : Collections.emptyList();
             this.localPath = localPath;
@@ -468,6 +491,8 @@ public class ShaclIndexMapping {
         /** The value constraints, evaluated by jena-shacl; null when there are none. */
         public ShaclShapeCondition getValueCondition() { return valueCondition; }
         public String getNestedName()             { return nestedName; }
+        /** A PeriodField occurrence's start and end paths; null for any other occurrence. */
+        public PeriodPaths getPeriodPaths()       { return periodPaths; }
         public boolean isNestedScoped()           { return nestedName != null; }
         public boolean isRootScoped()             { return nestedName == null; }
         public boolean requiresTypeConstraint()   { return requiredClass != null; }
@@ -1403,6 +1428,11 @@ public class ShaclIndexMapping {
             if (occurrence.getValueCondition() != null) {
                 addConditionPath(lookup, profile, nestedDef,
                     concatVariants(occurrence.getPathVariants(), occurrence.getValueCondition().getTrackedPaths()));
+            }
+            if (occurrence.getPeriodPaths() != null) {
+                // A period's start and end are read from the node the occurrence reaches.
+                addConditionPath(lookup, profile, nestedDef,
+                    concatVariants(occurrence.getPathVariants(), occurrence.getPeriodPaths().variants()));
             }
         }
     }

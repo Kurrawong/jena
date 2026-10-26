@@ -27,6 +27,7 @@ import java.util.Set;
 
 import org.apache.jena.atlas.json.JSON;
 import org.apache.jena.atlas.json.JsonArray;
+import org.apache.jena.atlas.json.JsonException;
 import org.apache.jena.atlas.json.JsonObject;
 import org.apache.jena.atlas.json.JsonValue;
 import org.apache.jena.query.text.TextIndexException;
@@ -52,15 +53,28 @@ public class CqlParser {
         "s_dwithin"
     );
 
+    /** CQL2's temporal operators, cased as the CQL2-JSON schema writes them. */
+    private static final Set<String> TEMPORAL_OPS = Set.of("t_after", "t_before", "t_contains", "t_disjoint",
+        "t_during", "t_equals", "t_finishedBy", "t_finishes", "t_intersects", "t_meets", "t_metBy",
+        "t_overlappedBy", "t_overlaps", "t_startedBy", "t_starts");
+
+    /** An unbounded interval end (OGC 21-065r2 §7.8.1). */
+    private static final String OPEN_END = "..";
+
     /**
      * The one spatial operator taking a third argument, a distance in metres. An
      * extension: CQL2 1.0 defines no distance operator.
      */
     private static final String DISTANCE_OP = "s_dwithin";
 
+    /** @throws CqlFilterException if {@code json} is not a CQL2-JSON filter this parser accepts */
     public static CqlExpression parse(String json) {
-        JsonObject obj = JSON.parse(json);
-        return parseNode(obj);
+        try {
+            JsonObject obj = JSON.parse(json);
+            return parseNode(obj);
+        } catch (TextIndexException | JsonException ex) {
+            throw CqlFilterException.of(ex);
+        }
     }
 
     static CqlExpression parseNode(JsonObject obj) {
@@ -88,6 +102,8 @@ public class CqlParser {
                     yield parseComparison(op, args);
                 } else if (SPATIAL_OPS.contains(op)) {
                     yield parseSpatial(op, args);
+                } else if (TEMPORAL_OPS.contains(op)) {
+                    yield parseTemporal(op, args);
                 }
                 throw new TextIndexException("Unknown CQL2 operator: " + op);
             }
@@ -196,6 +212,60 @@ public class CqlParser {
         return new CqlExpression.CqlSpatial(op, property, geometry, distanceMetres);
     }
 
+    /** Either operand may be a property or a literal, in either order. */
+    private static CqlExpression.CqlTemporal parseTemporal(String op, JsonArray args) {
+        if (args.size() != 2) {
+            throw new TextIndexException("CQL2 '" + op + "' requires exactly 2 arguments, got " + args.size());
+        }
+        return new CqlExpression.CqlTemporal(op,
+            parseTemporalOperand(op, args.get(0)), parseTemporalOperand(op, args.get(1)));
+    }
+
+    private static CqlExpression.TemporalOperand parseTemporalOperand(String op, JsonValue val) {
+        if (val.isObject()) {
+            JsonObject obj = val.getAsObject();
+            if (obj.hasKey("property")) {
+                return new CqlExpression.TemporalProperty(extractProperty(val));
+            }
+            if (obj.hasKey("timestamp")) {
+                return new CqlExpression.TemporalInstant(stringMember(op, obj, "timestamp"));
+            }
+            if (obj.hasKey("date")) {
+                return new CqlExpression.TemporalInstant(stringMember(op, obj, "date"));
+            }
+            if (obj.hasKey("interval")) {
+                JsonValue ends = obj.get("interval");
+                if (!ends.isArray() || ends.getAsArray().size() != 2) {
+                    throw new TextIndexException("CQL2 '" + op + "' interval must be [start, end], got: " + ends);
+                }
+                return new CqlExpression.TemporalInterval(
+                    parseIntervalEnd(op, ends.getAsArray().get(0)), parseIntervalEnd(op, ends.getAsArray().get(1)));
+            }
+        }
+        throw new TextIndexException("CQL2 '" + op + "' operand must be a property, "
+            + "{\"timestamp\": …}, {\"date\": …} or {\"interval\": [start, end]}, got: " + val);
+    }
+
+    private static CqlExpression.IntervalEnd parseIntervalEnd(String op, JsonValue val) {
+        if (val.isString()) {
+            String lexical = val.getAsString().value();
+            return OPEN_END.equals(lexical) ? CqlExpression.OpenEnd.OPEN : new CqlExpression.LiteralEnd(lexical);
+        }
+        if (val.isObject() && val.getAsObject().hasKey("property")) {
+            return new CqlExpression.TemporalProperty(extractProperty(val));
+        }
+        throw new TextIndexException("CQL2 '" + op + "' interval end must be a date, a timestamp, "
+            + "\"..\" or a property, got: " + val);
+    }
+
+    private static String stringMember(String op, JsonObject obj, String key) {
+        JsonValue member = obj.get(key);
+        if (!member.isString()) {
+            throw new TextIndexException("CQL2 '" + op + "' " + key + " must be a string, got: " + member);
+        }
+        return member.getAsString().value();
+    }
+
     static String extractProperty(JsonValue val) {
         if (val.isObject()) {
             JsonObject obj = val.getAsObject();
@@ -224,6 +294,14 @@ public class CqlParser {
             return l;
         } else if (val.isBoolean()) {
             return val.getAsBoolean().value();
+        } else if (val.isObject()) {
+            // A CQL2 temporal literal: compared as its lexical form, as a bare string is.
+            JsonObject obj = val.getAsObject();
+            for (String key : List.of("date", "timestamp")) {
+                if (obj.hasKey(key) && obj.get(key).isString()) {
+                    return obj.get(key).getAsString().value();
+                }
+            }
         }
         throw new TextIndexException("Cannot extract CQL value from: " + val);
     }
