@@ -186,6 +186,7 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestDateLiteralRoundTrip.class
     // The interval a temporal literal spans, in UTC
     , TestTemporalSpan.class
+    , TestTemporalComparisonsByStart.class
 
     // Classic Lucene query syntax reaching the queryString argument
     , TestLuceneQuerySyntax.class
