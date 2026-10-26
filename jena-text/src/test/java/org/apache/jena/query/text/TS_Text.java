@@ -184,6 +184,8 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
 
     // TEMPORAL fields: epoch filtering, sort, and literal reconstruction on read
     , TestDateLiteralRoundTrip.class
+    // The interval a temporal literal spans, in UTC
+    , TestTemporalSpan.class
 
     // Classic Lucene query syntax reaching the queryString argument
     , TestLuceneQuerySyntax.class
