@@ -173,7 +173,27 @@ public class TestTemporalOperators {
             Arguments.of("""
                 {"op": "t_overlaps", "args": [{"interval": [{"property": "%stemporal"}, {"property": "%stemporal"}]},
                                               {"interval": ["2021-06-30T13:00:00Z", "2021-07-15"]}]}
-                """, Set.of("date", "date-offset", "year-month"))
+                """, Set.of("date", "date-offset", "year-month")),
+            Arguments.of("""
+                {"op": "t_during", "args": [{"property": "%stemporal"}, {"interval": ["..", "2021-06-30"]}]}
+                """, union(DATETIMES, "date-offset")),
+            Arguments.of("""
+                {"op": "and", "args": [
+                    {"op": "t_after", "args": [{"property": "%sbuilt"}, {"date": "2020-01-01"}]},
+                    {"op": "t_before", "args": [{"property": "%sopened"}, {"date": "2020-01-01"}]}]}
+                """, Set.of("built-and-opened")),
+            Arguments.of("""
+                {"op": "t_before", "args": [{"property": "%sfounded"}, {"timestamp": "1000-01-01T00:00:00Z"}]}
+                """, Set.of("founded-0900", "founded-0900-06")),
+            Arguments.of("""
+                {"op": "t_meets", "args": [{"property": "%sfounded"}, {"interval": ["1000-01-01", ".."]}]}
+                """, Set.of("founded-0999")),
+            Arguments.of("""
+                {"op": "t_during", "args": [{"property": "%sfounded"}, {"interval": ["0900-01-01", "0900-12-31"]}]}
+                """, Set.of("founded-0900-06")),
+            Arguments.of("""
+                {"op": "t_meets", "args": [{"property": "%sfounded"}, {"interval": ["2022-01-01", ".."]}]}
+                """, Set.of("founded-2021-12"))
         );
     }
 
