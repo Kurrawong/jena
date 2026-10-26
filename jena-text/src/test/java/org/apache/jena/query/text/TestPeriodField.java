@@ -38,6 +38,7 @@ import org.apache.jena.rdf.model.ModelFactory;
 import org.apache.jena.rdf.model.RDFList;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.sys.JenaSystem;
+import org.apache.jena.update.UpdateAction;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -185,6 +186,52 @@ public class TestPeriodField {
         assertEquals(Set.of("march"), matching("urn:jena:lucene:field#active", """
             {"op": "t_during", "args": [{"property": "urn:jena:lucene:field#active"}, {"interval": ["2021-01-01", "2021-12-31"]}]}
             """));
+    }
+
+    /**
+     * The listener follows a period's start and end paths: an edit two hops below the
+     * entity, to the end instant's date or to the link to it, rebuilds the entity.
+     */
+    @Test
+    public void editingAPeriodsEndReindexesTheEntity() {
+        load(OWL_TIME_CONFIG, PREFIXES + """
+            ex:lease a ex:Tenement ; ex:validity ex:lease-term .
+            ex:lease-term time:hasBeginning [ time:inXSDDate "2010-01-01"^^xsd:date ] ;
+                          time:hasEnd ex:lease-end .
+            ex:lease-end time:inXSDDate "2012-12-31"^^xsd:date .
+            """);
+        String in2015 = """
+            {"op": "t_intersects", "args": [{"property": "%s"}, {"date": "2015-06-30"}]}
+            """.formatted(VALIDITY);
+        assertEquals(Set.of(), matching(in2015));
+
+        update(PREFIXES + """
+            DELETE DATA { ex:lease-end time:inXSDDate "2012-12-31"^^xsd:date } ;
+            INSERT DATA { ex:lease-end time:inXSDDate "2016-12-31"^^xsd:date }
+            """);
+        assertEquals(Set.of("lease"), matching(in2015), "the end date moved past 2015");
+
+        update(PREFIXES + """
+            DELETE DATA { ex:lease-end time:inXSDDate "2016-12-31"^^xsd:date } ;
+            INSERT DATA { ex:lease-end time:inXSDDate "2013-12-31"^^xsd:date }
+            """);
+        assertEquals(Set.of(), matching(in2015), "the end date moved back before 2015");
+
+        update(PREFIXES + """
+            DELETE DATA { ex:lease-term time:hasEnd ex:lease-end }
+            """);
+        assertEquals(Set.of("lease"), matching(in2015), "with no end the lease is open-ended");
+    }
+
+    private void update(String sparqlUpdate) {
+        String update = sparqlUpdate.replace("@prefix ", "PREFIX ").replaceAll(" \\.\n", "\n");
+        dataset.begin(ReadWrite.WRITE);
+        try {
+            UpdateAction.parseExecute(update, dataset);
+            dataset.commit();
+        } finally {
+            dataset.end();
+        }
     }
 
     private void load(String config, String data) {
