@@ -166,7 +166,10 @@ public class TestTemporalOperators {
                 """, Set.of("date")),
             Arguments.of("""
                 {"op": "t_meets", "args": [{"property": "%stemporal"}, {"interval": ["2021-07-01", ".."]}]}
-                """, Set.of("date", "year-month"))
+                """, Set.of("date", "year-month")),
+            Arguments.of("""
+                {"op": "t_contains", "args": [{"interval": ["2021-01-01", "2021-12-31"]}, {"property": "%stemporal"}]}
+                """, union(DATETIMES, "date", "date-offset", "year-month"))
         );
     }
 
