@@ -79,6 +79,11 @@ record TemporalRelation(List<Condition> conditions, boolean anyOf) {
         Map.entry("t_equals", allOf(
             new Condition(End.START, Comparison.EQ, End.START),
             new Condition(End.END, Comparison.EQ, End.END))),
+        // Before or after: a positive predicate, so a value that is either matches, and an
+        // entity with no value does not.
+        Map.entry("t_disjoint", anyOf(
+            new Condition(End.END, Comparison.LT, End.START),
+            new Condition(End.START, Comparison.GT, End.END))),
         // NOT t_disjoint, applied to each value: neither before nor after.
         Map.entry("t_intersects", allOf(
             new Condition(End.START, Comparison.LE, End.END),
@@ -91,5 +96,9 @@ record TemporalRelation(List<Condition> conditions, boolean anyOf) {
 
     private static TemporalRelation allOf(Condition... conditions) {
         return new TemporalRelation(List.of(conditions), false);
+    }
+
+    private static TemporalRelation anyOf(Condition... conditions) {
+        return new TemporalRelation(List.of(conditions), true);
     }
 }
