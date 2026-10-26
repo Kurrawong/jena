@@ -403,6 +403,25 @@ public class TestShaclConfigFingerprint {
             eventFingerprint(EVENT_FIELDS, ""));
     }
 
+    private static final String PERIOD_FIELD =
+        "field:term idx:fieldName \"term\" ; idx:fieldType idx:PeriodField .\n";
+
+    private String periodFingerprint(String startPath, String endPath) {
+        return eventFingerprint(EVENT_FIELDS + PERIOD_FIELD,
+            " ;\n    sh:property [ idx:field field:term ; sh:path ex:term ;"
+            + " idx:periodStart " + startPath + " ; idx:periodEnd " + endPath + " ]");
+    }
+
+    /**
+     * The start and end paths decide what a period spans. Swapping them indexes different
+     * spans, so it must change the fingerprint, though the set of predicates is the same.
+     */
+    @Test
+    public void periodStartAndEndPathsAreSignificant() {
+        assertNotEquals(periodFingerprint("ex:begins", "ex:ends"), periodFingerprint("ex:ends", "ex:begins"));
+        assertNotEquals(periodFingerprint("ex:begins", "ex:ends"), periodFingerprint("ex:begins", "ex:finishes"));
+    }
+
     // ---- Format.
 
     @Test
