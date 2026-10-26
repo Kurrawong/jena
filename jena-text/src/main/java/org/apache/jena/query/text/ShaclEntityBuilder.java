@@ -161,16 +161,22 @@ final class ShaclEntityBuilder {
 
     /**
      * The span of a period node: from its start value's start to its end value's end, so a
-     * period ending on a date runs to the end of that day.
+     * period ending on a date runs to the end of that day. A missing bound is open, as an
+     * ongoing period has no end; a node with neither bound has no span.
      */
     private static TemporalSpan periodSpan(Graph graph, Node period, FieldOccurrence.PeriodPaths paths) {
         List<Node> starts = reached(graph, period, paths.start());
         List<Node> ends = reached(graph, period, paths.end());
-        if (starts.size() != 1 || ends.size() != 1) {
+        if (starts.isEmpty() && ends.isEmpty()) {
             return null;
         }
-        TemporalSpan start = TemporalSpan.of(starts.get(0));
-        TemporalSpan end = TemporalSpan.of(ends.get(0));
+        if (starts.size() > 1 || ends.size() > 1) {
+            return null;
+        }
+        TemporalSpan start = starts.isEmpty() ? new TemporalSpan(Long.MIN_VALUE, Long.MIN_VALUE)
+            : TemporalSpan.of(starts.get(0));
+        TemporalSpan end = ends.isEmpty() ? new TemporalSpan(Long.MAX_VALUE, Long.MAX_VALUE)
+            : TemporalSpan.of(ends.get(0));
         if (start == null || end == null) {
             return null;
         }
