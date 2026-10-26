@@ -852,6 +852,87 @@ When to choose which:
 | `text_query` | analyzer-backed `TEXT` fields — typeahead, full-text search, edge-ngram |
 | `like` | wildcard pattern matching (`%`, `_`) on KEYWORD/TEXT fields |
 
+### Temporal operators
+
+CQL2's fifteen temporal operators work on a `TemporalField`: `t_after`, `t_before`,
+`t_contains`, `t_disjoint`, `t_during`, `t_equals`, `t_finishedBy`, `t_finishes`,
+`t_intersects`, `t_meets`, `t_metBy`, `t_overlappedBy`, `t_overlaps`, `t_startedBy` and
+`t_starts`, cased as the CQL2-JSON schema writes them.
+
+```json
+{"op":"t_during","args":[{"property":"urn:jena:lucene:field#publishedOn"},{"interval":["2021-01-01","2021-12-31"]}]}
+```
+
+**Each operand is the interval it spans, in UTC.**
+
+| Operand | Span |
+|---|---|
+| an `xsd:dateTime` or `xsd:dateTimeStamp` value, or `{"timestamp": "2021-06-30T12:00:00Z"}` | that instant; no timezone is taken as UTC |
+| an `xsd:date` value | its whole day, at its own offset: `"2021-06-30+10:00"` is `[2021-06-29T14:00Z, 2021-06-30T14:00Z]` |
+| an `xsd:gYearMonth` or `xsd:gYear` value | its whole month or year, in UTC |
+| `{"date": "2021-06-30"}` | its whole day, in UTC |
+| `{"interval": [start, end]}` | from `start`'s start to `end`'s end |
+
+An interval end is a date, a timestamp, `".."` (open: before any time as a start, after
+any time as an end) or `{"property": …}`. A date as the end of an interval runs to the end
+of that day, so `["2021-01-01", "2021-12-31"]` is the whole year. A value of any other type,
+such as `xsd:gMonthDay`, `xsd:time` or a string, has no span and matches nothing.
+
+A period ends when the next one starts, so consecutive days **meet**: a value of
+`"2021-07-01"^^xsd:date` is not `t_after` the date `2021-06-30`, because it starts exactly
+when the 30th ends.
+
+**Each relation compares the ends**, strictly or for equality, as OGC 21-065r2 and
+OWL-Time define them (`s` is a span's start, `e` its end):
+
+| Operator | Holds when | Operator | Holds when |
+|---|---|---|---|
+| `t_before` | `a.e < b.s` | `t_after` | `a.s > b.e` |
+| `t_meets` | `a.e = b.s` | `t_metBy` | `a.s = b.e` |
+| `t_overlaps` | `a.s < b.s`, `a.e > b.s`, `a.e < b.e` | `t_overlappedBy` | `a.s > b.s`, `a.s < b.e`, `a.e > b.e` |
+| `t_starts` | `a.s = b.s`, `a.e < b.e` | `t_startedBy` | `a.s = b.s`, `a.e > b.e` |
+| `t_during` | `a.s > b.s`, `a.e < b.e` | `t_contains` | `a.s < b.s`, `a.e > b.e` |
+| `t_finishes` | `a.s > b.s`, `a.e = b.e` | `t_finishedBy` | `a.s < b.s`, `a.e = b.e` |
+| `t_equals` | `a.s = b.s`, `a.e = b.e` | `t_disjoint` | `a.e < b.s` or `a.s > b.e` |
+| `t_intersects` | not `t_disjoint` | | |
+
+These are the answers Prez's SPARQL gives for the same filter.
+
+**Operands.**
+
+- **Order:** either operand may be the property, so
+  `t_contains(interval, property)` works.
+- **Two literals:** a constant, true or false for every entity.
+- **Two properties:** refused. A Lucene query cannot compare two values of one document.
+- **One value at a time:** a plain `{"property": …}` operand takes its start and end from
+  the same value.
+- **Interval ends:** each property end of an interval is bound on its own, as in Prez's
+  SPARQL. `{"interval": [{"property": p}, {"property": p}]}` pairs any value's start with
+  any value's end; on a single-valued field the two readings agree.
+
+**Multi-valued fields and missing values.**
+
+- **Existential:** like every positive filter, an operator holds when any one value
+  satisfies it. That includes `t_disjoint`, so an entity matches when some value is
+  disjoint.
+- **No value:** an entity with no value for the property matches no operator, not even
+  `t_disjoint`. A predicate on a missing value is NULL (OGC 21-065r2 Req 14C).
+- **Negation:** `{"op":"not","args":[…]}` around an operator does match such an entity,
+  as `not` always has.
+
+**Nested scopes.** A temporal clause on a field inside `idx:nested` surfaces the parent.
+With one property operand it joins the
+[same-child fold](#nested-same-child-filters), so an `and` of a temporal clause and a
+keyword clause on one scope must hold of one child. A clause whose interval takes ends
+from properties binds each end on its own.
+
+**Comparisons.** `=`, `<`, `between` and the rest compare when a value **starts**, and
+accept `{"date": …}` and `{"timestamp": …}` as well as a bare string; see
+[Dates](10-suggested-configuration.md#dates).
+
+An index built before the temporal operators has no spans to query. Its configuration
+fingerprint no longer matches, so startup warns of a mismatch; rebuild it.
+
 ### Nested same-child filters
 
 For `idx:nested` child records (qualified identifiers, prov:qualifiedAttribution, location assessments, etc.) clauses that reference fields in the same nested scope and live in the same CQL subtree are folded into one block-join: a parent surfaces only when ONE child satisfies ALL the in-scope clauses.
@@ -931,6 +1012,14 @@ cannot turn into a Lucene query raises:
 | a range operator on a `KEYWORD` field | no ordering to compare against |
 | any operator other than `=` and `<>` on `entityIri` | only those two are defined for it |
 | a property naming no field, or a field that is not indexed | nothing to filter on |
+| a `t_` operator on a field that is not a `TemporalField` | no span to compare |
+| a `t_` operator with a property on both sides | a query cannot compare two values of one document |
+| a filter that is not valid JSON or not CQL2 the parser accepts | nothing to apply |
+
+A refused filter raises a `QueryParseException` from `luc:query` and from `luc:facet`, and
+Fuseki answers it with **400 Bad Request**, as it does a query that does not parse. Any
+other failure of the index is still a 500. `luc:facet` used to log a refused filter and
+return no rows, which read as "no values".
 
 All of these used to become a *residual*, and nothing evaluates residuals: every caller
 logs and discards them. The distinction between "no such field" and "this operator does
