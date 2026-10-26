@@ -21,6 +21,14 @@
 
 package org.apache.jena.query.text;
 
+import java.time.DateTimeException;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.TemporalAccessor;
+
+import org.apache.jena.datatypes.xsd.XSDDatatype;
 import org.apache.jena.graph.Node;
 
 /**
@@ -30,6 +38,29 @@ public record TemporalSpan(long start, long end) {
 
     /** The span of a temporal literal, or null if it names no point in time. */
     public static TemporalSpan of(Node literal) {
+        if (literal == null || !literal.isLiteral()) {
+            return null;
+        }
+        String datatype = literal.getLiteralDatatypeURI();
+        String lexical = literal.getLiteralLexicalForm();
+        try {
+            if (XSDDatatype.XSDdateTime.getURI().equals(datatype)) {
+                long t = dateTimeMillis(lexical);
+                return new TemporalSpan(t, t);
+            }
+        } catch (DateTimeException ex) {
+            return null;
+        }
         return null;
+    }
+
+    /** An xsd:dateTime as an instant, taking one without a timezone as UTC. */
+    private static long dateTimeMillis(String lexical) {
+        TemporalAccessor parsed = DateTimeFormatter.ISO_DATE_TIME.parseBest(lexical,
+            OffsetDateTime::from, LocalDateTime::from);
+        if (parsed instanceof OffsetDateTime offset) {
+            return offset.toInstant().toEpochMilli();
+        }
+        return ((LocalDateTime) parsed).toInstant(ZoneOffset.UTC).toEpochMilli();
     }
 }
