@@ -308,6 +308,11 @@ Numeric and temporal fields take their facet/sort docvalues from `idx:facetable`
 
 `idx:DateField` and `idx:DateTimeField` are accepted as deprecated aliases for `idx:TemporalField`.
 
+`idx:TemporalField` reads `xsd:dateTime`, `xsd:dateTimeStamp`, `xsd:date`,
+`xsd:gYearMonth` and `xsd:gYear` values, and filters, sorts and facets them by when they
+start, in UTC. A date with an offset starts at midnight at that offset. See
+[10-suggested-configuration.md → Dates](10-suggested-configuration.md#dates).
+
 ### Where values are kept
 
 A field's sort doc value holds its original value when all of these hold:

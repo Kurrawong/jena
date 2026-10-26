@@ -33,7 +33,7 @@ What to write, not what the defaults are. `idx:indexed` and `idx:stored` both de
 | Entity class | `rdf:type` → `Borehole` | `KeywordField` | ✗ | ✓ | — | ✗ |
 | Year or count | `2023`, `42` | `IntField` | ✗ | ✓ | ✓ | ✗ |
 | Measurement / grade / score | `12.4` | `DoubleField` | ✗ | ✓ | ✓ | ✗ |
-| Full date or timestamp | `2023-04-01`, `2023-04-01T09:00:00Z` | `TemporalField` | ✗ | ✓ | ✓ | ✗ |
+| Date, timestamp, month or year | `2023-04-01`, `2023-04-01T09:00:00Z`, `"2023"^^xsd:gYear` | `TemporalField` | ✗ | ✓ | ✓ | ✗ |
 | Geometry | `POINT(151.2 -33.9)` | `LatLonField` | ✗ | — | rejected | ✗ |
 | Repeated correlated record | an assay, an observation, a qualified identifier | ordinary fields inside an [`idx:nested`](#observations-sosa-style) block | ✗ | ✓ | ✓ | ✗ |
 
@@ -246,8 +246,9 @@ filter is dropped silently, not rejected. Leave `idx:indexed` alone.
 
 ## Dates
 
-`TemporalField` is a full date or timestamp — `xsd:date` or `xsd:dateTime`. A bare year is an
-`IntField`.
+`TemporalField` holds a point or a period in time: an `xsd:dateTime` or `xsd:dateTimeStamp`,
+or an `xsd:date`, `xsd:gYearMonth` or `xsd:gYear`. A year held as a number,
+`"2023"^^xsd:integer`, is an `IntField`.
 
 ```turtle
 field:publishedOn
@@ -259,8 +260,19 @@ field:publishedOn
     idx:storeLiteralMetadata true .   # required — config fails without it
 ```
 
-Values are indexed as epoch millis in a companion field, so filtering and sorting are numeric
-and date-only values are start-of-day UTC. Range facet boundaries are ISO strings.
+Values are indexed as epoch millis in a companion field, so filtering and sorting are numeric.
+The number is when the value **starts**, in UTC:
+
+| Value | Starts |
+|---|---|
+| `xsd:dateTime`, `xsd:dateTimeStamp` | at that instant; no timezone is taken as UTC |
+| `xsd:date` | at midnight at its own offset, or in UTC if it has none: `"2021-06-30+10:00"` starts at `2021-06-29T14:00:00Z` |
+| `xsd:gYearMonth`, `xsd:gYear` | on its first day, at midnight UTC; any offset is ignored |
+| a date-shaped string | read from its lexical form, as a date or a dateTime |
+
+So `=`, `<`, `between`, sort and range facets compare starts. A filter on the date
+`2021-06-30` does not match `"2021-06-30+10:00"^^xsd:date`, which starts ten hours
+earlier. Range facet boundaries are ISO strings.
 
 `idx:storeLiteralMetadata true` is mandatory on `TEMPORAL`
 (`ShaclIndexMapping.validateLiteralMetadataRequirements`), including on an unstored field
@@ -272,7 +284,7 @@ so bad dates narrow results silently. Validate on the way in.
 **Don't** use `KEYWORD` for sortable dates: lexical order is correct only for zero-padded ISO,
 and range filters are gone.
 
-*[TestDateLiteralRoundTrip](../jena-text/src/test/java/org/apache/jena/query/text/TestDateLiteralRoundTrip.java), [TestRangeFacetCounts](../jena-text/src/test/java/org/apache/jena/query/text/TestRangeFacetCounts.java)*
+*[TestDateLiteralRoundTrip](../jena-text/src/test/java/org/apache/jena/query/text/TestDateLiteralRoundTrip.java), [TestTemporalComparisonsByStart](../jena-text/src/test/java/org/apache/jena/query/text/TestTemporalComparisonsByStart.java), [TestTemporalSpan](../jena-text/src/test/java/org/apache/jena/query/text/TestTemporalSpan.java), [TestRangeFacetCounts](../jena-text/src/test/java/org/apache/jena/query/text/TestRangeFacetCounts.java)*
 
 ## Observations (SOSA-style)
 

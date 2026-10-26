@@ -53,6 +53,8 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 | `TestLuceneQuerySyntax` | 12 | The `queryString` argument reaching Lucene's classic parser: phrase, boolean, required/prohibited, trailing/leading/single-char wildcard, fuzzy, proximity slop, boost, grouping, lexical term range, and the bare `*` match-all short-circuit |
 | `TestQueryParserSettings` | 12 | `text:splitOnWhitespace` and `text:autoGeneratePhraseQueries`: a code's pieces must be adjacent in a text field through `luc:query`, `luc:facet` and a nested scope; separate words still match any word; a code containing a space is not found whole unless escaped; both settings off, splitting only, the rejected pairing and a non-boolean value |
 | `TestDateLiteralRoundTrip` | 4 | TEMPORAL fields: `between` and `>=` over the epoch twin field, typed `xsd:date`/`xsd:dateTime` reconstruction on read, language-tagged literal round trip, and an unparseable date dropping out of range queries without failing the build |
+| `TestTemporalSpan` | 6 | The interval a temporal literal spans, in UTC, on Prez's fixture values: a dateTime and a dateTimeStamp are one instant, with an offset converted and no timezone taken as UTC; a date is its whole day at its own offset; a gYearMonth and a gYear are their whole month and year, December rolling over and any offset ignored; gMonthDay, time, a date-shaped string, an IRI and an invalid date have no span |
+| `TestTemporalComparisonsByStart` | 3 | `=` and `between` on a TEMPORAL field compare a value's start: an offset date by midnight at its offset, a gYear and a gYearMonth by their first day, and a date-shaped string still by its lexical form |
 
 ### Hierarchical Facets Tests
 
