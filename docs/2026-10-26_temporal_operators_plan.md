@@ -390,23 +390,28 @@ discipline in `CLAUDE.md`:
   `-- in <class>` output.
 - The docs a stage changes are backed by a test of the exact recommended shape.
 
-### Stage 1 — Span field for TemporalField
+### Stage 1 — A value's span, and `__epoch` from its start
 
-- A `TemporalSpans` parser: from datatype plus lexical form to `(start, end)`, for the
-  four datatypes. `__epoch` uses its start, with the lexical fallback for untyped
+- A `TemporalSpan` parser: from datatype plus lexical form to `(start, end)`, for the
+  five datatypes. `__epoch` uses its start, with the lexical fallback for untyped
   literals.
-- Write `<field>__span` for indexed TEMPORAL values. Add the fingerprint layout tag.
-- Tests:
-  - Parser units on Prez's fixture values: `datetime-utc`, `datetime-offset`,
-    `datetime-no-timezone`, `date`, `date-offset`, `year-month`, `year`, plus `--06-30`
-    and `12:00:00Z` with no span. Also December rollover for `gYearMonth`.
-  - The offset-date fix through `=` and `between`.
-  - `luc:stats` point count on `__span`.
-  - A pre-change index reporting MISMATCH.
+- Tests, at two seams:
+  - `TemporalSpan.of(literal)`, on Prez's fixture values: `datetime-utc`,
+    `datetime-offset`, `datetime-no-timezone`, `date`, `date-offset`, `year-month`,
+    `year`. Also `dateTimeStamp`, December rollover for `gYearMonth`, and no span for
+    `--06-30`, `12:00:00Z` and a date-shaped `xsd:string`.
+  - `queryWithCql` with `=` and `between` on a TemporalField: an offset date compares by
+    its true start; `gYear` and `gYearMonth` compare by their start; a date-shaped
+    untyped string still compares as before.
 - Docs: `03-configuration.md` (TemporalField semantics), `05-testing.md`.
+
+Writing `<field>__span` and the fingerprint layout tag wait for stage 2's first slice.
+Until a `t_` operator reads the span field, the only way to test it would be to read
+Lucene's points directly, which ties the test to the index layout.
 
 ### Stage 2 — Temporal operators over TemporalField
 
+- Write `<field>__span` for indexed TEMPORAL values, and add the fingerprint layout tag.
 - Parser, AST and compiler as designed; typed literals in comparisons; nested lift and
   fold; filter errors rethrown as `QueryParseException`.
 - Tests:
