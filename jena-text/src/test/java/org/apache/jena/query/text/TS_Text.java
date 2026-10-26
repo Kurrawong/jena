@@ -193,6 +193,8 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestTemporalOperatorOracle.class
     , TestTemporalOperatorSemantics.class
     , TestNestedTemporalOperators.class
+    // idx:PeriodField: a start and an end read from one period node, kept paired
+    , TestPeriodField.class
     // A filter that cannot be run is a parse error, which Fuseki answers with a 400
     , TestCqlFilterErrors.class
 
