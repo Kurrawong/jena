@@ -1098,13 +1098,18 @@ public class CqlToLuceneCompiler {
                 yield new SpanEnd[] { new FixedEnd(span.start()), new FixedEnd(span.end()) };
             }
             case CqlExpression.TemporalInterval interval -> new SpanEnd[] {
-                intervalEnd(interval.start(), 0, clause), intervalEnd(interval.end(), 1, clause) };
+                intervalEnd(interval.start(), 0, clause, bindings), intervalEnd(interval.end(), 1, clause, bindings) };
         };
     }
 
-    /** An interval's start is where its first end starts, and its end where its second ends. */
-    private SpanEnd intervalEnd(CqlExpression.IntervalEnd end, int dimension, String clause) {
+    /**
+     * An interval's start is where its first end starts, and its end where its second
+     * ends. A property end is a binding of its own.
+     */
+    private SpanEnd intervalEnd(CqlExpression.IntervalEnd end, int dimension, String clause,
+                                List<SpanBinding> bindings) {
         return switch (end) {
+            case CqlExpression.TemporalProperty p -> new BoundEnd(bind(p.property(), clause, bindings), dimension);
             case CqlExpression.LiteralEnd literal -> {
                 TemporalSpan span = literalSpan(literal.lexical(), clause);
                 yield new FixedEnd(dimension == 0 ? span.start() : span.end());

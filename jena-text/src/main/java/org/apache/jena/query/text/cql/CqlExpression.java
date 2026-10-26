@@ -157,7 +157,11 @@ public sealed interface CqlExpression
     }
 
     /** One end of an interval operand. */
-    sealed interface IntervalEnd permits LiteralEnd, OpenEnd {
+    /**
+     * One end of an interval operand. A property end is bound on its own: an interval of
+     * two property ends pairs any start with any end, as Prez's SPARQL does.
+     */
+    sealed interface IntervalEnd permits LiteralEnd, OpenEnd, TemporalProperty {
         String toCanonical();
     }
 
@@ -190,7 +194,7 @@ public sealed interface CqlExpression
         }
     }
 
-    record TemporalProperty(String property) implements TemporalOperand {
+    record TemporalProperty(String property) implements TemporalOperand, IntervalEnd {
         @Override
         public String toCanonical() {
             return "property(" + property + ")";
