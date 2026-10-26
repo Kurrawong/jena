@@ -22,10 +22,12 @@
 package org.apache.jena.query.text;
 
 import java.time.DateTimeException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 
 import org.apache.jena.datatypes.xsd.XSDDatatype;
@@ -49,10 +51,28 @@ public record TemporalSpan(long start, long end) {
                 long t = dateTimeMillis(lexical);
                 return new TemporalSpan(t, t);
             }
+            if (XSDDatatype.XSDdate.getURI().equals(datatype)) {
+                return dateSpan(lexical);
+            }
         } catch (DateTimeException ex) {
             return null;
         }
         return null;
+    }
+
+    /**
+     * An xsd:date as its whole day, up to when the next day starts: from midnight at the
+     * date's own offset, or in UTC if it has none.
+     */
+    private static TemporalSpan dateSpan(String lexical) {
+        TemporalAccessor parsed = DateTimeFormatter.ISO_DATE.parse(lexical);
+        LocalDate date = LocalDate.from(parsed);
+        ZoneOffset offset = parsed.isSupported(ChronoField.OFFSET_SECONDS)
+            ? ZoneOffset.from(parsed)
+            : ZoneOffset.UTC;
+        return new TemporalSpan(
+            date.atStartOfDay(offset).toInstant().toEpochMilli(),
+            date.plusDays(1).atStartOfDay(offset).toInstant().toEpochMilli());
     }
 
     /** An xsd:dateTime as an instant, taking one without a timezone as UTC. */
