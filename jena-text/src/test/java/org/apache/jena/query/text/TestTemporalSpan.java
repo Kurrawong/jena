@@ -89,6 +89,16 @@ public class TestTemporalSpan {
             "an offset is ignored");
     }
 
+    /** The datatype decides: a string that looks like a date is never read as one. */
+    @Test
+    public void aValueNamingNoPointInTimeHasNoSpan() {
+        assertNull(TemporalSpan.of(literal("--06-30", XSDDatatype.XSDgMonthDay)));
+        assertNull(TemporalSpan.of(literal("12:00:00Z", XSDDatatype.XSDtime)));
+        assertNull(TemporalSpan.of(NodeFactory.createLiteralString("2021-06-30")));
+        assertNull(TemporalSpan.of(NodeFactory.createURI("http://example.org/2021-06-30")));
+        assertNull(TemporalSpan.of(literal("2024-13-40", XSDDatatype.XSDdate)), "not a valid date");
+    }
+
     private static Node literal(String lexical, XSDDatatype datatype) {
         return NodeFactory.createLiteralDT(lexical, datatype);
     }
