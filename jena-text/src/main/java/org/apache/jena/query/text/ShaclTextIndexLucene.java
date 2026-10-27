@@ -850,6 +850,10 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * Build a query with NamedMatches wrapping for field attribution.
      * For multi-field queries, each field gets a named sub-query so
      * we can later determine which field(s) matched each hit.
+     * <p>
+     * This is the query {@code luc:query} ranks by, so each field's clause carries the
+     * field's {@code idx:boost}. The counts and facets parse through
+     * {@link #parseQueryForFields} instead, where scores play no part.
      */
     protected Query buildNamedQuery(String queryString, List<String> resolvedFields) throws ParseException {
         if ("*".equals(queryString)) {
@@ -861,6 +865,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         for (String fieldName : resolvedFields) {
             Query fieldQuery = newQueryParser(List.of(fieldName)).parse(queryString);
             ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
+            if (fd != null && fd.getBoost() != 1.0f) {
+                fieldQuery = new BoostQuery(fieldQuery, fd.getBoost());
+            }
             String name = fd != null ? fd.getFieldIRI().getURI() : fieldName;
             Query named = NamedMatches.wrapQuery(name, fieldQuery);
             ShaclIndexMapping.NestedDef scope = shaclMapping.findNestedDefForFieldName(fieldName);

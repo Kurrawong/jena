@@ -673,6 +673,7 @@ public class ShaclIndexAssembler {
             IndexVocab.pMultiValued,
             IndexVocab.pDefaultSearch,
             IndexVocab.pStoreLiteralMetadata,
+            IndexVocab.pBoost,
             IndexVocab.pJoinPath,
             IndexVocab.pNested,
             IndexVocab.pPath
@@ -718,6 +719,7 @@ public class ShaclIndexAssembler {
                 || existingField.isMultiValued() != parsedField.isMultiValued()
                 || existingField.isDefaultSearch() != parsedField.isDefaultSearch()
                 || existingField.isStoreLiteralMetadata() != parsedField.isStoreLiteralMetadata()
+                || existingField.getBoost() != parsedField.getBoost()
                 || !Objects.equals(existing.analyzerNode(), parsed.analyzerNode())
                 || !Objects.equals(existing.queryAnalyzerNode(), parsed.queryAnalyzerNode())
                 || !Objects.equals(existing.normalizerNode(), parsed.normalizerNode())) {
@@ -784,6 +786,7 @@ public class ShaclIndexAssembler {
         boolean multiValued = getOptionalBoolean(fieldRes, IndexVocab.pMultiValued, false);
         boolean defaultSearch = getOptionalBoolean(fieldRes, IndexVocab.pDefaultSearch, false);
         boolean storeLiteralMetadata = getOptionalBoolean(fieldRes, IndexVocab.pStoreLiteralMetadata, false);
+        float boost = parseBoost(fieldRes, fieldName);
 
         if (fieldType == FieldType.PERIOD) {
             rejectOnPeriodField(fieldName, IndexVocab.pStored, stored);
@@ -796,10 +799,30 @@ public class ShaclIndexAssembler {
         Node fieldIRI = fieldRes.isURIResource() ? fieldRes.asNode() : null;
         FieldDef fieldDef = new FieldDef(fieldName, fieldType, analyzer, queryAnalyzer,
             stored, indexed, facetable, sortable, multiValued, defaultSearch,
-            storeLiteralMetadata, fieldIRI, normalizer);
+            storeLiteralMetadata, fieldIRI, normalizer, boost);
         log.debug("Parsed canonical field: {} type={} facetable={}", fieldDef.getFieldName(),
             fieldDef.getFieldType(), fieldDef.isFacetable());
         return new CanonicalFieldSpec(fieldDef, analyzerNode, queryAnalyzerNode, normalizerNode);
+    }
+
+    /**
+     * {@code idx:boost}, 1 when absent. It must be a positive number: zero would keep the
+     * field matching while dropping it from the ranking, and Lucene refuses a negative weight.
+     */
+    private static float parseBoost(Resource fieldRes, String fieldName) {
+        Statement stmt = fieldRes.getProperty(IndexVocab.pBoost);
+        if (stmt == null) {
+            return 1.0f;
+        }
+        RDFNode node = stmt.getObject();
+        if (node.isLiteral() && node.asLiteral().getValue() instanceof Number number) {
+            float boost = number.floatValue();
+            if (boost > 0 && Float.isFinite(boost)) {
+                return boost;
+            }
+        }
+        throw new TextIndexException(
+            "idx:boost on field '" + fieldName + "' must be a positive number, got " + node);
     }
 
     /**
