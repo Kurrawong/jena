@@ -110,6 +110,7 @@ one with `text:entityMap`.
 | `text:maxFacetHits` | no | Maximum documents considered during facet collection |
 | `text:analyzer` | no | Index-wide default analyzer |
 | `text:queryAnalyzer` | no | Index-wide query analyzer |
+| `text:defineAnalyzers` | no | Named filters, tokenizers and analyzers (`text:defineFilter`, `text:defineTokenizer`, `text:defineAnalyzer`) that an `idx:analyzer` uses through `text:ConfigurableAnalyzer` or `text:DefinedAnalyzer`, as in [Jena's text index](https://jena.apache.org/documentation/query/text-query.html). `text:addLang` is refused: a SHACL index has no per-language analyzers. A `text:DefinedAnalyzer` naming nothing defined here fails the index at load |
 | `text:splitOnWhitespace` | no, default `true` | Cut the query string at whitespace before each field's analyzer runs. With `false`, a keyword-analyzed field receives the whole string as one term, spaces included |
 | `text:autoGeneratePhraseQueries` | no, default `true` | Where an analyzer splits one word into pieces, the pieces must appear together and in order: `E45/5326` matches `e45` followed by `5326`, not either alone. Needs `text:splitOnWhitespace true`; the index fails to load otherwise |
 | `text:exposeConfig` | no, default `false` | Let [`luc:config`](02-sparql-api.md#lucconfig) return this index's configuration. See below |

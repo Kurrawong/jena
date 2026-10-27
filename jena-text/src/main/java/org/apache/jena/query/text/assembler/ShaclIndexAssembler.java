@@ -744,7 +744,7 @@ public class ShaclIndexAssembler {
         Analyzer analyzer = null;
         Statement analyzerStmt = fieldRes.getProperty(IndexVocab.pAnalyzer);
         if (analyzerStmt != null && analyzerStmt.getObject().isResource()) {
-            analyzer = (Analyzer) a.open(analyzerStmt.getObject().asResource());
+            analyzer = openAnalyzer(a, analyzerStmt, fieldName);
         }
         Node analyzerNode = analyzerStmt != null && analyzerStmt.getObject().isResource()
             ? analyzerStmt.getObject().asNode()
@@ -753,7 +753,7 @@ public class ShaclIndexAssembler {
         Analyzer queryAnalyzer = null;
         Statement queryAnalyzerStmt = fieldRes.getProperty(IndexVocab.pQueryAnalyzer);
         if (queryAnalyzerStmt != null && queryAnalyzerStmt.getObject().isResource()) {
-            queryAnalyzer = (Analyzer) a.open(queryAnalyzerStmt.getObject().asResource());
+            queryAnalyzer = openAnalyzer(a, queryAnalyzerStmt, fieldName);
         }
         Node queryAnalyzerNode = queryAnalyzerStmt != null && queryAnalyzerStmt.getObject().isResource()
             ? queryAnalyzerStmt.getObject().asNode()
@@ -774,7 +774,7 @@ public class ShaclIndexAssembler {
                 throw new TextIndexException(
                     "idx:normalizer on field '" + fieldName + "' must reference an analyzer resource.");
             }
-            normalizer = (Analyzer) a.open(normalizerStmt.getObject().asResource());
+            normalizer = openAnalyzer(a, normalizerStmt, fieldName);
             normalizerNode = normalizerStmt.getObject().asNode();
         }
 
@@ -803,6 +803,24 @@ public class ShaclIndexAssembler {
         log.debug("Parsed canonical field: {} type={} facetable={}", fieldDef.getFieldName(),
             fieldDef.getFieldType(), fieldDef.isFacetable());
         return new CanonicalFieldSpec(fieldDef, analyzerNode, queryAnalyzerNode, normalizerNode);
+    }
+
+    /**
+     * The analyzer a field's {@code stmt} names. One that opens to nothing is refused: that
+     * is a {@code text:DefinedAnalyzer} whose name the index's {@code text:defineAnalyzers}
+     * never defined, and the field would otherwise fall back to the default analyzer unseen.
+     */
+    private static Analyzer openAnalyzer(Assembler a, Statement stmt, String fieldName) {
+        Resource spec = stmt.getObject().asResource();
+        Analyzer analyzer = (Analyzer) a.open(spec);
+        if (analyzer == null) {
+            Statement use = spec.getProperty(TextVocab.pUseAnalyzer);
+            throw new TextIndexException("idx:" + stmt.getPredicate().getLocalName() + " on field '" + fieldName
+                + "' is no analyzer"
+                + (use == null ? "" : ": text:useAnalyzer " + use.getObject()
+                    + " is not defined in the index's text:defineAnalyzers"));
+        }
+        return analyzer;
     }
 
     /**

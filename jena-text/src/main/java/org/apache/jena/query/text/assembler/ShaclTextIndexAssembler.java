@@ -41,6 +41,7 @@ import org.apache.jena.graph.Node;
 import org.apache.jena.graph.Triple;
 import org.apache.jena.query.text.*;
 import org.apache.jena.rdf.model.Property;
+import org.apache.jena.rdf.model.RDFList;
 import org.apache.jena.rdf.model.RDFNode;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.rdf.model.Statement;
@@ -85,6 +86,11 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
             Statement shapesStmt = root.getProperty(pShapes);
             if (shapesStmt == null)
                 throw new TextIndexException("text:TextIndexShacl requires text:shapes on " + root);
+
+            // Before the shapes: a text:DefinedAnalyzer on a field resolves as they are parsed.
+            Statement defineStmt = root.getProperty(pDefAnalyzers);
+            if (defineStmt != null)
+                defineAnalyzers(a, defineStmt.getObject());
 
             ShaclIndexMapping shaclMapping = ShaclIndexAssembler.parseShapes(a, shapesStmt.getObject().asResource());
             EntityDefinition docDef = ShaclIndexAssembler.deriveEntityDefinition(shaclMapping);
@@ -172,6 +178,26 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
             IO.exception(e);
             return null;
         }
+    }
+
+    /**
+     * Register the filters, tokenizers and analyzers {@code text:defineAnalyzers} names, in
+     * that order, as {@code text:TextIndexLucene} does, so analyzer definitions can use the
+     * others. {@code text:addLang} is refused: a SHACL index has no per-language analyzers,
+     * so a language's analyzer would be registered and never used.
+     */
+    private static void defineAnalyzers(Assembler a, RDFNode list) {
+        if (!list.canAs(RDFList.class))
+            throw new TextIndexException("text:defineAnalyzers property is not a list : " + list);
+        for (RDFNode member : list.as(RDFList.class).asJavaList()) {
+            if (member.isResource() && member.asResource().hasProperty(pAddLang))
+                throw new TextIndexException("text:addLang in text:defineAnalyzers has no effect on text:TextIndexShacl,"
+                    + " which has no per-language analyzers. Give the field an idx:analyzer instead.");
+        }
+        Resource definitions = list.asResource();
+        DefineFiltersAssembler.open(a, definitions);
+        DefineTokenizersAssembler.open(a, definitions);
+        DefineAnalyzersAssembler.open(a, definitions);
     }
 
     /** The boolean value of {@code property} on {@code root}, or {@code dflt} when absent. */
