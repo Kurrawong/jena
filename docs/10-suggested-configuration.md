@@ -77,7 +77,8 @@ n-grams are reachable there by assembling a tokenizer with `text:GenericAnalyzer
 | Term range | `[a TO m]` |
 | Match all | `*` |
 
-So `quan*` needs no n-gram field; add one when prefix matching must be ranked and fast.
+So `quan*` needs no n-gram field. A wildcard scores every hit the same, though; when prefix
+matches must be ranked, add an n-gram twin (see [Titles and names](#titles-and-names)).
 
 The string is analyzed with the field's query analyzer — on a `KEYWORD` field the whole value
 is one term. Scope with `fieldSpec`, not an embedded `fieldName:` prefix, which uses internal
@@ -98,6 +99,25 @@ field:title
 ```
 
 Stored, so `luc:match` can show which label matched.
+
+A search box that ranks as the user types adds a per-word edge-n-gram twin over the same
+path, also in `idx:defaultSearch`, at half weight:
+
+```turtle
+field:titlePrefix
+    idx:fieldName "titlePrefix" ;
+    idx:fieldType idx:TextField ;
+    idx:defaultSearch true ;
+    idx:boost 0.5 ;
+    idx:analyzer [ a text:EdgeNGramAnalyzer ;
+                   text:minGram 2 ; text:maxGram 20 ; text:tokenized true ] .
+```
+
+Whole words still rank first, by the plain field's BM25; the twin adds prefix hits below
+them. It costs index size and a second `luc:match` row per whole-word hit — see
+[Search as you type](03-configuration.md#search-as-you-type-an-n-gram-twin).
+
+*[TestFieldBoost](../jena-text/src/test/java/org/apache/jena/query/text/TestFieldBoost.java)*
 
 A name that is also a filter value — author, operator, publisher — is two fields over one
 path, because it is searched as prose *and* picked from a facet list:
@@ -124,8 +144,9 @@ field:authorName
 
 `idx:normalizer` case-folds the indexed term and sort key; the facet label stays as authored.
 
-**Don't** n-gram a name: term explosion, broken ranking, and `"Jon"` matches `"Jones"`,
-`"Jonathan"` and `"Jonsson"` indistinguishably.
+**Don't** n-gram a name in place of its text field: term explosion, broken ranking, and
+`"Jon"` matches `"Jones"`, `"Jonathan"` and `"Jonsson"` indistinguishably. A twin beside it,
+as for titles above, keeps the ranking.
 
 *[TestKeywordNormalizer](../jena-text/src/test/java/org/apache/jena/query/text/TestKeywordNormalizer.java), [TestKeywordNormalizerTwinField](../jena-text/src/test/java/org/apache/jena/query/text/TestKeywordNormalizerTwinField.java), [TestKeywordRawSortAndExactMatch](../jena-text/src/test/java/org/apache/jena/query/text/TestKeywordRawSortAndExactMatch.java)*
 
@@ -433,7 +454,7 @@ docvalues, making sort on a repeated field well-defined.
 | `idx:indexed false` on a filtered field | Clause dropped and logged; results come back unfiltered, no error |
 | One `TEXT` field for exact match *and* search | Tokenisation breaks `=` |
 | Storing values nothing projects | Index size for no benefit (a facet or sort field is not projected) |
-| n-grams on names | Term explosion, broken ranking |
+| n-grams in place of a name's text field | Term explosion, broken ranking |
 | Flattening correlated children | Cross-matching between unrelated child records |
 | Forgetting `idx:multiValued` | Values after the first vanish with a log line |
 | `facetable` on a high-cardinality field | A dimension of single-count buckets, holding memory |

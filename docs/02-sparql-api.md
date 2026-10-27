@@ -104,6 +104,10 @@ disables by default and this index enables), fuzzy (`learnimg~1`), proximity
 (`"machine networks"~2`), boosts (`quantum^4`), grouping and term ranges. A bare `*` is
 short-circuited to a match-all.
 
+Each field's clause is weighted by the field's `idx:boost` (default 1), so one field can rank
+below another for the same match — an edge-n-gram twin below its plain field, for instance.
+See [Search as you type](03-configuration.md#search-as-you-type-an-n-gram-twin).
+
 The parser cuts the string at whitespace, then analyzes each word with each target field's
 query analyzer, so behaviour follows the field. On a `KEYWORD` field, or a `TEXT` field with a
 keyword analyzer, each word is a single term, and a value containing a space matches only if

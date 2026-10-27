@@ -52,6 +52,7 @@ public class TestFieldBoost {
     }
 
     private static final String NS = "http://example.org/";
+    private static final String FIELD = "urn:jena:lucene:field#";
 
     private static final String PREFIXES =
         "PREFIX luc:   <urn:jena:lucene:index#>\n"
@@ -199,6 +200,30 @@ public class TestFieldBoost {
     @Test
     public void singleLetterMatchesNothingAtMinGramTwo() {
         assertEquals(Map.of(), scores(config("", ""), "b"));
+    }
+
+    /** A client showing which field matched has to fold the twin into its exact field. */
+    @Test
+    public void lucMatchReportsTheTwinBesideTheExactField() {
+        Map<String, Map<String, String>> matches = new HashMap<>();
+        Dataset dataset = open(config("", ""));
+        try {
+            String q = PREFIXES + "SELECT ?entity ?field ?value WHERE {\n"
+                + "  (?hit ?entity ?score) luc:query (\"default\" \"default\" \"bore\" \"\" \"\" 50 0) .\n"
+                + "  (?hit ?field ?value) luc:match () .\n"
+                + "}";
+            try (QueryExecution qe = QueryExecutionFactory.create(q, dataset)) {
+                qe.execSelect().forEachRemaining(row -> matches
+                    .computeIfAbsent(row.getResource("entity").getURI(), k -> new HashMap<>())
+                    .put(row.getResource("field").getURI(), row.getLiteral("value").getString()));
+            }
+        } finally {
+            dataset.close();
+        }
+        assertEquals(Map.of(FIELD + "title", "Bore", FIELD + "titlePrefix", "Bore"),
+            matches.get(NS + "bore"), "a whole-word hit, once per field");
+        assertEquals(Map.of(FIELD + "titlePrefix", "Borehole BH-12"),
+            matches.get(NS + "borehole"), "a prefix-only hit, on the twin alone");
     }
 
     // ---- idx:boost

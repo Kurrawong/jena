@@ -294,6 +294,7 @@ These go on the **canonical field**, never on an occurrence.
 | `idx:queryAnalyzer` | implied by `idx:analyzer` | Query-time analyzer override |
 | `idx:normalizer` | none | `KEYWORD` only — analyzer driving the indexed term and sort key while the stored value and facet label stay raw |
 | `idx:storeLiteralMetadata` | `false` | Store the datatype and language tag so a projected value rebuilds as the original literal. **Required on every `TEMPORAL` field** |
+| `idx:boost` | `1` | Weight of the field's clause when `luc:query` searches the query string across several fields; a positive number. Query-time only, so changing it needs no reindex. See [Search as you type](#search-as-you-type-an-n-gram-twin) |
 
 The four write-side flags are independent, and each buys exactly one capability:
 
@@ -584,9 +585,10 @@ Start here, because most fields do not want an analyzer override at all:
 | Find entities by words in their text | `TEXT`, **no** `idx:analyzer` — the index-wide `StandardAnalyzer` applies and BM25 ranks the hits |
 | Filter to one value of a closed vocabulary (a person, an organisation, a status) | `KEYWORD` + `idx:facetable`, filtered with `=` on a value the UI offers from the facet list |
 | Complete a value the user is typing from memory (an identifier, a code) | `TEXT` + `idx:analyzer [ a text:EdgeNGramAnalyzer ]` |
+| Rank results while the user is still typing a word (a search box over titles) | The plain `TEXT` field plus a per-word edge-n-gram twin — see [Search as you type](#search-as-you-type-an-n-gram-twin) |
 
-Edge-n-grams are for the third row only. They are the wrong reach for a name: see
-[Names want BM25, not n-grams](#names-want-bm25-not-n-grams).
+Edge-n-grams are for the last two rows only. In place of a plain field they are the wrong
+reach for a name: see [Names want BM25, not n-grams](#names-want-bm25-not-n-grams).
 
 ### Edge-n-gram modes
 
@@ -641,10 +643,63 @@ navigates by.
 
 `TestTypeaheadFieldConfigurations` exercises every row of both tables.
 
+### Search as you type: an n-gram twin
+
+A search box that ranks results while the user is still typing a word needs prefix
+matches, and a wildcard cannot rank them: `bore*` rewrites to a constant-score query, so
+every hit scores the same. Keep the plain field and add a per-word edge-n-gram *twin* of it
+over the same path, both in `idx:defaultSearch`:
+
+```turtle
+field:title
+    idx:fieldName "title" ;
+    idx:fieldType idx:TextField ;
+    idx:defaultSearch true .
+
+field:titlePrefix
+    idx:fieldName "titlePrefix" ;
+    idx:fieldType idx:TextField ;
+    idx:defaultSearch true ;
+    idx:boost 0.5 ;
+    idx:analyzer [ a text:EdgeNGramAnalyzer ;
+                   text:minGram 2 ; text:maxGram 20 ; text:tokenized true ] .
+
+ex:ReportShape
+    sh:property [ idx:field field:title       ; sh:path ex:title ] ;
+    sh:property [ idx:field field:titlePrefix ; sh:path ex:title ] .
+```
+
+A whole word matches both fields and a prefix matches only the twin. So `bore` ranks every
+title holding the word, a twenty-word one included, above `Bores`, `Borehole` and `Boredom`,
+and still grades those three rather than tying them. A half-typed last word works too:
+`water bor` ranks `Water bore` first.
+
+- **`idx:boost 0.5`** halves the weight of the twin's clause. The plain field's BM25 ranking
+  is intact either way; the boost widens the margin by which a whole word beats a prefix.
+  It is read at query time, so it can be tuned without a reindex.
+- **`text:minGram 2`**, not the default 1. At 1 a single letter matches nearly every title;
+  at 2 it matches nothing until a second letter is typed.
+
+What it costs:
+
+- **Index size.** Each word is indexed as up to `maxGram − minGram + 1` prefixes as well as
+  itself, and the twin keeps its own stored copy of the value so `luc:match` can show what a
+  prefix-only hit matched.
+- **Two match rows.** `luc:match` returns a row per matched field: a whole-word hit comes
+  back on both `field:title` and `field:titlePrefix` with the same text, a prefix-only hit on
+  `field:titlePrefix` alone. A client that shows which field matched should fold the twin
+  into its plain field; `luc:config` exposes the twin's `idx:analyzer` to recognise it by.
+
+This is not the n-gram field warned against below. That one *replaces* the plain field, so
+nothing ranks by whole words any more; here the plain field still does, and the twin only
+adds the hits it cannot reach.
+
+*[TestFieldBoost](../jena-text/src/test/java/org/apache/jena/query/text/TestFieldBoost.java)*
+
 ### Names want BM25, not n-grams
 
-The tempting configuration for a person's name is a per-word edge-n-gram twin, so that
-typing `Jones` completes `Dr Sarah Jones`. Do not do this. It costs:
+The tempting configuration for a person's name is a per-word edge-n-gram field in place of
+the plain one, so that typing `Jones` completes `Dr Sarah Jones`. Do not do this. It costs:
 
 - **Relevance.** Every value expands to ~10–20 tokens, IDF over prefixes is noise (`"s"`
   occurs everywhere) and length norms inflate. BM25 on the field stops meaning anything,
@@ -655,6 +710,10 @@ typing `Jones` completes `Dr Sarah Jones`. Do not do this. It costs:
 
 And it still does not buy typo tolerance — `"Jonse"` fails under n-grams exactly as it
 fails under BM25.
+
+Beside the plain field rather than in its place, an n-gram twin costs the index size but
+not the ranking. That is [search as you type](#search-as-you-type-an-n-gram-twin), for a
+search box that must rank while a word is half-typed. A name filter does not need it.
 
 A plain `TEXT` field with no analyzer override does what a name filter actually needs.
 `text_query` tokenises the input the same way the field was indexed, so `"Jones"` and
