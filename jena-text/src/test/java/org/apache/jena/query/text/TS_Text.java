@@ -168,6 +168,7 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     TestNestedTemporalField.class
     , TestNestedGeometryScope.class
     , TestTypeaheadFieldConfigurations.class
+    , TestFieldBoost.class
     , TestNestedJoinPathSupport.class
 
     // sh:node steps and filters, occurrence value constraints evaluated by jena-shacl

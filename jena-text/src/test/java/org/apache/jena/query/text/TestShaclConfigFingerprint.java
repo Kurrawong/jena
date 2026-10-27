@@ -212,6 +212,16 @@ public class TestShaclConfigFingerprint {
                 null, "http://example.org/SurveyReportShape"));
     }
 
+    /** A boost weights a field at query time only, so tuning it must not demand a reindex. */
+    @Test
+    public void searchBoostIsNotSignificant() {
+        String boosted = FIELDS.replace(
+            "idx:fieldType idx:TextField ; idx:defaultSearch true .",
+            "idx:fieldType idx:TextField ; idx:defaultSearch true ; idx:boost 0.5 .");
+        assertNotEquals(FIELDS, boosted);
+        assertEquals(baseline(), fingerprintOf(PREFIXES + boosted + SHAPE));
+    }
+
     // ---- Sensitivity: things that must change the fingerprint.
 
     @Test
