@@ -694,8 +694,9 @@ well as itself.
 #### Declaring the twin
 
 `idx:twinOf` on the n-gram field names the field it twins. `luc:match` reports a match on
-`field:titlePrefix` as one on `field:title`, once, with the title's value, and
-`luc:nestedMatch` projects a nested twin under its field in the same way. Asking `luc:match`
+`field:titlePrefix` as one on `field:title`, once, with the title's value as the title keeps
+it, language tag included. When both matched, the value is the one the title's own words
+picked. `luc:nestedMatch` projects a nested twin under its field in the same way. Asking `luc:match`
 for `field:titlePrefix` by name returns nothing; asking for `field:title` includes the
 prefix-only hits. Without `idx:twinOf`, each field gets its own row and the twin needs its
 own stored copy of the value.

@@ -367,11 +367,13 @@ and `?value` are shared with a `luc:fields` pattern evaluated first.
 `luc:match` is the only per-hit match-detail API. It joins to `luc:query` through `?hit` and returns one row per matched field.
 
 A field that declares [`idx:twinOf`](03-configuration.md#declaring-the-twin) is reported
-under the field it names, with that field's value: the index has checked it holds every
-value the twin indexes. A hit that matches both comes back as one row, so a whole word
-matched by a title and its edge-n-gram twin is one `field:title` row. Naming the twin in the
-field slot returns no rows; naming its field includes the matches only the twin found.
-`luc:nestedMatch` projects a nested twin under its field in the same way.
+under the field it names, with that field's value, as that field keeps it: the index has
+checked it holds every value the twin indexes. A hit that matches both comes back as one
+row, so a whole word matched by a title and its edge-n-gram twin is one `field:title` row.
+Its value is the one the title's own match picked; the value the twin's prefix picked is used
+only when the title did not match itself. Naming the twin in the field slot returns no rows;
+naming its field includes the matches only the twin found. `luc:nestedMatch` projects a
+nested twin under its field in the same way, once.
 
 Match details are computed only when a query uses `luc:match`. The first call computes
 them for every hit `luc:query` has returned, in one pass over the index, and later calls
