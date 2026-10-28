@@ -60,8 +60,9 @@ public class ShaclIndexAssembler {
 
     private ShaclIndexAssembler() {}
 
+    /** @param twinOfNode the field {@code idx:twinOf} names, or null */
     private record CanonicalFieldSpec(FieldDef field, Node analyzerNode, Node queryAnalyzerNode,
-                                      Node normalizerNode) {}
+                                      Node normalizerNode, Node twinOfNode) {}
 
     public static ShaclIndexMapping parseShapes(Assembler a, Resource shapesList) {
         List<IndexProfile> profiles = new ArrayList<>();
@@ -78,6 +79,16 @@ public class ShaclIndexAssembler {
         if (profiles.isEmpty()) {
             throw new TextIndexException("text:shapes list is empty");
         }
+
+        Map<String, FieldDef> fields = new LinkedHashMap<>();
+        Map<FieldDef, Node> twins = new LinkedHashMap<>();
+        for (CanonicalFieldSpec spec : canonicalFields.values()) {
+            fields.put(spec.field().getFieldIRI().getURI(), spec.field());
+            if (spec.twinOfNode() != null) {
+                twins.put(spec.field(), spec.twinOfNode());
+            }
+        }
+        TwinFields.check(profiles, fields, twins);
 
         return new ShaclIndexMapping(profiles);
     }
@@ -674,6 +685,7 @@ public class ShaclIndexAssembler {
             IndexVocab.pDefaultSearch,
             IndexVocab.pStoreLiteralMetadata,
             IndexVocab.pBoost,
+            IndexVocab.pTwinOf,
             IndexVocab.pJoinPath,
             IndexVocab.pNested,
             IndexVocab.pPath
@@ -722,7 +734,8 @@ public class ShaclIndexAssembler {
                 || existingField.getBoost() != parsedField.getBoost()
                 || !Objects.equals(existing.analyzerNode(), parsed.analyzerNode())
                 || !Objects.equals(existing.queryAnalyzerNode(), parsed.queryAnalyzerNode())
-                || !Objects.equals(existing.normalizerNode(), parsed.normalizerNode())) {
+                || !Objects.equals(existing.normalizerNode(), parsed.normalizerNode())
+                || !Objects.equals(existing.twinOfNode(), parsed.twinOfNode())) {
             throw new TextIndexException(
                 "Canonical field " + existingField.getFieldIRI().getURI()
                 + " is defined inconsistently across occurrences");
@@ -787,6 +800,7 @@ public class ShaclIndexAssembler {
         boolean defaultSearch = getOptionalBoolean(fieldRes, IndexVocab.pDefaultSearch, false);
         boolean storeLiteralMetadata = getOptionalBoolean(fieldRes, IndexVocab.pStoreLiteralMetadata, false);
         float boost = parseBoost(fieldRes, fieldName);
+        Node twinOfNode = parseTwinOf(fieldRes, fieldName);
 
         if (fieldType == FieldType.PERIOD) {
             rejectOnPeriodField(fieldName, IndexVocab.pStored, stored);
@@ -802,7 +816,7 @@ public class ShaclIndexAssembler {
             storeLiteralMetadata, fieldIRI, normalizer, boost);
         log.debug("Parsed canonical field: {} type={} facetable={}", fieldDef.getFieldName(),
             fieldDef.getFieldType(), fieldDef.isFacetable());
-        return new CanonicalFieldSpec(fieldDef, analyzerNode, queryAnalyzerNode, normalizerNode);
+        return new CanonicalFieldSpec(fieldDef, analyzerNode, queryAnalyzerNode, normalizerNode, twinOfNode);
     }
 
     /**
@@ -841,6 +855,27 @@ public class ShaclIndexAssembler {
         }
         throw new TextIndexException(
             "idx:boost on field '" + fieldName + "' must be a positive number, got " + node);
+    }
+
+    /**
+     * The field {@code idx:twinOf} names, or null when absent. {@link TwinFields} checks it
+     * once every shape is parsed, as only then are all the occurrences of both fields known.
+     */
+    private static Node parseTwinOf(Resource fieldRes, String fieldName) {
+        List<Statement> stmts = fieldRes.listProperties(IndexVocab.pTwinOf).toList();
+        if (stmts.isEmpty()) {
+            return null;
+        }
+        if (stmts.size() > 1) {
+            throw new TextIndexException("idx:twinOf on field '" + fieldName + "' names more than one field. "
+                + "A field is the twin of one field, the one a match on it is reported under.");
+        }
+        RDFNode twin = stmts.get(0).getObject();
+        if (!twin.isURIResource()) {
+            throw new TextIndexException("idx:twinOf on field '" + fieldName
+                + "' must name a field by its IRI, got " + twin);
+        }
+        return twin.asNode();
     }
 
     /**
