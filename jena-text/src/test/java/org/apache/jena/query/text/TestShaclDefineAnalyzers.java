@@ -150,12 +150,32 @@ public class TestShaclDefineAnalyzers {
             search(config("[ a text:DefinedAnalyzer ; text:useAnalyzer ex:folding ]", definitions), "cafe"));
     }
 
-    /** Before definitions were read, the field silently fell back to the default analyzer. */
+    /**
+     * Before definitions were read, the field silently fell back to the default analyzer. The
+     * error says what was checked: that no index loaded in the JVM has defined the name.
+     */
     @Test
     public void undefinedDefinedAnalyzerIsRejected() {
         AssemblerException ex = assertThrows(AssemblerException.class,
             () -> open(config("[ a text:DefinedAnalyzer ; text:useAnalyzer ex:neverDefined ]", null)));
         assertTrue(rootMessage(ex).contains(NS + "neverDefined"), rootMessage(ex));
+        assertTrue(rootMessage(ex).contains("no text:defineAnalyzers loaded in this JVM has defined"),
+            rootMessage(ex));
+    }
+
+    /**
+     * Analyzer names are registered for the whole JVM, as in Jena's text index, so a name one
+     * index defines resolves in another that never defines it. That index then depends on
+     * which loads first, so the docs say to define what an index uses in its own list.
+     */
+    @Test
+    public void definedNamesAreSharedAcrossIndexes() {
+        String definitions = FOLDING_DEFINITIONS
+            + "    [ text:defineAnalyzer ex:sharedFolding ;\n"
+            + "      text:analyzer " + FOLDING_ANALYZER + " ]\n";
+        open(config("[ a text:StandardAnalyzer ]", definitions)).close();
+        assertEquals(Set.of(NS + "racer"),
+            search(config("[ a text:DefinedAnalyzer ; text:useAnalyzer ex:sharedFolding ]", null), "cafe"));
     }
 
     @Test

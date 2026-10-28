@@ -104,6 +104,13 @@ public class TestCopyFields {
         return "; idx:nested [ idx:joinPath ex:part ; " + properties + " ]";
     }
 
+    /** A nested block of rows from a CSV file, with its {@code idx:column} bindings. */
+    private static String external(String columns) {
+        return "; idx:nested [ idx:nestedName \"row\" ; idx:externalSource [ "
+            + "idx:format idx:CsvFile ; idx:location \"/data/rows.csv\" ; idx:subjectColumn \"iri\" ; "
+            + columns + " ] ]";
+    }
+
     // The index keeps only the first value of a field that isn't idx:multiValued: in the
     // order of the field's occurrences, then of what each path reaches.
     private static final String ALTERNATIVES_IN_OTHER_ORDERS =
@@ -169,6 +176,9 @@ public class TestCopyFields {
                 byAuthorLabel("title", "sh:property [ sh:path ex:role ; sh:hasValue ex:Lead ] ;")
                 + byAuthorLabel("titlePrefix", "sh:property [ sh:path ex:role ; sh:hasValue ex:Lead ] ;"), "", ""),
             Arguments.of("equal constraints", byLabelIn("title", "en") + byLabelIn("titlePrefix", "en"), "", ""),
+            Arguments.of("the same external column",
+                external("idx:column [ idx:columnName \"title\" ; idx:field field:title ] ; "
+                    + "idx:column [ idx:columnName \"title\" ; idx:field field:titlePrefix ]"), "", ""),
             Arguments.of("both multi-valued", TITLE_BY_LABEL + PREFIX_BY_LABEL, "",
                 MULTI_VALUED_TITLE + MULTI_VALUED_PREFIX),
             // a multi-valued source field holds every value, whichever comes first
@@ -205,6 +215,11 @@ public class TestCopyFields {
                 nested("idx:property [ idx:field field:title ; sh:path rdfs:label ]")
                 + nested("idx:property [ idx:field field:titlePrefix ; sh:path rdfs:label ]"), "", "",
                 new String[] { fedButNotSource, "of 2 with that name", "separate child documents" }),
+            Arguments.of("other external columns",
+                external("idx:column [ idx:columnName \"title\" ; idx:field field:title ] ; "
+                    + "idx:column [ idx:columnName \"label\" ; idx:field field:titlePrefix ]"), "", "",
+                new String[] { "column 'label' of the external source in idx:nested row " + fedButNotSource,
+                    "fed there by the occurrence column 'title' of the external source in idx:nested row instead" }),
             Arguments.of("idx:self or a path",
                 nested("idx:property [ idx:field field:title ; idx:self true ] ; "
                     + "idx:property [ idx:field field:titlePrefix ; sh:path rdfs:label ]"), "", "",
