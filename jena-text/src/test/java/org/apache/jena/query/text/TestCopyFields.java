@@ -200,6 +200,11 @@ public class TestCopyFields {
                 nested("idx:property [ idx:field field:title ; sh:path rdfs:label ]") + PREFIX_BY_LABEL, "", "",
                 new String[] { "sh:path " + RDFS_LABEL + " " + fedButNotSource,
                     "sh:path " + RDFS_LABEL + " in idx:nested <" + NS + "part> instead" }),
+            // two blocks with one join path, and so one name, write separate child documents
+            Arguments.of("separate blocks with one name",
+                nested("idx:property [ idx:field field:title ; sh:path rdfs:label ]")
+                + nested("idx:property [ idx:field field:titlePrefix ; sh:path rdfs:label ]"), "", "",
+                new String[] { fedButNotSource, "of 2 with that name", "separate child documents" }),
             Arguments.of("idx:self or a path",
                 nested("idx:property [ idx:field field:title ; idx:self true ] ; "
                     + "idx:property [ idx:field field:titlePrefix ; sh:path rdfs:label ]"), "", "",

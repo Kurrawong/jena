@@ -248,4 +248,15 @@ public class TestCopyFieldMatches {
         String ordered = config(multiValued, multiValued, "", "[ sh:alternativePath ( ex:altTitle ex:title ) ]");
         assertEquals(List.of(TITLE + " = Bore"), matches(ordered, "bore", "?field").get(NS + "mixed"));
     }
+
+    /**
+     * The title keeps no value and its copy field does. A whole word matches both, and the
+     * copy's value stands in for the title's, as it does for a prefix-only hit.
+     */
+    @Test
+    public void storedCopyStandsInForAnUnstoredSource() {
+        String unstoredTitle = config(" ;\n    idx:stored false", "");
+        assertEquals(List.of(TITLE + " = Bore"), matches(unstoredTitle, "bor", "?field").get(NS + "bore"));
+        assertEquals(List.of(TITLE + " = Bore"), matches(unstoredTitle, "bore", "?field").get(NS + "bore"));
+    }
 }
