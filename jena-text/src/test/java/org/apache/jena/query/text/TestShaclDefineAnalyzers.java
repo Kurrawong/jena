@@ -23,9 +23,14 @@ package org.apache.jena.query.text;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.IOException;
 import java.io.StringReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import org.apache.jena.assembler.Assembler;
 import org.apache.jena.assembler.exceptions.AssemblerException;
@@ -34,6 +39,7 @@ import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.ModelFactory;
 import org.apache.jena.sys.JenaSystem;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * {@code text:defineAnalyzers} on a {@code text:TextIndexShacl}: the filters, tokenizers
@@ -72,6 +78,18 @@ public class TestShaclDefineAnalyzers {
      * @param definitions the members of {@code text:defineAnalyzers}, or null for none
      */
     private static String config(String analyzer, String definitions) {
+        return config(" ;\n    idx:analyzer " + analyzer, null, "\"mem\"", definitions);
+    }
+
+    /**
+     * One searchable title field.
+     *
+     * @param titleExtra    extra properties on the title
+     * @param indexAnalyzer the index-wide {@code text:analyzer}, or null for none
+     * @param directory     the {@code text:directory} object
+     * @param definitions   the members of {@code text:defineAnalyzers}, or null for none
+     */
+    private static String config(String titleExtra, String indexAnalyzer, String directory, String definitions) {
         return "@prefix idx:   <urn:jena:lucene:index#> .\n"
             + "@prefix field: <urn:jena:lucene:field#> .\n"
             + "@prefix sh:    <http://www.w3.org/ns/shacl#> .\n"
@@ -80,8 +98,7 @@ public class TestShaclDefineAnalyzers {
             + "@prefix rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n"
             + "@prefix ex:    <" + NS + "> .\n"
             + "field:title idx:fieldName \"title\" ; idx:fieldType idx:TextField ;\n"
-            + "    idx:defaultSearch true ;\n"
-            + "    idx:analyzer " + analyzer + " .\n"
+            + "    idx:defaultSearch true" + titleExtra + " .\n"
             + "ex:ThingShape\n"
             + "    sh:targetClass ex:Thing ;\n"
             + "    sh:property [ idx:field field:title ; sh:path ex:title ] .\n"
@@ -90,7 +107,8 @@ public class TestShaclDefineAnalyzers {
             + "    text:index ex:index .\n"
             + "ex:base rdf:type ja:MemoryDataset .\n"
             + "ex:index rdf:type text:TextIndexShacl ;\n"
-            + "    text:directory \"mem\" ;\n"
+            + "    text:directory " + directory + " ;\n"
+            + (indexAnalyzer == null ? "" : "    text:analyzer " + indexAnalyzer + " ;\n")
             + (definitions == null ? "" : "    text:defineAnalyzers (\n" + definitions + "    ) ;\n")
             + "    text:shapes ( ex:ThingShape ) .\n";
     }
@@ -199,6 +217,49 @@ public class TestShaclDefineAnalyzers {
         AssemblerException ex = assertThrows(AssemblerException.class, () -> open(turtle));
         assertTrue(rootMessage(ex).contains("idx:normalizer"), rootMessage(ex));
         assertTrue(rootMessage(ex).contains(NS + "neverDefinedNormalizer"), rootMessage(ex));
+    }
+
+    /**
+     * An index-wide {@code text:analyzer} that is a {@code text:DefinedAnalyzer} fell back to
+     * StandardAnalyzer while {@code text:defineAnalyzers} was ignored, so an index built then
+     * was analysed by StandardAnalyzer, as one built with no {@code text:analyzer} is. The
+     * same configuration now folds accents, so reopening that index must report a mismatch:
+     * matching would miss "Café" for "cafe". A rebuild matches and finds it.
+     */
+    @Test
+    public void indexWideDefinedAnalyzerOnAnOlderIndexIsAMismatch(@TempDir Path tmp) throws IOException {
+        Path directory = tmp.resolve("index");
+        String location = "<" + directory.toUri() + ">";
+        String definitions = FOLDING_DEFINITIONS
+            + "    [ text:defineAnalyzer ex:indexWideFolding ;\n"
+            + "      text:analyzer " + FOLDING_ANALYZER + " ]\n";
+        String upgraded = config("", "[ a text:DefinedAnalyzer ; text:useAnalyzer ex:indexWideFolding ]",
+            location, definitions);
+
+        assertEquals(Set.of(NS + "racer"), search(config("", null, location, null), "Café"));
+        assertEquals(ShaclIndexStamp.Status.MISMATCH, configStatus(upgraded));
+
+        deleteRecursively(directory);
+        assertEquals(Set.of(NS + "racer"), search(upgraded, "cafe"));
+        assertEquals(ShaclIndexStamp.Status.MATCH, configStatus(upgraded));
+    }
+
+    private static ShaclIndexStamp.Status configStatus(String turtle) {
+        Dataset dataset = open(turtle);
+        try {
+            return ((ShaclTextIndexLucene) ((DatasetGraphText) dataset.asDatasetGraph()).getTextIndex())
+                .getConfigStatus();
+        } finally {
+            dataset.close();
+        }
+    }
+
+    private static void deleteRecursively(Path directory) throws IOException {
+        try (Stream<Path> paths = Files.walk(directory)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                Files.delete(path);
+            }
+        }
     }
 
     @Test
