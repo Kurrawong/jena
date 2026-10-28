@@ -81,7 +81,8 @@ public class TestFieldBoost {
         + "ex:alias1    ex:aliasText \"Kingfisher\" .\n";
 
     /**
-     * The twin pattern over {@code ex:title}, plus a nested alias field.
+     * The twin pattern over {@code ex:title}, declared with {@code idx:twinOf} as the docs
+     * recommend, plus a nested alias field.
      *
      * @param prefixField extra properties on the edge-n-gram twin, {@code field:titlePrefix}
      * @param aliasField  extra properties on the nested {@code field:alias}
@@ -98,6 +99,7 @@ public class TestFieldBoost {
             + "    idx:defaultSearch true .\n"
             + "field:titlePrefix idx:fieldName \"titlePrefix\" ; idx:fieldType idx:TextField ;\n"
             + "    idx:defaultSearch true ;\n"
+            + "    idx:twinOf field:title ;\n"
             + "    idx:analyzer [ a text:EdgeNGramAnalyzer ; text:minGram 2 ; text:maxGram 20 ;\n"
             + "                   text:tokenized true ]" + prefixField + " .\n"
             + "field:alias idx:fieldName \"alias\" ; idx:fieldType idx:TextField ;\n"
