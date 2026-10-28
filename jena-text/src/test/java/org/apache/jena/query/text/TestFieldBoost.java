@@ -204,10 +204,10 @@ public class TestFieldBoost {
         assertEquals(Map.of(), scores(config("", ""), "b"));
     }
 
-    /** A client showing which field matched has to fold the twin into its exact field. */
+    /** The twin declares idx:twinOf, so luc:match reports its matches under the title, once. */
     @Test
-    public void lucMatchReportsTheTwinBesideTheExactField() {
-        Map<String, Map<String, String>> matches = new HashMap<>();
+    public void lucMatchReportsTheTwinUnderTheExactField() {
+        Map<String, List<String>> matches = new HashMap<>();
         Dataset dataset = open(config("", ""));
         try {
             String q = PREFIXES + "SELECT ?entity ?field ?value WHERE {\n"
@@ -216,16 +216,16 @@ public class TestFieldBoost {
                 + "}";
             try (QueryExecution qe = QueryExecutionFactory.create(q, dataset)) {
                 qe.execSelect().forEachRemaining(row -> matches
-                    .computeIfAbsent(row.getResource("entity").getURI(), k -> new HashMap<>())
-                    .put(row.getResource("field").getURI(), row.getLiteral("value").getString()));
+                    .computeIfAbsent(row.getResource("entity").getURI(), k -> new ArrayList<>())
+                    .add(row.getResource("field").getURI() + " = " + row.getLiteral("value").getString()));
             }
         } finally {
             dataset.close();
         }
-        assertEquals(Map.of(FIELD + "title", "Bore", FIELD + "titlePrefix", "Bore"),
-            matches.get(NS + "bore"), "a whole-word hit, once per field");
-        assertEquals(Map.of(FIELD + "titlePrefix", "Borehole BH-12"),
-            matches.get(NS + "borehole"), "a prefix-only hit, on the twin alone");
+        assertEquals(List.of(FIELD + "title = Bore"),
+            matches.get(NS + "bore"), "a whole-word hit, once, though both fields matched");
+        assertEquals(List.of(FIELD + "title = Borehole BH-12"),
+            matches.get(NS + "borehole"), "a prefix-only hit, under the field the twin names");
     }
 
     // ---- idx:boost
