@@ -159,6 +159,29 @@ public class TestShaclDefineAnalyzers {
     }
 
     @Test
+    public void undefinedQueryAnalyzerIsRejected() {
+        String analyzer = "[ a text:StandardAnalyzer ] ;\n"
+            + "    idx:queryAnalyzer [ a text:DefinedAnalyzer ; text:useAnalyzer ex:neverDefinedQuery ]";
+        AssemblerException ex = assertThrows(AssemblerException.class, () -> open(config(analyzer, null)));
+        assertTrue(rootMessage(ex).contains("idx:queryAnalyzer"), rootMessage(ex));
+        assertTrue(rootMessage(ex).contains(NS + "neverDefinedQuery"), rootMessage(ex));
+    }
+
+    @Test
+    public void undefinedNormalizerIsRejected() {
+        String turtle = config("[ a text:StandardAnalyzer ]", null)
+            .replace("sh:property [ idx:field field:title ; sh:path ex:title ] .",
+                "sh:property [ idx:field field:title ; sh:path ex:title ] ;\n"
+                + "    sh:property [ idx:field field:code ; sh:path ex:code ] .")
+            + "field:code idx:fieldName \"code\" ; idx:fieldType idx:KeywordField ;\n"
+            + "    idx:normalizer [ a text:DefinedAnalyzer ; text:useAnalyzer ex:neverDefinedNormalizer ] .\n";
+        assertTrue(turtle.contains("field:code ; sh:path ex:code"));
+        AssemblerException ex = assertThrows(AssemblerException.class, () -> open(turtle));
+        assertTrue(rootMessage(ex).contains("idx:normalizer"), rootMessage(ex));
+        assertTrue(rootMessage(ex).contains(NS + "neverDefinedNormalizer"), rootMessage(ex));
+    }
+
+    @Test
     public void addLangIsRejected() {
         String definitions =
             "    [ text:addLang \"qaa-x-shacl\" ; text:analyzer [ a text:StandardAnalyzer ] ]\n";
