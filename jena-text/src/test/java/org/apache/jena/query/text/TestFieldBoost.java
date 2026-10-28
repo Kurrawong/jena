@@ -99,7 +99,7 @@ public class TestFieldBoost {
             + "    idx:defaultSearch true .\n"
             + "field:titlePrefix idx:fieldName \"titlePrefix\" ; idx:fieldType idx:TextField ;\n"
             + "    idx:defaultSearch true ;\n"
-            + "    idx:twinOf field:title ;\n"
+            + "    idx:twinOf field:title ; idx:stored false ;\n"
             + "    idx:analyzer [ a text:EdgeNGramAnalyzer ; text:minGram 2 ; text:maxGram 20 ;\n"
             + "                   text:tokenized true ]" + prefixField + " .\n"
             + "field:alias idx:fieldName \"alias\" ; idx:fieldType idx:TextField ;\n"

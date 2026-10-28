@@ -296,7 +296,7 @@ These go on the **canonical field**, never on an occurrence.
 | `idx:normalizer` | none | `KEYWORD` only — analyzer driving the indexed term and sort key while the stored value and facet label stay raw |
 | `idx:storeLiteralMetadata` | `false` | Store the datatype and language tag so a projected value rebuilds as the original literal. **Required on every `TEMPORAL` field** |
 | `idx:boost` | `1` | Weight of the field's clause when `luc:query` searches the query string across several fields; a positive number. Query-time only, so changing it needs no reindex. See [Search as you type](#search-as-you-type-an-n-gram-twin) |
-| `idx:twinOf` | none | `TEXT` only — the `TEXT` field whose values this one indexes too, analysed differently, so a client can report a match on this field under that one. Refused at load unless that field holds every value this one does; changes nothing written, so no reindex. See [Declaring the twin](#declaring-the-twin) |
+| `idx:twinOf` | none | `TEXT` only — the `TEXT` field whose values this one indexes too, analysed differently. `luc:match` and `luc:nestedMatch` report this field's matches under that one. Refused at load unless that field holds every value this one does; changes nothing written, so no reindex. See [Declaring the twin](#declaring-the-twin) |
 
 The four write-side flags are independent, and each buys exactly one capability:
 
@@ -664,6 +664,7 @@ field:titlePrefix
     idx:defaultSearch true ;
     idx:boost 0.5 ;
     idx:twinOf field:title ;
+    idx:stored false ;
     idx:analyzer [ a text:EdgeNGramAnalyzer ;
                    text:minGram 2 ; text:maxGram 20 ; text:tokenized true ] .
 
@@ -682,24 +683,26 @@ and still grades those three rather than tying them. A half-typed last word work
   It is read at query time, so it can be tuned without a reindex.
 - **`text:minGram 2`**, not the default 1. At 1 a single letter matches nearly every title;
   at 2 it matches nothing until a second letter is typed.
+- **`idx:twinOf field:title`** makes `luc:match` report the twin's matches under the title.
+  A whole-word hit matches both fields and comes back as one `field:title` row; a
+  prefix-only hit comes back as a `field:title` row too, with the title it is a prefix of.
+- **`idx:stored false`**, because the value `luc:match` returns is read from the title.
 
-What it costs:
-
-- **Index size.** Each word is indexed as up to `maxGram − minGram + 1` prefixes as well as
-  itself, and the twin keeps its own stored copy of the value so `luc:match` can show what a
-  prefix-only hit matched.
-- **Two match rows.** `luc:match` returns a row per matched field: a whole-word hit comes
-  back on both `field:title` and `field:titlePrefix` with the same text, a prefix-only hit on
-  `field:titlePrefix` alone. A client that shows which field matched should fold the twin
-  into its plain field, by the twin's `idx:twinOf`.
+The cost is index size: each word is indexed as up to `maxGram − minGram + 1` prefixes as
+well as itself.
 
 #### Declaring the twin
 
-`idx:twinOf` on the n-gram field names the field it twins, so a client can report a match
-on `field:titlePrefix` as one on `field:title` without working out from the shapes that the
-two hold the same values. The index works that out when it loads, and refuses the
-configuration, naming the difference, unless the twin holds every value the declaring field
-indexes:
+`idx:twinOf` on the n-gram field names the field it twins. `luc:match` reports a match on
+`field:titlePrefix` as one on `field:title`, once, with the title's value, and
+`luc:nestedMatch` projects a nested twin under its field in the same way. Asking `luc:match`
+for `field:titlePrefix` by name returns nothing; asking for `field:title` includes the
+prefix-only hits. Without `idx:twinOf`, each field gets its own row and the twin needs its
+own stored copy of the value.
+
+Reporting a twin's match as the field's is only right if the field holds every value the twin
+indexes. The index checks that when it loads, and refuses the configuration, naming the
+difference, unless:
 
 - **Both are `TEXT` fields**, and not the same one.
 - **They are fed alike.** In every shape that feeds the declaring field, the twin is fed by
@@ -711,7 +714,7 @@ indexes:
   each scope, each is fed by one occurrence whose alternatives come in the same order. A
   field that is not `idx:multiValued` keeps only its first value, and the order two
   occurrences are read in is not fixed by the configuration.
-- **The twin declares no twin of its own**, so a client follows one hop.
+- **The twin declares no twin of its own**, so a match is reported one hop away.
 
 Fed alike is stricter than the same `sh:path`. A title read from `rdfs:label` is not the
 twin of a prefix field read from `ex:author / rdfs:label`, nor of one with another
@@ -734,7 +737,8 @@ nothing ranks by whole words any more; here the plain field still does, and the 
 adds the hits it cannot reach.
 
 *[TestFieldBoost](../jena-text/src/test/java/org/apache/jena/query/text/TestFieldBoost.java),
-[TestTwinFields](../jena-text/src/test/java/org/apache/jena/query/text/TestTwinFields.java)*
+[TestTwinFields](../jena-text/src/test/java/org/apache/jena/query/text/TestTwinFields.java),
+[TestTwinMatches](../jena-text/src/test/java/org/apache/jena/query/text/TestTwinMatches.java)*
 
 ### Names want BM25, not n-grams
 

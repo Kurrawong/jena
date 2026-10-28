@@ -110,22 +110,25 @@ field:titlePrefix
     idx:defaultSearch true ;
     idx:boost 0.5 ;
     idx:twinOf field:title ;
+    idx:stored false ;
     idx:analyzer [ a text:EdgeNGramAnalyzer ;
                    text:minGram 2 ; text:maxGram 20 ; text:tokenized true ] .
 ```
 
 Whole words still rank first, by the plain field's BM25; the twin adds prefix hits below
-them. It costs index size and a second `luc:match` row per whole-word hit — see
+them. It costs index size — see
 [Search as you type](03-configuration.md#search-as-you-type-an-n-gram-twin).
 
-`idx:twinOf` names the plain field, so a client can report a prefix match under the title.
+`idx:twinOf` names the plain field, so `luc:match` reports the twin's matches under the
+title, once per hit, with the title's value; the twin keeps no stored copy of its own.
 The index refuses it at load unless the twin is fed exactly as the title is — the same path,
 steps, filters and value constraints — and the title keeps every value the twin does: both
 single-valued and each fed by one occurrence, as here, or the title `idx:multiValued`. See
 [Declaring the twin](03-configuration.md#declaring-the-twin).
 
 *[TestFieldBoost](../jena-text/src/test/java/org/apache/jena/query/text/TestFieldBoost.java),
-[TestTwinFields](../jena-text/src/test/java/org/apache/jena/query/text/TestTwinFields.java)*
+[TestTwinFields](../jena-text/src/test/java/org/apache/jena/query/text/TestTwinFields.java),
+[TestTwinMatches](../jena-text/src/test/java/org/apache/jena/query/text/TestTwinMatches.java)*
 
 A name that is also a filter value — author, operator, publisher — is two fields over one
 path, because it is searched as prose *and* picked from a facet list:
