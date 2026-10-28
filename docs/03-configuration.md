@@ -119,16 +119,31 @@ If the index resource itself is a URI resource, that URI is also accepted as an 
 
 ### Upgrading an index that lists `text:defineAnalyzers`
 
-Earlier builds ignored `text:defineAnalyzers` on a SHACL index. A field whose `idx:analyzer`
-was a `text:DefinedAnalyzer` was analysed with the index-wide default instead, without a
-warning. It now gets the analyzer it names, so an index built before is analysed one way
-on disk and another at query time, and searches can miss documents. Rebuild it. Startup
-reports the index's configuration fingerprint as a mismatch, because the fingerprint
-records the field's analyzer class, which was none before.
+Earlier builds ignored `text:defineAnalyzers` on a SHACL index, so a `text:DefinedAnalyzer`
+resolved to nothing, without a warning:
+
+- **On a field** (`idx:analyzer`), the field was analysed with the index-wide analyzer
+  instead.
+- **Index-wide** (`text:analyzer`), every field with no `idx:analyzer` of its own was
+  analysed with StandardAnalyzer.
+
+Both now get the analyzer they name, so an index built before is analysed one way on disk
+and another at query time, and searches can miss documents. Rebuild it. Startup reports
+the index's configuration fingerprint as a mismatch in both cases: the fingerprint records
+a field's analyzer class, which was none before, and now also the index-wide analyzer's.
+
+The index-wide analyzer is recorded only when it is not StandardAnalyzer, so a
+configuration with no `text:analyzer` keeps its fingerprint. One whose `text:analyzer` is
+any other analyzer reports a mismatch once against an index built before this change, even
+if that analyzer always resolved: startup cannot tell the two apart. Rebuilding clears it
+and is safe.
 
 A field that used a defined tokenizer or filter through `text:ConfigurableAnalyzer` failed
 on its first write before, so no index of that kind exists to rebuild. `idx:boost` and
 `idx:copyOf` are read at query time and need no rebuild.
+
+*[TestShaclDefineAnalyzers](../jena-text/src/test/java/org/apache/jena/query/text/TestShaclDefineAnalyzers.java)
+reopens an index built under the old fallback and expects the mismatch.*
 
 ### `text:exposeConfig`
 
