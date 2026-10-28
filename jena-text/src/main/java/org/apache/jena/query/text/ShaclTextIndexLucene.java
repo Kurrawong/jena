@@ -1144,24 +1144,44 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     }
                 }
 
-                // Only the matched fields are read: from doc values where they hold the
-                // value, otherwise from one restricted stored-field decode.
-                Document doc = values.stored(segmentDocId, values.storedNames(matchedDefs));
+                // A field that declares idx:twinOf is reported under the field it twins, with
+                // that field's value: the assembler checked it holds every value the twin indexes.
+                List<ShaclIndexMapping.FieldDef> reportedDefs = new ArrayList<>(matchedDefs.size());
+                for (ShaclIndexMapping.FieldDef fd : matchedDefs) {
+                    ShaclIndexMapping.FieldDef twin = shaclMapping.twinOf(fd);
+                    reportedDefs.add(twin != null ? twin : fd);
+                }
+
+                // Only the matched and reported fields are read: from doc values where they
+                // hold the value, otherwise from one restricted stored-field decode.
+                List<ShaclIndexMapping.FieldDef> readDefs = new ArrayList<>(matchedDefs);
+                readDefs.addAll(reportedDefs);
+                Document doc = values.stored(segmentDocId, values.storedNames(readDefs));
 
                 List<FieldMatch> fieldMatches = new ArrayList<>(matchedIRIs.size());
+                Set<List<Node>> reported = new HashSet<>();
                 for (int i = 0; i < matchedIRIs.size(); i++) {
                     ShaclIndexMapping.FieldDef fd = matchedDefs.get(i);
+                    ShaclIndexMapping.FieldDef shown = reportedDefs.get(i);
+                    Node fieldIRI = shown == fd ? matchedIRIs.get(i) : shown.getFieldIRI();
                     Node valueNode = null;
-                    FieldValueReader.Values fieldValues = values.values(fd, segmentDocId, doc);
+                    FieldValueReader.Values fieldValues = values.values(shown, segmentDocId, doc);
+                    if (fieldValues.isEmpty() && shown != fd) {
+                        fieldValues = values.values(fd, segmentDocId, doc);
+                    }
                     if (!fieldValues.isEmpty()) {
-                        // Which value the query matched. A multi-valued doc value lists its
-                        // values in byte order, so with no matching value the first in byte
-                        // order is returned, not the first indexed.
+                        // Which value the query matched, analysed as the matched field is, so a
+                        // twin's prefix picks the value it is a prefix of. A multi-valued doc
+                        // value lists its values in byte order, so with no matching value the
+                        // first in byte order is returned, not the first indexed.
                         SelectedStoredValue selected =
                             selectStoredValue(fd.getFieldName(), fieldValues.lexicals(), textQuery);
                         valueNode = fieldValues.node(selected.index());
                     }
-                    fieldMatches.add(new FieldMatch(matchedIRIs.get(i), valueNode, null));
+                    // A whole-word hit matches a field and its twin: one row.
+                    if (reported.add(Arrays.asList(fieldIRI, valueNode))) {
+                        fieldMatches.add(new FieldMatch(fieldIRI, valueNode, null));
+                    }
                 }
                 hit.setFieldMatches(fieldMatches);
             }
@@ -1335,20 +1355,27 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         }
 
         List<FieldMatch> fieldMatches = new ArrayList<>();
+        Set<List<Node>> projected = new HashSet<>();
         for (ShaclIndexMapping.FieldDef fd : nestedDef.getFields()) {
             if (!fd.isStored()) {
                 continue;
             }
             FieldValueReader.Values fieldValues = values.values(fd, childSegmentDocId, childDoc);
-            Node fieldIRI = fd.getFieldIRI() != null
-                ? fd.getFieldIRI()
-                : NodeFactory.createLiteralString(fd.getFieldName());
+            // A field that declares idx:twinOf holds its field's values, projected once under
+            // that field.
+            ShaclIndexMapping.FieldDef twin = shaclMapping.twinOf(fd);
+            ShaclIndexMapping.FieldDef shown = twin != null ? twin : fd;
+            Node fieldIRI = shown.getFieldIRI() != null
+                ? shown.getFieldIRI()
+                : NodeFactory.createLiteralString(shown.getFieldName());
             // Every value is projected, aligned with its datatype and language twins.
             // selectStoredValue's "which one did the query mean" heuristic is not needed
             // and would be wrong here: a child document holds exactly the one record
             // being reported.
             for (Node value : fieldValues.nodes()) {
-                fieldMatches.add(new FieldMatch(fieldIRI, value, null));
+                if (projected.add(List.of(fieldIRI, value))) {
+                    fieldMatches.add(new FieldMatch(fieldIRI, value, null));
+                }
             }
         }
         return fieldMatches.isEmpty() ? null : new NestedMatch(hitId, ordinal, scope, fieldMatches);

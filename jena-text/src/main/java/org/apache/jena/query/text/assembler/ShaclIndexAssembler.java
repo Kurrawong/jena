@@ -89,8 +89,10 @@ public class ShaclIndexAssembler {
             }
         }
         TwinFields.check(profiles, fields, twins);
+        Map<String, FieldDef> twinFields = new LinkedHashMap<>();
+        twins.forEach((field, twin) -> twinFields.put(field.getFieldIRI().getURI(), fields.get(twin.getURI())));
 
-        return new ShaclIndexMapping(profiles);
+        return new ShaclIndexMapping(profiles, twinFields);
     }
 
     private static IndexProfile parseProfile(Assembler a, Resource shape,
