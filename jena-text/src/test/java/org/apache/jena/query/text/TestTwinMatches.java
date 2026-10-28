@@ -63,19 +63,27 @@ public class TestTwinMatches {
         + "ex:borehole a ex:Report ; ex:title \"Borehole BH-12\" .\n"
         + "ex:logged   a ex:Report ; ex:title \"Groundwater survey\" , \"Borehole log\" .\n"
         + "ex:site     a ex:Report ; ex:title \"Site\" ; ex:part ex:p1 .\n"
-        + "ex:p1       ex:partName \"Pump house\" .\n";
+        + "ex:p1       ex:partName \"Pump house\"@en .\n"
+        // Through ( ex:altTitle ex:title ), "Borehole log" is the first value and "Bore" the second.
+        + "ex:mixed    a ex:Report ; ex:altTitle \"Borehole log\" ; ex:title \"Bore\" .\n";
 
     private static final String NGRAM =
         "idx:analyzer [ a text:EdgeNGramAnalyzer ;\n"
         + "        text:minGram 2 ; text:maxGram 20 ; text:tokenized true ]";
 
+    private static String config(String titleExtra, String prefixExtra) {
+        return config(titleExtra, prefixExtra, "", "ex:title");
+    }
+
     /**
      * A title and its edge-n-gram twin, and a nested part name and its twin.
      *
-     * @param titleExtra  extra properties on {@code field:title}
-     * @param prefixExtra extra properties on its twin, {@code field:titlePrefix}
+     * @param titleExtra    extra properties on {@code field:title}
+     * @param prefixExtra   extra properties on its twin, {@code field:titlePrefix}
+     * @param partNameExtra extra properties on {@code field:partName}
+     * @param titlePath     the path feeding both the title and its twin
      */
-    private static String config(String titleExtra, String prefixExtra) {
+    private static String config(String titleExtra, String prefixExtra, String partNameExtra, String titlePath) {
         return "@prefix idx:   <urn:jena:lucene:index#> .\n"
             + "@prefix field: <" + FIELD + "> .\n"
             + "@prefix sh:    <http://www.w3.org/ns/shacl#> .\n"
@@ -89,14 +97,14 @@ public class TestTwinMatches {
             + "    idx:defaultSearch true ; idx:twinOf field:title ;\n"
             + "    " + NGRAM + prefixExtra + " .\n"
             + "field:partName idx:fieldName \"partName\" ; idx:fieldType idx:TextField ;\n"
-            + "    idx:defaultSearch true .\n"
+            + "    idx:defaultSearch true" + partNameExtra + " .\n"
             + "field:partNamePrefix idx:fieldName \"partNamePrefix\" ; idx:fieldType idx:TextField ;\n"
             + "    idx:defaultSearch true ; idx:twinOf field:partName ;\n"
             + "    " + NGRAM + " .\n"
             + "ex:ReportShape\n"
             + "    sh:targetClass ex:Report ;\n"
-            + "    sh:property [ idx:field field:title ; sh:path ex:title ] ;\n"
-            + "    sh:property [ idx:field field:titlePrefix ; sh:path ex:title ] ;\n"
+            + "    sh:property [ idx:field field:title ; sh:path " + titlePath + " ] ;\n"
+            + "    sh:property [ idx:field field:titlePrefix ; sh:path " + titlePath + " ] ;\n"
             + "    idx:nested [\n"
             + "        idx:joinPath ex:part ;\n"
             + "        idx:property [ idx:field field:partName ; sh:path ex:partName ] ;\n"
@@ -154,7 +162,7 @@ public class TestTwinMatches {
                         : field.replace("field:", FIELD);
                     RDFNode value = row.get("value");
                     rows.computeIfAbsent(row.getResource("entity").getURI(), k -> new ArrayList<>())
-                        .add(name + " = " + (value == null ? null : value.asLiteral().getString()));
+                        .add(name + " = " + (value == null ? null : term(value)));
                 });
             }
         } finally {
@@ -162,6 +170,12 @@ public class TestTwinMatches {
         }
         rows.values().forEach(Collections::sort);
         return rows;
+    }
+
+    /** A literal's text, with its language tag when it has one. */
+    private static String term(RDFNode value) {
+        String lang = value.asLiteral().getLanguage();
+        return value.asLiteral().getString() + (lang.isEmpty() ? "" : "@" + lang);
     }
 
     @Test
@@ -210,5 +224,27 @@ public class TestTwinMatches {
     @Test
     public void nestedMatchProjectsTheFieldOnce() {
         assertEquals(List.of(PART_NAME + " = Pump house"), nestedMatches(config("", ""), "pump").get(NS + "site"));
+    }
+
+    /**
+     * The field keeps the value's language tag and its twin does not, as the check allows:
+     * the field's own literal is projected, once, not the twin's untagged copy beside it.
+     */
+    @Test
+    public void nestedMatchProjectsTheFieldsOwnLiteral() {
+        String tagged = config("", "", " ;\n    idx:storeLiteralMetadata true", "ex:title");
+        assertEquals(List.of(PART_NAME + " = Pump house@en"), nestedMatches(tagged, "pump").get(NS + "site"));
+    }
+
+    /**
+     * "bore" matches the title's second value, "Bore", as a word, and its twin's first,
+     * "Borehole log", as a prefix. The field's own match decides the value, so the hit is
+     * one row, not one per value the two picked.
+     */
+    @Test
+    public void fieldsOwnMatchDecidesTheValue() {
+        String multiValued = " ;\n    idx:multiValued true";
+        String ordered = config(multiValued, multiValued, "", "[ sh:alternativePath ( ex:altTitle ex:title ) ]");
+        assertEquals(List.of(TITLE + " = Bore"), matches(ordered, "bore", "?field").get(NS + "mixed"));
     }
 }
