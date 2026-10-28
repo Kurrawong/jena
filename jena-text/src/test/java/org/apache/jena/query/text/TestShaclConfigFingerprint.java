@@ -35,6 +35,8 @@ import org.apache.jena.rdf.model.ModelFactory;
 import org.apache.jena.rdf.model.RDFList;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.sys.JenaSystem;
+import org.apache.lucene.analysis.core.SimpleAnalyzer;
+import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -210,6 +212,56 @@ public class TestShaclConfigFingerprint {
         assertEquals(baseline(),
             fingerprintOf(PREFIXES + FIELDS + renamed, false, List.of(),
                 null, "http://example.org/SurveyReportShape"));
+    }
+
+    /** A boost weights a field at query time only, so tuning it must not demand a reindex. */
+    @Test
+    public void searchBoostIsNotSignificant() {
+        String boosted = FIELDS.replace(
+            "idx:fieldType idx:TextField ; idx:defaultSearch true .",
+            "idx:fieldType idx:TextField ; idx:defaultSearch true ; idx:boost 0.5 .");
+        assertNotEquals(FIELDS, boosted);
+        assertEquals(baseline(), fingerprintOf(PREFIXES + boosted + SHAPE));
+    }
+
+    private static ShaclIndexMapping mappingOf(String turtle) {
+        Model model = ModelFactory.createDefaultModel();
+        model.read(new StringReader(turtle), null, "TTL");
+        Resource shapesList = model.createList(new Resource[] { model.getResource("http://example.org/ReportShape") })
+            .as(RDFList.class);
+        return ShaclIndexAssembler.parseShapes(Assembler.general(), shapesList);
+    }
+
+    /** text:analyzer analyses every text field with no analyzer of its own. */
+    @Test
+    public void indexWideAnalyzerIsSignificant() {
+        ShaclIndexMapping mapping = mappingOf(PREFIXES + FIELDS + SHAPE);
+        assertNotEquals(ShaclConfigFingerprint.fingerprint(mapping, false, List.of(), null),
+            ShaclConfigFingerprint.fingerprint(mapping, false, List.of(), new SimpleAnalyzer()));
+    }
+
+    /**
+     * StandardAnalyzer is what no text:analyzer gives, so naming it, or none, keeps the
+     * fingerprint an index was stamped with before the index-wide analyzer was recorded.
+     */
+    @Test
+    public void defaultIndexWideAnalyzerKeepsTheFingerprint() {
+        ShaclIndexMapping mapping = mappingOf(PREFIXES + FIELDS + SHAPE);
+        assertEquals(baseline(), ShaclConfigFingerprint.fingerprint(mapping, false, List.of(), null));
+        assertEquals(baseline(), ShaclConfigFingerprint.fingerprint(mapping, false, List.of(), new StandardAnalyzer()));
+    }
+
+    /** idx:copyOf describes two fields' values and changes neither, so it must not demand a reindex. */
+    @Test
+    public void copyDeclarationIsNotSignificant() {
+        String prefixField =
+            "field:titlePrefix idx:fieldName \"titlePrefix\" ; idx:fieldType idx:TextField ; idx:defaultSearch true .\n";
+        String shape = SHAPE.replace(" .\n",
+            " ;\n    sh:property [ idx:field field:titlePrefix ; sh:path ex:title ] .\n");
+        String copy = "field:titlePrefix idx:copyOf field:title .\n";
+        assertNotEquals(SHAPE, shape);
+        assertEquals(fingerprintOf(PREFIXES + FIELDS + prefixField + shape),
+            fingerprintOf(PREFIXES + FIELDS + prefixField + copy + shape));
     }
 
     // ---- Sensitivity: things that must change the fingerprint.

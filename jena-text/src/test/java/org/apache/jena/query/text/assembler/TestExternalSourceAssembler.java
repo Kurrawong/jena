@@ -237,6 +237,34 @@ public class TestExternalSourceAssembler {
         assertTrue(e.getMessage(), e.getMessage().contains("sh:path"));
     }
 
+    /** {@link #NARROW_SOURCE_SHAPE} with {@code extra} on the binding of column "property". */
+    private static String withOnPropertyColumn(String extra) {
+        String binding = "idx:column [ idx:columnName \"property\" ; idx:field field:measuredProperty ]";
+        assertTrue(NARROW_SOURCE_SHAPE.contains(binding));
+        return NARROW_SOURCE_SHAPE.replace(binding,
+            "idx:column [ idx:columnName \"property\" ; " + extra + " ; idx:field field:measuredProperty ]");
+    }
+
+    /** A binding names a column and a field. The field's own properties go on the field: on
+     *  the binding they would be ignored, so they are refused there as on a field occurrence. */
+    @Test
+    public void boundColumnMustNotCarryABoost() {
+        TextIndexException e = assertThrows(TextIndexException.class,
+            () -> parseSingleProfile(withOnPropertyColumn("idx:boost 0")));
+        assertTrue(e.getMessage(), e.getMessage().contains("urn:jena:lucene:index#boost"));
+        assertTrue(e.getMessage(), e.getMessage().contains("idx:column"));
+        assertTrue(e.getMessage(), e.getMessage().contains("measuredProperty"));
+    }
+
+    @Test
+    public void boundColumnMustNotCarryACopyOf() {
+        TextIndexException e = assertThrows(TextIndexException.class,
+            () -> parseSingleProfile(withOnPropertyColumn("idx:copyOf field:sampleName")));
+        assertTrue(e.getMessage(), e.getMessage().contains("urn:jena:lucene:index#copyOf"));
+        assertTrue(e.getMessage(), e.getMessage().contains("idx:column"));
+        assertTrue(e.getMessage(), e.getMessage().contains("measuredProperty"));
+    }
+
     @Test
     public void columnNeedsExactlyOneOfNameOrIndex() {
         TextIndexException e = assertThrows(TextIndexException.class, () -> parseSingleProfile(

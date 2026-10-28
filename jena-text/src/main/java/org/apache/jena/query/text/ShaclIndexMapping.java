@@ -84,6 +84,8 @@ public class ShaclIndexMapping {
          *  indexed term and sort key. Null = raw value (unchanged behaviour). */
         private final Analyzer normalizer;
         private final boolean valueInDocValues;
+        /** Query-time weight of this field's clause in a query string search; 1 = unweighted. */
+        private final float boost;
 
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
                         boolean stored, boolean indexed, boolean facetable,
@@ -151,13 +153,24 @@ public class ShaclIndexMapping {
                 sortable, multiValued, defaultSearch, storeLiteralMetadata, fieldIRI, null);
         }
 
-        /** Canonical (widest) constructor. {@code normalizer} is the KEYWORD normalizer
-         *  (null for all other cases and for the many delegating constructors above). */
         public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
                         Analyzer queryAnalyzer,
                         boolean stored, boolean indexed, boolean facetable,
                         boolean sortable, boolean multiValued, boolean defaultSearch,
                         boolean storeLiteralMetadata, Node fieldIRI, Analyzer normalizer) {
+            this(fieldName, fieldType, analyzer, queryAnalyzer, stored, indexed, facetable,
+                sortable, multiValued, defaultSearch, storeLiteralMetadata, fieldIRI, normalizer, 1.0f);
+        }
+
+        /** Canonical (widest) constructor. {@code normalizer} is the KEYWORD normalizer
+         *  (null for all other cases and for the many delegating constructors above), and
+         *  {@code boost} the field's {@code idx:boost} (1 for the delegating constructors). */
+        public FieldDef(String fieldName, FieldType fieldType, Analyzer analyzer,
+                        Analyzer queryAnalyzer,
+                        boolean stored, boolean indexed, boolean facetable,
+                        boolean sortable, boolean multiValued, boolean defaultSearch,
+                        boolean storeLiteralMetadata, Node fieldIRI, Analyzer normalizer,
+                        float boost) {
             this.fieldName = Objects.requireNonNull(fieldName);
             this.fieldType = fieldType != null ? fieldType : FieldType.TEXT;
             this.analyzer = analyzer;
@@ -172,6 +185,7 @@ public class ShaclIndexMapping {
             this.normalizer = normalizer;
             this.valueInDocValues = this.fieldType == FieldType.KEYWORD && sortable
                 && normalizer == null && !storeLiteralMetadata;
+            this.boost = boost;
             this.fieldIRI = fieldIRI != null ? fieldIRI : NodeFactory.createURI(FIELD_IRI_PREFIX + fieldName);
         }
 
@@ -205,7 +219,13 @@ public class ShaclIndexMapping {
         public boolean isMultiValued()       { return multiValued; }
         public boolean isDefaultSearch()     { return defaultSearch; }
         public boolean isStoreLiteralMetadata() { return storeLiteralMetadata; }
-        public boolean isTemporal()          { return fieldType == FieldType.TEMPORAL; }
+        /**
+         * The field's {@code idx:boost}: how much its clause weighs when {@code luc:query}
+         * searches the query string across several fields. A query-time setting only, so
+         * it is not part of {@link ShaclConfigFingerprint} and changing it needs no reindex.
+         */
+        public float getBoost()              { return boost; }
+        public boolean isTemporal()         { return fieldType == FieldType.TEMPORAL; }
         /** @deprecated use {@link #isTemporal()}. Kept for backwards compat with PR-merge windows. */
         @Deprecated public boolean isDateLike() { return isTemporal(); }
         public boolean preservesLiteralMetadata() { return storeLiteralMetadata || isTemporal(); }
@@ -947,8 +967,19 @@ public class ShaclIndexMapping {
     private final Set<Node> nestedJoinPredicates;
     private final Set<Node> relevantPredicates;
     private final List<FieldDef> rootFields;
+    private final Map<String, FieldDef> sourceFields;
 
     public ShaclIndexMapping(List<IndexProfile> profiles) {
+        this(profiles, Map.of());
+    }
+
+    /**
+     * @param sourceFields each copy field, which declares {@code idx:copyOf}, by its IRI, to the
+     *                     source field it names; the assembler has checked the source field holds
+     *                     every value the copy field indexes
+     */
+    public ShaclIndexMapping(List<IndexProfile> profiles, Map<String, FieldDef> sourceFields) {
+        this.sourceFields = Map.copyOf(sourceFields);
         this.profiles = Collections.unmodifiableList(new ArrayList<>(profiles));
         validateProfilesHaveOccurrences();
         validateLiteralMetadataRequirements();
@@ -1048,6 +1079,15 @@ public class ShaclIndexMapping {
             }
         }
         return null;
+    }
+
+    /**
+     * The source field {@code field} declares with {@code idx:copyOf}, which {@code luc:match} reports
+     * its matches under; null when it declares none. Not part of the configuration
+     * fingerprint: it changes nothing written to the index.
+     */
+    public FieldDef sourceOf(FieldDef field) {
+        return field == null || field.getFieldIRI() == null ? null : sourceFields.get(field.getFieldIRI().getURI());
     }
 
     public FieldDef findFieldByName(String fieldName) {

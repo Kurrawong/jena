@@ -92,6 +92,10 @@ public class IndexVocab {
     public static final Property pMultiValued   = Vocab.property(NS, "multiValued");
     public static final Property pDefaultSearch = Vocab.property(NS, "defaultSearch");
     public static final Property pStoreLiteralMetadata = Vocab.property(NS, "storeLiteralMetadata");
+    /** A field's weight when the query string is searched across several fields. */
+    public static final Property pBoost         = Vocab.property(NS, "boost");
+    /** On a text field, its copy field: the source field that indexes the same values, analysed differently. */
+    public static final Property pCopyOf        = Vocab.property(NS, "copyOf");
     public static final Property pPath          = Vocab.property(NS, "path");
     public static final Property pSelf          = Vocab.property(NS, "self");
     /** On a PeriodField occurrence: the path from its period node to the period's start. */

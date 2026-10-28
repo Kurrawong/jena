@@ -60,8 +60,9 @@ public class ShaclIndexAssembler {
 
     private ShaclIndexAssembler() {}
 
+    /** @param copyOfNode the source field {@code idx:copyOf} names, or null */
     private record CanonicalFieldSpec(FieldDef field, Node analyzerNode, Node queryAnalyzerNode,
-                                      Node normalizerNode) {}
+                                      Node normalizerNode, Node copyOfNode) {}
 
     public static ShaclIndexMapping parseShapes(Assembler a, Resource shapesList) {
         List<IndexProfile> profiles = new ArrayList<>();
@@ -79,7 +80,19 @@ public class ShaclIndexAssembler {
             throw new TextIndexException("text:shapes list is empty");
         }
 
-        return new ShaclIndexMapping(profiles);
+        Map<String, FieldDef> fields = new LinkedHashMap<>();
+        Map<FieldDef, Node> copies = new LinkedHashMap<>();
+        for (CanonicalFieldSpec spec : canonicalFields.values()) {
+            fields.put(spec.field().getFieldIRI().getURI(), spec.field());
+            if (spec.copyOfNode() != null) {
+                copies.put(spec.field(), spec.copyOfNode());
+            }
+        }
+        CopyFields.check(profiles, fields, copies);
+        Map<String, FieldDef> sourceFields = new LinkedHashMap<>();
+        copies.forEach((copy, source) -> sourceFields.put(copy.getFieldIRI().getURI(), fields.get(source.getURI())));
+
+        return new ShaclIndexMapping(profiles, sourceFields);
     }
 
     private static IndexProfile parseProfile(Assembler a, Resource shape,
@@ -333,6 +346,12 @@ public class ShaclIndexAssembler {
         }
         FieldDef field = resolveCanonicalField(a, fieldStmt.getObject().asResource(), canonicalFields);
         reachableFields.putIfAbsent(field.getFieldIRI().getURI(), field);
+        Property misplaced = canonicalFieldProperty(columnRes);
+        if (misplaced != null) {
+            throw new TextIndexException("idx:column " + columnRes + " (field " + field.getFieldName()
+                + ") carries " + misplaced + ", which belongs on the canonical field. A column binding "
+                + "names only a column and the field it feeds.");
+        }
 
         String columnName = getOptionalString(columnRes, IndexVocab.pColumnName);
         int columnIndex = getOptionalInt(columnRes, IndexVocab.pColumnIndex, -1);
@@ -660,29 +679,45 @@ public class ShaclIndexAssembler {
         return true;
     }
 
+    /** Properties of a canonical field, or of a nested block, that a place feeding a field may not carry. */
+    private static final List<Property> CANONICAL_FIELD_PROPERTIES = List.of(
+        IndexVocab.pFieldName,
+        IndexVocab.pFieldType,
+        IndexVocab.pAnalyzer,
+        IndexVocab.pQueryAnalyzer,
+        IndexVocab.pStored,
+        IndexVocab.pIndexed,
+        IndexVocab.pFacetable,
+        IndexVocab.pSortable,
+        IndexVocab.pMultiValued,
+        IndexVocab.pDefaultSearch,
+        IndexVocab.pStoreLiteralMetadata,
+        IndexVocab.pBoost,
+        IndexVocab.pCopyOf,
+        IndexVocab.pJoinPath,
+        IndexVocab.pNested,
+        IndexVocab.pPath
+    );
+
     private static void rejectCanonicalFieldPropertiesOnOccurrence(Resource occurrenceRes) {
-        List<Property> forbidden = List.of(
-            IndexVocab.pFieldName,
-            IndexVocab.pFieldType,
-            IndexVocab.pAnalyzer,
-            IndexVocab.pQueryAnalyzer,
-            IndexVocab.pStored,
-            IndexVocab.pIndexed,
-            IndexVocab.pFacetable,
-            IndexVocab.pSortable,
-            IndexVocab.pMultiValued,
-            IndexVocab.pDefaultSearch,
-            IndexVocab.pStoreLiteralMetadata,
-            IndexVocab.pJoinPath,
-            IndexVocab.pNested,
-            IndexVocab.pPath
-        );
-        for (Property property : forbidden) {
-            if (occurrenceRes.hasProperty(property)) {
-                throw new TextIndexException(
-                    "Field occurrence " + occurrenceRes + " mixes occurrence data with canonical field metadata via " + property);
+        Property property = canonicalFieldProperty(occurrenceRes);
+        if (property != null) {
+            throw new TextIndexException(
+                "Field occurrence " + occurrenceRes + " mixes occurrence data with canonical field metadata via " + property);
+        }
+    }
+
+    /**
+     * The first of {@link #CANONICAL_FIELD_PROPERTIES} {@code res} carries, or null. On a field
+     * occurrence or a column binding it would otherwise be ignored.
+     */
+    private static Property canonicalFieldProperty(Resource res) {
+        for (Property property : CANONICAL_FIELD_PROPERTIES) {
+            if (res.hasProperty(property)) {
+                return property;
             }
         }
+        return null;
     }
 
     private static FieldDef resolveCanonicalField(Assembler a, Resource fieldRes,
@@ -718,9 +753,11 @@ public class ShaclIndexAssembler {
                 || existingField.isMultiValued() != parsedField.isMultiValued()
                 || existingField.isDefaultSearch() != parsedField.isDefaultSearch()
                 || existingField.isStoreLiteralMetadata() != parsedField.isStoreLiteralMetadata()
+                || existingField.getBoost() != parsedField.getBoost()
                 || !Objects.equals(existing.analyzerNode(), parsed.analyzerNode())
                 || !Objects.equals(existing.queryAnalyzerNode(), parsed.queryAnalyzerNode())
-                || !Objects.equals(existing.normalizerNode(), parsed.normalizerNode())) {
+                || !Objects.equals(existing.normalizerNode(), parsed.normalizerNode())
+                || !Objects.equals(existing.copyOfNode(), parsed.copyOfNode())) {
             throw new TextIndexException(
                 "Canonical field " + existingField.getFieldIRI().getURI()
                 + " is defined inconsistently across occurrences");
@@ -742,7 +779,7 @@ public class ShaclIndexAssembler {
         Analyzer analyzer = null;
         Statement analyzerStmt = fieldRes.getProperty(IndexVocab.pAnalyzer);
         if (analyzerStmt != null && analyzerStmt.getObject().isResource()) {
-            analyzer = (Analyzer) a.open(analyzerStmt.getObject().asResource());
+            analyzer = openAnalyzer(a, analyzerStmt, fieldName);
         }
         Node analyzerNode = analyzerStmt != null && analyzerStmt.getObject().isResource()
             ? analyzerStmt.getObject().asNode()
@@ -751,7 +788,7 @@ public class ShaclIndexAssembler {
         Analyzer queryAnalyzer = null;
         Statement queryAnalyzerStmt = fieldRes.getProperty(IndexVocab.pQueryAnalyzer);
         if (queryAnalyzerStmt != null && queryAnalyzerStmt.getObject().isResource()) {
-            queryAnalyzer = (Analyzer) a.open(queryAnalyzerStmt.getObject().asResource());
+            queryAnalyzer = openAnalyzer(a, queryAnalyzerStmt, fieldName);
         }
         Node queryAnalyzerNode = queryAnalyzerStmt != null && queryAnalyzerStmt.getObject().isResource()
             ? queryAnalyzerStmt.getObject().asNode()
@@ -772,7 +809,7 @@ public class ShaclIndexAssembler {
                 throw new TextIndexException(
                     "idx:normalizer on field '" + fieldName + "' must reference an analyzer resource.");
             }
-            normalizer = (Analyzer) a.open(normalizerStmt.getObject().asResource());
+            normalizer = openAnalyzer(a, normalizerStmt, fieldName);
             normalizerNode = normalizerStmt.getObject().asNode();
         }
 
@@ -784,6 +821,8 @@ public class ShaclIndexAssembler {
         boolean multiValued = getOptionalBoolean(fieldRes, IndexVocab.pMultiValued, false);
         boolean defaultSearch = getOptionalBoolean(fieldRes, IndexVocab.pDefaultSearch, false);
         boolean storeLiteralMetadata = getOptionalBoolean(fieldRes, IndexVocab.pStoreLiteralMetadata, false);
+        float boost = parseBoost(fieldRes, fieldName);
+        Node copyOfNode = parseCopyOf(fieldRes, fieldName);
 
         if (fieldType == FieldType.PERIOD) {
             rejectOnPeriodField(fieldName, IndexVocab.pStored, stored);
@@ -796,10 +835,73 @@ public class ShaclIndexAssembler {
         Node fieldIRI = fieldRes.isURIResource() ? fieldRes.asNode() : null;
         FieldDef fieldDef = new FieldDef(fieldName, fieldType, analyzer, queryAnalyzer,
             stored, indexed, facetable, sortable, multiValued, defaultSearch,
-            storeLiteralMetadata, fieldIRI, normalizer);
+            storeLiteralMetadata, fieldIRI, normalizer, boost);
         log.debug("Parsed canonical field: {} type={} facetable={}", fieldDef.getFieldName(),
             fieldDef.getFieldType(), fieldDef.isFacetable());
-        return new CanonicalFieldSpec(fieldDef, analyzerNode, queryAnalyzerNode, normalizerNode);
+        return new CanonicalFieldSpec(fieldDef, analyzerNode, queryAnalyzerNode, normalizerNode, copyOfNode);
+    }
+
+    /**
+     * The analyzer a field's {@code stmt} names. One that opens to nothing is refused: that
+     * is a {@code text:DefinedAnalyzer} whose name no {@code text:defineAnalyzers} loaded so
+     * far has defined, and the field would otherwise fall back to the default analyzer unseen.
+     * Names are registered for the whole JVM, as in Jena's text index, so this does not check
+     * that the index defines the name itself: one another index defined resolves too.
+     */
+    private static Analyzer openAnalyzer(Assembler a, Statement stmt, String fieldName) {
+        Resource spec = stmt.getObject().asResource();
+        Analyzer analyzer = (Analyzer) a.open(spec);
+        if (analyzer == null) {
+            Statement use = spec.getProperty(TextVocab.pUseAnalyzer);
+            throw new TextIndexException("idx:" + stmt.getPredicate().getLocalName() + " on field '" + fieldName
+                + "' is no analyzer"
+                + (use == null ? "" : ": text:useAnalyzer " + use.getObject()
+                    + " names an analyzer no text:defineAnalyzers loaded in this JVM has defined. Analyzer"
+                    + " names are shared by every index in the JVM; define it in this index's own"
+                    + " text:defineAnalyzers."));
+        }
+        return analyzer;
+    }
+
+    /**
+     * {@code idx:boost}, 1 when absent. It must be a positive number: zero would keep the
+     * field matching while dropping it from the ranking, and Lucene refuses a negative weight.
+     */
+    private static float parseBoost(Resource fieldRes, String fieldName) {
+        Statement stmt = fieldRes.getProperty(IndexVocab.pBoost);
+        if (stmt == null) {
+            return 1.0f;
+        }
+        RDFNode node = stmt.getObject();
+        if (node.isLiteral() && node.asLiteral().getValue() instanceof Number number) {
+            float boost = number.floatValue();
+            if (boost > 0 && Float.isFinite(boost)) {
+                return boost;
+            }
+        }
+        throw new TextIndexException(
+            "idx:boost on field '" + fieldName + "' must be a positive number, got " + node);
+    }
+
+    /**
+     * The source field {@code idx:copyOf} names, or null when absent. {@link CopyFields} checks it
+     * once every shape is parsed, as only then are all the occurrences of both fields known.
+     */
+    private static Node parseCopyOf(Resource fieldRes, String fieldName) {
+        List<Statement> stmts = fieldRes.listProperties(IndexVocab.pCopyOf).toList();
+        if (stmts.isEmpty()) {
+            return null;
+        }
+        if (stmts.size() > 1) {
+            throw new TextIndexException("idx:copyOf on field '" + fieldName + "' names more than one field. "
+                + "A copy field has one source field, the one a match on it is reported under.");
+        }
+        RDFNode source = stmts.get(0).getObject();
+        if (!source.isURIResource()) {
+            throw new TextIndexException("idx:copyOf on field '" + fieldName
+                + "' must name a field by its IRI, got " + source);
+        }
+        return source.asNode();
     }
 
     /**

@@ -363,7 +363,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         }
 
         this.configFingerprint =
-            ShaclConfigFingerprint.fingerprint(shaclMapping, config.isValueStored(), this.facetFields);
+            ShaclConfigFingerprint.fingerprint(shaclMapping, config.isValueStored(), this.facetFields,
+                config.getAnalyzer());
         this.openedStamp = ShaclIndexStamp.read(directory);
         stampIfNewIndex();
         logConfigStatus();
@@ -850,6 +851,10 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * Build a query with NamedMatches wrapping for field attribution.
      * For multi-field queries, each field gets a named sub-query so
      * we can later determine which field(s) matched each hit.
+     * <p>
+     * This is the query {@code luc:query} ranks by, so each field's clause carries the
+     * field's {@code idx:boost}. The counts and facets parse through
+     * {@link #parseQueryForFields} instead, where scores play no part.
      */
     protected Query buildNamedQuery(String queryString, List<String> resolvedFields) throws ParseException {
         if ("*".equals(queryString)) {
@@ -861,6 +866,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         for (String fieldName : resolvedFields) {
             Query fieldQuery = newQueryParser(List.of(fieldName)).parse(queryString);
             ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(fieldName);
+            if (fd != null && fd.getBoost() != 1.0f) {
+                fieldQuery = new BoostQuery(fieldQuery, fd.getBoost());
+            }
             String name = fd != null ? fd.getFieldIRI().getURI() : fieldName;
             Query named = NamedMatches.wrapQuery(name, fieldQuery);
             ShaclIndexMapping.NestedDef scope = shaclMapping.findNestedDefForFieldName(fieldName);
@@ -1137,28 +1145,74 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     }
                 }
 
-                // Only the matched fields are read: from doc values where they hold the
-                // value, otherwise from one restricted stored-field decode.
-                Document doc = values.stored(segmentDocId, values.storedNames(matchedDefs));
+                // A copy field, which declares idx:copyOf, is reported under its source field, with
+                // that field's value: the assembler checked it holds every value the copy indexes.
+                List<ShaclIndexMapping.FieldDef> reportedDefs = new ArrayList<>(matchedDefs.size());
+                for (ShaclIndexMapping.FieldDef fd : matchedDefs) {
+                    ShaclIndexMapping.FieldDef source = shaclMapping.sourceOf(fd);
+                    reportedDefs.add(source != null ? source : fd);
+                }
 
-                List<FieldMatch> fieldMatches = new ArrayList<>(matchedIRIs.size());
+                // Only the matched and reported fields are read: from doc values where they
+                // hold the value, otherwise from one restricted stored-field decode.
+                List<ShaclIndexMapping.FieldDef> readDefs = new ArrayList<>(matchedDefs);
+                readDefs.addAll(reportedDefs);
+                Document doc = values.stored(segmentDocId, values.storedNames(readDefs));
+
+                // One row per reported field, in the order each first matched. Each clause picks
+                // its value on its own: on a multi-valued field a copy field's prefix can pick
+                // another value than the source field's own words, so the source field's own
+                // match goes first. A copy field's match stands in when that gives no value, as
+                // when the source field keeps none and its copy does.
+                Map<Node, List<Integer>> clauses = new LinkedHashMap<>();
                 for (int i = 0; i < matchedIRIs.size(); i++) {
-                    ShaclIndexMapping.FieldDef fd = matchedDefs.get(i);
-                    Node valueNode = null;
-                    FieldValueReader.Values fieldValues = values.values(fd, segmentDocId, doc);
-                    if (!fieldValues.isEmpty()) {
-                        // Which value the query matched. A multi-valued doc value lists its
-                        // values in byte order, so with no matching value the first in byte
-                        // order is returned, not the first indexed.
-                        SelectedStoredValue selected =
-                            selectStoredValue(fd.getFieldName(), fieldValues.lexicals(), textQuery);
-                        valueNode = fieldValues.node(selected.index());
+                    boolean own = reportedDefs.get(i) == matchedDefs.get(i);
+                    Node fieldIRI = own ? matchedIRIs.get(i) : reportedDefs.get(i).getFieldIRI();
+                    List<Integer> forField = clauses.computeIfAbsent(fieldIRI, k -> new ArrayList<>());
+                    if (own) {
+                        forField.add(0, i);
+                    } else {
+                        forField.add(i);
                     }
-                    fieldMatches.add(new FieldMatch(matchedIRIs.get(i), valueNode, null));
+                }
+
+                List<FieldMatch> fieldMatches = new ArrayList<>(clauses.size());
+                for (Map.Entry<Node, List<Integer>> clause : clauses.entrySet()) {
+                    Node valueNode = null;
+                    for (int i : clause.getValue()) {
+                        valueNode = matchedValue(matchedDefs.get(i), reportedDefs.get(i), segmentDocId, doc,
+                            values, textQuery);
+                        if (valueNode != null) {
+                            break;
+                        }
+                    }
+                    fieldMatches.add(new FieldMatch(clause.getKey(), valueNode, null));
                 }
                 hit.setFieldMatches(fieldMatches);
             }
         });
+    }
+
+    /**
+     * The value of {@code shown} that the clause on {@code matched} found, or null when
+     * neither keeps one. It is read from {@code shown}, the field the match is reported
+     * under, or from {@code matched} when that is a copy field whose source keeps no value.
+     * The candidates are analysed as {@code matched} is, so a copy field's prefix picks the
+     * value it is a prefix of. A multi-valued doc value lists its values in byte order, so
+     * with no matching value the first in byte order is returned, not the first indexed.
+     */
+    private Node matchedValue(ShaclIndexMapping.FieldDef matched, ShaclIndexMapping.FieldDef shown,
+                              int segmentDocId, Document doc, FieldValueReader values, Query textQuery)
+            throws IOException {
+        FieldValueReader.Values fieldValues = values.values(shown, segmentDocId, doc);
+        if (fieldValues.isEmpty() && shown != matched) {
+            fieldValues = values.values(matched, segmentDocId, doc);
+        }
+        if (fieldValues.isEmpty()) {
+            return null;
+        }
+        SelectedStoredValue selected = selectStoredValue(matched.getFieldName(), fieldValues.lexicals(), textQuery);
+        return fieldValues.node(selected.index());
     }
 
     /** Receives the values read for one hit and one field. */
@@ -1328,20 +1382,32 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         }
 
         List<FieldMatch> fieldMatches = new ArrayList<>();
+        Set<List<Node>> projected = new HashSet<>();
         for (ShaclIndexMapping.FieldDef fd : nestedDef.getFields()) {
             if (!fd.isStored()) {
                 continue;
             }
-            FieldValueReader.Values fieldValues = values.values(fd, childSegmentDocId, childDoc);
-            Node fieldIRI = fd.getFieldIRI() != null
-                ? fd.getFieldIRI()
-                : NodeFactory.createLiteralString(fd.getFieldName());
+            // A copy field indexes its source field's values, projected once under the source
+            // field and as that field keeps them: the two may keep a literal's language or
+            // datatype differently. The copy's own stored value stands in only when the source
+            // keeps none.
+            ShaclIndexMapping.FieldDef source = shaclMapping.sourceOf(fd);
+            ShaclIndexMapping.FieldDef shown = source != null ? source : fd;
+            FieldValueReader.Values fieldValues = values.values(shown, childSegmentDocId, childDoc);
+            if (fieldValues.isEmpty() && shown != fd) {
+                fieldValues = values.values(fd, childSegmentDocId, childDoc);
+            }
+            Node fieldIRI = shown.getFieldIRI() != null
+                ? shown.getFieldIRI()
+                : NodeFactory.createLiteralString(shown.getFieldName());
             // Every value is projected, aligned with its datatype and language twins.
             // selectStoredValue's "which one did the query mean" heuristic is not needed
             // and would be wrong here: a child document holds exactly the one record
             // being reported.
             for (Node value : fieldValues.nodes()) {
-                fieldMatches.add(new FieldMatch(fieldIRI, value, null));
+                if (projected.add(List.of(fieldIRI, value))) {
+                    fieldMatches.add(new FieldMatch(fieldIRI, value, null));
+                }
             }
         }
         return fieldMatches.isEmpty() ? null : new NestedMatch(hitId, ordinal, scope, fieldMatches);
