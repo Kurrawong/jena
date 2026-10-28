@@ -296,6 +296,7 @@ These go on the **canonical field**, never on an occurrence.
 | `idx:normalizer` | none | `KEYWORD` only — analyzer driving the indexed term and sort key while the stored value and facet label stay raw |
 | `idx:storeLiteralMetadata` | `false` | Store the datatype and language tag so a projected value rebuilds as the original literal. **Required on every `TEMPORAL` field** |
 | `idx:boost` | `1` | Weight of the field's clause when `luc:query` searches the query string across several fields; a positive number. Query-time only, so changing it needs no reindex. See [Search as you type](#search-as-you-type-an-n-gram-twin) |
+| `idx:twinOf` | none | `TEXT` only — the `TEXT` field whose values this one indexes too, analysed differently, so a client can report a match on this field under that one. Refused at load unless that field holds every value this one does; changes nothing written, so no reindex. See [Declaring the twin](#declaring-the-twin) |
 
 The four write-side flags are independent, and each buys exactly one capability:
 
@@ -662,6 +663,7 @@ field:titlePrefix
     idx:fieldType idx:TextField ;
     idx:defaultSearch true ;
     idx:boost 0.5 ;
+    idx:twinOf field:title ;
     idx:analyzer [ a text:EdgeNGramAnalyzer ;
                    text:minGram 2 ; text:maxGram 20 ; text:tokenized true ] .
 
@@ -689,13 +691,50 @@ What it costs:
 - **Two match rows.** `luc:match` returns a row per matched field: a whole-word hit comes
   back on both `field:title` and `field:titlePrefix` with the same text, a prefix-only hit on
   `field:titlePrefix` alone. A client that shows which field matched should fold the twin
-  into its plain field; `luc:config` exposes the twin's `idx:analyzer` to recognise it by.
+  into its plain field, by the twin's `idx:twinOf`.
+
+#### Declaring the twin
+
+`idx:twinOf` on the n-gram field names the field it twins, so a client can report a match
+on `field:titlePrefix` as one on `field:title` without working out from the shapes that the
+two hold the same values. The index works that out when it loads, and refuses the
+configuration, naming the difference, unless the twin holds every value the declaring field
+indexes:
+
+- **Both are `TEXT` fields**, and not the same one.
+- **They are fed alike.** In every shape that feeds the declaring field, the twin is fed by
+  equal occurrences: the same paths, the same steps with the same filters, the same value
+  constraints, the same `idx:self` and the same `idx:nested` block. The order of an
+  `sh:alternativePath`'s members does not matter here. The twin may also be fed by shapes
+  that do not feed the declaring field.
+- **The twin keeps every value.** Either the twin is `idx:multiValued`, or neither is and, in
+  each scope, each is fed by one occurrence whose alternatives come in the same order. A
+  field that is not `idx:multiValued` keeps only its first value, and the order two
+  occurrences are read in is not fixed by the configuration.
+- **The twin declares no twin of its own**, so a client follows one hop.
+
+Fed alike is stricter than the same `sh:path`. A title read from `rdfs:label` is not the
+twin of a prefix field read from `ex:author / rdfs:label`, nor of one with another
+`sh:languageIn`. And inside a step's `sh:node` shape, a property shape without `idx:field`
+filters the nodes the step reaches, while the same property shape with an `idx:field` filters
+nothing, so two such steps reach different authors.
+
+The analyzer is not checked, so the declaration suits any text twin of the same values, a
+stemmed or folded one as well as an n-gram one. It changes nothing written to the index, so
+adding or removing it needs no reindex. `luc:config` returns it as written:
+
+```sparql
+SELECT ?field ?twin WHERE {
+  (?field idx:twinOf ?twin) luc:config ("default") .
+}
+```
 
 This is not the n-gram field warned against below. That one *replaces* the plain field, so
 nothing ranks by whole words any more; here the plain field still does, and the twin only
 adds the hits it cannot reach.
 
-*[TestFieldBoost](../jena-text/src/test/java/org/apache/jena/query/text/TestFieldBoost.java)*
+*[TestFieldBoost](../jena-text/src/test/java/org/apache/jena/query/text/TestFieldBoost.java),
+[TestTwinFields](../jena-text/src/test/java/org/apache/jena/query/text/TestTwinFields.java)*
 
 ### Names want BM25, not n-grams
 

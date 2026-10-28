@@ -366,6 +366,10 @@ and `?value` are shared with a `luc:fields` pattern evaluated first.
 
 `luc:match` is the only per-hit match-detail API. It joins to `luc:query` through `?hit` and returns one row per matched field.
 
+A field that declares [`idx:twinOf`](03-configuration.md#declaring-the-twin) is reported
+under its own name, as every field is. The declaration names the field to fold its rows
+into, which the index has checked holds every value it does.
+
 Match details are computed only when a query uses `luc:match`. The first call computes
 them for every hit `luc:query` has returned, in one pass over the index, and later calls
 read them from memory. A query without `luc:match` does not compute them.
