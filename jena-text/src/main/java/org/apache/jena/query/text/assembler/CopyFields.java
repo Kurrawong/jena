@@ -57,15 +57,20 @@ final class CopyFields {
     /**
      * How a field is fed in one shape.
      *
-     * @param scope       the {@code idx:nested} block, or "" at the root
+     * @param scope       the {@code idx:nested} block, by its position in the shape, or "" at
+     *                    the root. Not its name: two blocks may share one, and each writes its
+     *                    own child documents
+     * @param scopeText   the block, as an error message names it
+     * @param sharedName  whether another block of the shape has the same name
      * @param unordered   a form equal for occurrences that reach the same values
      * @param ordered     a form equal for occurrences that reach them in the same order
      * @param description the occurrence, as an error message names it
      */
-    private record Fed(String scope, String unordered, String ordered, String description) {
+    private record Fed(String scope, String scopeText, boolean sharedName, String unordered, String ordered,
+                       String description) {
 
-        static Fed of(FieldOccurrence occurrence) {
-            String scope = occurrence.getNestedName() == null ? "" : occurrence.getNestedName();
+        static Fed of(FieldOccurrence occurrence, Block block) {
+            String scope = block.scope();
             StringBuilder unordered = new StringBuilder(scope).append(" |");
             StringBuilder ordered = new StringBuilder(scope).append(" |");
             StringBuilder description = new StringBuilder();
@@ -94,17 +99,48 @@ final class CopyFields {
             if (occurrence.getValueCondition() != null) {
                 description.append(" with the value constraints ").append(constraints);
             }
-            description.append(inScope(scope));
-            return new Fed(scope, unordered.toString(), ordered.toString(), description.toString());
+            description.append(block.text());
+            return new Fed(scope, block.text(), block.sharedName(), unordered.toString(), ordered.toString(),
+                description.toString());
         }
 
-        static Fed of(NestedDef nested, ColumnBinding column) {
+        static Fed of(ColumnBinding column, Block block) {
             String name = column.getColumnName() != null
                 ? "column '" + column.getColumnName() + "'"
                 : "column " + column.getColumnIndex();
-            String key = nested.getNestedName() + " | " + name;
-            return new Fed(nested.getNestedName(), key, key,
-                name + " of the external source" + inScope(nested.getNestedName()));
+            String key = block.scope() + " | " + name;
+            return new Fed(block.scope(), block.text(), block.sharedName(), key, key,
+                name + " of the external source" + block.text());
+        }
+    }
+
+    /**
+     * Where in a shape an occurrence is: the root, or one {@code idx:nested} block.
+     *
+     * @param scope      "" at the root, otherwise the block's position in the shape
+     * @param text       the block, as an error message names it, or "" at the root
+     * @param sharedName whether another block of the shape has the same name
+     */
+    private record Block(String scope, String text, boolean sharedName) {
+
+        static final Block ROOT = new Block("", "", false);
+
+        /** Block {@code index} of {@code blocks}, named by position among blocks of its name. */
+        static Block of(List<NestedDef> blocks, int index) {
+            String name = blocks.get(index).getNestedName();
+            int count = 0;
+            int ordinal = 0;
+            for (int i = 0; i < blocks.size(); i++) {
+                if (blocks.get(i).getNestedName().equals(name)) {
+                    count++;
+                    if (i <= index) {
+                        ordinal = count;
+                    }
+                }
+            }
+            String text = " in idx:nested " + name
+                + (count == 1 ? "" : " (block " + ordinal + " of " + count + " with that name)");
+            return new Block("#" + index, text, count > 1);
         }
     }
 
@@ -170,6 +206,10 @@ final class CopyFields {
         }
         message.append(" A copy field and its source field are fed alike, to index the same values: by the same")
             .append(" paths, steps, step filters, value constraints, idx:self and idx:nested block.");
+        if ((unmatched != null && unmatched.sharedName()) || (sourceUnmatched != null && sourceUnmatched.sharedName())) {
+            message.append(" Two idx:nested blocks with one name index separate child documents, so the two")
+                .append(" fields must be in the same block.");
+        }
         throw new TextIndexException(message.toString());
     }
 
@@ -192,7 +232,7 @@ final class CopyFields {
                     if (each.getValue().size() != 1) {
                         throw new TextIndexException(singleValued + "in shape " + shape(profile) + " '"
                             + each.getKey().getFieldName() + "' is fed by " + each.getValue().size() + " occurrences"
-                            + inScope(scope.getKey()) + ", whose values come in an order nothing fixes. Make '"
+                            + fed.get(0).scopeText() + ", whose values come in an order nothing fixes. Make '"
                             + source.getFieldName() + "' idx:multiValued, or feed each field by one occurrence.");
                     }
                 }
@@ -211,19 +251,22 @@ final class CopyFields {
         List<Fed> fed = new ArrayList<>();
         for (FieldOccurrence occurrence : profile.getRootOccurrences()) {
             if (feeds(occurrence.getField(), field)) {
-                fed.add(Fed.of(occurrence));
+                fed.add(Fed.of(occurrence, Block.ROOT));
             }
         }
-        for (NestedDef nested : profile.getNestedDefs()) {
+        List<NestedDef> blocks = profile.getNestedDefs();
+        for (int i = 0; i < blocks.size(); i++) {
+            NestedDef nested = blocks.get(i);
+            Block block = Block.of(blocks, i);
             for (FieldOccurrence occurrence : nested.getOccurrences()) {
                 if (feeds(occurrence.getField(), field)) {
-                    fed.add(Fed.of(occurrence));
+                    fed.add(Fed.of(occurrence, block));
                 }
             }
             if (nested.isExternal()) {
                 for (ColumnBinding column : nested.getExternalSource().getColumns()) {
                     if (feeds(column.getField(), field)) {
-                        fed.add(Fed.of(nested, column));
+                        fed.add(Fed.of(column, block));
                     }
                 }
             }
@@ -290,10 +333,6 @@ final class CopyFields {
 
     private static String condition(ShaclShapeCondition condition) {
         return condition == null ? "none" : condition.getCanonical();
-    }
-
-    private static String inScope(String scope) {
-        return scope.isEmpty() ? "" : " in idx:nested " + scope;
     }
 
     private static String shape(IndexProfile profile) {
