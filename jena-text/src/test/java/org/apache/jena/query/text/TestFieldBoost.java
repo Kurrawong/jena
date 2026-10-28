@@ -199,9 +199,16 @@ public class TestFieldBoost {
         assertEquals(NS + "waterBore", top, scores.toString());
     }
 
+    /** At minGram 2 no word is indexed by its first letter alone, though most titles hold a word starting with b. */
     @Test
-    public void singleLetterMatchesNothingAtMinGramTwo() {
+    public void singleLetterIsNoPrefixAtMinGramTwo() {
         assertEquals(Map.of(), scores(config("", ""), "b"));
+    }
+
+    /** minGram limits prefixes, not the query: a one-letter word still matches as a word. */
+    @Test
+    public void singleLetterWordStillMatches() {
+        assertEquals(Set.of(NS + "longTitle"), scores(config("", ""), "a").keySet());
     }
 
     /** The twin declares idx:twinOf, so luc:match reports its matches under the title, once. */

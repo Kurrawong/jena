@@ -681,8 +681,10 @@ and still grades those three rather than tying them. A half-typed last word work
 - **`idx:boost 0.5`** halves the weight of the twin's clause. The plain field's BM25 ranking
   is intact either way; the boost widens the margin by which a whole word beats a prefix.
   It is read at query time, so it can be tuned without a reindex.
-- **`text:minGram 2`**, not the default 1. At 1 a single letter matches nearly every title;
-  at 2 it matches nothing until a second letter is typed.
+- **`text:minGram 2`**, not the default 1. At 1 every word is also indexed by its first
+  letter, so a single letter matches nearly every title. At 2 it matches only a one-letter
+  word, such as `a`, as a whole word. This limits prefixes, not queries: if a search box
+  should wait for two characters, it has to enforce that itself.
 - **`idx:twinOf field:title`** makes `luc:match` report the twin's matches under the title.
   A whole-word hit matches both fields and comes back as one `field:title` row; a
   prefix-only hit comes back as a `field:title` row too, with the title it is a prefix of.
