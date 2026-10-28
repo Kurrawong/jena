@@ -105,8 +105,8 @@ disables by default and this index enables), fuzzy (`learnimg~1`), proximity
 short-circuited to a match-all.
 
 Each field's clause is weighted by the field's `idx:boost` (default 1), so one field can rank
-below another for the same match — an edge-n-gram twin below its plain field, for instance.
-See [Search as you type](03-configuration.md#search-as-you-type-an-n-gram-twin).
+below another for the same match — an edge-n-gram copy field below its source field, for
+instance. See [Search as you type](03-configuration.md#search-as-you-type-an-n-gram-copy-field).
 
 The parser cuts the string at whitespace, then analyzes each word with each target field's
 query analyzer, so behaviour follows the field. On a `KEYWORD` field, or a `TEXT` field with a
@@ -366,14 +366,15 @@ and `?value` are shared with a `luc:fields` pattern evaluated first.
 
 `luc:match` is the only per-hit match-detail API. It joins to `luc:query` through `?hit` and returns one row per matched field.
 
-A field that declares [`idx:twinOf`](03-configuration.md#declaring-the-twin) is reported
-under the field it names, with that field's value, as that field keeps it: the index has
-checked it holds every value the twin indexes. A hit that matches both comes back as one
-row, so a whole word matched by a title and its edge-n-gram twin is one `field:title` row.
-Its value is the one the title's own match picked; the value the twin's prefix picked is used
-only when the title did not match itself. Naming the twin in the field slot returns no rows;
-naming its field includes the matches only the twin found. `luc:nestedMatch` projects a
-nested twin under its field in the same way, once.
+A copy field, which declares [`idx:copyOf`](03-configuration.md#declaring-a-copy-field), is
+reported under its source field, with that field's value, as that field keeps it: the index
+has checked the source field holds every value the copy indexes. A hit that matches both
+comes back as one row, so a whole word matched by a title and its edge-n-gram copy field is
+one `field:title` row. Its value is the one the title's own match picked; the value the
+copy's prefix picked is used only when the title did not match itself. Naming the copy field
+in the field slot returns no rows; naming its source field includes the matches only the copy
+found. `luc:nestedMatch` projects a nested copy field under its source field in the same
+way, once.
 
 Match details are computed only when a query uses `luc:match`. The first call computes
 them for every hit `luc:query` has returned, in one pass over the index, and later calls
@@ -994,7 +995,7 @@ Same-child guarantee: a borehole surfaces only when ONE identifier record has pr
 
 A report surfaces only when ONE qualified-attribution record has hadRole="Principal Investigator" AND an agent matching "Sarah Jones" — not where the role is on one attribution and the name is on another.
 
-`attributionAgentText` here is a plain `TEXT` field with no analyzer override, so the input is tokenised the same way the index was and `"Sarah Jones"` matches `"Dr Sarah Jones"` as a phrase. Reaching for an n-gram twin instead is a common mistake — see [03-configuration.md → Names want BM25, not n-grams](03-configuration.md#names-want-bm25-not-n-grams).
+`attributionAgentText` here is a plain `TEXT` field with no analyzer override, so the input is tokenised the same way the index was and `"Sarah Jones"` matches `"Dr Sarah Jones"` as a phrase. Reaching for an n-gram field instead is a common mistake — see [03-configuration.md → Names want BM25, not n-grams](03-configuration.md#names-want-bm25-not-n-grams).
 
 **Boundary worth knowing:** the same-child fold operates within one CQL filter subtree. If the type clause sits in `cqlFilter` and the text clause sits in `queryString` (the separate text input on `luc:query`), they are not in the same CqlAnd and the fold cannot apply — each lifts independently. For same-child correctness, put both clauses in `cqlFilter` (using `=` and `text_query` as shown above).
 

@@ -128,7 +128,7 @@ records the field's analyzer class, which was none before.
 
 A field that used a defined tokenizer or filter through `text:ConfigurableAnalyzer` failed
 on its first write before, so no index of that kind exists to rebuild. `idx:boost` and
-`idx:twinOf` are read at query time and need no rebuild.
+`idx:copyOf` are read at query time and need no rebuild.
 
 ### `text:exposeConfig`
 
@@ -308,8 +308,8 @@ These go on the **canonical field**, never on an occurrence.
 | `idx:queryAnalyzer` | implied by `idx:analyzer` | Query-time analyzer override |
 | `idx:normalizer` | none | `KEYWORD` only — analyzer driving the indexed term and sort key while the stored value and facet label stay raw |
 | `idx:storeLiteralMetadata` | `false` | Store the datatype and language tag so a projected value rebuilds as the original literal. **Required on every `TEMPORAL` field** |
-| `idx:boost` | `1` | Weight of the field's clause when `luc:query` searches the query string across several fields; a positive number. Query-time only, so changing it needs no reindex. See [Search as you type](#search-as-you-type-an-n-gram-twin) |
-| `idx:twinOf` | none | `TEXT` only — the `TEXT` field whose values this one indexes too, analysed differently. `luc:match` and `luc:nestedMatch` report this field's matches under that one. Refused at load unless that field holds every value this one does; changes nothing written, so no reindex. See [Declaring the twin](#declaring-the-twin) |
+| `idx:boost` | `1` | Weight of the field's clause when `luc:query` searches the query string across several fields; a positive number. Query-time only, so changing it needs no reindex. See [Search as you type](#search-as-you-type-an-n-gram-copy-field) |
+| `idx:copyOf` | none | `TEXT` only — makes this field a copy field and names its source field: the `TEXT` field that indexes the same values, analysed differently. `luc:match` and `luc:nestedMatch` report this field's matches under its source field. Refused at load unless the source field holds every value this one does; changes nothing written, so no reindex. See [Declaring a copy field](#declaring-a-copy-field) |
 
 The four write-side flags are independent, and each buys exactly one capability:
 
@@ -600,7 +600,7 @@ Start here, because most fields do not want an analyzer override at all:
 | Find entities by words in their text | `TEXT`, **no** `idx:analyzer` — the index-wide `StandardAnalyzer` applies and BM25 ranks the hits |
 | Filter to one value of a closed vocabulary (a person, an organisation, a status) | `KEYWORD` + `idx:facetable`, filtered with `=` on a value the UI offers from the facet list |
 | Complete a value the user is typing from memory (an identifier, a code) | `TEXT` + `idx:analyzer [ a text:EdgeNGramAnalyzer ]` |
-| Rank results while the user is still typing a word (a search box over titles) | The plain `TEXT` field plus a per-word edge-n-gram twin — see [Search as you type](#search-as-you-type-an-n-gram-twin) |
+| Rank results while the user is still typing a word (a search box over titles) | The plain `TEXT` field plus a per-word edge-n-gram copy field — see [Search as you type](#search-as-you-type-an-n-gram-copy-field) |
 
 Edge-n-grams are for the last two rows only. In place of a plain field they are the wrong
 reach for a name: see [Names want BM25, not n-grams](#names-want-bm25-not-n-grams).
@@ -658,12 +658,13 @@ navigates by.
 
 `TestTypeaheadFieldConfigurations` exercises every row of both tables.
 
-### Search as you type: an n-gram twin
+### Search as you type: an n-gram copy field
 
 A search box that ranks results while the user is still typing a word needs prefix
 matches, and a wildcard cannot rank them: `bore*` rewrites to a constant-score query, so
-every hit scores the same. Keep the plain field and add a per-word edge-n-gram *twin* of it
-over the same path, both in `idx:defaultSearch`:
+every hit scores the same. Keep the plain field and add a per-word edge-n-gram *copy field*
+that indexes the same values, over the same path, both in `idx:defaultSearch`. The plain
+field is the copy's *source field*:
 
 ```turtle
 field:title
@@ -676,7 +677,7 @@ field:titlePrefix
     idx:fieldType idx:TextField ;
     idx:defaultSearch true ;
     idx:boost 0.5 ;
-    idx:twinOf field:title ;
+    idx:copyOf field:title ;
     idx:stored false ;
     idx:analyzer [ a text:EdgeNGramAnalyzer ;
                    text:minGram 2 ; text:maxGram 20 ; text:tokenized true ] .
@@ -686,75 +687,79 @@ ex:ReportShape
     sh:property [ idx:field field:titlePrefix ; sh:path ex:title ] .
 ```
 
-A whole word matches both fields and a prefix matches only the twin. So `bore` ranks every
-title holding the word, a twenty-word one included, above `Bores`, `Borehole` and `Boredom`,
-and still grades those three rather than tying them. A half-typed last word works too:
-`water bor` ranks `Water bore` first.
+A whole word matches both fields and a prefix matches only the copy field. So `bore` ranks
+every title holding the word, a twenty-word one included, above `Bores`, `Borehole` and
+`Boredom`, and still grades those three rather than tying them. A half-typed last word works
+too: `water bor` ranks `Water bore` first.
 
-- **`idx:boost 0.5`** halves the weight of the twin's clause. The plain field's BM25 ranking
-  is intact either way; the boost widens the margin by which a whole word beats a prefix.
-  It is read at query time, so it can be tuned without a reindex.
+- **`idx:boost 0.5`** halves the weight of the copy field's clause. The source field's BM25
+  ranking is intact either way; the boost widens the margin by which a whole word beats a
+  prefix. It is read at query time, so it can be tuned without a reindex.
 - **`text:minGram 2`**, not the default 1. At 1 every word is also indexed by its first
   letter, so a single letter matches nearly every title. At 2 it matches only a one-letter
   word, such as `a`, as a whole word. This limits prefixes, not queries: if a search box
   should wait for two characters, it has to enforce that itself.
-- **`idx:twinOf field:title`** makes `luc:match` report the twin's matches under the title.
-  A whole-word hit matches both fields and comes back as one `field:title` row; a
+- **`idx:copyOf field:title`** makes `luc:match` report the copy field's matches under the
+  title. A whole-word hit matches both fields and comes back as one `field:title` row; a
   prefix-only hit comes back as a `field:title` row too, with the title it is a prefix of.
 - **`idx:stored false`**, because the value `luc:match` returns is read from the title.
 
 The cost is index size: each word is indexed as up to `maxGram − minGram + 1` prefixes as
 well as itself.
 
-#### Declaring the twin
+#### Declaring a copy field
 
-`idx:twinOf` on the n-gram field names the field it twins. `luc:match` reports a match on
-`field:titlePrefix` as one on `field:title`, once, with the title's value as the title keeps
-it, language tag included. When both matched, the value is the one the title's own words
-picked. `luc:nestedMatch` projects a nested twin under its field in the same way. Asking `luc:match`
-for `field:titlePrefix` by name returns nothing; asking for `field:title` includes the
-prefix-only hits. Without `idx:twinOf`, each field gets its own row and the twin needs its
-own stored copy of the value.
+`idx:copyOf` on the copy field names its source field: the field that indexes the same
+values, analysed another way. Unlike Solr's `copyField`, nothing is copied at index time;
+each field is fed by its own SHACL path, and the declaration states that the two hold the
+same values.
 
-Reporting a twin's match as the field's is only right if the field holds every value the twin
-indexes. The index checks that when it loads, and refuses the configuration, naming the
-difference, unless:
+`luc:match` reports a match on `field:titlePrefix` as one on `field:title`, once, with the
+title's value as the title keeps it, language tag included. When both matched, the value is
+the one the title's own words picked. `luc:nestedMatch` projects a nested copy field under
+its source field in the same way. Asking `luc:match` for `field:titlePrefix` by name returns
+nothing; asking for `field:title` includes the prefix-only hits. Without `idx:copyOf`, each
+field gets its own row and the copy field needs its own stored value.
+
+Reporting a copy field's match as its source field's is only right if the source field holds
+every value the copy indexes. The index checks that when it loads, and refuses the
+configuration, naming the difference, unless:
 
 - **Both are `TEXT` fields**, and not the same one.
-- **They are fed alike.** In every shape that feeds the declaring field, the twin is fed by
+- **They are fed alike.** In every shape that feeds the copy field, the source field is fed by
   equal occurrences: the same paths, the same steps with the same filters, the same value
   constraints, the same `idx:self` and the same `idx:nested` block. The order of an
-  `sh:alternativePath`'s members does not matter here. The twin may also be fed by shapes
-  that do not feed the declaring field.
-- **The twin keeps every value.** Either the twin is `idx:multiValued`, or neither is and, in
-  each scope, each is fed by one occurrence whose alternatives come in the same order. A
-  field that is not `idx:multiValued` keeps only its first value, and the order two
+  `sh:alternativePath`'s members does not matter here. The source field may also be fed by
+  shapes that do not feed the copy field.
+- **The source field keeps every value.** Either it is `idx:multiValued`, or neither field
+  is and, in each scope, each is fed by one occurrence whose alternatives come in the same
+  order. A field that is not `idx:multiValued` keeps only its first value, and the order two
   occurrences are read in is not fixed by the configuration.
-- **The twin declares no twin of its own**, so a match is reported one hop away.
+- **The source field is not itself a copy field**, so a match is reported one hop away.
 
 Fed alike is stricter than the same `sh:path`. A title read from `rdfs:label` is not the
-twin of a prefix field read from `ex:author / rdfs:label`, nor of one with another
+source field of a prefix field read from `ex:author / rdfs:label`, nor of one with another
 `sh:languageIn`. And inside a step's `sh:node` shape, a property shape without `idx:field`
 filters the nodes the step reaches, while the same property shape with an `idx:field` filters
 nothing, so two such steps reach different authors.
 
-The analyzer is not checked, so the declaration suits any text twin of the same values, a
+The analyzer is not checked, so the declaration suits any text copy of the same values, a
 stemmed or folded one as well as an n-gram one. It changes nothing written to the index, so
 adding or removing it needs no reindex. `luc:config` returns it as written:
 
 ```sparql
-SELECT ?field ?twin WHERE {
-  (?field idx:twinOf ?twin) luc:config ("default") .
+SELECT ?copy ?source WHERE {
+  (?copy idx:copyOf ?source) luc:config ("default") .
 }
 ```
 
 This is not the n-gram field warned against below. That one *replaces* the plain field, so
-nothing ranks by whole words any more; here the plain field still does, and the twin only
-adds the hits it cannot reach.
+nothing ranks by whole words any more; here the plain field still does, and the copy field
+only adds the hits it cannot reach.
 
 *[TestFieldBoost](../jena-text/src/test/java/org/apache/jena/query/text/TestFieldBoost.java),
-[TestTwinFields](../jena-text/src/test/java/org/apache/jena/query/text/TestTwinFields.java),
-[TestTwinMatches](../jena-text/src/test/java/org/apache/jena/query/text/TestTwinMatches.java)*
+[TestCopyFields](../jena-text/src/test/java/org/apache/jena/query/text/TestCopyFields.java),
+[TestCopyFieldMatches](../jena-text/src/test/java/org/apache/jena/query/text/TestCopyFieldMatches.java)*
 
 ### Names want BM25, not n-grams
 
@@ -771,8 +776,8 @@ the plain one, so that typing `Jones` completes `Dr Sarah Jones`. Do not do this
 And it still does not buy typo tolerance — `"Jonse"` fails under n-grams exactly as it
 fails under BM25.
 
-Beside the plain field rather than in its place, an n-gram twin costs the index size but
-not the ranking. That is [search as you type](#search-as-you-type-an-n-gram-twin), for a
+Beside the plain field rather than in its place, an n-gram copy field costs the index size but
+not the ranking. That is [search as you type](#search-as-you-type-an-n-gram-copy-field), for a
 search box that must rank while a word is half-typed. A name filter does not need it.
 
 A plain `TEXT` field with no analyzer override does what a name filter actually needs.
@@ -967,7 +972,7 @@ Role is a fixed vocabulary, so it filters with `=`. The agent name filters with
 and the two clauses still fold same-child, so a report surfaces only when one attribution
 record carries both. The `KEYWORD` twin stays for exact filtering and facet counts.
 
-No n-gram twin on the agent, on purpose — see
+No n-gram field on the agent, on purpose — see
 [Names want BM25, not n-grams](#names-want-bm25-not-n-grams).
 `TestCorrelatedNestedAttribution` pins the correlation for `=`, for `text_query` on a
 plain field, and for the n-gram configurations that are permitted but not advised.
