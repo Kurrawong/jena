@@ -363,7 +363,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         }
 
         this.configFingerprint =
-            ShaclConfigFingerprint.fingerprint(shaclMapping, config.isValueStored(), this.facetFields);
+            ShaclConfigFingerprint.fingerprint(shaclMapping, config.isValueStored(), this.facetFields,
+                config.getAnalyzer());
         this.openedStamp = ShaclIndexStamp.read(directory);
         stampIfNewIndex();
         logConfigStatus();

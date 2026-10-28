@@ -41,6 +41,7 @@ import org.apache.jena.query.text.ShaclIndexMapping.JoinStep;
 import org.apache.jena.query.text.ShaclIndexMapping.NestedDef;
 import org.apache.jena.query.text.ShaclIndexMapping.StepDef;
 import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.standard.StandardAnalyzer;
 
 /**
  * A stable hash of the parts of a SHACL index configuration that determine what is
@@ -69,6 +70,15 @@ import org.apache.lucene.analysis.Analyzer;
  * accepted limit: a stopword list is closer to data than to schema, and the index differs
  * for the same reason it differs when the underlying triples change. Callers that report
  * a fingerprint match to a user should say so.
+ * <p>
+ * <b>The index-wide analyzer, when it is the default.</b> {@code text:analyzer} analyses every
+ * text field with no {@code idx:analyzer} of its own, so its class is hashed, but only when
+ * it is not StandardAnalyzer, which is what no {@code text:analyzer} gives. A configuration
+ * that leaves it at the default keeps the fingerprint it had before the index-wide analyzer
+ * was recorded, and still matches. One that sets another analyzer reports a mismatch once
+ * against an index stamped before then: that index may have been analysed differently, as
+ * one whose {@code text:analyzer} was a {@code text:DefinedAnalyzer} was while
+ * {@code text:defineAnalyzers} was ignored.
  *
  * <h3>Determinism</h3>
  *
@@ -98,11 +108,22 @@ public class ShaclConfigFingerprint {
      * fingerprints differ, diffing the two serialisations says why.
      */
     public static String serialise(ShaclIndexMapping mapping, boolean storeValues, Collection<String> facetFields) {
+        return serialise(mapping, storeValues, facetFields, null);
+    }
+
+    /**
+     * @param indexAnalyzer the index-wide {@code text:analyzer}, or null when there is none
+     */
+    public static String serialise(ShaclIndexMapping mapping, boolean storeValues, Collection<String> facetFields,
+                                   Analyzer indexAnalyzer) {
         Objects.requireNonNull(mapping, "mapping");
         StringBuilder sb = new StringBuilder();
         sb.append("shaclIndexConfig/v").append(FINGERPRINT_VERSION).append('\n');
         sb.append("storeValues=").append(storeValues).append('\n');
         sb.append("facetFields=").append(sortedJoin(facetFields)).append('\n');
+        // Not written for the default, so such a configuration keeps its fingerprint.
+        if ( indexAnalyzer != null && indexAnalyzer.getClass() != StandardAnalyzer.class )
+            sb.append("indexAnalyzer=").append(analyzer(indexAnalyzer)).append('\n');
 
         List<String> profiles = new ArrayList<>();
         for ( IndexProfile profile : mapping.getProfiles() )
@@ -113,7 +134,13 @@ public class ShaclConfigFingerprint {
 
     /** Hex-encoded SHA-256 of {@link #serialise}, prefixed with the digest name. */
     public static String fingerprint(ShaclIndexMapping mapping, boolean storeValues, Collection<String> facetFields) {
-        return sha256(serialise(mapping, storeValues, facetFields));
+        return fingerprint(mapping, storeValues, facetFields, null);
+    }
+
+    /** As {@link #fingerprint(ShaclIndexMapping, boolean, Collection)}, with the index-wide analyzer. */
+    public static String fingerprint(ShaclIndexMapping mapping, boolean storeValues, Collection<String> facetFields,
+                                     Analyzer indexAnalyzer) {
+        return sha256(serialise(mapping, storeValues, facetFields, indexAnalyzer));
     }
 
     // ---- Rendering.

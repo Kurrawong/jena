@@ -35,6 +35,8 @@ import org.apache.jena.rdf.model.ModelFactory;
 import org.apache.jena.rdf.model.RDFList;
 import org.apache.jena.rdf.model.Resource;
 import org.apache.jena.sys.JenaSystem;
+import org.apache.lucene.analysis.core.SimpleAnalyzer;
+import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -220,6 +222,33 @@ public class TestShaclConfigFingerprint {
             "idx:fieldType idx:TextField ; idx:defaultSearch true ; idx:boost 0.5 .");
         assertNotEquals(FIELDS, boosted);
         assertEquals(baseline(), fingerprintOf(PREFIXES + boosted + SHAPE));
+    }
+
+    private static ShaclIndexMapping mappingOf(String turtle) {
+        Model model = ModelFactory.createDefaultModel();
+        model.read(new StringReader(turtle), null, "TTL");
+        Resource shapesList = model.createList(new Resource[] { model.getResource("http://example.org/ReportShape") })
+            .as(RDFList.class);
+        return ShaclIndexAssembler.parseShapes(Assembler.general(), shapesList);
+    }
+
+    /** text:analyzer analyses every text field with no analyzer of its own. */
+    @Test
+    public void indexWideAnalyzerIsSignificant() {
+        ShaclIndexMapping mapping = mappingOf(PREFIXES + FIELDS + SHAPE);
+        assertNotEquals(ShaclConfigFingerprint.fingerprint(mapping, false, List.of(), null),
+            ShaclConfigFingerprint.fingerprint(mapping, false, List.of(), new SimpleAnalyzer()));
+    }
+
+    /**
+     * StandardAnalyzer is what no text:analyzer gives, so naming it, or none, keeps the
+     * fingerprint an index was stamped with before the index-wide analyzer was recorded.
+     */
+    @Test
+    public void defaultIndexWideAnalyzerKeepsTheFingerprint() {
+        ShaclIndexMapping mapping = mappingOf(PREFIXES + FIELDS + SHAPE);
+        assertEquals(baseline(), ShaclConfigFingerprint.fingerprint(mapping, false, List.of(), null));
+        assertEquals(baseline(), ShaclConfigFingerprint.fingerprint(mapping, false, List.of(), new StandardAnalyzer()));
     }
 
     /** idx:copyOf describes two fields' values and changes neither, so it must not demand a reindex. */
