@@ -1158,45 +1158,60 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 readDefs.addAll(reportedDefs);
                 Document doc = values.stored(segmentDocId, values.storedNames(readDefs));
 
-                // One row per reported field. Each clause picks its value on its own, and on a
-                // multi-valued field a copy field's prefix can pick another value than the source
-                // field's own words, so the copy's value stands in only when the source did not
-                // match itself.
-                Set<Node> matchedItself = new HashSet<>();
+                // One row per reported field, in the order each first matched. Each clause picks
+                // its value on its own: on a multi-valued field a copy field's prefix can pick
+                // another value than the source field's own words, so the source field's own
+                // match goes first. A copy field's match stands in when that gives no value, as
+                // when the source field keeps none and its copy does.
+                Map<Node, List<Integer>> clauses = new LinkedHashMap<>();
                 for (int i = 0; i < matchedIRIs.size(); i++) {
-                    if (reportedDefs.get(i) == matchedDefs.get(i)) {
-                        matchedItself.add(matchedIRIs.get(i));
+                    boolean own = reportedDefs.get(i) == matchedDefs.get(i);
+                    Node fieldIRI = own ? matchedIRIs.get(i) : reportedDefs.get(i).getFieldIRI();
+                    List<Integer> forField = clauses.computeIfAbsent(fieldIRI, k -> new ArrayList<>());
+                    if (own) {
+                        forField.add(0, i);
+                    } else {
+                        forField.add(i);
                     }
                 }
 
-                List<FieldMatch> fieldMatches = new ArrayList<>(matchedIRIs.size());
-                Set<Node> reported = new HashSet<>();
-                for (int i = 0; i < matchedIRIs.size(); i++) {
-                    ShaclIndexMapping.FieldDef fd = matchedDefs.get(i);
-                    ShaclIndexMapping.FieldDef shown = reportedDefs.get(i);
-                    Node fieldIRI = shown == fd ? matchedIRIs.get(i) : shown.getFieldIRI();
-                    if ((shown != fd && matchedItself.contains(fieldIRI)) || !reported.add(fieldIRI)) {
-                        continue;
-                    }
+                List<FieldMatch> fieldMatches = new ArrayList<>(clauses.size());
+                for (Map.Entry<Node, List<Integer>> clause : clauses.entrySet()) {
                     Node valueNode = null;
-                    FieldValueReader.Values fieldValues = values.values(shown, segmentDocId, doc);
-                    if (fieldValues.isEmpty() && shown != fd) {
-                        fieldValues = values.values(fd, segmentDocId, doc);
+                    for (int i : clause.getValue()) {
+                        valueNode = matchedValue(matchedDefs.get(i), reportedDefs.get(i), segmentDocId, doc,
+                            values, textQuery);
+                        if (valueNode != null) {
+                            break;
+                        }
                     }
-                    if (!fieldValues.isEmpty()) {
-                        // Which value the query matched, analysed as the matched field is, so a
-                        // copy field's prefix picks the value it is a prefix of. A multi-valued doc
-                        // value lists its values in byte order, so with no matching value the
-                        // first in byte order is returned, not the first indexed.
-                        SelectedStoredValue selected =
-                            selectStoredValue(fd.getFieldName(), fieldValues.lexicals(), textQuery);
-                        valueNode = fieldValues.node(selected.index());
-                    }
-                    fieldMatches.add(new FieldMatch(fieldIRI, valueNode, null));
+                    fieldMatches.add(new FieldMatch(clause.getKey(), valueNode, null));
                 }
                 hit.setFieldMatches(fieldMatches);
             }
         });
+    }
+
+    /**
+     * The value of {@code shown} that the clause on {@code matched} found, or null when
+     * neither keeps one. It is read from {@code shown}, the field the match is reported
+     * under, or from {@code matched} when that is a copy field whose source keeps no value.
+     * The candidates are analysed as {@code matched} is, so a copy field's prefix picks the
+     * value it is a prefix of. A multi-valued doc value lists its values in byte order, so
+     * with no matching value the first in byte order is returned, not the first indexed.
+     */
+    private Node matchedValue(ShaclIndexMapping.FieldDef matched, ShaclIndexMapping.FieldDef shown,
+                              int segmentDocId, Document doc, FieldValueReader values, Query textQuery)
+            throws IOException {
+        FieldValueReader.Values fieldValues = values.values(shown, segmentDocId, doc);
+        if (fieldValues.isEmpty() && shown != matched) {
+            fieldValues = values.values(matched, segmentDocId, doc);
+        }
+        if (fieldValues.isEmpty()) {
+            return null;
+        }
+        SelectedStoredValue selected = selectStoredValue(matched.getFieldName(), fieldValues.lexicals(), textQuery);
+        return fieldValues.node(selected.index());
     }
 
     /** Receives the values read for one hit and one field. */
