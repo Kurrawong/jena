@@ -1158,12 +1158,25 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 readDefs.addAll(reportedDefs);
                 Document doc = values.stored(segmentDocId, values.storedNames(readDefs));
 
+                // One row per reported field. Each clause picks its value on its own, and on a
+                // multi-valued field a twin's prefix can pick another value than the field's
+                // own words, so a twin's value stands in only when the field did not match itself.
+                Set<Node> matchedItself = new HashSet<>();
+                for (int i = 0; i < matchedIRIs.size(); i++) {
+                    if (reportedDefs.get(i) == matchedDefs.get(i)) {
+                        matchedItself.add(matchedIRIs.get(i));
+                    }
+                }
+
                 List<FieldMatch> fieldMatches = new ArrayList<>(matchedIRIs.size());
-                Set<List<Node>> reported = new HashSet<>();
+                Set<Node> reported = new HashSet<>();
                 for (int i = 0; i < matchedIRIs.size(); i++) {
                     ShaclIndexMapping.FieldDef fd = matchedDefs.get(i);
                     ShaclIndexMapping.FieldDef shown = reportedDefs.get(i);
                     Node fieldIRI = shown == fd ? matchedIRIs.get(i) : shown.getFieldIRI();
+                    if ((shown != fd && matchedItself.contains(fieldIRI)) || !reported.add(fieldIRI)) {
+                        continue;
+                    }
                     Node valueNode = null;
                     FieldValueReader.Values fieldValues = values.values(shown, segmentDocId, doc);
                     if (fieldValues.isEmpty() && shown != fd) {
@@ -1178,10 +1191,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                             selectStoredValue(fd.getFieldName(), fieldValues.lexicals(), textQuery);
                         valueNode = fieldValues.node(selected.index());
                     }
-                    // A whole-word hit matches a field and its twin: one row.
-                    if (reported.add(Arrays.asList(fieldIRI, valueNode))) {
-                        fieldMatches.add(new FieldMatch(fieldIRI, valueNode, null));
-                    }
+                    fieldMatches.add(new FieldMatch(fieldIRI, valueNode, null));
                 }
                 hit.setFieldMatches(fieldMatches);
             }
@@ -1360,11 +1370,16 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             if (!fd.isStored()) {
                 continue;
             }
-            FieldValueReader.Values fieldValues = values.values(fd, childSegmentDocId, childDoc);
             // A field that declares idx:twinOf holds its field's values, projected once under
-            // that field.
+            // that field and as that field keeps them: the two may keep a literal's language
+            // or datatype differently. The twin's own copy stands in only when the field
+            // keeps none.
             ShaclIndexMapping.FieldDef twin = shaclMapping.twinOf(fd);
             ShaclIndexMapping.FieldDef shown = twin != null ? twin : fd;
+            FieldValueReader.Values fieldValues = values.values(shown, childSegmentDocId, childDoc);
+            if (fieldValues.isEmpty() && shown != fd) {
+                fieldValues = values.values(fd, childSegmentDocId, childDoc);
+            }
             Node fieldIRI = shown.getFieldIRI() != null
                 ? shown.getFieldIRI()
                 : NodeFactory.createLiteralString(shown.getFieldName());
