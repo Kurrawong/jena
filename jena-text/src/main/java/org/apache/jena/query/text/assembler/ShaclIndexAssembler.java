@@ -843,8 +843,10 @@ public class ShaclIndexAssembler {
 
     /**
      * The analyzer a field's {@code stmt} names. One that opens to nothing is refused: that
-     * is a {@code text:DefinedAnalyzer} whose name the index's {@code text:defineAnalyzers}
-     * never defined, and the field would otherwise fall back to the default analyzer unseen.
+     * is a {@code text:DefinedAnalyzer} whose name no {@code text:defineAnalyzers} loaded so
+     * far has defined, and the field would otherwise fall back to the default analyzer unseen.
+     * Names are registered for the whole JVM, as in Jena's text index, so this does not check
+     * that the index defines the name itself: one another index defined resolves too.
      */
     private static Analyzer openAnalyzer(Assembler a, Statement stmt, String fieldName) {
         Resource spec = stmt.getObject().asResource();
@@ -854,7 +856,9 @@ public class ShaclIndexAssembler {
             throw new TextIndexException("idx:" + stmt.getPredicate().getLocalName() + " on field '" + fieldName
                 + "' is no analyzer"
                 + (use == null ? "" : ": text:useAnalyzer " + use.getObject()
-                    + " is not defined in the index's text:defineAnalyzers"));
+                    + " names an analyzer no text:defineAnalyzers loaded in this JVM has defined. Analyzer"
+                    + " names are shared by every index in the JVM; define it in this index's own"
+                    + " text:defineAnalyzers."));
         }
         return analyzer;
     }
