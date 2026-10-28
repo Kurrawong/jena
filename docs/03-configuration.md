@@ -110,12 +110,25 @@ one with `text:entityMap`.
 | `text:maxFacetHits` | no | Maximum documents considered during facet collection |
 | `text:analyzer` | no | Index-wide default analyzer |
 | `text:queryAnalyzer` | no | Index-wide query analyzer |
-| `text:defineAnalyzers` | no | Named filters, tokenizers and analyzers (`text:defineFilter`, `text:defineTokenizer`, `text:defineAnalyzer`) that an `idx:analyzer` uses through `text:ConfigurableAnalyzer` or `text:DefinedAnalyzer`, as in [Jena's text index](https://jena.apache.org/documentation/query/text-query.html). `text:addLang` is refused: a SHACL index has no per-language analyzers. A `text:DefinedAnalyzer` naming nothing defined here fails the index at load |
+| `text:defineAnalyzers` | no | Named filters, tokenizers and analyzers (`text:defineFilter`, `text:defineTokenizer`, `text:defineAnalyzer`) that an `idx:analyzer` uses through `text:ConfigurableAnalyzer` or `text:DefinedAnalyzer`, as in [Jena's text index](https://jena.apache.org/documentation/query/text-query.html). `text:addLang` is refused: a SHACL index has no per-language analyzers. A `text:DefinedAnalyzer` naming nothing defined here fails the index at load. See [Upgrading an index that lists `text:defineAnalyzers`](#upgrading-an-index-that-lists-textdefineanalyzers) |
 | `text:splitOnWhitespace` | no, default `true` | Cut the query string at whitespace before each field's analyzer runs. With `false`, a keyword-analyzed field receives the whole string as one term, spaces included |
 | `text:autoGeneratePhraseQueries` | no, default `true` | Where an analyzer splits one word into pieces, the pieces must appear together and in order: `E45/5326` matches `e45` followed by `5326`, not either alone. Needs `text:splitOnWhitespace true`; the index fails to load otherwise |
 | `text:exposeConfig` | no, default `false` | Let [`luc:config`](02-sparql-api.md#lucconfig) return this index's configuration. See below |
 
 If the index resource itself is a URI resource, that URI is also accepted as an `indexSelector`.
+
+### Upgrading an index that lists `text:defineAnalyzers`
+
+Earlier builds ignored `text:defineAnalyzers` on a SHACL index. A field whose `idx:analyzer`
+was a `text:DefinedAnalyzer` was analysed with the index-wide default instead, without a
+warning. It now gets the analyzer it names, so an index built before is analysed one way
+on disk and another at query time, and searches can miss documents. Rebuild it. Startup
+reports the index's configuration fingerprint as a mismatch, because the fingerprint
+records the field's analyzer class, which was none before.
+
+A field that used a defined tokenizer or filter through `text:ConfigurableAnalyzer` failed
+on its first write before, so no index of that kind exists to rebuild. `idx:boost` and
+`idx:twinOf` are read at query time and need no rebuild.
 
 ### `text:exposeConfig`
 
