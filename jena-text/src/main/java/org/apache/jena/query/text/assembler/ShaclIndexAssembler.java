@@ -346,6 +346,12 @@ public class ShaclIndexAssembler {
         }
         FieldDef field = resolveCanonicalField(a, fieldStmt.getObject().asResource(), canonicalFields);
         reachableFields.putIfAbsent(field.getFieldIRI().getURI(), field);
+        Property misplaced = canonicalFieldProperty(columnRes);
+        if (misplaced != null) {
+            throw new TextIndexException("idx:column " + columnRes + " (field " + field.getFieldName()
+                + ") carries " + misplaced + ", which belongs on the canonical field. A column binding "
+                + "names only a column and the field it feeds.");
+        }
 
         String columnName = getOptionalString(columnRes, IndexVocab.pColumnName);
         int columnIndex = getOptionalInt(columnRes, IndexVocab.pColumnIndex, -1);
@@ -673,31 +679,45 @@ public class ShaclIndexAssembler {
         return true;
     }
 
+    /** Properties of a canonical field, or of a nested block, that a place feeding a field may not carry. */
+    private static final List<Property> CANONICAL_FIELD_PROPERTIES = List.of(
+        IndexVocab.pFieldName,
+        IndexVocab.pFieldType,
+        IndexVocab.pAnalyzer,
+        IndexVocab.pQueryAnalyzer,
+        IndexVocab.pStored,
+        IndexVocab.pIndexed,
+        IndexVocab.pFacetable,
+        IndexVocab.pSortable,
+        IndexVocab.pMultiValued,
+        IndexVocab.pDefaultSearch,
+        IndexVocab.pStoreLiteralMetadata,
+        IndexVocab.pBoost,
+        IndexVocab.pTwinOf,
+        IndexVocab.pJoinPath,
+        IndexVocab.pNested,
+        IndexVocab.pPath
+    );
+
     private static void rejectCanonicalFieldPropertiesOnOccurrence(Resource occurrenceRes) {
-        List<Property> forbidden = List.of(
-            IndexVocab.pFieldName,
-            IndexVocab.pFieldType,
-            IndexVocab.pAnalyzer,
-            IndexVocab.pQueryAnalyzer,
-            IndexVocab.pStored,
-            IndexVocab.pIndexed,
-            IndexVocab.pFacetable,
-            IndexVocab.pSortable,
-            IndexVocab.pMultiValued,
-            IndexVocab.pDefaultSearch,
-            IndexVocab.pStoreLiteralMetadata,
-            IndexVocab.pBoost,
-            IndexVocab.pTwinOf,
-            IndexVocab.pJoinPath,
-            IndexVocab.pNested,
-            IndexVocab.pPath
-        );
-        for (Property property : forbidden) {
-            if (occurrenceRes.hasProperty(property)) {
-                throw new TextIndexException(
-                    "Field occurrence " + occurrenceRes + " mixes occurrence data with canonical field metadata via " + property);
+        Property property = canonicalFieldProperty(occurrenceRes);
+        if (property != null) {
+            throw new TextIndexException(
+                "Field occurrence " + occurrenceRes + " mixes occurrence data with canonical field metadata via " + property);
+        }
+    }
+
+    /**
+     * The first of {@link #CANONICAL_FIELD_PROPERTIES} {@code res} carries, or null. On a field
+     * occurrence or a column binding it would otherwise be ignored.
+     */
+    private static Property canonicalFieldProperty(Resource res) {
+        for (Property property : CANONICAL_FIELD_PROPERTIES) {
+            if (res.hasProperty(property)) {
+                return property;
             }
         }
+        return null;
     }
 
     private static FieldDef resolveCanonicalField(Assembler a, Resource fieldRes,
