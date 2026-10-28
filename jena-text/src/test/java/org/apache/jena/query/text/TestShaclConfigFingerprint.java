@@ -222,17 +222,17 @@ public class TestShaclConfigFingerprint {
         assertEquals(baseline(), fingerprintOf(PREFIXES + boosted + SHAPE));
     }
 
-    /** idx:twinOf describes two fields' values and changes neither, so it must not demand a reindex. */
+    /** idx:copyOf describes two fields' values and changes neither, so it must not demand a reindex. */
     @Test
-    public void twinDeclarationIsNotSignificant() {
+    public void copyDeclarationIsNotSignificant() {
         String prefixField =
             "field:titlePrefix idx:fieldName \"titlePrefix\" ; idx:fieldType idx:TextField ; idx:defaultSearch true .\n";
         String shape = SHAPE.replace(" .\n",
             " ;\n    sh:property [ idx:field field:titlePrefix ; sh:path ex:title ] .\n");
-        String twin = "field:titlePrefix idx:twinOf field:title .\n";
+        String copy = "field:titlePrefix idx:copyOf field:title .\n";
         assertNotEquals(SHAPE, shape);
         assertEquals(fingerprintOf(PREFIXES + FIELDS + prefixField + shape),
-            fingerprintOf(PREFIXES + FIELDS + prefixField + twin + shape));
+            fingerprintOf(PREFIXES + FIELDS + prefixField + copy + shape));
     }
 
     // ---- Sensitivity: things that must change the fingerprint.

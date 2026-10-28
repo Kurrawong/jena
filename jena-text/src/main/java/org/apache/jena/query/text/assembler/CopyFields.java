@@ -33,26 +33,26 @@ import org.apache.jena.sparql.path.P_Seq;
 import org.apache.jena.sparql.path.Path;
 
 /**
- * Checks each {@code idx:twinOf}: that the twin it names holds every value the field
- * declaring it indexes, so that a match on the declaring field can be reported as a match
- * on the twin.
+ * Checks each {@code idx:copyOf}: that the source field it names holds every value the copy
+ * field declaring it indexes, so that a match on the copy field can be reported as a match on
+ * its source field.
  * <p>
- * Both are text fields. In every shape that feeds the declaring field, the twin is fed by
+ * Both are text fields. In every shape that feeds the copy field, the source field is fed by
  * equal occurrences: the same paths, the same steps with the same filters, the same value
  * constraints, the same {@code idx:self} and the same {@code idx:nested} block, or the same
- * column of an external source. The twin may also be fed by shapes that do not feed the
- * declaring field.
+ * column of an external source. The source field may also be fed by shapes that do not feed
+ * the copy field.
  * <p>
  * A field that is not {@code idx:multiValued} keeps only its first value, in the order of
- * the field's occurrences and then of what each path reaches. A twin that keeps only one
- * therefore keeps the same one only when the declaring field is single-valued too and, in
+ * the field's occurrences and then of what each path reaches. A source field that keeps only
+ * one therefore keeps the same one only when the copy field is single-valued too and, in
  * each scope, each is fed by one occurrence whose alternatives come in the same order. The
  * order of two occurrences is the order the configuration's triples are read in, which
  * nothing fixes.
  */
-final class TwinFields {
+final class CopyFields {
 
-    private TwinFields() {}
+    private CopyFields() {}
 
     /**
      * How a field is fed in one shape.
@@ -108,98 +108,98 @@ final class TwinFields {
         }
     }
 
-    static void check(List<IndexProfile> profiles, Map<String, FieldDef> fields, Map<FieldDef, Node> twins) {
-        for (Map.Entry<FieldDef, Node> declaration : twins.entrySet()) {
+    static void check(List<IndexProfile> profiles, Map<String, FieldDef> fields, Map<FieldDef, Node> copies) {
+        for (Map.Entry<FieldDef, Node> declaration : copies.entrySet()) {
             FieldDef field = declaration.getKey();
             String iri = declaration.getValue().getURI();
-            FieldDef twin = fields.get(iri);
-            if (twin == null) {
-                throw new TextIndexException("idx:twinOf on field '" + field.getFieldName() + "' names <" + iri
+            FieldDef source = fields.get(iri);
+            if (source == null) {
+                throw new TextIndexException("idx:copyOf on field '" + field.getFieldName() + "' names <" + iri
                     + ">, which no shape of this index feeds.");
             }
-            String declared = "Field '" + field.getFieldName() + "' is idx:twinOf '" + twin.getFieldName() + "', but ";
-            if (twin == field) {
-                throw new TextIndexException(declared + "a field cannot be its own twin.");
+            String declared = "Field '" + field.getFieldName() + "' is idx:copyOf '" + source.getFieldName() + "', but ";
+            if (source == field) {
+                throw new TextIndexException(declared + "a field cannot be a copy of itself.");
             }
-            for (FieldDef f : List.of(field, twin)) {
+            for (FieldDef f : List.of(field, source)) {
                 if (f.getFieldType() != FieldType.TEXT) {
                     throw new TextIndexException(declared + "'" + f.getFieldName() + "' has type " + f.getFieldType()
-                        + ". A twin and the field declaring it are both TextFields.");
+                        + ". A copy field and its source field are both TextFields.");
                 }
             }
-            Node twinsTwin = twins.get(twin);
-            if (twinsTwin != null) {
-                FieldDef named = fields.get(twinsTwin.getURI());
-                throw new TextIndexException(declared + "'" + twin.getFieldName() + "' is itself idx:twinOf "
-                    + (named == null ? "<" + twinsTwin.getURI() + ">" : "'" + named.getFieldName() + "'")
-                    + ". Name that field instead: a match is reported under one twin, not a chain of them.");
+            Node sourcesSource = copies.get(source);
+            if (sourcesSource != null) {
+                FieldDef named = fields.get(sourcesSource.getURI());
+                throw new TextIndexException(declared + "'" + source.getFieldName() + "' is itself idx:copyOf "
+                    + (named == null ? "<" + sourcesSource.getURI() + ">" : "'" + named.getFieldName() + "'")
+                    + ". Name that field instead: a match is reported under one source field, not a chain of them.");
             }
             for (IndexProfile profile : profiles) {
-                checkFedAlike(declared, profile, field, twin);
+                checkFedAlike(declared, profile, field, source);
             }
-            if (!twin.isMultiValued()) {
-                checkSameFirstValue(declared, profiles, field, twin);
+            if (!source.isMultiValued()) {
+                checkSameFirstValue(declared, profiles, field, source);
             }
         }
     }
 
-    /** In a shape that feeds {@code field}, {@code twin} is fed by equal occurrences. */
-    private static void checkFedAlike(String declared, IndexProfile profile, FieldDef field, FieldDef twin) {
+    /** In a shape that feeds {@code field}, its source field is fed by equal occurrences. */
+    private static void checkFedAlike(String declared, IndexProfile profile, FieldDef field, FieldDef source) {
         List<Fed> fed = fed(profile, field);
         if (fed.isEmpty()) {
             return;
         }
-        List<Fed> twinFed = fed(profile, twin);
-        Fed unmatched = firstUnmatched(fed, twinFed);
-        Fed twinUnmatched = firstUnmatched(twinFed, fed);
-        if (unmatched == null && twinUnmatched == null) {
+        List<Fed> sourceFed = fed(profile, source);
+        Fed unmatched = firstUnmatched(fed, sourceFed);
+        Fed sourceUnmatched = firstUnmatched(sourceFed, fed);
+        if (unmatched == null && sourceUnmatched == null) {
             return;
         }
         StringBuilder message = new StringBuilder(declared).append("in shape ").append(shape(profile))
             .append(" the occurrence ");
         if (unmatched != null) {
             message.append(unmatched.description()).append(" feeds '").append(field.getFieldName())
-                .append("' and no occurrence of '").append(twin.getFieldName()).append("' matches it.");
-            if (twinUnmatched != null) {
-                message.append(" '").append(twin.getFieldName()).append("' is fed there by the occurrence ")
-                    .append(twinUnmatched.description()).append(" instead.");
+                .append("' and no occurrence of '").append(source.getFieldName()).append("' matches it.");
+            if (sourceUnmatched != null) {
+                message.append(" '").append(source.getFieldName()).append("' is fed there by the occurrence ")
+                    .append(sourceUnmatched.description()).append(" instead.");
             }
         } else {
-            message.append(twinUnmatched.description()).append(" feeds '").append(twin.getFieldName())
+            message.append(sourceUnmatched.description()).append(" feeds '").append(source.getFieldName())
                 .append("' and no occurrence of '").append(field.getFieldName()).append("' matches it.");
         }
-        message.append(" A twin is fed exactly as the field declaring it is: by the same paths, steps, step")
-            .append(" filters, value constraints, idx:self and idx:nested block.");
+        message.append(" A copy field and its source field are fed alike, to index the same values: by the same")
+            .append(" paths, steps, step filters, value constraints, idx:self and idx:nested block.");
         throw new TextIndexException(message.toString());
     }
 
-    /** {@code twin} keeps only its first value, so it must be the first value of {@code field}. */
+    /** {@code source} keeps only its first value, so it must be the first value of {@code field}. */
     private static void checkSameFirstValue(String declared, List<IndexProfile> profiles,
-                                            FieldDef field, FieldDef twin) {
+                                            FieldDef field, FieldDef source) {
         if (field.isMultiValued()) {
             throw new TextIndexException(declared + "'" + field.getFieldName() + "' is idx:multiValued and '"
-                + twin.getFieldName() + "' is not, so '" + twin.getFieldName() + "' keeps only the first of the values '"
-                + field.getFieldName() + "' indexes. Make '" + twin.getFieldName() + "' idx:multiValued.");
+                + source.getFieldName() + "' is not, so '" + source.getFieldName() + "' keeps only the first of the values '"
+                + field.getFieldName() + "' indexes. Make '" + source.getFieldName() + "' idx:multiValued.");
         }
         String singleValued = declared + "neither is idx:multiValued, so each keeps only its first value, and ";
         for (IndexProfile profile : profiles) {
             Map<String, List<Fed>> byScope = byScope(fed(profile, field));
-            Map<String, List<Fed>> twinByScope = byScope(fed(profile, twin));
+            Map<String, List<Fed>> sourceByScope = byScope(fed(profile, source));
             for (Map.Entry<String, List<Fed>> scope : byScope.entrySet()) {
                 List<Fed> fed = scope.getValue();
-                List<Fed> twinFed = twinByScope.getOrDefault(scope.getKey(), List.of());
-                for (Map.Entry<FieldDef, List<Fed>> each : List.of(Map.entry(field, fed), Map.entry(twin, twinFed))) {
+                List<Fed> sourceFed = sourceByScope.getOrDefault(scope.getKey(), List.of());
+                for (Map.Entry<FieldDef, List<Fed>> each : List.of(Map.entry(field, fed), Map.entry(source, sourceFed))) {
                     if (each.getValue().size() != 1) {
                         throw new TextIndexException(singleValued + "in shape " + shape(profile) + " '"
                             + each.getKey().getFieldName() + "' is fed by " + each.getValue().size() + " occurrences"
                             + inScope(scope.getKey()) + ", whose values come in an order nothing fixes. Make '"
-                            + twin.getFieldName() + "' idx:multiValued, or feed each field by one occurrence.");
+                            + source.getFieldName() + "' idx:multiValued, or feed each field by one occurrence.");
                     }
                 }
-                if (!fed.get(0).ordered().equals(twinFed.get(0).ordered())) {
+                if (!fed.get(0).ordered().equals(sourceFed.get(0).ordered())) {
                     throw new TextIndexException(singleValued + "in shape " + shape(profile) + " the occurrences "
-                        + fed.get(0).description() + " and " + twinFed.get(0).description()
-                        + " reach their values in different orders. Make '" + twin.getFieldName()
+                        + fed.get(0).description() + " and " + sourceFed.get(0).description()
+                        + " reach their values in different orders. Make '" + source.getFieldName()
                         + "' idx:multiValued, or list the alternatives in the same order.");
                 }
             }

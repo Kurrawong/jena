@@ -43,13 +43,13 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * {@code idx:twinOf}: a text field declaring that it indexes the same values as another,
- * analysed differently, as the edge-n-gram twin of a title does. The declaration is checked
+ * {@code idx:copyOf}: a copy field declaring the source field that indexes the same values,
+ * analysed differently, as the edge-n-gram copy of a title does. The declaration is checked
  * when the index is assembled, against the occurrences the index actually reads, so a
- * consumer that reports a match on the declaring field as one on its twin never reports
- * a value the twin does not hold.
+ * consumer that reports a match on the copy field as one on its source field never reports
+ * a value the source field does not hold.
  */
-public class TestTwinFields {
+public class TestCopyFields {
 
     static {
         JenaSystem.init();
@@ -57,7 +57,7 @@ public class TestTwinFields {
         TextAssembler.init();
     }
 
-    private static final String NS = "http://example.org/twin/";
+    private static final String NS = "http://example.org/copy-field/";
     private static final String FIELD = "urn:jena:lucene:field#";
 
     private static final String PREFIXES =
@@ -79,7 +79,7 @@ public class TestTwinFields {
         + "    idx:analyzer [ a text:EdgeNGramAnalyzer ;\n"
         + "        text:minGram 2 ; text:maxGram 20 ; text:tokenized true ] .\n";
 
-    private static final String TWIN = "field:titlePrefix idx:twinOf field:title .\n";
+    private static final String COPY = "field:titlePrefix idx:copyOf field:title .\n";
 
     private static final String TITLE_BY_LABEL = "; sh:property [ idx:field field:title ; sh:path rdfs:label ]";
     private static final String PREFIX_BY_LABEL = "; sh:property [ idx:field field:titlePrefix ; sh:path rdfs:label ]";
@@ -143,12 +143,12 @@ public class TestTwinFields {
         }
     }
 
-    // ---- Accepted: the twin holds every value the declaring field indexes
+    // ---- Accepted: the source field holds every value the copy field indexes
 
-    static Stream<Arguments> twins() {
+    static Stream<Arguments> copies() {
         return Stream.of(
             Arguments.of("every shape", TITLE_BY_LABEL + PREFIX_BY_LABEL, TITLE_BY_LABEL + PREFIX_BY_LABEL, ""),
-            // the declaring field need not be in every shape the twin is
+            // the copy field need not be in every shape the source field is
             Arguments.of("fewer shapes", TITLE_BY_LABEL + PREFIX_BY_LABEL, TITLE_BY_LABEL, ""),
             Arguments.of("an alternative path",
                 byAlternatives("title", "skos:prefLabel rdfs:label")
@@ -171,51 +171,51 @@ public class TestTwinFields {
             Arguments.of("equal constraints", byLabelIn("title", "en") + byLabelIn("titlePrefix", "en"), "", ""),
             Arguments.of("both multi-valued", TITLE_BY_LABEL + PREFIX_BY_LABEL, "",
                 MULTI_VALUED_TITLE + MULTI_VALUED_PREFIX),
-            // a multi-valued twin holds every value, whichever comes first
-            Arguments.of("multi-valued twin, alternatives in other orders", ALTERNATIVES_IN_OTHER_ORDERS, "",
+            // a multi-valued source field holds every value, whichever comes first
+            Arguments.of("multi-valued source, alternatives in other orders", ALTERNATIVES_IN_OTHER_ORDERS, "",
                 MULTI_VALUED_TITLE),
-            Arguments.of("multi-valued twin, two paths each", BY_TWO_PATHS, "", MULTI_VALUED_TITLE)
+            Arguments.of("multi-valued source, two paths each", BY_TWO_PATHS, "", MULTI_VALUED_TITLE)
         );
     }
 
     @ParameterizedTest(name = "{0}")
-    @MethodSource("twins")
-    public void twinIsAccepted(String name, String report, String site, String extra) {
-        assertNotNull(parse(report, site, TWIN + extra));
+    @MethodSource("copies")
+    public void copyIsAccepted(String name, String report, String site, String extra) {
+        assertNotNull(parse(report, site, COPY + extra));
     }
 
-    // ---- Rejected: the twin may lack a value the declaring field indexes
+    // ---- Rejected: the source field may lack a value the copy field indexes
 
-    static Stream<Arguments> notTwins() {
-        String fedButNotTwin = "feeds 'titlePrefix' and no occurrence of 'title' matches it";
+    static Stream<Arguments> notCopies() {
+        String fedButNotSource = "feeds 'titlePrefix' and no occurrence of 'title' matches it";
         return Stream.of(
             Arguments.of("a different path", TITLE_BY_LABEL + PREFIX_BY_LABEL,
                 TITLE_BY_LABEL + "; sh:property [ idx:field field:titlePrefix ; sh:path skos:prefLabel ]", "",
                 new String[] { "shape <" + NS + "SiteShape>",
-                    "sh:path <http://www.w3.org/2004/02/skos/core#prefLabel> " + fedButNotTwin,
+                    "sh:path <http://www.w3.org/2004/02/skos/core#prefLabel> " + fedButNotSource,
                     "fed there by the occurrence sh:path " + RDFS_LABEL + " instead" }),
             Arguments.of("missing from a shape", TITLE_BY_LABEL + PREFIX_BY_LABEL, PREFIX_BY_LABEL, "",
-                new String[] { "shape <" + NS + "SiteShape>", "sh:path " + RDFS_LABEL + " " + fedButNotTwin }),
+                new String[] { "shape <" + NS + "SiteShape>", "sh:path " + RDFS_LABEL + " " + fedButNotSource }),
             Arguments.of("other nesting",
                 nested("idx:property [ idx:field field:title ; sh:path rdfs:label ]") + PREFIX_BY_LABEL, "", "",
-                new String[] { "sh:path " + RDFS_LABEL + " " + fedButNotTwin,
+                new String[] { "sh:path " + RDFS_LABEL + " " + fedButNotSource,
                     "sh:path " + RDFS_LABEL + " in idx:nested <" + NS + "part> instead" }),
             Arguments.of("idx:self or a path",
                 nested("idx:property [ idx:field field:title ; idx:self true ] ; "
                     + "idx:property [ idx:field field:titlePrefix ; sh:path rdfs:label ]"), "", "",
-                new String[] { fedButNotTwin, "idx:self in idx:nested <" + NS + "part> instead" }),
+                new String[] { fedButNotSource, "idx:self in idx:nested <" + NS + "part> instead" }),
             // the same local path, but an author's label rather than the resource's
             Arguments.of("through a step", TITLE_BY_LABEL + byAuthorLabel("titlePrefix", ""), "", "",
-                new String[] { "sh:path <" + NS + "author> then sh:path " + RDFS_LABEL + " " + fedButNotTwin }),
+                new String[] { "sh:path <" + NS + "author> then sh:path " + RDFS_LABEL + " " + fedButNotSource }),
             Arguments.of("other language", byLabelIn("title", "en") + byLabelIn("titlePrefix", "fr"), "", "",
-                new String[] { fedButNotTwin, "\"fr\"" }),
+                new String[] { fedButNotSource, "\"fr\"" }),
             Arguments.of("only one constrained", TITLE_BY_LABEL + byLabelIn("titlePrefix", "en"), "", "",
-                new String[] { "with the value constraints", fedButNotTwin }),
+                new String[] { "with the value constraints", fedButNotSource }),
             // only the title's step keeps authors with a role
             Arguments.of("a filtered step",
                 byAuthorLabel("title", "sh:property [ sh:path ex:role ; sh:hasValue ex:Lead ] ;")
                 + byAuthorLabel("titlePrefix", ""), "", "",
-                new String[] { fedButNotTwin, "filtered by", "<" + NS + "Lead>" }),
+                new String[] { fedButNotSource, "filtered by", "<" + NS + "Lead>" }),
             // the same role property, but in the prefix's step it feeds a field, so it
             // doesn't filter the authors that step reaches
             Arguments.of("a filter or a field",
@@ -223,10 +223,10 @@ public class TestTwinFields {
                 + byAuthorLabel("titlePrefix",
                     "sh:property [ idx:field field:role ; sh:path ex:role ; sh:in ( \"lead\" ) ] ;"), "",
                 "field:role idx:fieldName \"role\" ; idx:fieldType idx:KeywordField .\n",
-                new String[] { "sh:path <" + NS + "author> then sh:path " + RDFS_LABEL + " " + fedButNotTwin,
+                new String[] { "sh:path <" + NS + "author> then sh:path " + RDFS_LABEL + " " + fedButNotSource,
                     "filtered by" }),
             // the declaring field keeps labels after the first, which the title drops
-            Arguments.of("a single-valued twin of a multi-valued field", TITLE_BY_LABEL + PREFIX_BY_LABEL, "",
+            Arguments.of("a single-valued source of a multi-valued copy", TITLE_BY_LABEL + PREFIX_BY_LABEL, "",
                 MULTI_VALUED_PREFIX,
                 new String[] { "'titlePrefix' is idx:multiValued and 'title' is not" }),
             // each single-valued field may keep a different first label
@@ -238,66 +238,66 @@ public class TestTwinFields {
     }
 
     @ParameterizedTest(name = "{0}")
-    @MethodSource("notTwins")
-    public void notATwinIsRejected(String name, String report, String site, String extra, String[] fragments) {
-        assertRejected(report, site, TWIN + extra, fragments);
+    @MethodSource("notCopies")
+    public void notACopyIsRejected(String name, String report, String site, String extra, String[] fragments) {
+        assertRejected(report, site, COPY + extra, fragments);
     }
 
     @Test
-    public void twinMustBeATextField() {
+    public void sourceMustBeATextField() {
         assertRejected(TITLE_BY_LABEL + PREFIX_BY_LABEL + "; sh:property [ idx:field field:sortTitle ; sh:path rdfs:label ]", "",
             "field:sortTitle idx:fieldName \"sortTitle\" ; idx:fieldType idx:KeywordField .\n"
-            + "field:titlePrefix idx:twinOf field:sortTitle .\n",
+            + "field:titlePrefix idx:copyOf field:sortTitle .\n",
             "'sortTitle' has type KEYWORD");
     }
 
     @Test
-    public void declaringFieldMustBeATextField() {
+    public void copyFieldMustBeATextField() {
         assertRejected(TITLE_BY_LABEL + "; sh:property [ idx:field field:code ; sh:path rdfs:label ]", "",
-            "field:code idx:fieldName \"code\" ; idx:fieldType idx:KeywordField ; idx:twinOf field:title .\n",
+            "field:code idx:fieldName \"code\" ; idx:fieldType idx:KeywordField ; idx:copyOf field:title .\n",
             "'code' has type KEYWORD");
     }
 
     @Test
-    public void fieldCannotBeItsOwnTwin() {
-        assertRejected(TITLE_BY_LABEL + PREFIX_BY_LABEL, "", "field:titlePrefix idx:twinOf field:titlePrefix .\n",
-            "its own twin");
+    public void fieldCannotBeACopyOfItself() {
+        assertRejected(TITLE_BY_LABEL + PREFIX_BY_LABEL, "", "field:titlePrefix idx:copyOf field:titlePrefix .\n",
+            "a copy of itself");
     }
 
     @Test
-    public void twinMustBeAFieldOfTheIndex() {
-        assertRejected(TITLE_BY_LABEL + PREFIX_BY_LABEL, "", "field:titlePrefix idx:twinOf field:nothing .\n",
+    public void sourceMustBeAFieldOfTheIndex() {
+        assertRejected(TITLE_BY_LABEL + PREFIX_BY_LABEL, "", "field:titlePrefix idx:copyOf field:nothing .\n",
             "<" + FIELD + "nothing>", "no shape");
     }
 
     /** A consumer follows one declaration to the field it reports a match under. */
     @Test
-    public void twinMustNotItselfBeATwin() {
+    public void sourceMustNotItselfBeACopy() {
         assertRejected(TITLE_BY_LABEL + PREFIX_BY_LABEL + "; sh:property [ idx:field field:titleStem ; sh:path rdfs:label ]", "",
-            TWIN + "field:titleStem idx:fieldName \"titleStem\" ; idx:fieldType idx:TextField ;\n"
-            + "    idx:twinOf field:titlePrefix .\n",
-            "'titlePrefix' is itself idx:twinOf 'title'");
+            COPY + "field:titleStem idx:fieldName \"titleStem\" ; idx:fieldType idx:TextField ;\n"
+            + "    idx:copyOf field:titlePrefix .\n",
+            "'titlePrefix' is itself idx:copyOf 'title'");
     }
 
     @Test
-    public void twinMustBeNamedByIri() {
-        assertRejected(TITLE_BY_LABEL + PREFIX_BY_LABEL, "", "field:titlePrefix idx:twinOf \"title\" .\n",
+    public void sourceMustBeNamedByIri() {
+        assertRejected(TITLE_BY_LABEL + PREFIX_BY_LABEL, "", "field:titlePrefix idx:copyOf \"title\" .\n",
             "must name a field by its IRI");
     }
 
     @Test
-    public void twinOfOneFieldOnly() {
+    public void copyOfOneFieldOnly() {
         assertRejected(TITLE_BY_LABEL + PREFIX_BY_LABEL + "; sh:property [ idx:field field:label ; sh:path rdfs:label ]", "",
-            TWIN + "field:label idx:fieldName \"label\" ; idx:fieldType idx:TextField .\n"
-            + "field:titlePrefix idx:twinOf field:label .\n",
+            COPY + "field:label idx:fieldName \"label\" ; idx:fieldType idx:TextField .\n"
+            + "field:titlePrefix idx:copyOf field:label .\n",
             "more than one field");
     }
 
     @Test
-    public void twinOfOnAnOccurrenceIsRejected() {
+    public void copyOfOnAnOccurrenceIsRejected() {
         assertRejected(TITLE_BY_LABEL
-            + "; sh:property [ idx:field field:titlePrefix ; sh:path rdfs:label ; idx:twinOf field:title ]", "", "",
-            "twinOf");
+            + "; sh:property [ idx:field field:titlePrefix ; sh:path rdfs:label ; idx:copyOf field:title ]", "", "",
+            "copyOf");
     }
 
     // ---- luc:config
@@ -305,7 +305,7 @@ public class TestTwinFields {
     @Test
     public void declarationIsExposedByLucConfig() {
         Model model = ModelFactory.createDefaultModel();
-        model.read(new StringReader(PREFIXES + FIELDS + TWIN
+        model.read(new StringReader(PREFIXES + FIELDS + COPY
             + "ex:ReportShape sh:targetClass ex:Report " + TITLE_BY_LABEL + PREFIX_BY_LABEL + " .\n"
             + "ex:dataset rdf:type text:TextDataset ;\n"
             + "    text:dataset ex:base ;\n"
@@ -320,13 +320,13 @@ public class TestTwinFields {
             String q = "PREFIX luc:   <urn:jena:lucene:index#>\n"
                 + "PREFIX idx:   <urn:jena:lucene:index#>\n"
                 + "PREFIX field: <" + FIELD + ">\n"
-                + "SELECT ?twin WHERE {\n"
-                + "  (field:titlePrefix idx:twinOf ?twin) luc:config (\"default\") .\n"
+                + "SELECT ?source WHERE {\n"
+                + "  (field:titlePrefix idx:copyOf ?source) luc:config (\"default\") .\n"
                 + "}";
             try (QueryExecution qe = QueryExecutionFactory.create(q, dataset)) {
                 ResultSet rs = qe.execSelect();
                 assertTrue(rs.hasNext());
-                assertEquals(FIELD + "title", rs.next().getResource("twin").getURI());
+                assertEquals(FIELD + "title", rs.next().getResource("source").getURI());
                 assertFalse(rs.hasNext());
             }
         } finally {

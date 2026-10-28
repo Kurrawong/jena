@@ -257,10 +257,10 @@ public class TestExternalSourceAssembler {
     }
 
     @Test
-    public void boundColumnMustNotCarryATwin() {
+    public void boundColumnMustNotCarryACopyOf() {
         TextIndexException e = assertThrows(TextIndexException.class,
-            () -> parseSingleProfile(withOnPropertyColumn("idx:twinOf field:sampleName")));
-        assertTrue(e.getMessage(), e.getMessage().contains("urn:jena:lucene:index#twinOf"));
+            () -> parseSingleProfile(withOnPropertyColumn("idx:copyOf field:sampleName")));
+        assertTrue(e.getMessage(), e.getMessage().contains("urn:jena:lucene:index#copyOf"));
         assertTrue(e.getMessage(), e.getMessage().contains("idx:column"));
         assertTrue(e.getMessage(), e.getMessage().contains("measuredProperty"));
     }

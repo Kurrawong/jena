@@ -60,9 +60,9 @@ public class ShaclIndexAssembler {
 
     private ShaclIndexAssembler() {}
 
-    /** @param twinOfNode the field {@code idx:twinOf} names, or null */
+    /** @param copyOfNode the source field {@code idx:copyOf} names, or null */
     private record CanonicalFieldSpec(FieldDef field, Node analyzerNode, Node queryAnalyzerNode,
-                                      Node normalizerNode, Node twinOfNode) {}
+                                      Node normalizerNode, Node copyOfNode) {}
 
     public static ShaclIndexMapping parseShapes(Assembler a, Resource shapesList) {
         List<IndexProfile> profiles = new ArrayList<>();
@@ -81,18 +81,18 @@ public class ShaclIndexAssembler {
         }
 
         Map<String, FieldDef> fields = new LinkedHashMap<>();
-        Map<FieldDef, Node> twins = new LinkedHashMap<>();
+        Map<FieldDef, Node> copies = new LinkedHashMap<>();
         for (CanonicalFieldSpec spec : canonicalFields.values()) {
             fields.put(spec.field().getFieldIRI().getURI(), spec.field());
-            if (spec.twinOfNode() != null) {
-                twins.put(spec.field(), spec.twinOfNode());
+            if (spec.copyOfNode() != null) {
+                copies.put(spec.field(), spec.copyOfNode());
             }
         }
-        TwinFields.check(profiles, fields, twins);
-        Map<String, FieldDef> twinFields = new LinkedHashMap<>();
-        twins.forEach((field, twin) -> twinFields.put(field.getFieldIRI().getURI(), fields.get(twin.getURI())));
+        CopyFields.check(profiles, fields, copies);
+        Map<String, FieldDef> sourceFields = new LinkedHashMap<>();
+        copies.forEach((copy, source) -> sourceFields.put(copy.getFieldIRI().getURI(), fields.get(source.getURI())));
 
-        return new ShaclIndexMapping(profiles, twinFields);
+        return new ShaclIndexMapping(profiles, sourceFields);
     }
 
     private static IndexProfile parseProfile(Assembler a, Resource shape,
@@ -693,7 +693,7 @@ public class ShaclIndexAssembler {
         IndexVocab.pDefaultSearch,
         IndexVocab.pStoreLiteralMetadata,
         IndexVocab.pBoost,
-        IndexVocab.pTwinOf,
+        IndexVocab.pCopyOf,
         IndexVocab.pJoinPath,
         IndexVocab.pNested,
         IndexVocab.pPath
@@ -757,7 +757,7 @@ public class ShaclIndexAssembler {
                 || !Objects.equals(existing.analyzerNode(), parsed.analyzerNode())
                 || !Objects.equals(existing.queryAnalyzerNode(), parsed.queryAnalyzerNode())
                 || !Objects.equals(existing.normalizerNode(), parsed.normalizerNode())
-                || !Objects.equals(existing.twinOfNode(), parsed.twinOfNode())) {
+                || !Objects.equals(existing.copyOfNode(), parsed.copyOfNode())) {
             throw new TextIndexException(
                 "Canonical field " + existingField.getFieldIRI().getURI()
                 + " is defined inconsistently across occurrences");
@@ -822,7 +822,7 @@ public class ShaclIndexAssembler {
         boolean defaultSearch = getOptionalBoolean(fieldRes, IndexVocab.pDefaultSearch, false);
         boolean storeLiteralMetadata = getOptionalBoolean(fieldRes, IndexVocab.pStoreLiteralMetadata, false);
         float boost = parseBoost(fieldRes, fieldName);
-        Node twinOfNode = parseTwinOf(fieldRes, fieldName);
+        Node copyOfNode = parseCopyOf(fieldRes, fieldName);
 
         if (fieldType == FieldType.PERIOD) {
             rejectOnPeriodField(fieldName, IndexVocab.pStored, stored);
@@ -838,7 +838,7 @@ public class ShaclIndexAssembler {
             storeLiteralMetadata, fieldIRI, normalizer, boost);
         log.debug("Parsed canonical field: {} type={} facetable={}", fieldDef.getFieldName(),
             fieldDef.getFieldType(), fieldDef.isFacetable());
-        return new CanonicalFieldSpec(fieldDef, analyzerNode, queryAnalyzerNode, normalizerNode, twinOfNode);
+        return new CanonicalFieldSpec(fieldDef, analyzerNode, queryAnalyzerNode, normalizerNode, copyOfNode);
     }
 
     /**
@@ -880,24 +880,24 @@ public class ShaclIndexAssembler {
     }
 
     /**
-     * The field {@code idx:twinOf} names, or null when absent. {@link TwinFields} checks it
+     * The source field {@code idx:copyOf} names, or null when absent. {@link CopyFields} checks it
      * once every shape is parsed, as only then are all the occurrences of both fields known.
      */
-    private static Node parseTwinOf(Resource fieldRes, String fieldName) {
-        List<Statement> stmts = fieldRes.listProperties(IndexVocab.pTwinOf).toList();
+    private static Node parseCopyOf(Resource fieldRes, String fieldName) {
+        List<Statement> stmts = fieldRes.listProperties(IndexVocab.pCopyOf).toList();
         if (stmts.isEmpty()) {
             return null;
         }
         if (stmts.size() > 1) {
-            throw new TextIndexException("idx:twinOf on field '" + fieldName + "' names more than one field. "
-                + "A field is the twin of one field, the one a match on it is reported under.");
+            throw new TextIndexException("idx:copyOf on field '" + fieldName + "' names more than one field. "
+                + "A copy field has one source field, the one a match on it is reported under.");
         }
-        RDFNode twin = stmts.get(0).getObject();
-        if (!twin.isURIResource()) {
-            throw new TextIndexException("idx:twinOf on field '" + fieldName
-                + "' must name a field by its IRI, got " + twin);
+        RDFNode source = stmts.get(0).getObject();
+        if (!source.isURIResource()) {
+            throw new TextIndexException("idx:copyOf on field '" + fieldName
+                + "' must name a field by its IRI, got " + source);
         }
-        return twin.asNode();
+        return source.asNode();
     }
 
     /**

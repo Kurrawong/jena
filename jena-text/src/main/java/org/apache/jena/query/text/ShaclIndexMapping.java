@@ -967,18 +967,19 @@ public class ShaclIndexMapping {
     private final Set<Node> nestedJoinPredicates;
     private final Set<Node> relevantPredicates;
     private final List<FieldDef> rootFields;
-    private final Map<String, FieldDef> twins;
+    private final Map<String, FieldDef> sourceFields;
 
     public ShaclIndexMapping(List<IndexProfile> profiles) {
         this(profiles, Map.of());
     }
 
     /**
-     * @param twins each field that declares {@code idx:twinOf}, by its IRI, to the field it
-     *              names; the assembler has checked that field holds every value it indexes
+     * @param sourceFields each copy field, which declares {@code idx:copyOf}, by its IRI, to the
+     *                     source field it names; the assembler has checked the source field holds
+     *                     every value the copy field indexes
      */
-    public ShaclIndexMapping(List<IndexProfile> profiles, Map<String, FieldDef> twins) {
-        this.twins = Map.copyOf(twins);
+    public ShaclIndexMapping(List<IndexProfile> profiles, Map<String, FieldDef> sourceFields) {
+        this.sourceFields = Map.copyOf(sourceFields);
         this.profiles = Collections.unmodifiableList(new ArrayList<>(profiles));
         validateProfilesHaveOccurrences();
         validateLiteralMetadataRequirements();
@@ -1081,12 +1082,12 @@ public class ShaclIndexMapping {
     }
 
     /**
-     * The field {@code field} declares with {@code idx:twinOf}, which {@code luc:match} reports
+     * The source field {@code field} declares with {@code idx:copyOf}, which {@code luc:match} reports
      * its matches under; null when it declares none. Not part of the configuration
      * fingerprint: it changes nothing written to the index.
      */
-    public FieldDef twinOf(FieldDef field) {
-        return field == null || field.getFieldIRI() == null ? null : twins.get(field.getFieldIRI().getURI());
+    public FieldDef sourceOf(FieldDef field) {
+        return field == null || field.getFieldIRI() == null ? null : sourceFields.get(field.getFieldIRI().getURI());
     }
 
     public FieldDef findFieldByName(String fieldName) {

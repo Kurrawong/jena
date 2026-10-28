@@ -35,18 +35,18 @@ import org.apache.jena.sys.JenaSystem;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@code luc:match} and {@code luc:nestedMatch} report a match on a field that declares
- * {@code idx:twinOf} under the field it twins, once. The assembler has checked that field
- * holds every value the twin indexes, so the value reported is one of its own.
+ * {@code luc:match} and {@code luc:nestedMatch} report a match on a copy field, which declares
+ * {@code idx:copyOf}, under its source field, once. The assembler has checked the source field
+ * holds every value the copy indexes, so the value reported is one of its own.
  */
-public class TestTwinMatches {
+public class TestCopyFieldMatches {
 
     static {
         JenaSystem.init();
         TextQuery.init();
     }
 
-    private static final String NS = "http://example.org/twin-match/";
+    private static final String NS = "http://example.org/copy-field-match/";
     private static final String FIELD = "urn:jena:lucene:field#";
 
     private static final String PREFIXES =
@@ -76,12 +76,12 @@ public class TestTwinMatches {
     }
 
     /**
-     * A title and its edge-n-gram twin, and a nested part name and its twin.
+     * A title and its edge-n-gram copy field, and a nested part name and its copy field.
      *
      * @param titleExtra    extra properties on {@code field:title}
-     * @param prefixExtra   extra properties on its twin, {@code field:titlePrefix}
+     * @param prefixExtra   extra properties on its copy field, {@code field:titlePrefix}
      * @param partNameExtra extra properties on {@code field:partName}
-     * @param titlePath     the path feeding both the title and its twin
+     * @param titlePath     the path feeding both the title and its copy field
      */
     private static String config(String titleExtra, String prefixExtra, String partNameExtra, String titlePath) {
         return "@prefix idx:   <urn:jena:lucene:index#> .\n"
@@ -94,12 +94,12 @@ public class TestTwinMatches {
             + "field:title idx:fieldName \"title\" ; idx:fieldType idx:TextField ;\n"
             + "    idx:defaultSearch true" + titleExtra + " .\n"
             + "field:titlePrefix idx:fieldName \"titlePrefix\" ; idx:fieldType idx:TextField ;\n"
-            + "    idx:defaultSearch true ; idx:twinOf field:title ;\n"
+            + "    idx:defaultSearch true ; idx:copyOf field:title ;\n"
             + "    " + NGRAM + prefixExtra + " .\n"
             + "field:partName idx:fieldName \"partName\" ; idx:fieldType idx:TextField ;\n"
             + "    idx:defaultSearch true" + partNameExtra + " .\n"
             + "field:partNamePrefix idx:fieldName \"partNamePrefix\" ; idx:fieldType idx:TextField ;\n"
-            + "    idx:defaultSearch true ; idx:twinOf field:partName ;\n"
+            + "    idx:defaultSearch true ; idx:copyOf field:partName ;\n"
             + "    " + NGRAM + " .\n"
             + "ex:ReportShape\n"
             + "    sh:targetClass ex:Report ;\n"
@@ -189,7 +189,7 @@ public class TestTwinMatches {
             matches(config("", ""), "bore", "?field").get(NS + "borehole"));
     }
 
-    /** Asking for the field's matches includes those only its twin found. */
+    /** Asking for the source field's matches includes those only its copy found. */
     @Test
     public void namingTheFieldReturnsItsPrefixOnlyHits() {
         Map<String, List<String>> rows = matches(config("", ""), "bore", "field:title");
@@ -197,13 +197,13 @@ public class TestTwinMatches {
     }
 
     @Test
-    public void namingTheTwinReturnsNoRows() {
+    public void namingTheCopyFieldReturnsNoRows() {
         assertEquals(Map.of(), matches(config("", ""), "bore", "field:titlePrefix"));
     }
 
-    /** The value is the field's own, so the twin need not keep a copy. */
+    /** The value is the source field's own, so the copy field need not store it. */
     @Test
-    public void twinNeedNotBeStored() {
+    public void copyFieldNeedNotBeStored() {
         assertEquals(List.of(TITLE + " = Borehole BH-12"),
             matches(config("", " ;\n    idx:stored false"), "bore", "?field").get(NS + "borehole"));
     }
@@ -227,8 +227,9 @@ public class TestTwinMatches {
     }
 
     /**
-     * The field keeps the value's language tag and its twin does not, as the check allows:
-     * the field's own literal is projected, once, not the twin's untagged copy beside it.
+     * The source field keeps the value's language tag and its copy does not, as the check
+     * allows: the source field's own literal is projected, once, not the copy's untagged value
+     * beside it.
      */
     @Test
     public void nestedMatchProjectsTheFieldsOwnLiteral() {
@@ -237,7 +238,7 @@ public class TestTwinMatches {
     }
 
     /**
-     * "bore" matches the title's second value, "Bore", as a word, and its twin's first,
+     * "bore" matches the title's second value, "Bore", as a word, and its copy field's first,
      * "Borehole log", as a prefix. The field's own match decides the value, so the hit is
      * one row, not one per value the two picked.
      */

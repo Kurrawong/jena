@@ -1144,12 +1144,12 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     }
                 }
 
-                // A field that declares idx:twinOf is reported under the field it twins, with
-                // that field's value: the assembler checked it holds every value the twin indexes.
+                // A copy field, which declares idx:copyOf, is reported under its source field, with
+                // that field's value: the assembler checked it holds every value the copy indexes.
                 List<ShaclIndexMapping.FieldDef> reportedDefs = new ArrayList<>(matchedDefs.size());
                 for (ShaclIndexMapping.FieldDef fd : matchedDefs) {
-                    ShaclIndexMapping.FieldDef twin = shaclMapping.twinOf(fd);
-                    reportedDefs.add(twin != null ? twin : fd);
+                    ShaclIndexMapping.FieldDef source = shaclMapping.sourceOf(fd);
+                    reportedDefs.add(source != null ? source : fd);
                 }
 
                 // Only the matched and reported fields are read: from doc values where they
@@ -1159,8 +1159,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 Document doc = values.stored(segmentDocId, values.storedNames(readDefs));
 
                 // One row per reported field. Each clause picks its value on its own, and on a
-                // multi-valued field a twin's prefix can pick another value than the field's
-                // own words, so a twin's value stands in only when the field did not match itself.
+                // multi-valued field a copy field's prefix can pick another value than the source
+                // field's own words, so the copy's value stands in only when the source did not
+                // match itself.
                 Set<Node> matchedItself = new HashSet<>();
                 for (int i = 0; i < matchedIRIs.size(); i++) {
                     if (reportedDefs.get(i) == matchedDefs.get(i)) {
@@ -1184,7 +1185,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     }
                     if (!fieldValues.isEmpty()) {
                         // Which value the query matched, analysed as the matched field is, so a
-                        // twin's prefix picks the value it is a prefix of. A multi-valued doc
+                        // copy field's prefix picks the value it is a prefix of. A multi-valued doc
                         // value lists its values in byte order, so with no matching value the
                         // first in byte order is returned, not the first indexed.
                         SelectedStoredValue selected =
@@ -1370,12 +1371,12 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             if (!fd.isStored()) {
                 continue;
             }
-            // A field that declares idx:twinOf holds its field's values, projected once under
-            // that field and as that field keeps them: the two may keep a literal's language
-            // or datatype differently. The twin's own copy stands in only when the field
+            // A copy field indexes its source field's values, projected once under the source
+            // field and as that field keeps them: the two may keep a literal's language or
+            // datatype differently. The copy's own stored value stands in only when the source
             // keeps none.
-            ShaclIndexMapping.FieldDef twin = shaclMapping.twinOf(fd);
-            ShaclIndexMapping.FieldDef shown = twin != null ? twin : fd;
+            ShaclIndexMapping.FieldDef source = shaclMapping.sourceOf(fd);
+            ShaclIndexMapping.FieldDef shown = source != null ? source : fd;
             FieldValueReader.Values fieldValues = values.values(shown, childSegmentDocId, childDoc);
             if (fieldValues.isEmpty() && shown != fd) {
                 fieldValues = values.values(fd, childSegmentDocId, childDoc);

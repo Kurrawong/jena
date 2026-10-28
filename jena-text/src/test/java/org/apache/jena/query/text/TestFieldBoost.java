@@ -36,11 +36,11 @@ import org.junit.jupiter.api.Test;
 
 /**
  * {@code idx:boost}: a field's weight when the query string is searched across several
- * fields, and the search-as-you-type twin it exists for.
+ * fields, and the search-as-you-type copy field it exists for.
  * <p>
- * The twin is an exact {@code TextField} and a per-word {@code EdgeNGramAnalyzer} copy of
- * it over the same path, both in {@code idx:defaultSearch}. The exact field keeps its BM25
- * ranking for whole words; the twin adds the prefix hits a half-typed word needs. Every
+ * The copy field is a per-word {@code EdgeNGramAnalyzer} {@code TextField} over the same path
+ * as an exact one, its source field, both in {@code idx:defaultSearch}. The source field keeps
+ * its BM25 ranking for whole words; the copy adds the prefix hits a half-typed word needs. Every
  * case here runs through {@code luc:query} on an assembled configuration, because the
  * ranking is a property of the configuration as a deployment writes it.
  */
@@ -81,10 +81,10 @@ public class TestFieldBoost {
         + "ex:alias1    ex:aliasText \"Kingfisher\" .\n";
 
     /**
-     * The twin pattern over {@code ex:title}, declared with {@code idx:twinOf} as the docs
+     * The copy-field pattern over {@code ex:title}, declared with {@code idx:copyOf} as the docs
      * recommend, plus a nested alias field.
      *
-     * @param prefixField extra properties on the edge-n-gram twin, {@code field:titlePrefix}
+     * @param prefixField extra properties on the edge-n-gram copy field, {@code field:titlePrefix}
      * @param aliasField  extra properties on the nested {@code field:alias}
      */
     private static String config(String prefixField, String aliasField) {
@@ -99,7 +99,7 @@ public class TestFieldBoost {
             + "    idx:defaultSearch true .\n"
             + "field:titlePrefix idx:fieldName \"titlePrefix\" ; idx:fieldType idx:TextField ;\n"
             + "    idx:defaultSearch true ;\n"
-            + "    idx:twinOf field:title ; idx:stored false ;\n"
+            + "    idx:copyOf field:title ; idx:stored false ;\n"
             + "    idx:analyzer [ a text:EdgeNGramAnalyzer ; text:minGram 2 ; text:maxGram 20 ;\n"
             + "                   text:tokenized true ]" + prefixField + " .\n"
             + "field:alias idx:fieldName \"alias\" ; idx:fieldType idx:TextField ;\n"
@@ -176,10 +176,10 @@ public class TestFieldBoost {
         return sb.toString();
     }
 
-    // ---- The search-as-you-type twin, unboosted
+    // ---- The search-as-you-type copy field, unboosted
 
     @Test
-    public void twinFindsWholeWordAndPrefixHits() {
+    public void copyFieldFindsWholeWordAndPrefixHits() {
         Set<String> expected = new HashSet<>(WHOLE_WORD);
         expected.addAll(PREFIX_ONLY);
         assertEquals(expected, scores(config("", ""), "bore").keySet());
@@ -211,9 +211,9 @@ public class TestFieldBoost {
         assertEquals(Set.of(NS + "longTitle"), scores(config("", ""), "a").keySet());
     }
 
-    /** The twin declares idx:twinOf, so luc:match reports its matches under the title, once. */
+    /** The copy field declares idx:copyOf, so luc:match reports its matches under the title, once. */
     @Test
-    public void lucMatchReportsTheTwinUnderTheExactField() {
+    public void lucMatchReportsTheCopyUnderItsSourceField() {
         Map<String, List<String>> matches = new HashMap<>();
         Dataset dataset = open(config("", ""));
         try {
@@ -232,7 +232,7 @@ public class TestFieldBoost {
         assertEquals(List.of(FIELD + "title = Bore"),
             matches.get(NS + "bore"), "a whole-word hit, once, though both fields matched");
         assertEquals(List.of(FIELD + "title = Borehole BH-12"),
-            matches.get(NS + "borehole"), "a prefix-only hit, under the field the twin names");
+            matches.get(NS + "borehole"), "a prefix-only hit, under the source field the copy names");
     }
 
     // ---- idx:boost
@@ -247,7 +247,7 @@ public class TestFieldBoost {
     }
 
     @Test
-    public void loweringTheTwinsBoostWidensTheGap() {
+    public void loweringTheCopyFieldBoostWidensTheGap() {
         float plain = gap(scores(config("", ""), "bore"));
         float lowered = gap(scores(config(" ;\n    idx:boost 0.5", ""), "bore"));
         assertTrue(lowered > plain, "gap " + lowered + " at boost 0.5, " + plain + " unboosted");
