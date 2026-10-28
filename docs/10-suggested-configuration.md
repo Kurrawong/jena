@@ -115,8 +115,9 @@ field:titlePrefix
                    text:minGram 2 ; text:maxGram 20 ; text:tokenized true ] .
 ```
 
-Whole words still rank first, by the plain field's BM25; the copy field adds prefix hits below
-them. It costs index size — see
+Whole words keep the plain field's BM25 ranking, and the copy field adds prefix hits, at half
+weight, that tend to rank below them. That is a relevance heuristic, not a guarantee: check
+the order on your own data. It costs index size — see
 [Search as you type](03-configuration.md#search-as-you-type-an-n-gram-copy-field).
 
 `idx:copyOf` names the plain field as the copy's source field, so `luc:match` reports the

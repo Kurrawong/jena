@@ -687,10 +687,13 @@ ex:ReportShape
     sh:property [ idx:field field:titlePrefix ; sh:path ex:title ] .
 ```
 
-A whole word matches both fields and a prefix matches only the copy field. So `bore` ranks
+A whole word matches both fields and a prefix matches only the copy field, so a whole-word
+hit scores on two clauses and a prefix-only hit on one. In the test fixture, `bore` ranks
 every title holding the word, a twenty-word one included, above `Bores`, `Borehole` and
-`Boredom`, and still grades those three rather than tying them. A half-typed last word works
-too: `water bor` ranks `Water bore` first.
+`Boredom`, and still grades those three rather than tying them; `water bor` ranks
+`Water bore` first. That ordering is what BM25 gave on that data, not a guarantee: a long
+field with one whole-word match can score below a short prefix-only hit. Check it on your
+own data, and lower the copy field's `idx:boost` if prefixes rank too high.
 
 - **`idx:boost 0.5`** halves the weight of the copy field's clause. The source field's BM25
   ranking is intact either way; the boost widens the margin by which a whole word beats a
@@ -716,7 +719,8 @@ same values.
 
 `luc:match` reports a match on `field:titlePrefix` as one on `field:title`, once, with the
 title's value as the title keeps it, language tag included. When both matched, the value is
-the one the title's own words picked. `luc:nestedMatch` projects a nested copy field under
+the one the title's own words picked. If the title keeps no value and its copy does, the
+copy's stands in. `luc:nestedMatch` projects a nested copy field under
 its source field in the same way. Asking `luc:match` for `field:titlePrefix` by name returns
 nothing; asking for `field:title` includes the prefix-only hits. Without `idx:copyOf`, each
 field gets its own row and the copy field needs its own stored value.
@@ -728,7 +732,8 @@ configuration, naming the difference, unless:
 - **Both are `TEXT` fields**, and not the same one.
 - **They are fed alike.** In every shape that feeds the copy field, the source field is fed by
   equal occurrences: the same paths, the same steps with the same filters, the same value
-  constraints, the same `idx:self` and the same `idx:nested` block. The order of an
+  constraints, the same `idx:self` and the same `idx:nested` block. Two blocks with one join
+  path are not the same block: each writes its own child documents. The order of an
   `sh:alternativePath`'s members does not matter here. The source field may also be fed by
   shapes that do not feed the copy field.
 - **The source field keeps every value.** Either it is `idx:multiValued`, or neither field

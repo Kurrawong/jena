@@ -371,7 +371,7 @@ reported under its source field, with that field's value, as that field keeps it
 has checked the source field holds every value the copy indexes. A hit that matches both
 comes back as one row, so a whole word matched by a title and its edge-n-gram copy field is
 one `field:title` row. Its value is the one the title's own match picked; the value the
-copy's prefix picked is used only when the title did not match itself. Naming the copy field
+copy's prefix picked is used when the title did not match itself or keeps no value. Naming the copy field
 in the field slot returns no rows; naming its source field includes the matches only the copy
 found. `luc:nestedMatch` projects a nested copy field under its source field in the same
 way, once.
