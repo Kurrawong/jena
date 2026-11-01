@@ -263,6 +263,18 @@ it finds entities that link *to* the report.
 | `30-spatial-polygon-with-hole.rq` | A query polygon with an interior ring; the hole excludes a match |
 | `31-spatial-dwithin.rq` | `s_dwithin` — everything within a radius, in metres |
 | `32-spatial-crs-equivalence.rq` | GDA2020 and bare CRS84 written for the same place, matching one box |
+| `33-temporal-operating-in-the-1990s.rq` | `t_intersects` on a `PeriodField`; its header names the one site each of Allen's relations picks out |
+| `34-temporal-reopened-sites.rq` | Why a period's start stays with its own end: reopened sites were not operating between their periods |
+| `35-temporal-published-during.rq` | `t_during` on a `TemporalField` of dates, each date its whole day |
+
+### Operating periods
+
+Each named site carries `ex:operatingPeriod`, an OWL-Time interval per period, indexed by
+`field:operating`, an `idx:PeriodField`. A site still operating has no end; a site that
+closed and reopened has two periods. Measured against the 1990s, each of Allen's thirteen
+relations holds for exactly one site, so the "Temporal Operators" examples in the app show
+one operator each. The app has no control that builds a temporal filter; it carries a
+`t_` clause in the URL through unchanged.
 
 ### Geometry on the map
 

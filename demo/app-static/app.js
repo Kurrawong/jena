@@ -556,13 +556,22 @@ function extractCorrelatedFilterState(clause, fieldIRIs, correlated) {
  */
 const SPATIAL_OPS = ['s_intersects', 's_within', 's_contains', 's_disjoint', 's_dwithin'];
 
+/**
+ * CQL2 temporal operators. No control in the app builds one, so each clause is carried
+ * through verbatim; without this the rebuilt filter would silently drop it.
+ */
+const TEMPORAL_OPS = ['t_after', 't_before', 't_contains', 't_disjoint', 't_during', 't_equals',
+    't_finishedBy', 't_finishes', 't_intersects', 't_meets', 't_metBy', 't_overlappedBy',
+    't_overlaps', 't_startedBy', 't_starts'];
+
 function parseCqlFilter(cqlString, fieldIRIs) {
     const selected = {};
     let bbox = null;
     let polygon = null;
     let spatialRaw = null;
+    const temporalRaw = [];
     const correlated = emptyCorrelatedFilterState();
-    if (!cqlString) return { selected, bbox, polygon, spatialRaw, correlated };
+    if (!cqlString) return { selected, bbox, polygon, spatialRaw, temporalRaw, correlated };
 
     // Build reverse map: IRI → field name
     const iriToName = {};
@@ -576,7 +585,7 @@ function parseCqlFilter(cqlString, fieldIRIs) {
     const resolve = (prop) => iriToName[prop] || iriToName[shortName(prop)] || prop;
 
     let cql;
-    try { cql = JSON.parse(cqlString); } catch { return { selected, bbox, polygon, spatialRaw, correlated }; }
+    try { cql = JSON.parse(cqlString); } catch { return { selected, bbox, polygon, spatialRaw, temporalRaw, correlated }; }
 
     function addSelected(field, value) {
         if (!selected[field]) selected[field] = [];
@@ -619,6 +628,10 @@ function parseCqlFilter(cqlString, fieldIRIs) {
             addSelected(field, `__RANGE__${low}|${high}`);
             return;
         }
+        if (TEMPORAL_OPS.includes(clause.op)) {
+            temporalRaw.push(clause);
+            return;
+        }
         if (SPATIAL_OPS.includes(clause.op)) {
             const geom = clause.args[1];
             const drawableBbox = clause.op === 's_intersects' && geom?.bbox;
@@ -641,7 +654,7 @@ function parseCqlFilter(cqlString, fieldIRIs) {
     }
 
     visit(cql);
-    return { selected, bbox, polygon, spatialRaw, correlated };
+    return { selected, bbox, polygon, spatialRaw, temporalRaw, correlated };
 }
 
 // ---------------------------------------------------------------------------
@@ -1072,6 +1085,8 @@ function searchApp() {
         spatialPolygon: null,
         // A spatial clause the drawing controls cannot represent, replayed verbatim.
         spatialRaw: null,
+        // Temporal clauses, which no control builds, replayed verbatim.
+        temporalRaw: [],
         drawingBbox: false,
         _drawRect: null,
         _drawStart: null,
@@ -1411,7 +1426,7 @@ LIMIT 100`);
             const sort = parseSortParam(params.get('sort'), this.fieldIRIs);
             this.sortField = sort.field;
             this.sortDirection = sort.direction;
-            const { selected, bbox, polygon, spatialRaw, correlated } = parseCqlFilter(params.get('filter'), this.fieldIRIs);
+            const { selected, bbox, polygon, spatialRaw, temporalRaw, correlated } = parseCqlFilter(params.get('filter'), this.fieldIRIs);
             const fieldNames = new Set([...this.facetFields, ...Object.keys(selected)]);
             this.selected = {};
             for (const f of fieldNames) {
@@ -1422,6 +1437,7 @@ LIMIT 100`);
             this.spatialBbox = bbox;
             this.spatialPolygon = polygon;
             this.spatialRaw = spatialRaw;
+            this.temporalRaw = temporalRaw;
             this.currentPage = Math.max(1, parseInt(params.get('page'), 10) || 1);
         },
 
@@ -1500,6 +1516,7 @@ LIMIT 100`);
             this.clearCorrelatedFilters();
             this.clearBbox();
             this.clearPolygon();
+            this.temporalRaw = [];
             this.pushUrl();
             await this.executeSearch();
         },
@@ -1507,6 +1524,7 @@ LIMIT 100`);
         hasActiveFilters() {
             return this.spatialBbox != null || this.spatialPolygon != null ||
                 this.spatialRaw != null ||
+                this.temporalRaw.length > 0 ||
                 this.correlatedFiltersActive() ||
                 Object.values(this.selected).some(values => (values || []).length > 0) ||
                 Object.values(this.hierarchySelected || {}).some(parents =>
@@ -2151,6 +2169,7 @@ SELECT ?value ?count WHERE {
                 // Carried through untouched. Drawing a box or polygon replaces it, so
                 // the two cannot both apply.
                 ...(this.spatialRaw ? [this.spatialRaw] : []),
+                ...this.temporalRaw,
             ];
         },
 
@@ -2601,6 +2620,9 @@ DESCRIBE <${uri}>`;
             }
             if (this.spatialRaw) {
                 filters.push(this.spatialRaw.op);
+            }
+            for (const clause of this.temporalRaw) {
+                filters.push(clause.op);
             }
             if (this.spatialPolygon) {
                 filters.push('polygon [' + this.spatialPolygon.length + ' vertices]');

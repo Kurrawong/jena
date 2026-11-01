@@ -89,6 +89,7 @@ final class ShaclIndexStats {
             }
             case INT, LONG, DOUBLE, LATLON -> addPoints(g, reader, s, name);
             case TEMPORAL -> addPoints(g, reader, s, LiteralFieldSupport.epochField(name));
+            case PERIOD -> addPoints(g, reader, s, LiteralFieldSupport.spanField(name));
         }
     }
 

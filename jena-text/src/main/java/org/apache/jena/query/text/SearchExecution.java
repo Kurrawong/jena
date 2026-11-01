@@ -30,6 +30,7 @@ import org.apache.jena.graph.Node;
 import org.apache.jena.query.QueryExecException;
 
 import org.apache.jena.query.text.cql.CqlExpression;
+import org.apache.jena.query.text.cql.CqlFilterException;
 import org.apache.jena.sparql.engine.ExecutionContext;
 import org.apache.jena.sparql.util.Context;
 import org.apache.jena.sparql.util.Symbol;
@@ -615,6 +616,9 @@ public class SearchExecution {
                     facetCounts = textIndex.getFacetCountsWithCql(
                         queryString, searchFields, facetRequest, filter, maxValues, minCount);
                 }
+            } catch (CqlFilterException e) {
+                // Not applying a filter would count more than was asked for.
+                throw e;
             } catch (Exception e) {
                 log.error("Error computing facet counts: {}", e.getMessage());
                 facetCounts = Collections.emptyMap();

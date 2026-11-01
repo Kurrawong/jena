@@ -371,6 +371,57 @@ public class TestShaclConfigFingerprint {
                         fingerprintOf(PREFIXES + keyword + SHAPE));
     }
 
+    // ---- Index layout: a change to what a field writes must change the fingerprint.
+
+    private static final String EVENT_FIELDS =
+        "field:title idx:fieldName \"title\" ; idx:fieldType idx:TextField ; idx:defaultSearch true .\n";
+
+    private static final String TEMPORAL_FIELD =
+        "field:when idx:fieldName \"when\" ; idx:fieldType idx:TemporalField ; idx:storeLiteralMetadata true .\n";
+
+    private String eventFingerprint(String fields, String occurrences) {
+        String shape = "ex:EventShape sh:targetClass ex:Event ;\n"
+            + "    sh:property [ idx:field field:title ; sh:path ex:title ]" + occurrences + " .\n";
+        return fingerprintOf(PREFIXES + fields + shape, false, List.of(), null, "http://example.org/EventShape");
+    }
+
+    /**
+     * A TemporalField also writes a span per value, for the temporal operators. An index
+     * built before that cannot answer them, so its fingerprint must no longer match and
+     * startup reports the mismatch. The value is the fingerprint before the span field.
+     */
+    @Test
+    public void anIndexWithATemporalFieldBuiltBeforeSpansNoLongerMatches() {
+        assertNotEquals("sha256:eed41ef703987798134814e9b22af271b973d7ff5275ee352dac057f4177fc96",
+            eventFingerprint(EVENT_FIELDS + TEMPORAL_FIELD, " ;\n    sh:property [ idx:field field:when ; sh:path ex:when ]"));
+    }
+
+    /** ... and an index with no temporal field is unaffected, so it raises no false alarm. */
+    @Test
+    public void anIndexWithNoTemporalFieldKeepsItsFingerprint() {
+        assertEquals("sha256:f72340cfbd41d959db2a2ae4b783e6cc6d383f03f763828d17ba6f185d3f4b68",
+            eventFingerprint(EVENT_FIELDS, ""));
+    }
+
+    private static final String PERIOD_FIELD =
+        "field:term idx:fieldName \"term\" ; idx:fieldType idx:PeriodField .\n";
+
+    private String periodFingerprint(String startPath, String endPath) {
+        return eventFingerprint(EVENT_FIELDS + PERIOD_FIELD,
+            " ;\n    sh:property [ idx:field field:term ; sh:path ex:term ;"
+            + " idx:periodStart " + startPath + " ; idx:periodEnd " + endPath + " ]");
+    }
+
+    /**
+     * The start and end paths decide what a period spans. Swapping them indexes different
+     * spans, so it must change the fingerprint, though the set of predicates is the same.
+     */
+    @Test
+    public void periodStartAndEndPathsAreSignificant() {
+        assertNotEquals(periodFingerprint("ex:begins", "ex:ends"), periodFingerprint("ex:ends", "ex:begins"));
+        assertNotEquals(periodFingerprint("ex:begins", "ex:ends"), periodFingerprint("ex:begins", "ex:finishes"));
+    }
+
     // ---- Format.
 
     @Test

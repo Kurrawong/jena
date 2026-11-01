@@ -1,0 +1,351 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ *
+ *   SPDX-License-Identifier: Apache-2.0
+ */
+
+package org.apache.jena.query.text;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.io.StringReader;
+import java.util.*;
+
+import org.apache.jena.assembler.Assembler;
+import org.apache.jena.query.Dataset;
+import org.apache.jena.query.DatasetFactory;
+import org.apache.jena.query.ReadWrite;
+import org.apache.jena.query.text.assembler.ShaclIndexAssembler;
+import org.apache.jena.query.text.assembler.TextAssembler;
+import org.apache.jena.query.text.cql.CqlParser;
+import org.apache.jena.rdf.model.Model;
+import org.apache.jena.rdf.model.ModelFactory;
+import org.apache.jena.rdf.model.RDFList;
+import org.apache.jena.rdf.model.Resource;
+import org.apache.jena.sys.JenaSystem;
+import org.apache.jena.update.UpdateAction;
+import org.apache.lucene.store.ByteBuffersDirectory;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+
+/**
+ * {@code idx:PeriodField}: a start and an end read from one period node, kept paired, and
+ * queried by the temporal operators as the span from the start's start to the end's end.
+ */
+public class TestPeriodField {
+
+    static {
+        JenaSystem.init();
+        TextAssembler.init();
+    }
+
+    private static final String NS = "http://example.org/";
+    private static final String VALIDITY = "urn:jena:lucene:field#validity";
+
+    private static final String PREFIXES = """
+        @prefix idx:   <urn:jena:lucene:index#> .
+        @prefix field: <urn:jena:lucene:field#> .
+        @prefix sh:    <http://www.w3.org/ns/shacl#> .
+        @prefix time:  <http://www.w3.org/2006/time#> .
+        @prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+        @prefix ex:    <http://example.org/> .
+        """;
+
+    /** OWL-Time: the period node reaches its start and end through an instant each. */
+    private static final String OWL_TIME_CONFIG = PREFIXES + """
+        field:validity idx:fieldName "validity" ; idx:fieldType idx:PeriodField ; idx:multiValued true .
+        ex:TenementShape sh:targetClass ex:Tenement ;
+            sh:property [
+                idx:field field:validity ;
+                sh:path ex:validity ;
+                idx:periodStart ( time:hasBeginning time:inXSDDate ) ;
+                idx:periodEnd   ( time:hasEnd time:inXSDDate ) ;
+            ] .
+        """;
+
+    private Dataset dataset;
+    private ShaclTextIndexLucene textIndex;
+
+    @AfterEach
+    public void tearDown() {
+        if (dataset != null) {
+            dataset.close();
+        }
+    }
+
+    /**
+     * Renewed in 2018 after lapsing in 2013: two periods, neither during 2011–2019. Paired
+     * across periods, the 2018 start and the 2012 end would be.
+     */
+    @Test
+    public void eachPeriodKeepsItsStartWithItsOwnEnd() {
+        load(OWL_TIME_CONFIG, PREFIXES + """
+            ex:renewed a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDate "2010-01-01"^^xsd:date ] ;
+                  time:hasEnd       [ time:inXSDDate "2012-12-31"^^xsd:date ] ] ,
+                [ time:hasBeginning [ time:inXSDDate "2018-01-01"^^xsd:date ] ;
+                  time:hasEnd       [ time:inXSDDate "2020-12-31"^^xsd:date ] ] .
+            ex:mid-decade a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDate "2013-01-01"^^xsd:date ] ;
+                  time:hasEnd       [ time:inXSDDate "2014-12-31"^^xsd:date ] ] .
+            """);
+
+        assertEquals(Set.of("mid-decade"), matching("""
+            {"op": "t_during", "args": [{"property": "%s"}, {"interval": ["2011-01-01", "2019-12-31"]}]}
+            """.formatted(VALIDITY)));
+    }
+
+    /** The timestamp variant 10-suggested-configuration.md gives for OWL-Time. */
+    @Test
+    public void owlTimeTimestampsAreInstants() {
+        load(OWL_TIME_CONFIG.replace("time:inXSDDate )", "time:inXSDDateTimeStamp )"), PREFIXES + """
+            ex:morning a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDateTimeStamp "2021-06-30T08:00:00+10:00"^^xsd:dateTimeStamp ] ;
+                  time:hasEnd       [ time:inXSDDateTimeStamp "2021-06-30T12:00:00+10:00"^^xsd:dateTimeStamp ] ] .
+            """);
+
+        assertEquals(Set.of("morning"), matching("""
+            {"op": "t_equals", "args": [{"property": "%s"},
+                {"interval": ["2021-06-29T22:00:00Z", "2021-06-30T02:00:00Z"]}]}
+            """.formatted(VALIDITY)));
+    }
+
+    /**
+     * A missing bound is open: a tenement with no end date is still current. Open ends
+     * compare as infinities, so an ongoing period finishes with an interval open at its end.
+     */
+    @Test
+    public void aMissingBoundIsOpen() {
+        load(OWL_TIME_CONFIG, PREFIXES + """
+            ex:current a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDate "2015-01-01"^^xsd:date ] ] .
+            ex:since-forever a ex:Tenement ; ex:validity
+                [ time:hasEnd [ time:inXSDDate "2000-12-31"^^xsd:date ] ] .
+            ex:neither a ex:Tenement ; ex:validity [ ex:note "no dates" ] .
+            """);
+
+        assertEquals(Set.of("current"), matching("""
+            {"op": "t_intersects", "args": [{"property": "%s"}, {"interval": ["2030-01-01", "2030-12-31"]}]}
+            """.formatted(VALIDITY)));
+        assertEquals(Set.of("since-forever"), matching("""
+            {"op": "t_before", "args": [{"property": "%s"}, {"date": "2001-06-01"}]}
+            """.formatted(VALIDITY)));
+        assertEquals(Set.of("current"), matching("""
+            {"op": "t_finishes", "args": [{"property": "%s"}, {"interval": ["2010-01-01", ".."]}]}
+            """.formatted(VALIDITY)));
+        assertEquals(Set.of("current", "since-forever"), matching("""
+            {"op": "t_intersects", "args": [{"property": "%s"}, {"interval": ["..", ".."]}]}
+            """.formatted(VALIDITY)), "a period node with neither bound has no span");
+    }
+
+    /** Each is logged and skipped; the entity is still indexed, with its other periods. */
+    @Test
+    public void aPeriodThatCannotBeReadIsSkipped() {
+        load(OWL_TIME_CONFIG, PREFIXES + """
+            ex:two-starts a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDate "2010-01-01"^^xsd:date ] ,
+                                    [ time:inXSDDate "2011-01-01"^^xsd:date ] ;
+                  time:hasEnd       [ time:inXSDDate "2012-12-31"^^xsd:date ] ] .
+            ex:ends-before-it-starts a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDate "2020-01-01"^^xsd:date ] ;
+                  time:hasEnd       [ time:inXSDDate "2010-12-31"^^xsd:date ] ] .
+            ex:not-a-date a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDate "soon"^^xsd:date ] ;
+                  time:hasEnd       [ time:inXSDDate "2010-12-31"^^xsd:date ] ] .
+            ex:one-good-one-bad a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDate "2020-01-01"^^xsd:date ] ;
+                  time:hasEnd       [ time:inXSDDate "2010-12-31"^^xsd:date ] ] ,
+                [ time:hasBeginning [ time:inXSDDate "2001-01-01"^^xsd:date ] ;
+                  time:hasEnd       [ time:inXSDDate "2001-12-31"^^xsd:date ] ] .
+            """);
+
+        assertEquals(Set.of("one-good-one-bad"), matching("""
+            {"op": "t_intersects", "args": [{"property": "%s"}, {"interval": ["..", ".."]}]}
+            """.formatted(VALIDITY)));
+    }
+
+    /** With {@code idx:self} the entity is the period node: its own start and end dates. */
+    @Test
+    public void theEntityItselfCanBeThePeriod() {
+        load(PREFIXES + """
+            @prefix schema: <https://schema.org/> .
+            field:active idx:fieldName "active" ; idx:fieldType idx:PeriodField .
+            ex:CampaignShape sh:targetClass ex:Campaign ;
+                sh:property [
+                    idx:field field:active ;
+                    idx:self true ;
+                    idx:periodStart schema:startDate ;
+                    idx:periodEnd   schema:endDate ;
+                ] .
+            """, PREFIXES + """
+            @prefix schema: <https://schema.org/> .
+            ex:march a ex:Campaign ; schema:startDate "2021-03-01"^^xsd:date ; schema:endDate "2021-03-31"^^xsd:date .
+            ex:next-year a ex:Campaign ; schema:startDate "2022-03-01"^^xsd:date ; schema:endDate "2022-03-31"^^xsd:date .
+            """);
+
+        assertEquals(Set.of("march"), matching("urn:jena:lucene:field#active", """
+            {"op": "t_during", "args": [{"property": "urn:jena:lucene:field#active"}, {"interval": ["2021-01-01", "2021-12-31"]}]}
+            """));
+    }
+
+    /**
+     * The listener follows a period's start and end paths: an edit two hops below the
+     * entity, to the end instant's date or to the link to it, rebuilds the entity.
+     */
+    @Test
+    public void editingAPeriodsEndReindexesTheEntity() {
+        load(OWL_TIME_CONFIG, PREFIXES + """
+            ex:lease a ex:Tenement ; ex:validity ex:lease-term .
+            ex:lease-term time:hasBeginning [ time:inXSDDate "2010-01-01"^^xsd:date ] ;
+                          time:hasEnd ex:lease-end .
+            ex:lease-end time:inXSDDate "2012-12-31"^^xsd:date .
+            """);
+        String in2015 = """
+            {"op": "t_intersects", "args": [{"property": "%s"}, {"date": "2015-06-30"}]}
+            """.formatted(VALIDITY);
+        assertEquals(Set.of(), matching(in2015));
+
+        update(PREFIXES + """
+            DELETE DATA { ex:lease-end time:inXSDDate "2012-12-31"^^xsd:date } ;
+            INSERT DATA { ex:lease-end time:inXSDDate "2016-12-31"^^xsd:date }
+            """);
+        assertEquals(Set.of("lease"), matching(in2015), "the end date moved past 2015");
+
+        update(PREFIXES + """
+            DELETE DATA { ex:lease-end time:inXSDDate "2016-12-31"^^xsd:date } ;
+            INSERT DATA { ex:lease-end time:inXSDDate "2013-12-31"^^xsd:date }
+            """);
+        assertEquals(Set.of(), matching(in2015), "the end date moved back before 2015");
+
+        update(PREFIXES + """
+            DELETE DATA { ex:lease-term time:hasEnd ex:lease-end }
+            """);
+        assertEquals(Set.of("lease"), matching(in2015), "with no end the lease is open-ended");
+    }
+
+    /**
+     * A PeriodField in an {@code idx:nested} block: a holding's holder and its term must be
+     * the same holding's. Permit B was Acme's in 2016; permit A was Acme's, but not then.
+     */
+    @Test
+    public void aNestedPeriodCorrelatesWithItsChildsOtherFields() {
+        load(PREFIXES + """
+            @prefix schema: <https://schema.org/> .
+            field:holder idx:fieldName "holder" ; idx:fieldType idx:KeywordField .
+            field:term   idx:fieldName "term"   ; idx:fieldType idx:PeriodField .
+            ex:PermitShape sh:targetClass ex:Permit ;
+                idx:nested [
+                    idx:joinPath ex:holding ;
+                    idx:property [ idx:field field:holder ; sh:path ex:holder ] ;
+                    idx:property [ idx:field field:term ; idx:self true ;
+                                   idx:periodStart schema:startDate ; idx:periodEnd schema:endDate ] ;
+                ] .
+            """, PREFIXES + """
+            @prefix schema: <https://schema.org/> .
+            ex:permit-a a ex:Permit ; ex:holding ex:a1 , ex:a2 .
+            ex:a1 ex:holder "Acme" ; schema:startDate "2010-01-01"^^xsd:date ; schema:endDate "2014-12-31"^^xsd:date .
+            ex:a2 ex:holder "Bolt" ; schema:startDate "2015-01-01"^^xsd:date ; schema:endDate "2020-12-31"^^xsd:date .
+            ex:permit-b a ex:Permit ; ex:holding ex:b1 , ex:b2 .
+            ex:b1 ex:holder "Bolt" ; schema:startDate "2010-01-01"^^xsd:date ; schema:endDate "2014-12-31"^^xsd:date .
+            ex:b2 ex:holder "Acme" ; schema:startDate "2015-01-01"^^xsd:date ; schema:endDate "2020-12-31"^^xsd:date .
+            """);
+
+        assertEquals(Set.of("permit-b"), matching("urn:jena:lucene:field#holder", """
+            {"op": "and", "args": [
+                {"op": "=", "args": [{"property": "urn:jena:lucene:field#holder"}, "Acme"]},
+                {"op": "t_intersects", "args": [{"property": "urn:jena:lucene:field#term"}, {"date": "2016-06-30"}]}]}
+            """));
+    }
+
+    /**
+     * Where a missing end means "unknown" rather than "ongoing", a value constraint on the
+     * occurrence, which filters the period node, indexes only closed periods. This is the
+     * shape 10-suggested-configuration.md recommends.
+     */
+    @Test
+    public void aValueConstraintCanKeepOnlyClosedPeriods() {
+        load(PREFIXES + """
+            field:validity idx:fieldName "validity" ; idx:fieldType idx:PeriodField ; idx:multiValued true .
+            ex:TenementShape sh:targetClass ex:Tenement ;
+                sh:property [
+                    idx:field field:validity ;
+                    sh:path ex:validity ;
+                    sh:node [ sh:property [ sh:path time:hasEnd ; sh:minCount 1 ] ] ;
+                    idx:periodStart ( time:hasBeginning time:inXSDDate ) ;
+                    idx:periodEnd   ( time:hasEnd time:inXSDDate ) ;
+                ] .
+            """, PREFIXES + """
+            ex:closed a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDate "2015-01-01"^^xsd:date ] ;
+                  time:hasEnd       [ time:inXSDDate "2016-12-31"^^xsd:date ] ] .
+            ex:end-unknown a ex:Tenement ; ex:validity
+                [ time:hasBeginning [ time:inXSDDate "2015-01-01"^^xsd:date ] ] .
+            """);
+
+        assertEquals(Set.of("closed"), matching("""
+            {"op": "t_intersects", "args": [{"property": "%s"}, {"interval": ["..", ".."]}]}
+            """.formatted(VALIDITY)));
+    }
+
+    private void update(String sparqlUpdate) {
+        String update = sparqlUpdate.replace("@prefix ", "PREFIX ").replaceAll(" \\.\n", "\n");
+        dataset.begin(ReadWrite.WRITE);
+        try {
+            UpdateAction.parseExecute(update, dataset);
+            dataset.commit();
+        } finally {
+            dataset.end();
+        }
+    }
+
+    private void load(String config, String data) {
+        Model model = ModelFactory.createDefaultModel();
+        model.read(new StringReader(config), null, "TTL");
+        RDFList shapes = model.createList(model.listSubjectsWithProperty(
+            model.createProperty("http://www.w3.org/ns/shacl#targetClass")).toList().toArray(new Resource[0]));
+        ShaclIndexMapping mapping = ShaclIndexAssembler.parseShapes(Assembler.general(), shapes);
+
+        TextIndexConfig indexConfig = new TextIndexConfig(ShaclIndexAssembler.deriveEntityDefinition(mapping));
+        indexConfig.setShaclMapping(mapping);
+        textIndex = new ShaclTextIndexLucene(new ByteBuffersDirectory(), new ByteBuffersDirectory(), indexConfig);
+        Dataset baseDs = DatasetFactory.create();
+        dataset = TextDatasetFactory.create(baseDs, textIndex, true,
+            new ShaclTextDocProducer(baseDs.asDatasetGraph(), textIndex, mapping));
+
+        dataset.begin(ReadWrite.WRITE);
+        try {
+            dataset.getDefaultModel().read(new StringReader(data), null, "TTL");
+            dataset.commit();
+        } finally {
+            dataset.end();
+        }
+    }
+
+    private Set<String> matching(String cqlJson) {
+        return matching(VALIDITY, cqlJson);
+    }
+
+    private Set<String> matching(String field, String cqlJson) {
+        Set<String> names = new TreeSet<>();
+        for (TextHit hit : textIndex.queryWithCql(List.of(field), null, CqlParser.parse(cqlJson),
+                null, null, null, 100, null)) {
+            names.add(hit.getNode().getURI().substring(NS.length()));
+        }
+        return names;
+    }
+}

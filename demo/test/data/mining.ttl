@@ -11,6 +11,7 @@
 @prefix geo:   <http://www.opengis.net/ont/geosparql#> .
 @prefix prov:  <http://www.w3.org/ns/prov#> .
 @prefix schema: <https://schema.org/> .
+@prefix time:  <http://www.w3.org/2006/time#> .
 
 ## --- Sites ---
 
@@ -184,6 +185,47 @@ ex:site-no-geometry a ex:Site ;
     ex:commodity commodity:Gold ;
     ex:state state:WA ;
     ex:status status:Historical .
+
+## --- Operating periods ---
+## When each named site operated, as OWL-Time intervals: field:operating, a PeriodField,
+## keeps each period's start with its own end. Measured against the 1990s, from
+## 1990-01-01 to the end of 1999-12-31, each of Allen's thirteen relations holds for
+## exactly one site's period, named beside it. A site still operating has no end; one
+## that closed and reopened has two periods, and matches through either.
+##
+## Four sites have no period at all, and match no temporal operator, t_disjoint included.
+
+ex:site-legacy-survey ex:operatingPeriod                                   # t_before
+    [ time:hasBeginning [ time:inXSDDate "1960-01-01"^^xsd:date ] ; time:hasEnd [ time:inXSDDate "1975-12-31"^^xsd:date ] ] .
+ex:site-echidna-hill ex:operatingPeriod                                    # t_meets
+    [ time:hasBeginning [ time:inXSDDate "1975-01-01"^^xsd:date ] ; time:hasEnd [ time:inXSDDate "1989-12-31"^^xsd:date ] ] .
+ex:site-kanawa-ridge ex:operatingPeriod                                    # t_overlaps, then t_after
+    [ time:hasBeginning [ time:inXSDDate "1980-01-01"^^xsd:date ] ; time:hasEnd [ time:inXSDDate "1994-12-31"^^xsd:date ] ] ,
+    [ time:hasBeginning [ time:inXSDDate "2010-01-01"^^xsd:date ] ] .
+ex:site-no-geometry ex:operatingPeriod                                     # t_starts
+    [ time:hasBeginning [ time:inXSDDate "1990-01-01"^^xsd:date ] ; time:hasEnd [ time:inXSDDate "1994-12-31"^^xsd:date ] ] .
+ex:site-redgum-cluster ex:operatingPeriod                                  # t_during, then t_after
+    [ time:hasBeginning [ time:inXSDDate "1992-01-01"^^xsd:date ] ; time:hasEnd [ time:inXSDDate "1996-12-31"^^xsd:date ] ] ,
+    [ time:hasBeginning [ time:inXSDDate "2012-01-01"^^xsd:date ] ] .
+ex:site-haul-road ex:operatingPeriod                                       # t_finishes, then t_after
+    [ time:hasBeginning [ time:inXSDDate "1995-01-01"^^xsd:date ] ; time:hasEnd [ time:inXSDDate "1999-12-31"^^xsd:date ] ] ,
+    [ time:hasBeginning [ time:inXSDDate "2003-01-01"^^xsd:date ] ] .
+ex:site-drill-collars ex:operatingPeriod                                   # t_equals, then t_after
+    [ time:hasBeginning [ time:inXSDDate "1990-01-01"^^xsd:date ] ; time:hasEnd [ time:inXSDDate "1999-12-31"^^xsd:date ] ] ,
+    [ time:hasBeginning [ time:inXSDDate "2004-01-01"^^xsd:date ] ] .
+ex:site-rail-spur ex:operatingPeriod                                       # t_finishedBy, then t_after
+    [ time:hasBeginning [ time:inXSDDate "1970-01-01"^^xsd:date ] ; time:hasEnd [ time:inXSDDate "1999-12-31"^^xsd:date ] ] ,
+    [ time:hasBeginning [ time:inXSDDate "2001-01-01"^^xsd:date ] ] .
+ex:site-brolga-ridge ex:operatingPeriod                                    # t_contains
+    [ time:hasBeginning [ time:inXSDDate "1923-01-01"^^xsd:date ] ] .
+ex:site-spinifex-dome ex:operatingPeriod                                   # t_startedBy
+    [ time:hasBeginning [ time:inXSDDate "1990-01-01"^^xsd:date ] ] .
+ex:site-wattle-downs ex:operatingPeriod                                    # t_overlappedBy
+    [ time:hasBeginning [ time:inXSDDate "1995-07-01"^^xsd:date ] ] .
+ex:site-kurrajong-valley ex:operatingPeriod                                # t_metBy
+    [ time:hasBeginning [ time:inXSDDate "2000-01-01"^^xsd:date ] ] .
+ex:site-redgum-iron ex:operatingPeriod                                     # t_after
+    [ time:hasBeginning [ time:inXSDDate "2008-03-01"^^xsd:date ] ] .
 
 ## --- Boreholes ---
 ## Boreholes are indexed from an external CSV assay source, so they are rebuild-only.

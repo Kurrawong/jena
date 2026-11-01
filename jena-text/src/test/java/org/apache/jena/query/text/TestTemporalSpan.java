@@ -1,0 +1,113 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ *
+ *   SPDX-License-Identifier: Apache-2.0
+ */
+
+package org.apache.jena.query.text;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.time.Instant;
+
+import org.apache.jena.datatypes.xsd.XSDDatatype;
+import org.apache.jena.graph.Node;
+import org.apache.jena.graph.NodeFactory;
+import org.junit.jupiter.api.Test;
+
+/**
+ * The interval a temporal literal spans, in UTC: an instant for a dateTime, the whole
+ * period for a date, year-month or year. The values are those of Prez's temporal
+ * fixture, whose SPARQL answers pushdown must match.
+ */
+public class TestTemporalSpan {
+
+    @Test
+    public void aDateTimeIsAnInstantInUtc() {
+        TemporalSpan noon = instant("2021-06-30T12:00:00Z");
+
+        assertEquals(noon, TemporalSpan.of(literal("2021-06-30T12:00:00Z", XSDDatatype.XSDdateTime)));
+        assertEquals(noon, TemporalSpan.of(literal("2021-06-30T22:00:00+10:00", XSDDatatype.XSDdateTime)),
+            "an offset is converted to UTC");
+        assertEquals(noon, TemporalSpan.of(literal("2021-06-30T12:00:00", XSDDatatype.XSDdateTime)),
+            "no timezone is taken as UTC");
+    }
+
+    /** OWL-Time's {@code time:inXSDDateTimeStamp} is typed this way. */
+    @Test
+    public void aDateTimeStampIsAnInstantInUtc() {
+        assertEquals(instant("2021-06-30T12:00:00Z"),
+            TemporalSpan.of(literal("2021-06-30T22:00:00+10:00", XSDDatatype.XSDdateTimeStamp)));
+    }
+
+    /** A day ends when the next one starts, so consecutive days meet. */
+    @Test
+    public void aDateSpansItsWholeDay() {
+        assertEquals(span("2021-06-30T00:00:00Z", "2021-07-01T00:00:00Z"),
+            TemporalSpan.of(literal("2021-06-30", XSDDatatype.XSDdate)),
+            "no timezone is taken as UTC");
+        assertEquals(span("2021-06-29T14:00:00Z", "2021-06-30T14:00:00Z"),
+            TemporalSpan.of(literal("2021-06-30+10:00", XSDDatatype.XSDdate)),
+            "a date's day starts at midnight at its own offset");
+    }
+
+    /** In UTC, ignoring any offset, as Prez's SPARQL does. */
+    @Test
+    public void aYearMonthSpansItsWholeMonth() {
+        assertEquals(span("2021-06-01T00:00:00Z", "2021-07-01T00:00:00Z"),
+            TemporalSpan.of(literal("2021-06", XSDDatatype.XSDgYearMonth)));
+        assertEquals(span("2021-12-01T00:00:00Z", "2022-01-01T00:00:00Z"),
+            TemporalSpan.of(literal("2021-12", XSDDatatype.XSDgYearMonth)),
+            "December ends when the next year starts");
+        assertEquals(span("2021-06-01T00:00:00Z", "2021-07-01T00:00:00Z"),
+            TemporalSpan.of(literal("2021-06+10:00", XSDDatatype.XSDgYearMonth)),
+            "an offset is ignored");
+    }
+
+    /** In UTC, ignoring any offset, as Prez's SPARQL does. */
+    @Test
+    public void aYearSpansItsWholeYear() {
+        assertEquals(span("2021-01-01T00:00:00Z", "2022-01-01T00:00:00Z"),
+            TemporalSpan.of(literal("2021", XSDDatatype.XSDgYear)));
+        assertEquals(span("2021-01-01T00:00:00Z", "2022-01-01T00:00:00Z"),
+            TemporalSpan.of(literal("2021Z", XSDDatatype.XSDgYear)),
+            "an offset is ignored");
+    }
+
+    /** The datatype decides: a string that looks like a date is never read as one. */
+    @Test
+    public void aValueNamingNoPointInTimeHasNoSpan() {
+        assertNull(TemporalSpan.of(literal("--06-30", XSDDatatype.XSDgMonthDay)));
+        assertNull(TemporalSpan.of(literal("12:00:00Z", XSDDatatype.XSDtime)));
+        assertNull(TemporalSpan.of(NodeFactory.createLiteralString("2021-06-30")));
+        assertNull(TemporalSpan.of(NodeFactory.createURI("http://example.org/2021-06-30")));
+        assertNull(TemporalSpan.of(literal("2024-13-40", XSDDatatype.XSDdate)), "not a valid date");
+    }
+
+    private static Node literal(String lexical, XSDDatatype datatype) {
+        return NodeFactory.createLiteralDT(lexical, datatype);
+    }
+
+    private static TemporalSpan instant(String utc) {
+        return span(utc, utc);
+    }
+
+    private static TemporalSpan span(String startUtc, String endUtc) {
+        return new TemporalSpan(Instant.parse(startUtc).toEpochMilli(), Instant.parse(endUtc).toEpochMilli());
+    }
+}

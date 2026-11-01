@@ -1,0 +1,17 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# A temporal operator on field:publishedOn, a TemporalField of xsd:date values. Each
+# date is its whole day.
+#
+# t_during: published strictly inside 2024. A day matches when it starts after the year
+# starts and ends before the year ends, so a report published on 2024-01-01 or
+# 2024-12-31 would not. Compare 20-date-range-filter.rq, whose `between` includes both.
+#
+# Exactly 2 rows: the reports published on 2024-02-15 and 2024-03-04.
+PREFIX luc: <urn:jena:lucene:index#>
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score) luc:query ("instance" "default" "*"
+    '{"op":"t_during","args":[{"property":"urn:jena:lucene:field#publishedOn"},{"interval":["2024-01-01","2024-12-31"]}]}'
+    ""
+    20
+    0)
+}

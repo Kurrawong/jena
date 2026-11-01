@@ -1,0 +1,31 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+# CQL2 temporal operators on field:operating, a PeriodField holding each named site's
+# operating periods as OWL-Time intervals. Only the named sites in mining.ttl carry one.
+#
+# t_intersects: operating at any time in the 1990s. A date as an interval's end runs to
+# the end of that day, so the interval is the whole decade.
+#
+# 11 rows. Replace the operator to see each of Allen's relations pick out one site:
+#   t_before        site-legacy-survey       1960-1975
+#   t_meets         site-echidna-hill        1975-1989, closed as the decade began
+#   t_overlaps      site-kanawa-ridge        1980-1994
+#   t_starts        site-no-geometry         1990-1994
+#   t_during        site-redgum-cluster      1992-1996
+#   t_finishes      site-haul-road           1995-1999
+#   t_equals        site-drill-collars       1990-1999
+#   t_finishedBy    site-rail-spur           1970-1999
+#   t_contains      site-brolga-ridge        since 1923
+#   t_startedBy     site-spinifex-dome       since 1990
+#   t_overlappedBy  site-wattle-downs        since mid-1995
+#   t_metBy         site-kurrajong-valley    since 2000, opened as the decade ended
+#   t_after         6 sites, opened or reopened after the decade
+#   t_disjoint      7 sites: some period before or after. The four sites with no period
+#                   match no operator, t_disjoint included.
+PREFIX luc: <urn:jena:lucene:index#>
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score) luc:query ("instance" "default" "*"
+    '{"op":"t_intersects","args":[{"property":"urn:jena:lucene:field#operating"},{"interval":["1990-01-01","1999-12-31"]}]}'
+    ""
+    20
+    0)
+}

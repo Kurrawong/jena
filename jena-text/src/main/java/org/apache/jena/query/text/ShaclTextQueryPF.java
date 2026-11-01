@@ -38,6 +38,7 @@ import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.QueryBuildException;
 import org.apache.jena.query.QueryExecException;
 import org.apache.jena.query.text.cql.CqlExpression;
+import org.apache.jena.query.text.cql.CqlFilterException;
 import org.apache.jena.query.text.cql.CqlParser;
 import org.apache.jena.sparql.core.Substitute;
 import org.apache.jena.sparql.core.Var;
@@ -138,10 +139,21 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         }
     }
 
+    /** A filter that cannot be run is a bad request, which Fuseki answers with a 400. */
     @Override
     public QueryIterator exec(Binding binding,
                               PropFuncArg argSubject, Node predicate, PropFuncArg argObject,
                               ExecutionContext execCxt) {
+        try {
+            return execute(binding, argSubject, predicate, argObject, execCxt);
+        } catch (CqlFilterException ex) {
+            throw ex.asParseError();
+        }
+    }
+
+    private QueryIterator execute(Binding binding,
+                                  PropFuncArg argSubject, Node predicate, PropFuncArg argObject,
+                                  ExecutionContext execCxt) {
         if (log.isTraceEnabled()) {
             IndentedLineBuffer subjBuff = new IndentedLineBuffer();
             argSubject.output(subjBuff, null);

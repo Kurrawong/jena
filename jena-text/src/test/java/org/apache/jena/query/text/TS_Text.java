@@ -111,6 +111,7 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
 
     // CQL and multi-index tests
     , TestCqlParser.class
+    , org.apache.jena.query.text.cql.TestCqlTemporalParsing.class
     , TestCqlToLuceneCompiler.class
     , TestSortSpec.class
     // Nested sort selector: order by a child value where the co-located discriminator = X
@@ -184,6 +185,20 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
 
     // TEMPORAL fields: epoch filtering, sort, and literal reconstruction on read
     , TestDateLiteralRoundTrip.class
+    // The interval a temporal literal spans, in UTC
+    , TestTemporalSpan.class
+    , TestTemporalComparisonsByStart.class
+    // CQL2's temporal operators over a value's span
+    , TestTemporalOperators.class
+    , TestTemporalOperatorOracle.class
+    , TestTemporalOperatorSemantics.class
+    , TestNestedTemporalOperators.class
+    // idx:PeriodField: a start and an end read from one period node, kept paired
+    , TestPeriodField.class
+    , TestPeriodFieldOracle.class
+    , org.apache.jena.query.text.assembler.TestPeriodFieldConfig.class
+    // A filter that cannot be run is a parse error, which Fuseki answers with a 400
+    , TestCqlFilterErrors.class
 
     // Classic Lucene query syntax reaching the queryString argument
     , TestLuceneQuerySyntax.class
