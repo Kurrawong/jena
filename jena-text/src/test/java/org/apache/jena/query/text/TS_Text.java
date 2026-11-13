@@ -77,6 +77,7 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestNativeFacetCounts.class
     , TestMultiValuedFieldSemantics.class
     , TestTextFacetPF.class
+    , TestFacetSideways.class
     , TestSearchExecution.class
 
     // SHACL entity-per-document tests
