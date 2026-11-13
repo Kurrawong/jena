@@ -371,7 +371,7 @@ The indexer follows the path at index time and stores the result in the Lucene d
 
 ### DrillSideways — Smarter Facet Counting
 
-Opt-in on `luc:facet` · No breaking changes · Deferrable
+Built: `luc:facet`'s default count mode. See [SPARQL API: count modes](02-sparql-api.md#count-modes)
 
 Standard faceted search UX. When a user filters by `category = Environment`, the category facet still shows counts for *all* categories — so the user can see what else is available and switch. Other facets (publisher, year) narrow as expected.
 

@@ -100,7 +100,7 @@ For the public SPARQL/API contract, field references are always IRIs. The intern
 **Problem:** The triple-per-document model causes:
 - Facet values on different docs from text values → requires URI-join
 - Overcounting risk when same entity has multiple triples
-- Cannot use `DrillSideways` (requires all fields on same doc)
+- Cannot use Lucene's `DrillSideways`, which counts facet values on the document that matched the query; with one triple per document, the facet values are on other documents. The entity-per-document index can, and `luc:facet` uses it for [sideways counts](02-sparql-api.md#count-modes)
 - No numeric field types
 
 **Alternatives considered:**

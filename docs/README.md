@@ -10,6 +10,7 @@ This doc set covers the SHACL/entity-per-document search model in `jena-text`.
 | `luc:match` | Done | Sole per-hit match-detail API |
 | `luc:nestedMatch` | Done | Projects the `idx:nested` child records a filter selected, grouped by `?record` |
 | `luc:facet` | Done | Fixed-position facet API with field IRIs and range facets |
+| Sideways facet counts | Built | `luc:facet` counts each selected facet without its own selection by default; `"drilldown"` as the eighth argument counts every facet under the full filter. Uses Lucene `DrillSideways`. See [2026-11-13_luc_facet_sideways_counts_design.md](2026-11-13_luc_facet_sideways_counts_design.md) |
 | `luc:config` | Done | The index configuration as triples, through the query endpoint. Opt-in per index with `text:exposeConfig`. See [2026-10-09_luc_config_property_function_plan.md](2026-10-09_luc_config_property_function_plan.md) |
 | `luc:stats` | Done | Entity, document, term, token and point counts and index size as triples, through the query endpoint. Not gated. See [02-sparql-api.md](02-sparql-api.md#lucstats) |
 | Multi-index selection | Done | Query-time `indexSelector` plus `text:indexes` config |
@@ -30,7 +31,7 @@ This doc set covers the SHACL/entity-per-document search model in `jena-text`.
 ## Core Rules
 
 - `luc:query` object arguments are exactly `(indexSelector fieldSpec queryString cqlFilter sortSpec limit offset)`, or those and `after` for cursor paging.
-- `luc:facet` object arguments are exactly `(indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount)`.
+- `luc:facet` object arguments are exactly `(indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount)`, or those and `countMode` (`"sideways"`, the default, or `"drilldown"`).
 - `luc:query`'s subject list is 1 to 6 of `(?hit ?entity ?score ?totalHits ?rank ?cursor)`, the sixth only with `after`; there is no `?graph` slot.
 - `luc:query` does not expose `?match`.
 - `luc:match` is the only match-detail API.
