@@ -25,7 +25,10 @@ import java.io.File;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.jena.query.*;
@@ -97,6 +100,108 @@ public class BenchLucQuery {
         + "\" '" + FACET_FIELDS + "' \"\" 10 0) . }\n"
         + "}";
 
+    // ---- Search form facet counts ----------------------------------------------------
+    //
+    // A search form with some facets selected, values ORed within a facet and facets ANDed,
+    // and subject only counted. Each form is timed two ways: one luc:facet counting
+    // sideways, and the drill-down calls a client made before sideways counts existed.
+
+    private static String in(String field, String... values) {
+        return "{\"op\":\"in\",\"args\":[{\"property\":\"" + FIELD + field + "\"},[\""
+            + String.join("\",\"", values) + "\"]]}";
+    }
+
+    private static String and(List<String> clauses) {
+        return clauses.size() == 1 ? clauses.get(0)
+            : "{\"op\":\"and\",\"args\":[" + String.join(",", clauses) + "]}";
+    }
+
+    private static String[] values(String prefix, int count) {
+        String[] values = new String[count];
+        for (int i = 0; i < count; i++)
+            values[i] = prefix + i;
+        return values;
+    }
+
+    private static final String YEAR_RANGES =
+        "{\"field\":\"" + FIELD + "year\",\"ranges\":[null,1970,1990,2010,null]}";
+
+    /**
+     * One form: the selected fields with their clause, in order, and the facet target each
+     * field is requested as. Subject is always requested and never selected.
+     */
+    record Form(Map<String, String> selections, Map<String, String> targets) {}
+
+    /** Category 3 of 30 values, region 2 of 8, status active (3 in 5 entities). */
+    static final Form SELECTIVE = new Form(
+        orderedMap("category", in("category", "category-1", "category-2", "category-3"),
+                   "region", in("region", "north", "south"),
+                   "status", STATUS_FILTER),
+        orderedMap("category", "\"" + FIELD + "category\"",
+                   "region", "\"" + FIELD + "region\"",
+                   "status", "\"" + FIELD + "status\""));
+
+    /**
+     * Category 20 of 30 values, region 6 of 8, status active or draft (4 in 5 entities),
+     * year 1960 to 2015 (56 of 76 years), with year as a range facet.
+     */
+    static final Form BROAD = new Form(
+        orderedMap("category", in("category", values("category-", 20)),
+                   "region", in("region", "north", "south", "east", "west", "central", "coastal"),
+                   "status", in("status", SyntheticCorpus.COMMON_STATUS, "draft"),
+                   "year", "{\"op\":\"between\",\"args\":[{\"property\":\"" + FIELD + "year\"},1960,2015]}"),
+        orderedMap("category", "\"" + FIELD + "category\"",
+                   "region", "\"" + FIELD + "region\"",
+                   "status", "\"" + FIELD + "status\"",
+                   "year", YEAR_RANGES));
+
+    private static Map<String, String> orderedMap(String... keysAndValues) {
+        Map<String, String> map = new LinkedHashMap<>();
+        for (int i = 0; i < keysAndValues.length; i += 2)
+            map.put(keysAndValues[i], keysAndValues[i + 1]);
+        return map;
+    }
+
+    /** {@code mode} is the count mode argument, or null to leave it out. */
+    private static String facetCall(String term, String facetFields, String filter, String mode) {
+        return "  { (?field ?value ?low ?high ?count) luc:facet (\"default\" \"default\" \"" + term
+            + "\" '" + facetFields + "' '" + filter + "' 0 0" + (mode != null ? " \"" + mode + "\"" : "") + ") . }\n";
+    }
+
+    /** One luc:facet with the full form filter, in its default count mode, sideways. */
+    static String formSidewaysQuery(Form form, String term) {
+        List<String> targets = new ArrayList<>(form.targets().values());
+        targets.add("\"" + FIELD + "subject\"");
+        return PREFIXES
+            + "SELECT ?field ?value ?low ?high ?count WHERE {\n"
+            + facetCall(term, "[" + String.join(",", targets) + "]",
+                and(new ArrayList<>(form.selections().values())), null)
+            + "}";
+    }
+
+    /**
+     * The same counts as a client got them before sideways counts: drill-down luc:facet
+     * calls, one for the unselected field under the full filter and one per selected field
+     * with that field's clause removed, in a UNION.
+     */
+    static String formPerFieldQuery(Form form, String term) {
+        List<String> calls = new ArrayList<>();
+        calls.add(facetCall(term, "[\"" + FIELD + "subject\"]", and(new ArrayList<>(form.selections().values())),
+            "drilldown"));
+        for (String field : form.selections().keySet()) {
+            List<String> others = new ArrayList<>();
+            form.selections().forEach((f, clause) -> {
+                if (!f.equals(field))
+                    others.add(clause);
+            });
+            calls.add(facetCall(term, "[" + form.targets().get(field) + "]", and(others), "drilldown"));
+        }
+        return PREFIXES
+            + "SELECT ?field ?value ?low ?high ?count WHERE {\n"
+            + String.join("  UNION\n", calls)
+            + "}";
+    }
+
     static String largeFilterQuery(int window) {
         return PREFIXES
             + "SELECT ?entity WHERE {\n"
@@ -141,6 +246,8 @@ public class BenchLucQuery {
     private Query largeText;
     private Query largeTextMatch;
     private Query largeIdentifier;
+    /** The form queries, by benchmark method name. */
+    private final Map<String, Query> forms = new HashMap<>();
 
     @Setup(Level.Trial)
     public void setup(BenchmarkParams params) throws Exception {
@@ -158,6 +265,14 @@ public class BenchLucQuery {
         largeText = QueryFactory.create(largeTextQuery(largeWindow));
         largeTextMatch = QueryFactory.create(largeTextMatchQuery(matchWindow));
         largeIdentifier = QueryFactory.create(largeIdentifierQuery(largeWindow));
+        for (Map.Entry<String, Form> form : Map.of("Selective", SELECTIVE, "Broad", BROAD).entrySet()) {
+            for (Map.Entry<String, String> term : Map.of("Common", SyntheticCorpus.COMMON_TERM,
+                                                          "Rare", SyntheticCorpus.RARE_TERM).entrySet()) {
+                String suffix = form.getKey() + term.getKey();
+                forms.put("formSideways" + suffix, QueryFactory.create(formSidewaysQuery(form.getValue(), term.getValue())));
+                forms.put("formPerField" + suffix, QueryFactory.create(formPerFieldQuery(form.getValue(), term.getValue())));
+            }
+        }
 
         // Run this benchmark's query once and check its row count, so a broken query
         // cannot be timed as a fast one.
@@ -171,6 +286,16 @@ public class BenchLucQuery {
             case "largeTextNoMatch" -> largeText;
             case "largeTextWithMatch" -> largeTextMatch;
             case "largeIdentifierFields" -> largeIdentifier;
+            case String m when m.startsWith("form") -> {
+                // Both forms of the facet query must return the same rows.
+                String suffix = m.substring(m.startsWith("formSideways") ? "formSideways".length() : "formPerField".length());
+                List<String> sideways = facetRows(forms.get("formSideways" + suffix));
+                List<String> perField = facetRows(forms.get("formPerField" + suffix));
+                if (sideways.isEmpty() || !sideways.equals(perField))
+                    throw new IllegalStateException(method + ": sideways and per-field facet rows differ: "
+                        + sideways.size() + " and " + perField.size() + " rows");
+                yield forms.get(m);
+            }
             default -> throw new IllegalStateException("No sanity check for " + method);
         };
         long t0 = System.nanoTime();
@@ -185,8 +310,10 @@ public class BenchLucQuery {
             case "largeTextWithMatch" -> matchWindow;
             default -> 0;
         };
-        // luc:match returns one row per matched field, so those two have a lower bound.
-        boolean exact = !method.equals("pageTextWithMatch") && !method.equals("largeTextWithMatch");
+        // luc:match returns one row per matched field, so those two have a lower bound. The
+        // facet form queries were checked against each other above.
+        boolean exact = !method.equals("pageTextWithMatch") && !method.equals("largeTextWithMatch")
+            && !method.startsWith("form");
         if (exact ? rows != minimum : rows < minimum)
             throw new IllegalStateException(method + " returned " + rows + " rows, expected "
                 + (exact ? "" : "at least ") + minimum);
@@ -245,6 +372,70 @@ public class BenchLucQuery {
     @Benchmark
     public long largeIdentifierFields(Blackhole bh) {
         return run(largeIdentifier, bh);
+    }
+
+    /** Facet counts for the form {@link #SELECTIVE}, text query {@code survey}: 300,000 hits before the filter, as one sideways {@code luc:facet}. */
+    @Benchmark
+    public long formSidewaysSelectiveCommon(Blackhole bh) {
+        return run(forms.get("formSidewaysSelectiveCommon"), bh);
+    }
+
+    /** The counts of {@link #formSidewaysSelectiveCommon} as one {@code luc:facet} per selected field plus one. */
+    @Benchmark
+    public long formPerFieldSelectiveCommon(Blackhole bh) {
+        return run(forms.get("formPerFieldSelectiveCommon"), bh);
+    }
+
+    /** Facet counts for the form {@link #SELECTIVE}, text query {@code basalt}: 10,638 hits before the filter, as one sideways {@code luc:facet}. */
+    @Benchmark
+    public long formSidewaysSelectiveRare(Blackhole bh) {
+        return run(forms.get("formSidewaysSelectiveRare"), bh);
+    }
+
+    /** The counts of {@link #formSidewaysSelectiveRare} as one {@code luc:facet} per selected field plus one. */
+    @Benchmark
+    public long formPerFieldSelectiveRare(Blackhole bh) {
+        return run(forms.get("formPerFieldSelectiveRare"), bh);
+    }
+
+    /** Facet counts for the form {@link #BROAD}, text query {@code survey}: 300,000 hits before the filter, as one sideways {@code luc:facet}. */
+    @Benchmark
+    public long formSidewaysBroadCommon(Blackhole bh) {
+        return run(forms.get("formSidewaysBroadCommon"), bh);
+    }
+
+    /** The counts of {@link #formSidewaysBroadCommon} as one {@code luc:facet} per selected field plus one. */
+    @Benchmark
+    public long formPerFieldBroadCommon(Blackhole bh) {
+        return run(forms.get("formPerFieldBroadCommon"), bh);
+    }
+
+    /** Facet counts for the form {@link #BROAD}, text query {@code basalt}: 10,638 hits before the filter, as one sideways {@code luc:facet}. */
+    @Benchmark
+    public long formSidewaysBroadRare(Blackhole bh) {
+        return run(forms.get("formSidewaysBroadRare"), bh);
+    }
+
+    /** The counts of {@link #formSidewaysBroadRare} as one {@code luc:facet} per selected field plus one. */
+    @Benchmark
+    public long formPerFieldBroadRare(Blackhole bh) {
+        return run(forms.get("formPerFieldBroadRare"), bh);
+    }
+
+    private List<String> facetRows(Query query) {
+        return Txn.calculateRead(dataset, () -> {
+            List<String> rows = new ArrayList<>();
+            try (QueryExecution qe = QueryExecution.dataset(dataset).query(query).build()) {
+                ResultSet rs = qe.execSelect();
+                while (rs.hasNext()) {
+                    QuerySolution sol = rs.next();
+                    rows.add(sol.get("field") + " " + sol.get("value") + " " + sol.get("low") + " "
+                        + sol.get("high") + " " + sol.get("count"));
+                }
+            }
+            rows.sort(null);
+            return rows;
+        });
     }
 
     private long run(Query query, Blackhole bh) {
