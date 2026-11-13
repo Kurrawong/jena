@@ -3216,8 +3216,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * arguments of a top-level {@code and}, or the filter itself) include at least one
      * clause on it, every such clause is {@link #isSidewaysClause eligible}, and the field
      * is mentioned nowhere else in the filter. Its selection is those clauses, ANDed. All
-     * other clauses form the base query. Lucene's {@link DrillSideways} then collects, in
-     * one pass over the base query's hits, the hits that match every dimension and, per
+     * other clauses form the base query. {@link #collectSidewaysHits} then finds, with
+     * Lucene's {@link DrillSideways}, the hits that match every dimension and, per
      * dimension, the hits that match every dimension but that one.
      * <p>
      * Fields that are not dimensions are counted exactly as
@@ -3314,28 +3314,13 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 }
             }
             BooleanQuery baseQuery = base.build();
-            DrillDownQuery drillDown = new DrillDownQuery(facetsConfig,
-                filterToParents(baseQuery.clauses().isEmpty() ? null : baseQuery));
-
-            // DrillDownQuery numbers dimensions in the order they are first added, and
-            // DrillSideways returns one collector per dimension in that order.
             List<ShaclIndexMapping.FieldDef> dimOrder = new ArrayList<>(dims.keySet());
-            List<FacetsCollectorManager> sidewaysManagers = new ArrayList<>(dimOrder.size());
+            List<Query> dimQueries = new ArrayList<>(dimOrder.size());
             for (ShaclIndexMapping.FieldDef fd : dimOrder) {
                 List<CqlExpression> own = dims.get(fd);
                 CqlExpression selection = own.size() == 1 ? own.get(0) : new CqlExpression.CqlAnd(own);
-                Query dimQuery = compiler.compile(selection).pushed();
-                drillDown.add(fd.getFieldName(), dimQuery);
-                sidewaysManagers.add(new FacetsCollectorManager());
+                dimQueries.add(compiler.compile(selection).pushed());
             }
-
-            // Null taxonomy reader and SSDV state: the counts are taken from the collectors
-            // below; DrillSideways#buildFacetsResult is not called by this search method.
-            DrillSideways drillSideways = new DrillSideways(searcher, facetsConfig,
-                (TaxonomyReader) null, (SortedSetDocValuesReaderState) null);
-            DrillSideways.Result<FacetsCollector, FacetsCollector> collected =
-                drillSideways.search(drillDown, new FacetsCollectorManager(), sidewaysManagers);
-            FacetsCollector full = collected.drillDownResult();
 
             // Fields that are not dimensions: counted under the full filter.
             List<String> fullFlat = new ArrayList<>();
@@ -3352,6 +3337,11 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                     fullRanges.add(spec);
                 }
             }
+
+            SidewaysHits hits = collectSidewaysHits(searcher,
+                filterToParents(baseQuery.clauses().isEmpty() ? null : baseQuery), dimQueries);
+            FacetsCollector full = hits.full();
+
             if (!fullFlat.isEmpty()) {
                 Facets facets = createCombinedFacets(indexReader, full, fullFlat);
                 collectFacetResults(facets, fullFlat, maxValues, minCount,
@@ -3362,7 +3352,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             // Dimensions: counted over the hits that match every other dimension.
             for (int i = 0; i < dimOrder.size(); i++) {
                 ShaclIndexMapping.FieldDef fd = dimOrder.get(i);
-                FacetsCollector sideways = collected.drillSidewaysResults().get(i);
+                FacetsCollector sideways = hits.sideways().get(i);
                 if (candidates.get(fd) instanceof FacetRequest.RangeFacetSpec spec) {
                     collectRangeFacetResults(indexReader, sideways, List.of(spec), maxValues, minCount, result);
                 } else {
@@ -3381,11 +3371,88 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         return result;
     }
 
+    /** The hits a sideways count reads: under the full filter, and per dimension without its selection. */
+    private record SidewaysHits(FacetsCollector full, List<FacetsCollector> sideways) {}
+
+    /**
+     * Collect the hits for sideways counts with Lucene's {@link DrillSideways}: the hits
+     * under the full filter, and per dimension the hits that match the base query and
+     * every other dimension.
+     * <p>
+     * {@code DrillSideways} has two modes. Without an executor it runs one pass with its
+     * own scorer; with one it runs an ordinary search for the full filter and one per
+     * dimension. On the benchmark index the per-dimension searches were never slower than
+     * the per-field calls a client made before, while the one-pass scorer was up to 2.3
+     * times slower when the base query matched many documents: it then walks every base
+     * hit and every posting of every dimension one document at a time, where the separate
+     * searches use Lucene's bitset conjunctions. See
+     * docs/2026-11-13_luc_facet_sideways_counts_design.md. {@link #SAME_THREAD} runs those
+     * searches one after another on the calling thread, as the rest of a SPARQL query runs.
+     *
+     * @param base       the base query, already restricted to parent documents
+     * @param dimQueries one query per dimension, in dimension order
+     */
+    private SidewaysHits collectSidewaysHits(IndexSearcher searcher, Query base,
+            List<Query> dimQueries) throws IOException {
+        DrillDownQuery drillDown = new DrillDownQuery(facetsConfig, base);
+        List<FacetsCollectorManager> sidewaysManagers = new ArrayList<>(dimQueries.size());
+        for (int i = 0; i < dimQueries.size(); i++) {
+            // Dimension names only label the drill-down clauses; DrillDownQuery numbers
+            // dimensions in the order they are first added, and DrillSideways returns one
+            // result per dimension in that order.
+            drillDown.add("dim" + i, dimQueries.get(i));
+            sidewaysManagers.add(new FacetsCollectorManager());
+        }
+        // No taxonomy reader or SSDV state: this search method returns the collectors and
+        // builds no Facets, so the counts are taken by the caller as for any other search.
+        DrillSideways drillSideways = new DrillSideways(searcher, facetsConfig,
+            (TaxonomyReader) null, (SortedSetDocValuesReaderState) null, SAME_THREAD);
+        DrillSideways.Result<FacetsCollector, FacetsCollector> result =
+            drillSideways.search(drillDown, new FacetsCollectorManager(), sidewaysManagers);
+        return new SidewaysHits(result.drillDownResult(), result.drillSidewaysResults());
+    }
+
+    /**
+     * An executor that runs each task on the calling thread when it is submitted. Given to
+     * {@link DrillSideways} to select its per-dimension searches without adding threads.
+     */
+    private static final java.util.concurrent.ExecutorService SAME_THREAD =
+        new java.util.concurrent.AbstractExecutorService() {
+            @Override
+            public void execute(Runnable task) {
+                task.run();
+            }
+
+            @Override
+            public void shutdown() {}
+
+            @Override
+            public List<Runnable> shutdownNow() {
+                return List.of();
+            }
+
+            @Override
+            public boolean isShutdown() {
+                return false;
+            }
+
+            @Override
+            public boolean isTerminated() {
+                return false;
+            }
+
+            @Override
+            public boolean awaitTermination(long timeout, java.util.concurrent.TimeUnit unit) {
+                return false;
+            }
+        };
+
     /**
      * Whether {@code clause}, a top-level clause naming {@code field}, can be part of that
      * field's sideways selection: {@code =} or {@code in} on a KEYWORD field, and for a
-     * field requested as a range facet also {@code between} and the order comparisons.
-     * {@code <>}, {@code like}, {@code text_query} and any clause on several fields cannot.
+     * field requested as a range facet also {@code between} and the order comparisons; or
+     * an {@code or} of such clauses on the same field. {@code <>}, {@code like},
+     * {@code text_query}, {@code not} and any clause on several fields cannot.
      */
     private boolean isSidewaysClause(CqlExpression clause, ShaclIndexMapping.FieldDef field, boolean range) {
         return switch (clause) {
@@ -3394,6 +3461,9 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 && ("=".equals(cmp.op())
                     || (range && Set.of("<", "<=", ">", ">=").contains(cmp.op())));
             case CqlExpression.CqlBetween btw -> range && field.equals(cqlField(btw.property()));
+            // Values ORed within one field, such as several range buckets: still that
+            // field's selection.
+            case CqlExpression.CqlOr or -> or.args().stream().allMatch(arg -> isSidewaysClause(arg, field, range));
             default -> false;
         };
     }
