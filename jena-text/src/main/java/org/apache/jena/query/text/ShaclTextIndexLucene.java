@@ -42,10 +42,13 @@ import org.apache.jena.query.text.assembler.IndexVocab;
 import org.apache.jena.query.text.cql.CqlExpression;
 import org.apache.jena.query.text.cql.CqlToLuceneCompiler;
 import org.apache.lucene.document.*;
+import org.apache.lucene.facet.DrillDownQuery;
+import org.apache.lucene.facet.DrillSideways;
 import org.apache.lucene.facet.FacetField;
 import org.apache.lucene.facet.FacetResult;
 import org.apache.lucene.facet.Facets;
 import org.apache.lucene.facet.FacetsCollector;
+import org.apache.lucene.facet.FacetsCollectorManager;
 import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.facet.LabelAndValue;
 import org.apache.lucene.facet.MultiDoubleValuesSource;
@@ -3203,6 +3206,235 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             openFacetCache.putIfAbsent(cacheKey, freezeFacetResult(result));
         }
         return result;
+    }
+
+    /**
+     * Facet counts in which each requested field that the filter selects on is counted with
+     * its own selection left out, and every other requested field under the full filter.
+     * <p>
+     * A requested field is a <em>dimension</em> when the filter's top-level clauses (the
+     * arguments of a top-level {@code and}, or the filter itself) include at least one
+     * clause on it, every such clause is {@link #isSidewaysClause eligible}, and the field
+     * is mentioned nowhere else in the filter. Its selection is those clauses, ANDed. All
+     * other clauses form the base query. Lucene's {@link DrillSideways} then collects, in
+     * one pass over the base query's hits, the hits that match every dimension and, per
+     * dimension, the hits that match every dimension but that one.
+     * <p>
+     * Fields that are not dimensions are counted exactly as
+     * {@link #getFacetCountsWithCql} counts them, including hierarchy drill-down paths
+     * taken from the full filter.
+     */
+    public Map<String, List<FacetValue>> getSidewaysFacetCounts(
+            String queryString, List<String> searchFields, FacetRequest facetRequest,
+            CqlExpression cqlFilter, int maxValues, int minCount) {
+        FacetRequest plain = facetRequest.withoutSideways();
+        List<String> flatFields = resolveFacetFieldNames(plain.getFlatFields());
+        if (cqlFilter == null || ((flatFields == null || flatFields.isEmpty()) && plain.getRangeFields().isEmpty())) {
+            return getFacetCountsWithCql(queryString, searchFields, plain, cqlFilter, maxValues, minCount);
+        }
+
+        List<CqlExpression> clauses = cqlFilter instanceof CqlExpression.CqlAnd and
+            ? and.args() : List.of(cqlFilter);
+
+        // Candidate dimensions, keyed by field, in request order.
+        Map<ShaclIndexMapping.FieldDef, Object> candidates = new LinkedHashMap<>();
+        for (String name : flatFields) {
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(name);
+            if (fd != null && fd.getFieldType() == ShaclIndexMapping.FieldType.KEYWORD) {
+                candidates.put(fd, name);
+            }
+        }
+        for (FacetRequest.RangeFacetSpec spec : plain.getRangeFields()) {
+            ShaclIndexMapping.FieldDef fd = shaclMapping.findField(spec.fieldIri());
+            if (fd != null) {
+                candidates.put(fd, spec);
+            }
+        }
+
+        // Each candidate's clauses; a candidate with an ineligible clause, or one named
+        // inside a clause on several fields, is dropped.
+        Map<ShaclIndexMapping.FieldDef, List<CqlExpression>> dims = new LinkedHashMap<>();
+        for (Map.Entry<ShaclIndexMapping.FieldDef, Object> candidate : candidates.entrySet()) {
+            ShaclIndexMapping.FieldDef fd = candidate.getKey();
+            if (!fd.isFacetable() || isHierarchyLevel(fd)
+                    || shaclMapping.findNestedDefForFieldName(fd.getFieldName()) != null) {
+                continue;
+            }
+            boolean range = candidate.getValue() instanceof FacetRequest.RangeFacetSpec;
+            List<CqlExpression> own = new ArrayList<>();
+            boolean eligible = true;
+            for (CqlExpression clause : clauses) {
+                if (!mentions(clause, fd)) {
+                    continue;
+                }
+                if (isSidewaysClause(clause, fd, range)) {
+                    own.add(clause);
+                } else {
+                    eligible = false;
+                    break;
+                }
+            }
+            if (eligible && !own.isEmpty()) {
+                dims.put(fd, own);
+            }
+        }
+        if (dims.isEmpty()) {
+            return getFacetCountsWithCql(queryString, searchFields, plain, cqlFilter, maxValues, minCount);
+        }
+
+        Set<CqlExpression> dimClauses = Collections.newSetFromMap(new IdentityHashMap<>());
+        dims.values().forEach(dimClauses::addAll);
+        List<CqlExpression> baseClauses = new ArrayList<>();
+        for (CqlExpression clause : clauses) {
+            if (!dimClauses.contains(clause)) {
+                baseClauses.add(clause);
+            }
+        }
+
+        Map<String, List<FacetValue>> result = new HashMap<>();
+        IndexSearcher searcher = acquireSearcher();
+        try {
+            IndexReader indexReader = searcher.getIndexReader();
+            CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig, getQueryAnalyzer());
+
+            BooleanQuery.Builder base = new BooleanQuery.Builder();
+            if (queryString != null && !queryString.isEmpty()) {
+                base.add(parseQueryForFields(queryString, resolveSearchFields(searchFields)), BooleanClause.Occur.MUST);
+            }
+            if (!baseClauses.isEmpty()) {
+                CqlExpression baseFilter = baseClauses.size() == 1
+                    ? baseClauses.get(0) : new CqlExpression.CqlAnd(baseClauses);
+                CqlToLuceneCompiler.CompileResult cr = compiler.compile(baseFilter);
+                if (cr.pushed() != null) {
+                    base.add(cr.pushed(), BooleanClause.Occur.MUST);
+                }
+                if (cr.residual() != null) {
+                    log.warn("CQL filter has residual expressions that cannot be pushed to Lucene and will be ignored: {}",
+                        cr.residual().toCanonical());
+                }
+            }
+            BooleanQuery baseQuery = base.build();
+            DrillDownQuery drillDown = new DrillDownQuery(facetsConfig,
+                filterToParents(baseQuery.clauses().isEmpty() ? null : baseQuery));
+
+            // DrillDownQuery numbers dimensions in the order they are first added, and
+            // DrillSideways returns one collector per dimension in that order.
+            List<ShaclIndexMapping.FieldDef> dimOrder = new ArrayList<>(dims.keySet());
+            List<FacetsCollectorManager> sidewaysManagers = new ArrayList<>(dimOrder.size());
+            for (ShaclIndexMapping.FieldDef fd : dimOrder) {
+                List<CqlExpression> own = dims.get(fd);
+                CqlExpression selection = own.size() == 1 ? own.get(0) : new CqlExpression.CqlAnd(own);
+                Query dimQuery = compiler.compile(selection).pushed();
+                drillDown.add(fd.getFieldName(), dimQuery);
+                sidewaysManagers.add(new FacetsCollectorManager());
+            }
+
+            // Null taxonomy reader and SSDV state: the counts are taken from the collectors
+            // below; DrillSideways#buildFacetsResult is not called by this search method.
+            DrillSideways drillSideways = new DrillSideways(searcher, facetsConfig,
+                (TaxonomyReader) null, (SortedSetDocValuesReaderState) null);
+            DrillSideways.Result<FacetsCollector, FacetsCollector> collected =
+                drillSideways.search(drillDown, new FacetsCollectorManager(), sidewaysManagers);
+            FacetsCollector full = collected.drillDownResult();
+
+            // Fields that are not dimensions: counted under the full filter.
+            List<String> fullFlat = new ArrayList<>();
+            for (String name : flatFields) {
+                ShaclIndexMapping.FieldDef fd = shaclMapping.findFieldByName(name);
+                if (fd == null || !dims.containsKey(fd)) {
+                    fullFlat.add(name);
+                }
+            }
+            List<FacetRequest.RangeFacetSpec> fullRanges = new ArrayList<>();
+            for (FacetRequest.RangeFacetSpec spec : plain.getRangeFields()) {
+                ShaclIndexMapping.FieldDef fd = shaclMapping.findField(spec.fieldIri());
+                if (fd == null || !dims.containsKey(fd)) {
+                    fullRanges.add(spec);
+                }
+            }
+            if (!fullFlat.isEmpty()) {
+                Facets facets = createCombinedFacets(indexReader, full, fullFlat);
+                collectFacetResults(facets, fullFlat, maxValues, minCount,
+                    extractHierarchyDrillDown(cqlFilter, fullFlat), result);
+            }
+            collectRangeFacetResults(indexReader, full, fullRanges, maxValues, minCount, result);
+
+            // Dimensions: counted over the hits that match every other dimension.
+            for (int i = 0; i < dimOrder.size(); i++) {
+                ShaclIndexMapping.FieldDef fd = dimOrder.get(i);
+                FacetsCollector sideways = collected.drillSidewaysResults().get(i);
+                if (candidates.get(fd) instanceof FacetRequest.RangeFacetSpec spec) {
+                    collectRangeFacetResults(indexReader, sideways, List.of(spec), maxValues, minCount, result);
+                } else {
+                    List<String> one = List.of(fd.getFieldName());
+                    collectFacetResults(createCombinedFacets(indexReader, sideways, one), one,
+                        maxValues, minCount, null, result);
+                }
+            }
+        } catch (IOException ex) {
+            throw new TextIndexException("getSidewaysFacetCounts", ex);
+        } catch (ParseException ex) {
+            throw new TextIndexParseException(queryString, ex.getMessage());
+        } finally {
+            releaseSearcher(searcher);
+        }
+        return result;
+    }
+
+    /**
+     * Whether {@code clause}, a top-level clause naming {@code field}, can be part of that
+     * field's sideways selection: {@code =} or {@code in} on a KEYWORD field, and for a
+     * field requested as a range facet also {@code between} and the order comparisons.
+     * {@code <>}, {@code like}, {@code text_query} and any clause on several fields cannot.
+     */
+    private boolean isSidewaysClause(CqlExpression clause, ShaclIndexMapping.FieldDef field, boolean range) {
+        return switch (clause) {
+            case CqlExpression.CqlIn in -> field.equals(cqlField(in.property()));
+            case CqlExpression.CqlComparison cmp -> field.equals(cqlField(cmp.property()))
+                && ("=".equals(cmp.op())
+                    || (range && Set.of("<", "<=", ">", ">=").contains(cmp.op())));
+            case CqlExpression.CqlBetween btw -> range && field.equals(cqlField(btw.property()));
+            default -> false;
+        };
+    }
+
+    /** Whether {@code expr} names {@code field} anywhere. */
+    private boolean mentions(CqlExpression expr, ShaclIndexMapping.FieldDef field) {
+        return switch (expr) {
+            case CqlExpression.CqlAnd and -> and.args().stream().anyMatch(a -> mentions(a, field));
+            case CqlExpression.CqlOr or -> or.args().stream().anyMatch(a -> mentions(a, field));
+            case CqlExpression.CqlNot not -> mentions(not.arg(), field);
+            case CqlExpression.CqlComparison cmp -> field.equals(cqlField(cmp.property()));
+            case CqlExpression.CqlIn in -> field.equals(cqlField(in.property()));
+            case CqlExpression.CqlBetween btw -> field.equals(cqlField(btw.property()));
+            case CqlExpression.CqlLike like -> field.equals(cqlField(like.property()));
+            case CqlExpression.CqlSpatial spatial -> field.equals(cqlField(spatial.property()));
+            case CqlExpression.CqlTextQuery tq -> field.equals(cqlField(tq.property()));
+        };
+    }
+
+    /** The field a CQL property names, by IRI or idx:fieldName, as the CQL compiler resolves it. */
+    private ShaclIndexMapping.FieldDef cqlField(String property) {
+        ShaclIndexMapping.FieldDef byIri = shaclMapping.findField(property);
+        return byIri != null ? byIri : shaclMapping.findFieldByName(property);
+    }
+
+    private boolean isHierarchyLevel(ShaclIndexMapping.FieldDef field) {
+        for (ShaclIndexMapping.IndexProfile profile : shaclMapping.getProfiles()) {
+            for (ShaclIndexMapping.HierarchyDef hierarchy : profile.getHierarchies()) {
+                if (hierarchy.containsField(field)) {
+                    return true;
+                }
+            }
+            for (ShaclIndexMapping.NestedDef nested : profile.getNestedDefs()) {
+                for (ShaclIndexMapping.HierarchyDef hierarchy : nested.getHierarchies()) {
+                    if (hierarchy.containsField(field)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     public long countQueryWithCql(String queryString, List<String> searchFields, CqlExpression cqlFilter) {

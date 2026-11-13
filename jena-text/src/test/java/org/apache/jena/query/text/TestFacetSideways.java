@@ -260,9 +260,12 @@ public class TestFacetSideways {
         assertEquals(field(facet("", fields("region"), filter), "region"),
             field(sw, "region"));
 
-        // The commodity counts include values outside the selection; the full filter would not.
-        assertTrue(field(sw, "commodity").containsKey("ag"), "sideways commodity counts: " + sw);
-        assertFalse(field(facet("", fields("commodity"), filter), "commodity").containsKey("ag"));
+        // Without the sideways flag the same call counts commodity under the full filter,
+        // which gives different counts on this data.
+        Map<String, Long> fullCommodity = field(facet("", fields("commodity"), filter), "commodity");
+        assertNotEquals(fullCommodity, field(sw, "commodity"));
+        assertTrue(field(sw, "commodity").getOrDefault("zn", 0L) > fullCommodity.getOrDefault("zn", 0L),
+            "zn: sideways " + field(sw, "commodity") + ", full filter " + fullCommodity);
     }
 
     @Test
