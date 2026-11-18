@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Apache Jena — a Java framework for semantic web and linked data applications. This fork adds **SHACL-based entity-per-document indexing with faceted search** to the `jena-text` module using Lucene, alongside the existing triple-per-document model.
 
-**Version**: 6.2.0-SNAPSHOT | **Java**: 21+ | **Build**: Maven 3.9+
+**Version**: 6.4.0-SNAPSHOT | **Java**: 21+ | **Build**: Maven 3.9+
 
 ## Repository
 

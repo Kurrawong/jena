@@ -93,7 +93,7 @@ public class SyntaxVarScope {
         //   - not legal in SPARQL 1.2, unclear in SPARQL 1.1
         // Legal in ARQ
         //   Query.hasGroupBy() includes a check of aggregators
-        if ( !Syntax.syntaxARQ.equals(query.getSyntax()) ) {
+        if ( !Syntax.syntaxARQ.equals(query.getSyntax()) && query.isSelectType() ) {
             if ( query.isQueryResultStar() && query.hasGroupBy() )
                 throw new QueryParseException("SELECT * not legal with GROUP BY", -1, -1);
         }
@@ -147,6 +147,12 @@ public class SyntaxVarScope {
             VarExprList groupKey = query.getGroupBy();
             // Mutated so copy.
             List<Var> inScopeVars = new ArrayList<>(groupKey.getVars());
+            // and trailing VALUES
+            if ( query.hasValues() ) {
+                List<Var> x = query.getValuesVariables();
+                inScopeVars.addAll(x);
+            }
+
             VarExprList exprList = query.getProject();
 
             // Look in the SELECT expressions

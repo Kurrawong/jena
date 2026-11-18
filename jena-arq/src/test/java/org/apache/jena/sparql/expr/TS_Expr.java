@@ -36,6 +36,8 @@ import org.apache.jena.sparql.expr.nodevalue.TestNodeValueSortKey;
     , TestExpressions2.class
     , TestExpressions3.class
     , TestExpressions4.class
+    , TestCompareStrings.class
+    , TestCompareLangString.class
     , TestCastXSD.class
     , TestNodeFunctions.class
     , TestNodeFunctionsMisc.class
@@ -44,7 +46,7 @@ import org.apache.jena.sparql.expr.nodevalue.TestNodeValueSortKey;
     , TestStringArgCompatibility.class
     , TestSPARQLKeywordFunctions.class
     , TestFunctionsByURI.class
-    , TestExprTripleTerms.class
+    , TestExprTripleTermFunctions.class
     , TestLeviathanFunctions.class
     , TestNodeValueOps.class
     , TestOrdering.class

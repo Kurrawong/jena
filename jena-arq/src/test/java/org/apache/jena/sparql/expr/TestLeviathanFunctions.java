@@ -21,17 +21,23 @@
 
 package org.apache.jena.sparql.expr;
 
-import static org.apache.jena.sparql.expr.LibTestExpr.test;
-import static org.apache.jena.sparql.expr.LibTestExpr.testDouble;
-import static org.apache.jena.sparql.expr.LibTestExpr.testError;
+import static org.apache.jena.sparql.expr.LibTestExpr.*;
+import static org.apache.jena.sparql.expr.LibTestExpr.testDoubleIsNaN;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import org.apache.jena.sparql.util.NodeFactoryExtra;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+
+import java.util.stream.Stream;
 
 public class TestLeviathanFunctions {
 
@@ -93,6 +99,23 @@ public class TestLeviathanFunctions {
     public void pow_02() {
         LibTestExpr.test("lfn:pow(0.5, 3)", "0.125");
     }
+    
+    @Test public void pow_10()          { test("lfn:pow('INF'^^xsd:double, 1)", "'INF'^^xsd:double"); }
+    @Test public void pow_11()          { test("lfn:pow(1, 'INF'^^xsd:double)", "1"); }
+    @Test public void pow_12()          { test("lfn:pow(1e0, 'INF'^^xsd:double)", "'1.0e0'^^xsd:double"); }
+
+    @Test public void pow_13()          { test("lfn:pow('INF'^^xsd:double,0)", "'1.0e0'^^xsd:double"); }
+    @Test public void pow_14()          { test("lfn:pow('-INF'^^xsd:double, 0)", "'1.0e0'^^xsd:double"); }
+    @Test public void pow_15()          { testDoubleIsNaN("lfn:pow('NaN'^^xsd:double, 1)"); }
+    @Test public void pow_16()          { testDoubleIsNaN("lfn:pow(1, 'NaN'^^xsd:double)"); }
+
+    @Test public void pow_17()          { test("lfn:pow(0e0, -3)", "'INF'^^xsd:double"); }
+    @Test public void pow_18()          { test("lfn:pow(-0e0, -3)", "'-INF'^^xsd:double"); }
+    @Test public void pow_19()          { test("lfn:pow(01, 'INF'^^xsd:double)", "1"); }
+    @Test public void pow_20()          { test("lfn:pow(-1e0, '-INF'^^xsd:double)", "'1.0e0'^^xsd:double"); }
+    @Test public void pow_21()          { testDoubleIsNaN("lfn:pow(-2.5e0, 2.00000001e0)"); }
+    @Test public void pow_22()          { test("lfn:pow(0e0, 3.0e0)", "0e0"); }
+    @Test public void pow_23()          { test("lfn:pow(-0e0, 3.0e0)", "-0e0"); }
 
     @Test
     public void factorial_01() {
@@ -116,12 +139,12 @@ public class TestLeviathanFunctions {
 
     @Test
     public void factorial_05() {
-        assertThrows(ExprEvalException.class, ()->testError("lfn:factorial(-1)"));
+        testError("lfn:factorial(-1)", ExprEvalException.class);
     }
 
     @Test
     public void factorial_06() {
-        assertThrows(ExprEvalException.class, ()->testError("lfn:factorial(5.4)"));
+        testError("lfn:factorial(5.4)", ExprEvalException.class);
     }
 
     @Test
@@ -229,5 +252,30 @@ public class TestLeviathanFunctions {
     @Test
     public void acos_01() {
         testDouble("lfn:radians-to-degrees(lfn:cos-1(lfn:cos(lfn:degrees-to-radians(60))))", "60", DELTA);
+    }
+
+    public static Stream<Arguments> outOfRangeInputs() {
+        return Stream.of(Arguments.of("lfn:factorial(2000000000)"),
+                         Arguments.of("lfn:pow(100, 100)"),
+                         Arguments.of("lfn:sq(100.0e100)"),
+                         Arguments.of("lfn:cube(100.0e100)"),
+                         Arguments.of("lfn:ten(2000000000)"),
+                         Arguments.of("lfn:cartesian(0, 0, 1, 100.0e100)"),
+                         Arguments.of("lfn:cartesian(0, 0, 100.0e100, 1)"),
+                         Arguments.of("lfn:cartesian(0, 0, 0, 1, 1, 100.0e100)"),
+                         Arguments.of("lfn:cartesian(0, 0, 0, 1, 100.0e100, 1)"),
+                         Arguments.of("lfn:cartesian(0, 0, 0, 100.0e100, 1, 1)"),
+                         Arguments.of("lfn:pythagoras(2.0e128, 2)"),
+                         Arguments.of("lfn:root(2" + StringUtils.repeat('0', 64) + ", 1)"),
+                         Arguments.of("lfn:e(2000000000)")
+        );
+    }
+
+    @ParameterizedTest
+    @MethodSource("outOfRangeInputs")
+    public void givenOutOfRangeInputsInExpr_whenExecuting_thenErrors(String expr) {
+        ExprEvalException error = testError(expr, ExprEvalException.class);
+        assertNotNull(error);
+        assertTrue(Strings.CI.containsAny(error.getMessage(), "too many digits", "outside double range"));
     }
 }

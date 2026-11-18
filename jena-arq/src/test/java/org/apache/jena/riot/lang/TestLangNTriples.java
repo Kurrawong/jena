@@ -38,6 +38,7 @@ import org.apache.jena.riot.ErrorHandlerTestLib.ExFatal;
 import org.apache.jena.riot.Lang;
 import org.apache.jena.riot.RDFDataMgr;
 import org.apache.jena.riot.RDFLanguages;
+import org.apache.jena.riot.RIOT;
 import org.apache.jena.riot.system.ParserProfile;
 import org.apache.jena.riot.system.StreamRDF;
 import org.apache.jena.riot.tokens.Tokenizer;
@@ -54,10 +55,9 @@ public class TestLangNTriples extends AbstractTestLangNTuples
         return Lang.NTRIPLES;
     }
 
-
     @Override
     protected LangRIOT createLangRIOT(Tokenizer tokenizer, StreamRDF sink, ParserProfile profile) {
-        return IteratorParsers.createParserNTriples(tokenizer, sink, profile);
+        return IteratorParsers.createParserNTriples(tokenizer, sink, profile, RIOT.getContext());
     }
 
     @Test
@@ -91,6 +91,30 @@ public class TestLangNTriples extends AbstractTestLangNTuples
     }
 
     @Test
+    public void nt_version_1() {
+        parseCheck("""
+                VERSION "1.2"
+                <http://example/s> <http://example/p> <http://example/o> .
+                VERSION "1.2"
+                """);
+    }
+
+    @Test
+    public void nt_version_2() {
+        parseCheck("""
+                VERSION "1.2"
+                """);
+    }
+
+    @Test
+    public void nt_version_3() {
+        parseCheck("""
+                VERSION "1.2"
+                VERSION "1.2"
+                """);
+    }
+
+    @Test
     public void nt_only_no_quads() {
         parseException(ExFatal.class, "<http://example/x> <http://example/p> <http://example/s> <http://example/g> .");
     }
@@ -109,4 +133,6 @@ public class TestLangNTriples extends AbstractTestLangNTuples
     public void nt_ascii() {
         assertThrows(ExFatal.class, ()->parseCount(CharSpace.ASCII, "<scheme:x> <scheme:p> <scheme:é> ."));
     }
+
+
 }
