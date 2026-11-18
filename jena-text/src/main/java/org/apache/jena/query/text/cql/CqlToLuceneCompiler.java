@@ -407,7 +407,7 @@ public class CqlToLuceneCompiler {
             default -> null;
         };
         if (property == null) return null;
-        FieldDef field = mapping.findField(property);
+        FieldDef field = findField(property);
         if (field == null) return null;
         ShaclIndexMapping.NestedDef scope = mapping.findNestedDefForFieldName(field.getFieldName());
         return scope != null ? scope.getNestedName() : null;
