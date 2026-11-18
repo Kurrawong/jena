@@ -2054,7 +2054,7 @@ details[open] > summary .jt-count::before { content: '▼ '; }
 }
 
 /* ── Examples panel (LHS) ──
-   Saved searches from tests.json. Structure borrowed from the gswa-prez-config demo's
+   Saved searches from tests.json. Structure borrowed from an earlier
    test drawer, but stacked above the filters instead of sliding in from the side: this
    left column is a fixed narrow width with a resize handle, which a horizontal drawer
    would fight. */

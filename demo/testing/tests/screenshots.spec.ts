@@ -1,3 +1,5 @@
+// Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
 import { test, expect } from "@playwright/test";
 import { readFileSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";

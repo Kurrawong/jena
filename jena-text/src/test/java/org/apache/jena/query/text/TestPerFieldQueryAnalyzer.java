@@ -133,8 +133,8 @@ public class TestPerFieldQueryAnalyzer {
         dataset.begin(ReadWrite.WRITE);
         try {
             Model model = dataset.getDefaultModel();
-            addSpecimen(model, "s1", "GSWA-12345-A", "Rock sample from Redgum");
-            addSpecimen(model, "s2", "GSWA-67890-B", "Mineral specimen");
+            addSpecimen(model, "s1", "GEOL-12345-A", "Rock sample from Redgum");
+            addSpecimen(model, "s2", "GEOL-67890-B", "Mineral specimen");
             addSpecimen(model, "s3", "WAM-R-54321", "Reptile specimen");
             addSpecimen(model, "s4", "WAM-M-11111", "Mammal specimen");
             dataset.commit();
@@ -168,8 +168,8 @@ public class TestPerFieldQueryAnalyzer {
 
     @Test
     public void testPrefixSearchFindsMatchingIdentifiers() {
-        // "GSWA" should match both GSWA-prefixed identifiers via edge n-gram
-        Set<String> results = queryIdentifier("GSWA");
+        // "GEOL" should match both GEOL-prefixed identifiers via edge n-gram
+        Set<String> results = queryIdentifier("GEOL");
         assertEquals(2, results.size());
         assertTrue(results.contains(NS + "s1"));
         assertTrue(results.contains(NS + "s2"));
@@ -177,8 +177,8 @@ public class TestPerFieldQueryAnalyzer {
 
     @Test
     public void testLongerPrefixNarrowsResults() {
-        // "GSWA-123" should only match GSWA-12345-A
-        Set<String> results = queryIdentifier("GSWA-123");
+        // "GEOL-123" should only match GEOL-12345-A
+        Set<String> results = queryIdentifier("GEOL-123");
         assertEquals(1, results.size());
         assertTrue(results.contains(NS + "s1"));
     }
@@ -203,13 +203,13 @@ public class TestPerFieldQueryAnalyzer {
     @Test
     public void testCaseInsensitivePrefixSearch() {
         // Lowercase prefix should match uppercase identifiers
-        Set<String> results = queryIdentifier("gswa");
+        Set<String> results = queryIdentifier("geol");
         assertEquals(2, results.size());
     }
 
     @Test
     public void testSingleCharPrefixSearch() {
-        // "G" should match GSWA identifiers (min n-gram = 1)
+        // "G" should match GEOL identifiers (min n-gram = 1)
         Set<String> results = queryIdentifier("G");
         assertEquals(2, results.size());
     }
@@ -248,19 +248,19 @@ public class TestPerFieldQueryAnalyzer {
 
     @Test
     public void testPrefixSearchDoesNotMatchLabelField() {
-        // "GSWA" is only in the identifier field. Searching the label field
+        // "GEOL" is only in the identifier field. Searching the label field
         // should not return results for that term.
         String queryStr =
             "PREFIX luc: <urn:jena:lucene:index#>\n" +
             "SELECT ?s WHERE {\n" +
-            "  (?hit ?s ?score) luc:query (\"default\" '[\"urn:jena:lucene:field#label\"]' 'GSWA' \"\" \"\" 10 0) .\n" +
+            "  (?hit ?s ?score) luc:query (\"default\" '[\"urn:jena:lucene:field#label\"]' 'GEOL' \"\" \"\" 10 0) .\n" +
             "}";
 
         dataset.begin(ReadWrite.READ);
         try {
             try (QueryExecution qexec = QueryExecutionFactory.create(queryStr, dataset)) {
                 ResultSet rs = qexec.execSelect();
-                assertFalse("GSWA should not match label field", rs.hasNext());
+                assertFalse("GEOL should not match label field", rs.hasNext());
             }
         } finally {
             dataset.end();

@@ -59,7 +59,7 @@ import org.junit.Test;
 
 /**
  * Sorting on a KEYWORD field that is BOTH {@code multiValued} AND has an {@code idx:normalizer}.
- * This is the GSWA case ({@code field:nameSort} is multi-valued + normalized) and the intersection
+ * This is the production case ({@code field:nameSort} is multi-valued + normalized) and the intersection
  * that neither the #90 (normalizer, single-valued) nor #92/#93 (multi-valued, raw) tests covered.
  *
  * Multi-valued sortable KEYWORD fields use {@code SortedSetDocValues} with a MIN/MAX selector; the

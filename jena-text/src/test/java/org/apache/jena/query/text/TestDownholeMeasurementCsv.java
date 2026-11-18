@@ -51,8 +51,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Coverage for the exact shape of the GSWA downhole summary extract
- * (`dh_summary_measurements.csv`: {@code collar_id,property,value,below_detection}),
+ * Coverage for the shape of a downhole summary extract
+ * ({@code collar_id,property,value,below_detection}),
  * whose particulars are not incidental:
  * <ul>
  *   <li>the join key is a <b>bare integer</b>, so it needs {@code idx:subjectPrefix};</li>
@@ -63,14 +63,14 @@ import org.junit.Test;
  *   <li>collar ids are 6 <b>and</b> 7 digits, which makes lexical and numeric ordering
  *       disagree — and the merge is lexical.</li>
  * </ul>
- * The fixtures are inline rather than a checked-in sample of the real file: they keep
+ * The fixtures are inline rather than a checked-in sample of a real extract: they keep
  * the tests hermetic, and a CSV cannot carry an Apache licence header without the
  * header line becoming a data row.
  */
-public class TestGswaMeasurementCsv {
+public class TestDownholeMeasurementCsv {
 
     private static final String NS = "http://example.org/";
-    private static final String COLLAR_NS = "https://linked.data.gov.au/dataset/gswa/collar/";
+    private static final String COLLAR_NS = "http://example.org/dataset/collar/";
     private static final String FP = "urn:jena:lucene:field#";
 
     private static final Node COLLAR_CLASS = NodeFactory.createURI(NS + "Collar");
@@ -85,7 +85,7 @@ public class TestGswaMeasurementCsv {
     @Before
     public void setUp() throws IOException {
         TextQuery.init();
-        dir = Files.createTempDirectory("gswa-measurement-test");
+        dir = Files.createTempDirectory("downhole-measurement-test");
     }
 
     @After

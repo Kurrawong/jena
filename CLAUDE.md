@@ -46,7 +46,7 @@ CI pushes with `GITHUB_TOKEN` (`packages: write`), which needs no extra setup. F
 `task *-ghcr-push`, the `gh` CLI needs the `write:packages` scope for the `Kurrawong` org —
 verify with `gh auth status`. Override per-invocation with `GHCR_OWNER=...`.
 
-Earlier images published under `ghcr.io/aiworkerjohns/*` as `fuseki-ai` / `fuseki-loader`;
+Earlier images were published under another account as `fuseki-ai` / `fuseki-loader`;
 that account did not move with the repo and those tags are not updated.
 
 ### Image tags and provenance

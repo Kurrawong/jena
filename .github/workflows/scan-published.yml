@@ -73,8 +73,6 @@ jobs:
         if: steps.check.outputs.has_findings == 'true'
         run: |
           {
-            echo "/cc @aiworkerjohns @recalcitrantsupplant @lalewis1"
-            echo ""
             echo "Trivy found HIGH/CRITICAL findings in the published images. Reproduce with the \`scan-images\` skill or \`task scan\`."
             echo ""
             echo "- **Workflow run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

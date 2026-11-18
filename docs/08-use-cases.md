@@ -266,7 +266,7 @@ Filter search results and facet counts by geographic region using CQL2-JSON spat
 
 ### Identifier Prefix Search and Typeahead
 
-Support identifier-heavy workflows where users know the beginning of a code but not the full value yet. Typical examples are borehole, report, specimen, or sample identifiers such as `BH123456`, `RPT-BH-1985-001`, or `GSWA-12345-A`.
+Support identifier-heavy workflows where users know the beginning of a code but not the full value yet. Typical examples are borehole, report, specimen, or sample identifiers such as `BH123456`, `RPT-BH-1985-001`, or `GEOL-12345-A`.
 
 ```mermaid
 flowchart LR

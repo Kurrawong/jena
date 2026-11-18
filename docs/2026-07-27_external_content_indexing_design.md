@@ -509,30 +509,26 @@ terms regardless of row count.
 
 ### Measured, 2026-07-27
 
-The full GSWA downhole summary extract, measured with the `demo/geochem-external`
-harness (`task reindex-full`, then `task measure-split`), which built the same
-collars a second time without the `idx:nested` block and differenced the two
-indexes. That harness has since been removed — the demos were consolidated onto
-the mining demo alone — so the figures below are a record, not reproducible from
-this tree:
+A production downhole measurement extract, with tens of millions of child rows,
+measured with the `demo/geochem-external` harness (`task reindex-full`, then
+`task measure-split`), which built the same parents a second time without the
+`idx:nested` block and differenced the two indexes. That harness has since been
+removed — the demos were consolidated onto the mining demo alone — so the figures
+below are a record, not reproducible from this tree. The extract belongs to a
+client, so only per-document figures are given here:
 
 | | |
 |---|---|
-| Collars (parents) | 2,470,212 |
-| Measurements (children) | 29,707,584 |
-| Lucene documents | ~32.2 M |
-| Total index | **1,338 MB** |
-| — graph-derived (parents only) | 257 MB (109 bytes/collar) |
-| — external content | **1,082 MB (38.2 bytes per child)** |
-| Facet taxonomy | 104 KB |
-| Build | 6m08 @ 6,730 entities/sec |
+| Graph-derived content (parents only) | 109 bytes per parent |
+| External content | **38.2 bytes per child** |
+| Build | ~6,700 entities/sec |
 
 **38 bytes per child document**, with the value not stored. That makes the earlier
 "tens of GB" projection concrete: 10⁷ entities × ~35 properties = 5 × 10⁸ children
 × 38 bytes ≈ **19 GB**. The estimate holds.
 
-Two caveats on the figure. The full index still carried ~662 MB in unmerged
-compound segments at measurement time while the graph-only twin had ~3 MB, so a
+Two caveats on the figure. The full index still carried about half its size in unmerged
+compound segments at measurement time while the graph-only twin had almost none, so a
 `forceMerge` would likely move the split somewhat in the external side's favour.
 And the ~3–5× flat-vs-nested ratio below remains an **estimate** — no flat index
 was built, so it is not backed by this measurement.
@@ -541,9 +537,9 @@ Compare: a flat model at the same grain is ~3–5× smaller (estimated, untested
 That is the price paid for the two-field API surface, and it is the right trade
 while entity grain stays coarse.
 
-For scale context, the same measurements as RDF would have been ~30 M triples
-*in addition to* the graph, against 1 GB of index — which is the "why not load it
-as triples" argument in numbers.
+For scale context, the same measurements as RDF would have been at least one triple
+per child *in addition to* the graph, against 38 bytes of index per child — which is
+the "why not load it as triples" argument in numbers.
 
 ## Proposed code changes
 
