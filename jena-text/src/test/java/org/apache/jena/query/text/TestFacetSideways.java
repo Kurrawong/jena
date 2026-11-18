@@ -24,6 +24,7 @@ package org.apache.jena.query.text;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.StringReader;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -441,6 +442,22 @@ public class TestFacetSideways {
     }
 
     @Test
+    public void selectionThatCompilesToNoQueryIsCountedUnderTheFullFilter() {
+        // An empty or names no field and passes the eligibility check vacuously, so the
+        // commodity clause below qualifies as a selection, yet the CQL compiler pushes no
+        // Lucene query for it: an or is pushed only when every argument is. Drilldown counts
+        // ignore such a clause, with a warning, and the sideways counts must match them.
+        String emptyOr = "{\"op\":\"or\",\"args\":[]}";
+        String commodity = or(eq("commodity", "cu"), emptyOr);
+        String filter = and(commodity, DOC_TYPE_EQ);
+        Map<String, Map<String, Long>> sw = sidewaysFacet("", fields("commodity", "docType"), filter);
+
+        assertEquals(field(facet("", fields("commodity"), filter), "commodity"), field(sw, "commodity"));
+        assertEquals(field(facet("", fields("docType"), commodity), "docType"), field(sw, "docType"));
+        assertFalse(field(sw, "commodity").isEmpty());
+    }
+
+    @Test
     public void unrequestedFieldStaysInTheBaseQuery() {
         String filter = and(COMMODITY_IN, DOC_TYPE_EQ);
         Map<String, Map<String, Long>> sw = sidewaysFacet("", fields("commodity"), filter);
@@ -560,6 +577,22 @@ public class TestFacetSideways {
     public void unknownCountModeIsAnError() {
         assertQueryExecException("  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"\" "
             + literal(fields("commodity")) + " \"\" 0 0 \"results\")\n");
+    }
+
+    @Test
+    public void fieldAsBothFlatAndRangeFacetIsAnError() {
+        // The sideways counts key each requested field once, so a field must not reach them
+        // as both a flat and a range facet. luc:facet rejects a numeric field as a flat
+        // facet and a keyword field as a range facet, in both count modes.
+        String yearFlatAndRange = fields("year", YEAR_RANGES);
+        String commodityFlatAndRange = fields("commodity",
+            "{\"field\":\"" + FIELD + "commodity\",\"ranges\":[null,\"m\",null]}");
+        for (String mode : List.of("", " \"drilldown\"")) {
+            for (String ff : List.of(yearFlatAndRange, commodityFlatAndRange)) {
+                assertQueryExecException("  (?f ?v ?low ?high ?c) luc:facet (\"default\" \"default\" \"\" "
+                    + literal(ff) + " " + literal(and(YEAR_BETWEEN, COMMODITY_IN)) + " 0 0" + mode + ")\n");
+            }
+        }
     }
 
     @Test
