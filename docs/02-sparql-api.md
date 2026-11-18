@@ -651,6 +651,9 @@ A requested field is counted sideways, as a **dimension**, when all of the follo
 - The field is not named anywhere else in the filter, such as in an `or` with another
   field, or in a `not`.
 - The field is not in an `idx:nested` scope and is not a level of an `idx:facetHierarchy`.
+- The CQL compiler turns those clauses into one Lucene query in full. An `or` with an
+  empty `or` among its branches does not qualify, because the compiler pushes an `or` only
+  when it can push every branch.
 
 Several clauses on one field form one dimension and are left out together. Every other
 clause stays in the base filter, which applies to all counts: text and spatial clauses,
