@@ -3215,7 +3215,8 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
      * A requested field is a <em>dimension</em> when the filter's top-level clauses (the
      * arguments of a top-level {@code and}, or the filter itself) include at least one
      * clause on it, every such clause is {@link #isSidewaysClause eligible}, and the field
-     * is mentioned nowhere else in the filter. Its selection is those clauses, ANDed. All
+     * is mentioned nowhere else in the filter, and the CQL compiler pushes those clauses
+     * to Lucene whole. Its selection is those clauses, ANDed. All
      * other clauses form the base query. {@link #collectSidewaysHits} then finds, with
      * Lucene's {@link DrillSideways}, the hits that match every dimension and, per
      * dimension, the hits that match every dimension but that one.
@@ -3278,6 +3279,22 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
                 dims.put(fd, own);
             }
         }
+
+        // Each dimension's selection as a Lucene query. A selection the compiler cannot
+        // push whole, such as an or holding an empty or, is not a dimension: its clauses
+        // stay in the base query, where the compiler drops what it cannot push, as it
+        // does for the drilldown counts.
+        CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig, getQueryAnalyzer());
+        Map<ShaclIndexMapping.FieldDef, Query> dimQueryByField = new LinkedHashMap<>();
+        for (Map.Entry<ShaclIndexMapping.FieldDef, List<CqlExpression>> dim : dims.entrySet()) {
+            List<CqlExpression> own = dim.getValue();
+            CqlExpression selection = own.size() == 1 ? own.get(0) : new CqlExpression.CqlAnd(own);
+            CqlToLuceneCompiler.CompileResult cr = compiler.compile(selection);
+            if (cr.pushed() != null && cr.residual() == null) {
+                dimQueryByField.put(dim.getKey(), cr.pushed());
+            }
+        }
+        dims.keySet().retainAll(dimQueryByField.keySet());
         if (dims.isEmpty()) {
             return getFacetCountsWithCql(queryString, searchFields, plain, cqlFilter, maxValues, minCount);
         }
@@ -3295,7 +3312,6 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
         IndexSearcher searcher = acquireSearcher();
         try {
             IndexReader indexReader = searcher.getIndexReader();
-            CqlToLuceneCompiler compiler = new CqlToLuceneCompiler(shaclMapping, facetsConfig, getQueryAnalyzer());
 
             BooleanQuery.Builder base = new BooleanQuery.Builder();
             if (queryString != null && !queryString.isEmpty()) {
@@ -3315,12 +3331,7 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
             }
             BooleanQuery baseQuery = base.build();
             List<ShaclIndexMapping.FieldDef> dimOrder = new ArrayList<>(dims.keySet());
-            List<Query> dimQueries = new ArrayList<>(dimOrder.size());
-            for (ShaclIndexMapping.FieldDef fd : dimOrder) {
-                List<CqlExpression> own = dims.get(fd);
-                CqlExpression selection = own.size() == 1 ? own.get(0) : new CqlExpression.CqlAnd(own);
-                dimQueries.add(compiler.compile(selection).pushed());
-            }
+            List<Query> dimQueries = new ArrayList<>(dimQueryByField.values());
 
             // Fields that are not dimensions: counted under the full filter.
             List<String> fullFlat = new ArrayList<>();
