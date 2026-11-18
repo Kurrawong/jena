@@ -23,6 +23,7 @@ package org.apache.jena.sparql.function.library.leviathan;
 
 import org.apache.jena.sparql.expr.NodeValue;
 import org.apache.jena.sparql.function.FunctionBase2;
+import org.apache.jena.sparql.SparqlLimits;
 
 public class pythagoras extends FunctionBase2 {
 
@@ -31,6 +32,8 @@ public class pythagoras extends FunctionBase2 {
         double a = v1.getDouble();
         double b = v2.getDouble();
 
+        SparqlLimits.preValidateExponentCalculation(a, 2);
+        SparqlLimits.preValidateExponentCalculation(b, 2);
         return NodeValue.makeDouble(Math.sqrt(Math.pow(a, 2) + Math.pow(b, 2)));
     }
 

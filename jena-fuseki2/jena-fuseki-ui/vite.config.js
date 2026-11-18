@@ -49,19 +49,19 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
       "~codemirror": "codemirror",
       "~@triply/yasqe": "@triply/yasqe",
       "~@triply/yasr": "@triply/yasr",
     },
   },
   build: {
-    // Our largest chunk: target/webapp/static/Query-CakHSd_3.js  1,172.48 kB │ gzip: 350.95 kB
-    chunkSizeWarningLimit: 1250,
+    // Our largest chunk: target/webapp/static/Query-*.js ~1,333 kB │ gzip: ~388 kB │ map: ~3,607 kB (only fetched when devtools are open)
+    chunkSizeWarningLimit: 1350,
     // Change build paths to make them Maven compatible.
     outDir: 'target/webapp',
     assetsDir: 'static',
-    sourcemap: 'inline'
+    sourcemap: true
   },
   test: {
     globals: true,

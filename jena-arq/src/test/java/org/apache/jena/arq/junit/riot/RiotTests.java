@@ -39,7 +39,7 @@ import org.apache.jena.vocabulary.TestManifest;
 public class RiotTests
 {
     /** Create a RIOT language test - or return null for "unrecognized" */
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("removal")
     public static Runnable makeRIOTTest(ManifestEntry entry) {
         //Resource manifest = entry.getManifest();
         Node item = entry.getEntry();
@@ -51,6 +51,7 @@ public class RiotTests
         Node testType = entry.getTestType();
         if ( testType == null )
             return null;
+        String specVersion  = entry.getSpecVersion();
 
         try {
             String labelPrefix = "[RIOT]";
@@ -77,7 +78,6 @@ public class RiotTests
             if ( equalsType(testType, VocabLangRDF.TestNegativeSyntaxTTL) )
                 return new RiotSyntaxTest(entry, RDFLanguages.TURTLE, false);
 
-            // XXX Remove of rdf-test update
             // These are parse errors
             if ( equalsType(testType, VocabLangRDF.TestNegativeEvalTTL) )
                 return new RiotSyntaxTest(entry, RDFLanguages.TURTLE, false);
@@ -127,6 +127,7 @@ public class RiotTests
                 String base = rebase(input, assumedBase);
                 return new RiotEvalTest(entry, base, RDFLanguages.TURTLE, true);
             }
+
             if ( equalsType(testType, VocabLangRDF.TestEvalTriG) ) {
                 String base = rebase(input, assumedBase);
                 return new RiotEvalTest(entry, base, RDFLanguages.TRIG, true);
@@ -148,10 +149,10 @@ public class RiotTests
                 String base = entry.getAction().getURI();//rebase(input, assumedRootURI);
                 return new RiotEvalTest(entry, base, RDFLanguages.NTRIPLES, true);
             }
-            if ( equalsType(testType, VocabLangRDF.TestNegativeEvalNT) ) {
-                String base = entry.getAction().getURI();//rebase(input, assumedRootURI);
-                return new RiotEvalTest(entry, base, RDFLanguages.NTRIPLES, false);
-            }
+//            if ( equalsType(testType, VocabLangRDF.TestNegativeEvalNT) ) {
+//                String base = entry.getAction().getURI();//rebase(input, assumedRootURI);
+//                return new RiotEvalTest(entry, base, RDFLanguages.NTRIPLES, false);
+//            }
 
             if ( equalsType(testType, VocabLangRDF.TestEvalRJ) ) {
                 String base = rebase(input, assumedBase);
@@ -172,7 +173,7 @@ public class RiotTests
                     String resultURI = result.getURI().replaceAll("/rdf-tests-cg/rdf/rdf11/rdf-xml/xml-canon/", "/RIOT/Lang/rdf-xml/xml-canon/");
                     Node action2 = NodeFactory.createURI(actionURI);
                     Node result2 = NodeFactory.createURI(resultURI);
-                    entry = ManifestEntry.alter(entry, testType, action2, result2);
+                    entry = ManifestEntry.alter(entry, testType, specVersion, action2, result2);
                 }
                 String fn = entry.getAction().getURI();
                 // Adjust to changes in rdf-tests-cg layout.
@@ -180,12 +181,12 @@ public class RiotTests
                 return new RiotEvalTest(entry, base, RDFLanguages.RDFXML, true);
             }
 
-            if ( equalsType(testType, VocabLangRDF.TestNegativeEvalRDFXML) ) {
-                String fn = entry.getAction().getURI();
-                // Adjust to changes in rdf-tests-cg layout.
-                String base = fn.replaceAll("^.*/rdf-xml/", "https://w3c.github.io/rdf-tests/rdf/rdf11/rdf-xml/");
-                return new RiotEvalTest(entry, base, RDFLanguages.RDFXML, false);
-            }
+//            if ( equalsType(testType, VocabLangRDF.TestNegativeEvalRDFXML) ) {
+//                String fn = entry.getAction().getURI();
+//                // Adjust to changes in rdf-tests-cg layout.
+//                String base = fn.replaceAll("^.*/rdf-xml/", "https://w3c.github.io/rdf-tests/rdf/rdf11/rdf-xml/");
+//                return new RiotEvalTest(entry, base, RDFLanguages.RDFXML, false);
+//            }
 
             // Canonicalization tests
             if ( equalsType(testType, VocabLangRDF.TestNTriplesPositiveC14N) ) {

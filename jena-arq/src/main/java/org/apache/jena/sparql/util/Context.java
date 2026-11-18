@@ -323,8 +323,7 @@ public class Context {
     /**
      * Is the value true or false, either as a Boolean or a string.
      * If undefined, return null.
-     * Exception if not a boolean or a string.
-     *
+     * Throw an exception if the value is not a boolean or a string "true"/"false".
      */
     public Boolean getTrueOrFalse(Symbol property) {
         Object x = get(property);
@@ -445,8 +444,17 @@ public class Context {
         return context;
     }
 
+    /** Set the current time in the context, overwriting any previous setting. */
     public static void setCurrentDateTime(Context context) {
+        //context.set(ARQConstants.sysCurrentTime, NodeFactoryExtra.nowUTC());
         context.set(ARQConstants.sysCurrentTime, NodeFactoryExtra.nowAsDateTime());
+        context.set(ARQConstants.sysCurrentTimeEpoch, System.currentTimeMillis());
+    }
+
+    /** Set the current time in the context if there is no setting */
+    public static void setCurrentDateTimeIfUndef(Context context) {
+        if ( ! context.isDefined(ARQConstants.sysCurrentTime) )
+            setCurrentDateTime(context);
     }
 
     public static AtomicBoolean getCancelSignal(Context context) {

@@ -21,14 +21,8 @@
 
 package org.apache.jena.sparql.function.library.leviathan;
 
-import org.apache.jena.sparql.expr.NodeValue;
-import org.apache.jena.sparql.function.FunctionBase1;
+import org.apache.jena.sparql.function.library.Math_exp;
 
-public class e extends FunctionBase1 {
-
-    @Override
-    public NodeValue exec(NodeValue v) {
-        return NodeValue.makeDouble(Math.exp(v.getDouble()));
-    }
+public class e extends Math_exp {
 
 }

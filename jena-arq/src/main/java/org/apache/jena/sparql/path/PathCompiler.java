@@ -25,6 +25,7 @@ import org.apache.jena.graph.Node;
 import org.apache.jena.graph.Triple;
 import org.apache.jena.sparql.ARQConstants;
 import org.apache.jena.sparql.ARQException;
+import org.apache.jena.sparql.SparqlLimits;
 import org.apache.jena.sparql.algebra.optimize.TransformPathFlattenAlgebra;
 import org.apache.jena.sparql.algebra.optimize.TransformPathFlatten;
 import org.apache.jena.sparql.core.PathBlock;
@@ -33,6 +34,7 @@ import org.apache.jena.sparql.core.Var;
 import org.apache.jena.sparql.core.VarAlloc;
 
 public class PathCompiler {
+
     // Convert to work on OpPath.
     // Need pre (and post) BGPs.
 
@@ -126,16 +128,10 @@ public class PathCompiler {
 
         if ( path instanceof P_FixedLength pFixedLen ) {
             long N = pFixedLen.getCount();
-            if ( N > 0 ) {
+            if (SparqlLimits.isReducibleLength(N)) {
                 // Don't do {0}
-                Node stepStart = startNode;
-
-                for ( long i = 0 ; i < N - 1 ; i++ ) {
-                    Node v = varAlloc.allocVar();
-                    reduce(x, varAlloc, stepStart, pFixedLen.getSubPath(), v);
-                    stepStart = v;
-                }
-                reduce(x, varAlloc, stepStart, pFixedLen.getSubPath(), endNode);
+                // Also if the path is too long the reduction won't generate any performance benefits
+                reduceFixedLength(x, varAlloc, startNode, endNode, N, pFixedLen.getSubPath());
                 return;
             }
         }
@@ -143,15 +139,8 @@ public class PathCompiler {
         if ( path instanceof P_Mod pMod ) {
             if ( pMod.isFixedLength() && pMod.getFixedLength() > 0 ) {
                 long N = pMod.getFixedLength();
-                if ( N > 0 ) {
-                    Node stepStart = startNode;
-
-                    for ( long i = 0 ; i < N - 1 ; i++ ) {
-                        Node v = varAlloc.allocVar();
-                        reduce(x, varAlloc, stepStart, pMod.getSubPath(), v);
-                        stepStart = v;
-                    }
-                    reduce(x, varAlloc, stepStart, pMod.getSubPath(), endNode);
+                if (SparqlLimits.isReducibleLength(N)) {
+                    reduceFixedLength(x, varAlloc, startNode, endNode, N, pMod.getSubPath());
                     return;
                 }
             }
@@ -198,5 +187,28 @@ public class PathCompiler {
 
         // Nothing can be done.
         x.add(new TriplePath(startNode, path, endNode));
+    }
+
+    /**
+     * Reduces a fixed length path by expanding the {@code n} steps into individual path invocations with intermediate
+     * variables.
+     * @param x             Path block to append into
+     * @param varAlloc      Variable allocator
+     * @param startNode     Start node
+     * @param endNode       End node
+     * @param n             Fixed path length
+     * @param subPath       Sub path to use in each expanded step
+     * @see SparqlLimits#isReducibleLength(long)
+     */
+    private static void reduceFixedLength(PathBlock x, VarAlloc varAlloc, Node startNode, Node endNode, long n,
+                                          Path subPath) {
+        Node stepStart = startNode;
+
+        for (long i = 0; i < n - 1 ; i++ ) {
+            Node v = varAlloc.allocVar();
+            reduce(x, varAlloc, stepStart, subPath, v);
+            stepStart = v;
+        }
+        reduce(x, varAlloc, stepStart, subPath, endNode);
     }
 }

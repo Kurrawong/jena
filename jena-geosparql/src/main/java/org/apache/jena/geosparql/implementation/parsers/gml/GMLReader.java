@@ -481,7 +481,7 @@ public class GMLReader implements ParserReader {
             Element exteriorLinearRingElement = exteriorElement.getChild("LinearRing", GML_NAMESPACE);
             exteriorLinearRing = buildLinearRing(exteriorLinearRingElement, dims);
         } else {
-            exteriorLinearRing = GEOMETRY_FACTORY.createLinearRing();
+            exteriorLinearRing = GEOMETRY_FACTORY.createLinearRing(new CustomCoordinateSequence(dims));
         }
         //Interior shell - [0..*]
         List<Element> interiorElements = gmlElement.getChildren("interior", GML_NAMESPACE);
@@ -536,7 +536,7 @@ public class GMLReader implements ParserReader {
                 Geometry exteriorGeom = buildSurfacePatch(exteriorElement, dims, srsInfo);
                 exteriorLinearRing = GEOMETRY_FACTORY.createLinearRing(exteriorGeom.getCoordinates());
             } else {
-                exteriorLinearRing = GEOMETRY_FACTORY.createLinearRing();
+                exteriorLinearRing = GEOMETRY_FACTORY.createLinearRing(new CustomCoordinateSequence(dims));
             }
 
             //Interior shell - [0..*]
@@ -557,6 +557,12 @@ public class GMLReader implements ParserReader {
                 polygon = GEOMETRY_FACTORY.createPolygon(exteriorLinearRing, interiorLinearRings);
             }
             polys.add(polygon);
+        }
+
+        // The union of empty patches is a GeometryCollection in JTS.
+        // Return an empty patch directly so its coordinate layout is retained.
+        if (polys.stream().allMatch(Polygon::isEmpty)) {
+            return polys.get(0);
         }
 
         //Unionise all the polygons on the surface together.
@@ -698,6 +704,18 @@ public class GMLReader implements ParserReader {
     private static final String EMPTY_GML_TEXT = "<gml:Point xmlns:gml='http://www.opengis.net/gml/3.2' srsName=\"http://www.opengis.net/def/crs/OGC/1.3/CRS84\" />";
 
     public static GMLReader extract(String gmlText) throws JDOMException, IOException {
+        return new GMLReader(readRootElement(gmlText));
+    }
+
+    /**
+     * Returns the local name of a GML literal's root element. An empty
+     * literal represents an empty Point.
+     */
+    public static String readGeometryType(String gmlText) throws JDOMException, IOException {
+        return readRootElement(gmlText).getName();
+    }
+
+    private static Element readRootElement(String gmlText) throws JDOMException, IOException {
 
         if (gmlText.isEmpty()) {
             gmlText = EMPTY_GML_TEXT;
@@ -706,8 +724,7 @@ public class GMLReader implements ParserReader {
         SAXBuilder jdomBuilder = newSAXBuilder();
         InputStream stream = new ByteArrayInputStream(gmlText.getBytes(StandardCharsets.UTF_8));
         Document xmlDoc = jdomBuilder.build(stream);
-        Element gmlElement = xmlDoc.getRootElement();
-        return new GMLReader(gmlElement);
+        return xmlDoc.getRootElement();
     }
 
     // ---- XXE safe SAXBuilder
