@@ -234,8 +234,8 @@ External SPARQL always uses field IRIs:
 
 The SHACL API is strict:
 
-- `luc:query` object arity is exactly 7
-- `luc:facet` object arity is exactly 7
+- `luc:query` object arity is 7, or 8 with the paging cursor `after`
+- `luc:facet` object arity is 7, or 8 with the count mode `countMode`
 - no argument-shape guessing
 - missing arguments fail fast
 
