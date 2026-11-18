@@ -32,10 +32,12 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.jena.atlas.logging.FmtLog;
 import org.apache.jena.atlas.logging.Log;
+import org.apache.jena.atlas.net.Host;
 import org.apache.jena.atlas.web.HttpException;
 import org.apache.jena.http.HttpEnv;
 import org.apache.jena.http.RegistryHttpClient;
 import org.apache.jena.query.*;
+import org.apache.jena.rfc3986.IRI3986;
 import org.apache.jena.riot.web.HttpNames;
 import org.apache.jena.sparql.SystemARQ ;
 import org.apache.jena.sparql.algebra.Op ;
@@ -79,30 +81,34 @@ public class Service {
     private static Context emptyContext = Context.emptyContext();
 
     // Old names.
+    /** @deprecated Do not use. */
+    @Deprecated(forRemoval = true)
     public static final String baseOld = "http://jena.hpl.hp.com/Service#";
+
+    /** @deprecated Do not use. */
+    @Deprecated(forRemoval = true)
     public static final Symbol oldQueryClient       = SystemARQ.allocSymbol(baseOld, "queryClient");
+
+    /** @deprecated Do not use. */
+    @Deprecated(forRemoval = true)
     public static final Symbol oldServiceContext    = SystemARQ.allocSymbol(baseOld, "serviceContext");
+
+    /** @deprecated Do not use. */
+    @Deprecated(forRemoval = true)
     public static final Symbol oldServiceAllowed    = SystemARQ.allocSymbol(baseOld, "serviceAllowed");
+
+    /** @deprecated Use {@link #httpQueryTimeout} */
+    @Deprecated(forRemoval = true)
     public static final Symbol oldQueryTimeout      = SystemARQ.allocSymbol(baseOld, "queryTimeout");
+
+    @Deprecated(forRemoval = true)
     public static final Symbol oldQueryCompression  = SystemARQ.allocSymbol(baseOld, "queryCompression");
 
     // Compatibility with old AHC (Apache HttpClient) version
-    public static final Symbol serviceAllowed    = SystemARQ.allocSymbol(baseOld, "serviceAllowed");
-
-    private static void checkForOldParameters(Context context) {
-        if ( context == null )
-            return ;
-        checkForOldParameter(context, oldQueryClient);
-        checkForOldParameter(context, oldServiceContext);
-        checkForOldParameter(context, oldServiceAllowed);
-        checkForOldParameter(context, oldQueryTimeout);
-        checkForOldParameter(context, oldQueryCompression);
-    }
-
-    private static void checkForOldParameter(Context context, Symbol oldSymbol) {
-        if ( context.isDefined(oldSymbol) )
-            Log.warnOnce(LOGGER, "Service context parameter '"+oldSymbol.getSymbol()+"' no longer used - see ARQ constants for replacements.", oldSymbol);
-    }
+    /** @deprecated Do not use. */
+    @Deprecated(forRemoval = true)
+    // Switched to the preferred symbol.
+    public static final Symbol serviceAllowed = httpServiceAllowed;
 
     /** Test whether SERVICE calls out of this JVM are allowed. */
     public static void checkServiceAllowed(Context context) {
@@ -112,29 +118,30 @@ public class Service {
         if ( context == null )
             context = ARQ.getContext();
 
+        // -- To be removed
+        Boolean b2 = getBoolean(context, oldServiceAllowed);
+        if ( b2 != null) {
+            Log.warn(LOGGER, "Use of deprecated 'serviceAllowed'. Use 'httpServiceAllowed'");
+
+            System.out.println(context.toString());
+
+            b2 = getBoolean(context, oldServiceAllowed);
+            if ( ! b2 )
+                serviceNotEnabled();
+        }
+        // --
+
         Boolean b1 = getBoolean(context, httpServiceAllowed);
         if ( b1 != null) {
             if ( b1 )
                 return;
-            serviceNotEnabled();
+            else
+                serviceNotEnabled();
         }
-        Boolean b2 = getBoolean(context, oldServiceAllowed);
-        if ( b2 != null) {
-            if ( b2 )
-                return;
-            serviceNotEnabled();
-        }
+
         // Not set.
         if ( ! ARQ.allowServiceDefault )
             serviceNotEnabled();
-    }
-
-    private static Boolean getBoolean(Context context, Symbol symbol) {
-        try {
-             return context.getTrueOrFalse(httpServiceAllowed);
-        } catch (Throwable ex) {
-            throw new QueryException("Failed to read content setting  "+symbol.getSymbol());
-        }
     }
 
     private static void serviceNotEnabled() {
@@ -145,10 +152,35 @@ public class Service {
         throw new QueryDeniedException("SERVICE execution disabled") ;
     }
 
+    /**
+     * Perform checks on the SERVICE URL to give better error messages.
+     */
+    private static void checkServiceURL(String serviceURL) {
+        // The URL should been resolved
+        IRI3986 iri = IRI3986.create(serviceURL);
+
+        // Bad (unsupported) scheme names turn into IllegalArgumentException
+        // from HttpRequestBuidler later.
+
+        // Scheme and host required
+        if ( ! iri.hasScheme() )
+            throw new QueryExecException("Service URL does not have a scheme");
+        if ( ! iri.hasHost() )
+            throw new QueryExecException("Service URL does not have a host");
+
+        // Path must start with "/" because there is a host (authority)
+        String path = iri.path();
+        // Catch the mistake of the URL being a Fuseki server operation.
+        if ( path.equals("/$") || path.startsWith("/$/") ) {
+            // Check that this is not a localhost call.
+            if ( Host.isLocalhostLoopback(iri.host()) )
+                throw new QueryExecException("Unacceptable service URL");
+        }
+    }
+
     /** Plain service execution. */
     public static QueryIterator exec(OpService op, Context context) {
         checkServiceAllowed(context);
-        //checkForOldParameters(context);
 
         if ( context == null )
             context = emptyContext;
@@ -157,11 +189,8 @@ public class Service {
             throw new QueryExecException("Service URI not bound: " + op.getService());
 
         boolean silent = op.getSilent();
-        // [QExec] Add getSubOpUnmodified();
-        if (!op.getService().isURI())
-            throw new QueryExecException("Service URI not bound: " + op.getService());
         String serviceURL = op.getService().getURI();
-
+        checkServiceURL(serviceURL);
         Op opRemote = op.getSubOp();
         Query query;
         if ( false ) {
@@ -247,6 +276,9 @@ public class Service {
             if (requiresRemapping)
                 qIter = QueryIter.map(qIter, varMapping);
             return qIter;
+        } catch (IllegalArgumentException ex) {
+            // Various problems from JDK HttpRequestBuilder
+            throw new QueryExecException(ex);
         } catch (HttpException ex) {
             throw QueryExceptionHTTP.rewrap(ex);
         }
@@ -378,6 +410,14 @@ public class Service {
         } catch(Throwable ex) {
             LOGGER.warn("Failed to process "+obj+" : context value of ARQ.serviceParams");
             return null;
+        }
+    }
+
+    private static Boolean getBoolean(Context context, Symbol symbol) {
+        try {
+             return context.getTrueOrFalse(symbol);
+        } catch (Throwable ex) {
+            throw new QueryException("Failed to read content setting  "+symbol.getSymbol());
         }
     }
 }

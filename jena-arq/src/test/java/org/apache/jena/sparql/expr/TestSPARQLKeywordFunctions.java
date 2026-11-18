@@ -409,6 +409,13 @@ public class TestSPARQLKeywordFunctions
     @Test public void replace30()       { test("REPLACE('b'@en--ltr, '(a|b)?', 'Z')", "'Z'@en--ltr"); }
     @Test public void replace31()       { test("REPLACE('b'@en--ltr, '(a|b)?', 'Z'@en--ltr)", "'Z'@en--ltr"); }
 
+    // Long-running regular expressions should be aborted
+    @Test public void replace32()       { testEvalException("REPLACE('a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,z,y,z', '^(.*?,){11}P', 'test')"); }
+
+    // Bad replacement.
+    @Test public void replace33()       { testEvalException("REPLACE('abc', 'b', '$')"); }
+    @Test public void replace34()       { testEvalException("REPLACE('abc', 'b', '$X')"); }
+
     @Test public void sameTerm_01()     { test("sameTerm(1,1)",           kwTRUE); }
     @Test public void sameTerm_02()     { test("sameTerm(1,1.0)",         kwFALSE); }
     @Test public void sameTerm_03()     { test("sameTerm(1,1e0)",         kwFALSE); }

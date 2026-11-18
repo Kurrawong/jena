@@ -28,6 +28,7 @@ import org.apache.jena.graph.Node ;
 import org.apache.jena.graph.Triple ;
 import org.apache.jena.sparql.ARQConstants ;
 import org.apache.jena.sparql.ARQException ;
+import org.apache.jena.sparql.SparqlLimits;
 import org.apache.jena.sparql.algebra.Op ;
 import org.apache.jena.sparql.algebra.TransformCopy ;
 import org.apache.jena.sparql.algebra.op.*;
@@ -175,7 +176,7 @@ public class TransformPathFlattenAlgebra extends TransformCopy {
         @Override
         public void visit(P_Mod pathMod) {
             if (pathMod.isFixedLength()) {
-                if (pathMod.getFixedLength() > 0) {
+                if (SparqlLimits.isReducibleLength(pathMod.getFixedLength())) {
                     // Treat as a fixed length path and convert that way instead
                     Path p = PathFactory.pathFixedLength(pathMod.getSubPath(), pathMod.getFixedLength());
                     Op op = transformPath(null, subject, p, object);
@@ -221,6 +222,13 @@ public class TransformPathFlattenAlgebra extends TransformCopy {
             if ( pathMod.getMin() > pathMod.getMax() )
                 throw new ARQException("Bad path: " + pathMod);
 
+            // If the max length is very large the reduction is unlikely to benefit performance and just generates an
+            // unnecessarily large algebra tree
+            if (!SparqlLimits.isReducibleLength(pathMod.getMax())) {
+                result = null;
+                return;
+            }
+
             Op op = null;
             for ( long i = pathMod.getMin() ; i <= pathMod.getMax() ; i++ ) {
                 Path p = PathFactory.pathFixedLength(pathMod.getSubPath(), i);
@@ -232,6 +240,12 @@ public class TransformPathFlattenAlgebra extends TransformCopy {
 
         @Override
         public void visit(P_FixedLength pFixedLength) {
+            if (!SparqlLimits.isReducibleLength(pFixedLength.getCount())) {
+                // Don't transform zero length or too long paths
+                result = null;
+                return;
+            }
+
             Op op = null;
             Var v1 = null;
             for ( int i = 0 ; i < pFixedLength.getCount() ; i++ ) {

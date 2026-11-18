@@ -81,6 +81,23 @@ public class TestExpressions2
 
     @Test public void gregorian_cast_01()       { eval("xsd:gYear('2010-03-22'^^xsd:date) = '2010'^^xsd:gYear", true ); }
 
+    // GH-4297: Signed zero compares equal by value for float, double, and promoted numbers.
+    @Test public void signed_zero_01()          { eval("'0e0'^^xsd:double = '-0e0'^^xsd:double", true); }
+    @Test public void signed_zero_02()          { eval("'-0e0'^^xsd:double != '0e0'^^xsd:double", false); }
+    @Test public void signed_zero_03()          { eval("'-0e0'^^xsd:double < '0e0'^^xsd:double", false); }
+    @Test public void signed_zero_04()          { eval("'0e0'^^xsd:double > '-0e0'^^xsd:double", false); }
+    @Test public void signed_zero_05()          { eval("'-0e0'^^xsd:double <= '0e0'^^xsd:double", true); }
+    @Test public void signed_zero_06()          { eval("'0e0'^^xsd:double >= '-0e0'^^xsd:double", true); }
+    @Test public void signed_zero_07()          { eval("'-0'^^xsd:float = '0'^^xsd:float", true); }
+    @Test public void signed_zero_08()          { eval("'-0'^^xsd:float < '0'^^xsd:float", false); }
+    @Test public void signed_zero_09()          { eval("'-0'^^xsd:float = '0e0'^^xsd:double", true); }
+    @Test public void signed_zero_10()          { eval("'-0'^^xsd:float = 0", true); }
+    @Test public void signed_zero_11()          { eval("'-0e0'^^xsd:double = 0.0", true); }
+    @Test public void signed_zero_12()          { eval("'0e0'^^xsd:double IN ('-0e0'^^xsd:double)", true); }
+    @Test public void signed_zero_13()          { eval("'-1e0'^^xsd:double < '0e0'^^xsd:double", true); }
+    @Test public void signed_zero_14()          { eval("'1e0'^^xsd:double > '-0e0'^^xsd:double", true); }
+    @Test public void signed_zero_15()          { eval("'INF'^^xsd:double > '-0e0'^^xsd:double", true); }
+
     @Test public void coalesce_01()             { assertThrows(ExprEvalException.class, ()-> eval("COALESCE()") ); }
     @Test public void coalesce_02()             { eval("COALESCE(1) = 1", true); }
     @Test public void coalesce_03()             { eval("COALESCE(?x,1) = 1", true); }
@@ -258,6 +275,13 @@ public class TestExpressions2
     @Test public void xsd_cast_11()             { assertThrows(ExprEvalException.class, ()-> eval("xsd:boolean(' 1')") ); }
     @Test public void xsd_cast_12()             { assertThrows(ExprEvalException.class, ()-> eval("xsd:double(' 1.0e0')") ); }
     @Test public void xsd_cast_13()             { assertThrows(ExprEvalException.class, ()-> eval("xsd:double(' 1.0e0')") ); }
+
+    @Test public void string_codepoint_order_01() {
+        String bmp = Character.toString(0xFFE0);
+        String astral = Character.toString(0x1D11E);
+        eval("'"+bmp+"' < '"+astral+"'", true);
+        eval("'"+bmp+"'^^xsd:string < '"+astral+"'^^xsd:string", true);
+    }
 
     // Dynamic Function Calls
     @Test public void dynamic_call_01()         { assertThrows(QueryParseException.class, ()-> eval("CALL()", false) ); }

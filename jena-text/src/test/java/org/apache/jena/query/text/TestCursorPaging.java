@@ -285,8 +285,8 @@ public class TestCursorPaging {
     /**
      * IRIs compare by code point. U+FF21 sorts before U+1F600 by code point, but after it by
      * UTF-16 code unit, where U+1F600 is the surrogate pair D83D DE00. Jena's own
-     * {@code ORDER BY STR(?s)} compares UTF-16 code units, so on exactly this pair the two
-     * disagree; on IRIs without characters beyond U+FFFF they agree.
+     * {@code ORDER BY STR(?s)} also compares by code point since apache/jena GH-4300, so the
+     * entity key and SPARQL agree on this pair.
      */
     @Test
     public void entityKeyComparesCodePoints() {
@@ -302,7 +302,7 @@ public class TestCursorPaging {
         for (Binding b : select("SELECT ?s WHERE { ?s a ex:Item } ORDER BY STR(?s)")) {
             bySparql.add(b.get("s").getURI().substring(NS.length()));
         }
-        assertEquals(List.of("a", "b", "c", "d", "e", "f", emoji, fullwidth), bySparql);
+        assertEquals(byKey, bySparql);
     }
 
     @Test

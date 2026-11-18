@@ -1102,10 +1102,8 @@ when an entity is updated or re-inserted. It works like any other key too: `"des
 alone, or first.
 
 IRIs compare by code point: the bytes of their UTF-8 form, in order. Jena's own
-`ORDER BY STR(?entity)` compares UTF-16 code units instead. The two agree on every pair of
-IRIs except where the first difference sets a character beyond U+FFFF against one from
-U+E000 to U+FFFF: the key puts `x\uFF21` before `x\U0001F600`, Jena's `ORDER BY` the other way
-round. `missing` has no effect, since every entity has an IRI, and a `selector` is an error.
+`ORDER BY STR(?entity)` also compares by code point (since apache/jena GH-4300), so the key
+and `ORDER BY` give the same order, including for characters beyond U+FFFF. `missing` has no effect, since every entity has an IRI, and a `selector` is an error.
 
 The key reads the entity IRI doc value, which indexes have written since 2026-10-12
 (`d6f0091`, #195). An index holding any document written before then has no value to sort

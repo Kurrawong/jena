@@ -23,13 +23,27 @@ package org.apache.jena.sparql.function.library;
 
 import org.apache.jena.sparql.expr.NodeValue;
 import org.apache.jena.sparql.function.FunctionBase1;
+import org.apache.jena.sparql.SparqlLimits;
 
 // Returns the value of e^x.
 public class Math_exp extends FunctionBase1 {
 
     @Override
     public NodeValue exec(NodeValue v) {
-        return NodeValue.makeDouble(Math.exp(v.getDouble()));
+        double d = v.getDouble();
+
+        // Special case, raising e to power INF is either 0 for negative infinity or INF for positive infinity
+        if (Double.isInfinite(d)) {
+            if (d < 0) {
+                return NodeValue.makeDouble(0);
+            } else {
+                return NodeValue.makeDouble(d);
+            }
+        }
+
+        // Otherwise pre-validate exponent calculation before proceeding to calculate it
+        SparqlLimits.preValidateExponentCalculation(Math.E, d);
+        return NodeValue.makeDouble(Math.exp(d));
     }
 
 }

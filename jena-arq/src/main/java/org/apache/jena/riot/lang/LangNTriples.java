@@ -21,46 +21,56 @@
 
 package org.apache.jena.riot.lang;
 
-import org.apache.jena.graph.Node ;
-import org.apache.jena.graph.Triple ;
-import org.apache.jena.riot.Lang ;
-import org.apache.jena.riot.RDFLanguages ;
-import org.apache.jena.riot.system.ParserProfile ;
-import org.apache.jena.riot.system.StreamRDF ;
-import org.apache.jena.riot.tokens.Token ;
-import org.apache.jena.riot.tokens.TokenType ;
-import org.apache.jena.riot.tokens.Tokenizer ;
-import org.slf4j.Logger ;
-import org.slf4j.LoggerFactory ;
+import org.apache.jena.graph.Node;
+import org.apache.jena.graph.Triple;
+import org.apache.jena.riot.Lang;
+import org.apache.jena.riot.RDFLanguages;
+import org.apache.jena.riot.RIOT;
+import org.apache.jena.riot.system.ParserProfile;
+import org.apache.jena.riot.system.StreamRDF;
+import org.apache.jena.riot.tokens.Token;
+import org.apache.jena.riot.tokens.TokenType;
+import org.apache.jena.riot.tokens.Tokenizer;
+import org.apache.jena.sparql.util.Context;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * N-Triples.
- * 
+ *
  * @see <a href="http://www.w3.org/TR/n-triples/">http://www.w3.org/TR/n-triples/</a>
  */
 public final class LangNTriples extends LangNTuple<Triple>
 {
-    private static Logger messageLog = LoggerFactory.getLogger("N-Triples") ;
-    
-    public LangNTriples(Tokenizer tokens, ParserProfile profile, StreamRDF dest) {
-        super(tokens, profile, dest) ;
-    }
-    
-    @Override
-    public Lang getLang()   { return RDFLanguages.NTRIPLES ; }
+    private static Logger messageLog = LoggerFactory.getLogger("N-Triples");
 
-    /** Method to parse the whole stream of triples, sending each to the sink */ 
+    /** Use {@link #LangNTriples(Tokenizer, ParserProfile, StreamRDF, Context)} */
+    @Deprecated(forRemoval = true)
+    public LangNTriples(Tokenizer tokens, ParserProfile profile, StreamRDF dest) {
+        this(tokens, profile, dest, RIOT.getContext());
+    }
+
+    public LangNTriples(Tokenizer tokens, ParserProfile profile, StreamRDF dest, Context context) {
+        super(tokens, profile, dest, context);
+    }
+
+    @Override
+    public Lang getLang()   { return RDFLanguages.NTRIPLES; }
+
+    /** Method to parse the whole stream of triples, sending each to the sink */
     @Override
     protected final void runParser() {
         while (hasNext()) {
-            Triple x = parseOne();
+            Triple x = parseOneStatement();
             if ( x != null )
                 dest.triple(x);
         }
     }
 
     @Override
-    protected final Triple parseOne() {
+    protected final Triple parseOneStatement() {
+        if ( parsePossibleVersion() )
+            return null;
         Triple triple = parseTriple();
         Token x = nextToken();
         if ( x.getType() != TokenType.DOT )

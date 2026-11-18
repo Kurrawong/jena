@@ -21,29 +21,30 @@
 
 package org.apache.jena.sparql.function.library.leviathan;
 
-import java.math.BigInteger;
-
 import org.apache.jena.sparql.ARQInternalErrorException;
 import org.apache.jena.sparql.expr.NodeValue;
 import org.apache.jena.sparql.expr.nodevalue.XSDFuncOp;
 import org.apache.jena.sparql.function.FunctionBase2;
+import org.apache.jena.sparql.SparqlLimits;
+import org.apache.jena.sparql.function.library.Math_pow;
 
 public class pow extends FunctionBase2 {
+
+    private final Math_pow mathPow = new Math_pow();
 
     @Override
     public NodeValue exec(NodeValue v1, NodeValue v2) {
         switch (XSDFuncOp.classifyNumeric("pow", v1))
         {
-            case OP_INTEGER:
-                BigInteger i = v1.getInteger();
-                return NodeValue.makeInteger( i.pow(v2.getInteger().intValue()) );
             case OP_DECIMAL:
                 double dec = v1.getDecimal().doubleValue();
+                SparqlLimits.preValidateExponentCalculation(dec, v2.getDouble());
                 return NodeValue.makeDecimal( Math.pow(dec, v2.getDouble()));
+            case OP_INTEGER:
             case OP_FLOAT:
-                // TODO Should raising a float to a power keep it a float?
             case OP_DOUBLE:
-                return NodeValue.makeDouble( Math.pow(v1.getDouble(), v2.getDouble()) );
+                // Defer to Math_pow as that handles all the special cases
+                return this.mathPow.exec(v1, v2);
             default:
                 throw new ARQInternalErrorException("Unrecognized numeric operation : "+ v1);
         }

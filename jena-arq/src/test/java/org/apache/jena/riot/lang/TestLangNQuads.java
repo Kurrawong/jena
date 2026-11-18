@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.riot.ErrorHandlerTestLib.ExFatal;
 import org.apache.jena.riot.Lang;
+import org.apache.jena.riot.RIOT;
 import org.apache.jena.riot.system.ParserProfile;
 import org.apache.jena.riot.system.StreamRDF;
 import org.apache.jena.riot.tokens.Tokenizer;
@@ -44,9 +45,8 @@ public class TestLangNQuads extends AbstractTestLangNTuples
 
     @Override
     protected LangRIOT createLangRIOT(Tokenizer tokenizer, StreamRDF sink, ParserProfile profile) {
-        return IteratorParsers.createParserNQuads(tokenizer, sink, profile);
+        return IteratorParsers.createParserNQuads(tokenizer, sink, profile, RIOT.getContext());
     }
-
 
     @Test
     public void quad_1() {
@@ -56,6 +56,30 @@ public class TestLangNQuads extends AbstractTestLangNTuples
     @Test
     public void quad_2() {
         parseException(ExFatal.class, "<http://example/x> <http://example/p> <http://example/s> <http://example/g>"); // No trailing DOT
+    }
+
+    @Test
+    public void nq_version_1() {
+        parseCheck("""
+                VERSION "1.2"
+                <http://example/s> <http://example/p> <http://example/o>  <http://example/g> .
+                VERSION "1.2"
+                """);
+    }
+
+    @Test
+    public void nq_version_2() {
+        parseCheck("""
+                VERSION "1.2"
+                """);
+    }
+
+    @Test
+    public void nq_version_3() {
+        parseCheck("""
+                VERSION "1.2"
+                VERSION "1.2"
+                """);
     }
 
     @Test

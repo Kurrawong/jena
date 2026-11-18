@@ -43,6 +43,7 @@ import org.apache.jena.sparql.core.DatasetGraph;
 import org.apache.jena.sparql.core.DatasetGraphFactory;
 import org.apache.jena.sparql.core.Quad;
 import org.apache.jena.sparql.graph.GraphFactory;
+import org.apache.jena.sparql.util.Context;
 import org.apache.jena.sys.JenaSystem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -515,6 +516,7 @@ public class RDFDataMgr
      * Performs content negotiation, including looking at file extension.
      * @param filenameOrURI
      * @return TypedInputStream
+     * @throws RiotNotFoundException
      */
     public static TypedInputStream open(String filenameOrURI)
     { return open(filenameOrURI, StreamManager.get()); }
@@ -525,9 +527,10 @@ public class RDFDataMgr
      * @param filenameOrURI
      * @param streamManager
      * @return TypedInputStream
+     * @throws RiotNotFoundException
      */
     public static TypedInputStream open(String filenameOrURI, StreamManager streamManager) {
-        TypedInputStream in = streamManager.open(filenameOrURI);
+        TypedInputStream in = streamManager.openEx(filenameOrURI);
         if ( in == null )
             throw new RiotNotFoundException("Not found: "+filenameOrURI);
         return in;
@@ -824,7 +827,21 @@ public class RDFDataMgr
      * @return Iterator over the triples
      */
     public static Iterator<Triple> createIteratorTriples(InputStream input, Lang lang, String baseIRI) {
-        return IteratorParsers.createIteratorTriples(input, lang, baseIRI);
+        return createIteratorTriples(input, lang, baseIRI, RIOT.getContext());
+    }
+
+    /**
+     * Create an iterator over parsing of triples.
+     * This function creates a thread unless the Lang is N-Triples.
+     *
+     * @param input Input Stream
+     * @param lang Language
+     * @param baseIRI Base IRI
+     * @param context
+     * @return Iterator over the triples
+     */
+    public static Iterator<Triple> createIteratorTriples(InputStream input, Lang lang, String baseIRI, Context context) {
+        return IteratorParsers.createIteratorTriples(input, lang, baseIRI, context);
     }
 
     /**
@@ -837,6 +854,19 @@ public class RDFDataMgr
      * @return Iterator over the quads
      */
     public static Iterator<Quad> createIteratorQuads(InputStream input, Lang lang, String baseIRI) {
-        return IteratorParsers.createIteratorQuads(input, lang, baseIRI);
+        return createIteratorQuads(input, lang, baseIRI, RIOT.getContext());
+    }
+
+    /**
+     * Creates an iterator over parsing of quads.
+     * This function creates a thread unless the Lang is N-Quads.
+     *
+     * @param input Input Stream
+     * @param lang Language
+     * @param baseIRI Base IRI
+     * @return Iterator over the quads
+     */
+    public static Iterator<Quad> createIteratorQuads(InputStream input, Lang lang, String baseIRI, Context context) {
+        return IteratorParsers.createIteratorQuads(input, lang, baseIRI, context);
     }
 }
