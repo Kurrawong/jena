@@ -164,7 +164,8 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestSelfBoundOccurrences.class
     , org.apache.jena.query.text.assembler.TestSelfOccurrenceAssembler.class
     , TestCorrelatedNestedAttribution.class,
-    TestNestedTemporalField.class
+    TestNestedTemporalField.class,
+    TestNestedSameChildFromTurtle.class
     , TestNestedGeometryScope.class
     , TestTypeaheadFieldConfigurations.class
     , TestNestedJoinPathSupport.class
