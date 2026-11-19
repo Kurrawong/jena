@@ -30,14 +30,24 @@ import java.util.stream.Collectors;
 
 /**
  * Canonical facet request model covering flat/hierarchical fields and numeric range facets.
+ * <p>
+ * A request with {@link #isSideways()} set asks for sideways counts: each requested field
+ * that the filter selects on is counted with its own selection left out, and every other
+ * field under the full filter. See {@link ShaclTextIndexLucene#getSidewaysFacetCounts}.
  */
 public final class FacetRequest {
     private final List<String> flatFields;
     private final List<RangeFacetSpec> rangeFields;
+    private final boolean sideways;
 
     public FacetRequest(List<String> flatFields, List<RangeFacetSpec> rangeFields) {
+        this(flatFields, rangeFields, false);
+    }
+
+    public FacetRequest(List<String> flatFields, List<RangeFacetSpec> rangeFields, boolean sideways) {
         this.flatFields = List.copyOf(flatFields != null ? flatFields : List.of());
         this.rangeFields = List.copyOf(rangeFields != null ? rangeFields : List.of());
+        this.sideways = sideways;
     }
 
     public static FacetRequest flatOnly(List<String> flatFields) {
@@ -50,6 +60,16 @@ public final class FacetRequest {
 
     public List<RangeFacetSpec> getRangeFields() {
         return rangeFields;
+    }
+
+    /** Whether the request asks for sideways counts. */
+    public boolean isSideways() {
+        return sideways;
+    }
+
+    /** The same fields, counted under the full filter. */
+    public FacetRequest withoutSideways() {
+        return sideways ? new FacetRequest(flatFields, rangeFields, false) : this;
     }
 
     public boolean hasRanges() {
@@ -70,19 +90,21 @@ public final class FacetRequest {
             .collect(Collectors.toList());
 
         return "flat=" + String.join(",", canonicalFlat)
-            + "|ranges=" + String.join(",", canonicalRanges);
+            + "|ranges=" + String.join(",", canonicalRanges)
+            + (sideways ? "|sideways" : "");
     }
 
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof FacetRequest that)) return false;
-        return flatFields.equals(that.flatFields) && rangeFields.equals(that.rangeFields);
+        return sideways == that.sideways
+            && flatFields.equals(that.flatFields) && rangeFields.equals(that.rangeFields);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(flatFields, rangeFields);
+        return Objects.hash(flatFields, rangeFields, sideways);
     }
 
     public record RangeFacetSpec(String fieldIri, List<String> boundaries) {

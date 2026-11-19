@@ -56,14 +56,26 @@ import org.slf4j.LoggerFactory;
  * <b>Syntax:</b>
  * <pre>
  * (?field ?value ?low ?high ?count) luc:facet (indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount)
+ * (?field ?value ?low ?high ?count) luc:facet (indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount countMode)
  * </pre>
  * <p>
  * The second string literal is the field specification for text query scoping
  * (same as luc:query). CQL filters are JSON objects with an {@code "op"} key.
+ * <p>
+ * {@code countMode} is {@code "sideways"}, the default, or {@code "drilldown"}. Sideways
+ * counts each field the filter selects on with its own selection left out; drill-down
+ * counts every field under the full filter. Omitting the argument, or {@code ""}, is
+ * {@code "sideways"}.
  */
 public class TextFacetPF extends PropertyFunctionBase {
     private static final Logger log = LoggerFactory.getLogger(TextFacetPF.class);
     private static final int FACET_ARG_ARITY = 7;
+    /** With the optional eighth argument, {@code countMode}. */
+    private static final int FACET_ARG_ARITY_WITH_MODE = 8;
+    private static final String MODE_SIDEWAYS = "sideways";
+    private static final String MODE_DRILLDOWN = "drilldown";
+    private static final String ARGS =
+        "(indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount [countMode])";
 
     private ShaclTextIndexLucene textIndex = null;
     private boolean warningIssued = false;
@@ -84,13 +96,13 @@ public class TextFacetPF extends PropertyFunctionBase {
         }
 
         if (!argObject.isList()) {
-            throw new QueryBuildException("luc:facet expects exactly " + FACET_ARG_ARITY
-                + " object arguments: (indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount)");
+            throw new QueryBuildException("luc:facet expects " + FACET_ARG_ARITY + " or "
+                + FACET_ARG_ARITY_WITH_MODE + " object arguments: " + ARGS);
         }
         int size = argObject.getArgListSize();
-        if (size != FACET_ARG_ARITY) {
-            throw new QueryBuildException("luc:facet expects exactly " + FACET_ARG_ARITY
-                + " object arguments (indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount), got " + size);
+        if (size != FACET_ARG_ARITY && size != FACET_ARG_ARITY_WITH_MODE) {
+            throw new QueryBuildException("luc:facet expects " + FACET_ARG_ARITY + " or "
+                + FACET_ARG_ARITY_WITH_MODE + " object arguments " + ARGS + ", got " + size);
         }
     }
 
@@ -214,13 +226,13 @@ public class TextFacetPF extends PropertyFunctionBase {
      */
     private FacetArgs parseObjectArgs(PropFuncArg argObject) {
         if (!argObject.isList()) {
-            throw new QueryExecException("luc:facet expects exactly " + FACET_ARG_ARITY
-                + " object arguments (indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount)");
+            throw new QueryExecException("luc:facet expects " + FACET_ARG_ARITY + " or "
+                + FACET_ARG_ARITY_WITH_MODE + " object arguments " + ARGS);
         }
         List<Node> list = argObject.getArgList();
-        if (list.size() != FACET_ARG_ARITY) {
-            throw new QueryExecException("luc:facet expects exactly " + FACET_ARG_ARITY
-                + " object arguments (indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount), got " + list.size());
+        if (list.size() != FACET_ARG_ARITY && list.size() != FACET_ARG_ARITY_WITH_MODE) {
+            throw new QueryExecException("luc:facet expects " + FACET_ARG_ARITY + " or "
+                + FACET_ARG_ARITY_WITH_MODE + " object arguments " + ARGS + ", got " + list.size());
         }
 
         String indexSelector = requireLiteralString(list.get(0), "indexSelector");
@@ -233,9 +245,11 @@ public class TextFacetPF extends PropertyFunctionBase {
         CqlExpression cqlFilter = parseCqlFilter(requireLiteralString(list.get(4), "cqlFilter"));
         int maxValues = parseInteger(list.get(5), "maxValues");
         int minCount = parseInteger(list.get(6), "minCount");
+        boolean sideways = list.size() < FACET_ARG_ARITY_WITH_MODE
+            || parseCountMode(requireLiteralString(list.get(7), "countMode"));
 
         return new FacetArgs(indexSelector, searchFields, queryString,
-            new FacetRequest(facetFields, rangeFields), cqlFilter, maxValues, minCount);
+            new FacetRequest(facetFields, rangeFields, sideways), cqlFilter, maxValues, minCount);
     }
 
     private static String requireLiteralString(Node node, String label) {
@@ -274,8 +288,22 @@ public class TextFacetPF extends PropertyFunctionBase {
         }
     }
 
+    /** Whether {@code countMode} asks for sideways counts. */
+    private static boolean parseCountMode(String mode) {
+        return switch (mode) {
+            case "", MODE_SIDEWAYS -> true;
+            case MODE_DRILLDOWN -> false;
+            default -> throw new QueryExecException("luc:facet countMode must be \"" + MODE_SIDEWAYS
+                + "\" or \"" + MODE_DRILLDOWN + "\", got \"" + mode + "\"");
+        };
+    }
+
     private void parseFacetRequestArray(String json, List<String> facetFields, List<FacetRequest.RangeFacetSpec> rangeFields) {
-        JsonArray arr = JSON.parseAny(json).getAsArray();
+        JsonValue value = JSON.parseAny(json);
+        if (!value.isArray()) {
+            throw new QueryExecException("luc:facet facetFields must be a JSON array");
+        }
+        JsonArray arr = value.getAsArray();
         for (int i = 0; i < arr.size(); i++) {
             JsonValue item = arr.get(i);
             if (item.isString()) {
@@ -339,7 +367,8 @@ public class TextFacetPF extends PropertyFunctionBase {
             validatedRanges.add(spec);
         }
 
-        return new FacetArgs(args.indexSelector, args.searchFields, args.queryString, new FacetRequest(validatedFlatFields, validatedRanges),
+        return new FacetArgs(args.indexSelector, args.searchFields, args.queryString,
+            new FacetRequest(validatedFlatFields, validatedRanges, request.isSideways()),
             args.cqlFilter, args.maxValues, args.minCount);
     }
 

@@ -32,6 +32,7 @@ A class missing from `@SelectClasses` is **silently never run** — not reported
 |-------|-------|---------------|
 | `TestNativeFacetCounts` | 10 | Java API: open facets, filtered facets, maxValues, minCount, getAllChildren, empty/nonexistent fields |
 | `TestTextFacetPF` | 16 | SPARQL `luc:facet` PF: flat/range facets, mixed requests, filters, maxValues, minCount, subject arity checks, empty-string placeholders |
+| `TestFacetSideways` | 21 | `luc:facet` count modes: each selected field's sideways counts equal those of a `"drilldown"` call with that field's clauses removed from the filter, across segments with deleted documents; `or` within one field; clauses that stay in the base filter (`or` across fields, `<>`, nested scopes, hierarchy levels, unrequested fields); `luc:query` totals in the same query; `countMode` values |
 | `TestTextQueryPFFilters` | 13 | SPARQL `luc:query` with JSON filters, field-IRI scoping, empty-string placeholders, string limits, and end-to-end sort pushdown |
 | `TestSearchExecution` | 10 | Shared execution: key generation, normalisation, index-aware reuse, and sort-sensitive cache keys |
 | `TestLucQueryHitPath` | 25 | The `luc:query` hit path: `(?hit)` decodes no stored field and `(?hit ?entity)` only the entity field or its doc value, counted through `HitReadObserver`; entity order under relevance and sort; constant `?entity`; no match details without `luc:match`, only matched fields decoded with it, and only for the returned page; two searches in one query each resolving their own `?hit`; constant field slots in `luc:match` and `luc:nestedMatch`; negative and zero `limit`; the searcher held while iterating, until the last of two iterators closes, and released on finish, abandon and cancel; late reads with and without a commit; a window re-run on the held searcher ignoring a later commit, and raising after release and a commit; closing a query after its index closed |
@@ -279,6 +280,14 @@ row count is wrong.
 | `largeTextNoMatch` | `survey`, limit 300,000, binds `?entity` | 300,000 |
 | `largeTextWithMatch` | `survey` joined to `luc:match`, limit `bench.matchWindow` | 20,000 |
 | `largeIdentifierFields` | `*` with the `status` filter, limit 300,000, binds `?hit` only, `recordId` through `luc:fields` | 300,000 |
+| `formSideways<Form><Term>` | one `luc:facet` in its default sideways mode over category, region, status and subject (and year, for `Broad`), all values, with the form's full filter | equal to `formPerField<Form><Term>` |
+| `formPerField<Form><Term>` | the same counts as `"drilldown"` calls in a `UNION`: subject under the full filter, and each selected field with its own clauses removed | equal to `formSideways<Form><Term>` |
+
+`<Form>` is `Selective` (category in 3 of 30 values, region in 2 of 8, status `active`) or
+`Broad` (category in 20 values, region in 6, status `active` or `draft`, year between 1960
+and 2015, with year as a range facet). `<Term>` is `Common` (`survey`) or `Rare`
+(`basalt`). Before timing, each `form` scenario checks that its sideways and per-field
+queries return the same rows.
 
 `largeIdentifierFields` reads `recordId`, a sortable `KEYWORD`, from its doc value. An
 index built before field values were read from doc values still has a stored copy, so

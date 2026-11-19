@@ -289,7 +289,7 @@ jobs:
           test "$hits" -gt 0
 
           echo "--- facets, which need the taxonomy the in-memory index builds ---"
-          ## luc:facet takes exactly seven objects, and facetFields is a JSON array in a
+          ## luc:facet takes seven objects (eight with countMode), and facetFields is a JSON array in a
           ## string literal, not an RDF list. Written as """...""" because the
           ## surrounding shell string is already single-quoted.
           facets=$(curl -sf -X POST http://localhost:3030/mining/query \

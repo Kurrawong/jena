@@ -29,21 +29,35 @@ The `ShaclTextDocProducer` uses a `ThreadLocal<Boolean>` for transaction trackin
 
 The following features are deferred. Most can be added as opt-in extensions or new PFs. Where a feature extends an existing response model, it should do so in a backward-compatible way.
 
-#### DrillSideways
+#### Sideways counts for hierarchies and nested fields
 
-The entity-per-document model enables Lucene's `DrillSideways` API for efficient faceted navigation. Currently, facet counts are collected via `SortedSetDocValuesFacetCounts` with a `FacetsCollector`. DrillSideways would allow:
+`luc:facet` counts flat `KEYWORD` and range facets sideways by default, with Lucene's
+`DrillSideways` (see [SPARQL API: count modes](02-sparql-api.md#count-modes)). Two kinds of
+field are still counted under the full filter:
 
-- Single-pass combined search + facet collection
-- "Drill sideways" semantics: when filtering by category=Technology, the category facet still shows counts for *all* categories (not just Technology), while other facet fields are filtered
+- Hierarchy dimensions and their level fields. A sideways count would need to decide which
+  levels of a selected path to leave out, and the filter's `=` clauses on levels also set
+  the drill-down path the counts are read from.
+- Fields in an `idx:nested` scope. The CQL compiler folds a filter's clauses on one scope
+  into one block-join query, so that they must match the same child record. `DrillSideways`
+  ANDs each dimension's query with the base query as a separate query, so a nested clause
+  made a dimension would be lifted to the parent on its own and could match a different
+  child from the scope's other clauses.
 
-This is the standard faceted search UX pattern. Implementation requires:
-1. Replace `FacetsCollector` + separate search with `DrillSideways.search()`
-2. Build `DrillDownQuery` from filters
-3. Collect both filtered hits and sideways facet counts in one pass
+**API impact:** none. These fields would move from full-filter counts to sideways counts
+in the same default mode.
 
-**Prerequisite:** Entity-per-document (completed). DrillSideways requires all facet fields on the same document as the searchable fields.
+#### Choosing the sideways strategy per query
 
-**API impact:** Opt-in parameter on `luc:facet`. No breaking changes.
+Sideways counts run Lucene's `DrillSideways` with an executor, which makes it run one search
+for the full filter and one per selected facet. Without an executor, `DrillSideways` runs
+one pass instead. On the benchmark index the one pass was four times faster when few
+entities matched the base query and the selections were broad (3.27 against 12.9 ms), and
+up to 2.3 times slower when many matched. Choosing between the two per query from Lucene's
+cost estimates would keep the gain without the loss. See
+[2026-11-13_luc_facet_sideways_counts_design.md](2026-11-13_luc_facet_sideways_counts_design.md).
+
+**API impact:** none.
 
 #### Hierarchy enhancements
 

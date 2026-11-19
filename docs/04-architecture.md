@@ -36,7 +36,7 @@ Used with `text:shapes` configuration. SPARQL search via `luc:query` (with filte
 
 **Advantages:**
 - Single-pass faceting (text and facet fields on same document)
-- Enables `DrillSideways` (future optimisation)
+- Enables Lucene's `DrillSideways`, used for `luc:facet` [sideways counts](02-sparql-api.md#count-modes)
 - Supports typed fields (int, long, double) for range queries
 - Per-field configuration (stored, indexed, facetable, sortable)
 - No overcounting from duplicate documents

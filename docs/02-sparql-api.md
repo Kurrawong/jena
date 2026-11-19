@@ -21,8 +21,9 @@ Public API rules:
   nested child records that satisfied the filter from `luc:nestedMatch`, and field
   values from `luc:fields`.
 - `luc:query` no longer returns `?match`.
-- Parsing is fixed-position and fixed-arity, except for `luc:query`'s optional eighth
-  argument, `after`. There is no shape-based argument inference.
+- Parsing is fixed-position and fixed-arity, except for the optional eighth arguments of
+  `luc:query` (`after`) and `luc:facet` (`countMode`). There is no shape-based argument
+  inference.
 - Use `""` as the placeholder for an unused `cqlFilter` or `sortSpec`.
 - Highlight is reserved for later and is not part of the active supported `luc:query` signature.
 
@@ -548,12 +549,15 @@ unbound, it reads every hit `luc:query` cached. The cache holds one entry per va
 ```sparql
 (?field ?value ?low ?high ?count)
   luc:facet (indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount)
+
+(?field ?value ?low ?high ?count)
+  luc:facet (indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount countMode)
 ```
 
 The active supported subject form is the 5-slot form above.
 Flat facets use the same 5-slot form. On flat facet rows, `?value` is bound and `?low` / `?high` are left unbound.
 
-Object arity is always exactly 7.
+Object arity is 7, or 8 with `countMode`.
 
 ### Arguments
 
@@ -566,6 +570,7 @@ Object arity is always exactly 7.
 | 5 | `cqlFilter` | string literal | Yes | CQL2-JSON object, or `""` |
 | 6 | `maxValues` | integer literal | Yes | `0` means all values |
 | 7 | `minCount` | integer literal | Yes | Minimum count threshold |
+| 8 | `countMode` | string literal | No | `"sideways"` (the default) or `"drilldown"`. `""`, like leaving it out, is `"sideways"`. See [Count modes](#count-modes) |
 
 ### `facetFields`
 
@@ -589,6 +594,85 @@ Wildcard:
 
 - `"*"` expands to all flat and hierarchical facetable fields
 - it does not expand numeric range facets
+
+### Count modes
+
+`luc:facet` counts in one of two modes, named as in Lucene's `DrillSideways`:
+
+| `countMode` | A field the filter selects on | Every other field |
+|---|---|---|
+| `"sideways"`, the default | counted with its own selection left out of the filter | counted under the full filter |
+| `"drilldown"` | counted under the full filter | counted under the full filter |
+
+Sideways counts are what a search form shows. With commodity `cu` or `au` selected, the
+commodity facet still shows how many records each commodity would give under the other
+filters, so the user can add or switch values, while document type is counted under the
+full filter. Drill-down counts describe the current results: for a selected field they
+contain only the selected values, and they add up to what `luc:query` returns. Use
+`"drilldown"` for charts and summaries of the result set.
+
+For a field that the filter does not select on, the two modes give the same counts. In
+sideways mode a selected field's counts do not add up to `luc:query`'s `?totalHits`. The
+rows do not say which mode a field was counted in; the rules below decide it from the
+filter alone. To show both kinds of count for a field, add a second `luc:facet` with
+`"drilldown"` to the same query. The two calls are computed separately.
+
+```sparql
+(?field ?value ?low ?high ?count)
+  luc:facet (
+    "default"
+    "default"
+    "copper"
+    '["urn:jena:lucene:field#commodity", "urn:jena:lucene:field#documentType"]'
+    '{"op":"and","args":[
+       {"op":"in","args":[{"property":"urn:jena:lucene:field#commodity"},["cu","au"]]},
+       {"op":"between","args":[{"property":"urn:jena:lucene:field#year"},1980,1995]}]}'
+    50
+    1
+  ) .
+```
+
+Here commodity is counted under the text query and the year range only, and document type
+under the text query, the year range and the commodity selection. The counts equal those
+of one `"drilldown"` call per selected field with that field's clauses removed from the
+filter by the client.
+
+#### Which fields are counted sideways
+
+A requested field is counted sideways, as a **dimension**, when all of the following hold:
+
+- The filter's top-level clauses include at least one clause on the field. The top-level
+  clauses are the arguments of a top-level `and`, or the filter itself when it is a single
+  clause.
+- Each of those clauses is `=` or `in` on a facetable `KEYWORD` field. For a field requested
+  as a range facet, `between`, `<`, `<=`, `>` and `>=` also qualify, so a year range facet
+  is counted without the year range clause. An `or` whose branches all qualify and name
+  the same field also qualifies, such as several selected year buckets.
+- The field is not named anywhere else in the filter, such as in an `or` with another
+  field, or in a `not`.
+- The field is not in an `idx:nested` scope and is not a level of an `idx:facetHierarchy`.
+- The CQL compiler turns those clauses into one Lucene query in full. An `or` with an
+  empty `or` among its branches does not qualify, because the compiler pushes an `or` only
+  when it can push every branch.
+
+Several clauses on one field form one dimension and are left out together. Every other
+clause stays in the base filter, which applies to all counts: text and spatial clauses,
+`like`, `<>`, `not`, an `or` across fields, `entityIri`, and clauses on fields that were not
+requested.
+
+A requested field that is not a dimension is counted under the full filter, as in
+`"drilldown"` mode. This includes a field in an `or` with another field, hierarchy
+dimensions (with the drill-down path the filter gives them, as in `"drilldown"` mode) and
+fields in an `idx:nested` scope. Such a field is counted, not rejected, so one fixed query
+text works for every state of a form.
+
+`luc:query` in the same SPARQL query is unaffected by the count mode: its hits and
+`?totalHits` are those of the full filter.
+
+The sideways counts are computed with Lucene's `DrillSideways`, which runs one search for
+the full filter and one per dimension. See
+[2026-11-13_luc_facet_sideways_counts_design.md](2026-11-13_luc_facet_sideways_counts_design.md)
+for the design and measurements.
 
 ### Examples
 

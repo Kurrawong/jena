@@ -602,6 +602,8 @@ public class SearchExecution {
 
     /**
      * Get facet counts with minCount threshold, computing them lazily on first access.
+     * A sideways request is cached apart from a plain one for the same fields: the
+     * request's canonical form includes the flag.
      */
     public synchronized Map<String, List<FacetValue>> getFacetCounts(
             FacetRequest facetRequest, int maxValues, int minCount) {
@@ -610,7 +612,12 @@ public class SearchExecution {
             Map<String, List<FacetValue>> facetCounts;
             try {
                 if (filter == null) {
-                    facetCounts = textIndex.getFacetCounts(queryString, searchFields, facetRequest, maxValues, minCount);
+                    // With no filter there is no selection to leave out.
+                    facetCounts = textIndex.getFacetCounts(queryString, searchFields,
+                        facetRequest.withoutSideways(), maxValues, minCount);
+                } else if (facetRequest.isSideways()) {
+                    facetCounts = textIndex.getSidewaysFacetCounts(
+                        queryString, searchFields, facetRequest, filter, maxValues, minCount);
                 } else {
                     facetCounts = textIndex.getFacetCountsWithCql(
                         queryString, searchFields, facetRequest, filter, maxValues, minCount);
