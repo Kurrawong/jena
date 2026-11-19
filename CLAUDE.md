@@ -233,6 +233,17 @@ issue for manual resolution.
 would rewrite published history and replay the same pom conflicts once per commit; a
 merge resolves the whole gap once.
 
+**Merge a sync PR with "Create a merge commit", never "Squash and merge".** A squash keeps
+upstream's changes but drops upstream's commits as a parent, so git still counts them as
+unmerged and the next sync conflicts again on every file both sides touched. #207
+(2026-11-18) was squashed; a follow-up `git merge -s ours` of the same upstream commit
+recorded it. Check after merging: `git rev-list --count origin/main..upstream/main` is 0
+for the upstream commit the PR merged.
+
+Resolve workflow conflicts hunk by hunk. `git checkout --theirs` takes upstream's whole file
+and drops the fork's jobs: in #207 it removed the `changes` and `pr-gate` jobs from
+`pr.yml`, and `pr-gate` is the only check the `main` ruleset requires.
+
 Conflicts recur in a predictable set — the root `pom.xml` version properties,
 `jena-benchmarks` module lists, `TS_Text.java`, and `jena-text/pom.xml`. When resolving:
 
