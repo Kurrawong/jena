@@ -62,7 +62,7 @@ import org.junit.Test;
  * The documented "twin field" pattern for a full-text label, exercised end to end:
  * ONE predicate ({@code ex:name}) populates BOTH a {@code TEXT} {@code defaultSearch}
  * field (for {@code luc:query} full-text search) AND a normalized sortable {@code KEYWORD}
- * field (for the sortSpec). This mirrors the GSWA config where {@code schema:name} feeds
+ * field (for the sortSpec). This mirrors a production config where {@code schema:name} feeds
  * {@code field:name} (TEXT) and a proposed {@code field:nameSort} (KEYWORD + idx:normalizer).
  *
  * Confirms: a single full-text query matches via the TEXT field while the results come back

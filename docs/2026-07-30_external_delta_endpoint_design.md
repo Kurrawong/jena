@@ -93,9 +93,9 @@ to a bulk-built one. The rewrite stays atomic with the index, because it is stil
 > [The wire format](#3-the-wire-format--ndjson)). Nothing outside the indexer ever sees
 > the retained-rows field. "Deflated" is a size optimisation, not an interface.
 
-**Cost.** On the measured GSWA index (2,470,212 collars, 29,707,584 children, 1,338 MB)
-retained rows are roughly 25 bytes/child raw and perhaps 8–12 compressed — about
-**+250–350 MB, or 20–25%**. That is the price of live updates, which is why it is opt-in
+**Cost.** On the index measured on 2026-07-27 (tens of millions of children at
+38.2 bytes each), retained rows are roughly 25 bytes/child raw and perhaps 8–12
+compressed — about **+20–25%** of the index. That is the price of live updates, which is why it is opt-in
 per source: a batch-released source keeps today's behaviour and today's size.
 
 The alternative — a sidecar KV store (RocksDB, MapDB, LMDB) keyed by `(subject, scope)` —
@@ -242,18 +242,17 @@ foundation. Swapping the source of the children is a config change, not a code c
 
 ### The crossover, measured 2026-07-30
 
-Counted from the narrow (already-summarised) extracts in
-`gswa-prez-config/raw_data`, which are the unpivoted form of
-`DHAssayFlatSummary/dh_assay_flat_summary.csv` and `ssAssayflat/ss_assay_flat.csv`
-(~2.5 GB of wide CSV between them):
+Counted from narrow (already-summarised) extracts of the same client data: one for
+drillholes and one for surface samples, unpivoted from wide CSV files. The client's
+absolute counts are left out of this note; the ratios are:
 
-| Source | Entities | Measurements | Per entity |
-|---|---|---|---|
-| `drillhole-measurements.csv` (224 MB) | 224,184 | 2,551,572 | 11.4 |
-| `surface-measurements.csv` (1.1 GB) | ~869,000 | 13,145,243 | 15.1 |
-| **Total** | **~1.09 M** | **15,696,815** | 14.4 |
+| Source | Measurements per entity |
+|---|---|
+| Drillhole extract | 11.4 |
+| Surface sample extract | 15.1 |
+| **Both** | **14.4** |
 
-That is roughly **half** the 29.7 M children measured on 2026-07-27, which is the
+In total that is roughly **half** the children measured on 2026-07-27, which is the
 reduction that reopens this question.
 
 Analytes are a **closed set of 83 columns** — effectively the periodic table, stable for
@@ -261,49 +260,43 @@ decades. This matters: the 2026-07-27 argument for nested EAV over flat leant on
 "a new property appears in the source → config regeneration", and that objection is much
 weaker against a fixed column set than against an open-ended one.
 
-Three modellings, and their cost:
+Three modellings, and their cost per measurement:
 
-| Modelling | Triples/measurement | Total triples | TDB2 growth¹ | Lucene model |
-|---|---|---|---|---|
-| Qualified node, minimal (link, analyte, value) | 3 | 47.1 M | ~3–5 GB | nested EAV, 2 field IRIs |
-| **Qualified node, typed** (+ `rdf:type`) | **4** | **62.8 M** | **~4–7 GB** | nested EAV, 2 field IRIs |
-| Full `sosa:Observation` (+ unit, observed property) | 6 | 94 M | ~6–10 GB | nested EAV, 2 field IRIs |
-| Flat direct predicate (`<site> gswa:Au_PPM 12.4`) | 1 | 15.7 M | ~1–2 GB | **flat, 83 field IRIs** |
+| Modelling | Triples/measurement | TDB2 growth¹ | Lucene model |
+|---|---|---|---|
+| Qualified node, minimal (link, analyte, value) | 3 | ~180–330 bytes | nested EAV, 2 field IRIs |
+| **Qualified node, typed** (+ `rdf:type`) | **4** | **~240–440 bytes** | nested EAV, 2 field IRIs |
+| Full `sosa:Observation` (+ unit, observed property) | 6 | ~360–660 bytes | nested EAV, 2 field IRIs |
+| Flat direct predicate (`<site> ex:Au_PPM 12.4`) | 1 | ~60–110 bytes | **flat, 83 field IRIs** |
 
 ¹ At 60–110 bytes/triple on disk including node table and indexes. The upper end applies
 here: measurement nodes are mostly *new* URIs and the values are distinct doubles, so
 neither the node table nor the term dictionary gets the URI reuse that keeps TDB2 compact.
 
-For scale, the loaded store is currently **15 GB**
-(`gswa-prez-config/fuseki/external_drillhole/volume`), against 47.6 GB of raw N-Quads at
-~208 bytes/line ≈ **~245 M quads** across all sources. So the typed-qualified-node option
-is **+4–7 GB on a 15 GB store (~+30–45%), and ~25% of the graph's quad count** — for data
-nothing queries by SPARQL path.
+Against the client's loaded store, the typed-qualified-node option came to **~+30–45%
+of the store on disk, and ~25% of the graph's quad count** — for data nothing queries by
+SPARQL path. At the 2026-07-27 volume the same option would have been roughly twice that.
 
-That is a very different proposition from the same exercise at the original volume, which
-would have been ~119 M triples.
-
-**The Lucene index size is unchanged either way.** 15.7 M nested children index
-identically whether their source is a CSV row or a graph node — at the measured
-38.2 bytes/child, about **600 MB** of external content in both worlds. What actually
-differs is only: TDB2 growth, the retained-rows overhead (~160 MB, RDF path pays none),
-and whether the delta endpoint has to exist.
+**The Lucene index size is unchanged either way.** Nested children index identically
+whether their source is a CSV row or a graph node — at the measured 38.2 bytes/child.
+What actually differs is only: TDB2 growth, the retained-rows overhead (RDF path pays
+none), and whether the delta endpoint has to exist.
 
 | | External CSV + this design | **Load as RDF (typed qualified node)** |
 |---|---|---|
-| TDB2 growth | none | **+4–7 GB** |
-| Lucene index (children) | ~600 MB | ~600 MB — identical |
-| Retained rows | +~160 MB | none |
+| TDB2 growth | none | **~+30–45%** |
+| Lucene index (children) | 38.2 bytes/child | identical |
+| Retained rows | +20–25% of the index | none |
 | New code | ~7 components across two modules | **none** |
 | Live updates | build all of the above | **RDF Patch, working today** |
-| Extra load time | CSV merge during build | ~62.8 M triples through `tdb2.xloader` |
+| Extra load time | CSV merge during build | 4 triples per measurement through `tdb2.xloader` |
 
-**Verdict: load it as RDF.** +4–7 GB on a 15 GB store is a far easier trade than
+**Verdict: load it as RDF.** A +30–45% store is a far easier trade than
 building and then maintaining a bespoke delta protocol, a wire format, an idempotency
 scheme and a retained-rows storage mode. The volume reduction is what makes it so; at
-29.7 M measurements the answer was the other way.
+the 2026-07-27 volume the answer was the other way.
 
-The honest counter, which does not disappear: 62.8 M triples is a quarter of the graph's
+The honest counter, which does not disappear: the new triples are a quarter of the graph's
 quad count carrying data nobody dereferences or traverses. That was objection #1 in the
 2026-07-27 note. It has become survivable, not wrong.
 

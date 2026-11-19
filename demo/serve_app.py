@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
 """Serve the demo app and proxy Fuseki requests through the same origin."""
 
 from __future__ import annotations

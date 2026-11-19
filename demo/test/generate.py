@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
 """Generate synthetic mining RDF data for demo and load testing.
 
 Usage:

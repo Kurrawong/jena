@@ -20,7 +20,7 @@ itself. That is the case below, so neither construct currently fits.
 
 ## Use case
 
-GSWA search facets on the datatype of a document (`dataType`), and wants to add a broader
+A search application facets on the datatype of a document (`dataType`), and wants to add a broader
 grouping above it (`dataTypeGrouping`) so users can select several datatypes at once. The
 UI should show:
 
@@ -34,19 +34,19 @@ The data:
 
 ```turtle
 # instance data — an entity may reference several display tables
-<borehole/123>  gswa:hasDisplayTable  <display/borehole> , <display/downhole-assays> .
+<borehole/123>  ex:hasDisplayTable  <display/borehole> , <display/downhole-assays> .
 
 # vocabulary — each display table belongs to one or more groupings
-<display/borehole>          gswa:hasGrouping  <datatype/Holes> .
-<display/downhole-assays>   gswa:hasGrouping  <datatype/Holes> .
-<display/geochem-results>   gswa:hasGrouping  <datatype/Geochemistry> .
+<display/borehole>          ex:hasGrouping  <datatype/Holes> .
+<display/downhole-assays>   ex:hasGrouping  <datatype/Holes> .
+<display/geochem-results>   ex:hasGrouping  <datatype/Geochemistry> .
 ```
 
 The current shape indexes the display table IRI itself as `dataType`:
 
 ```turtle
-sh:property [ idx:field field:dataType          ; sh:path gswa:hasDisplayTable ] ;
-sh:property [ idx:field field:dataTypeGrouping  ; sh:path ( gswa:hasDisplayTable gswa:hasGrouping ) ] ;
+sh:property [ idx:field field:dataType          ; sh:path ex:hasDisplayTable ] ;
+sh:property [ idx:field field:dataTypeGrouping  ; sh:path ( ex:hasDisplayTable ex:hasGrouping ) ] ;
 ```
 
 Both fields are `idx:multiValued true`.
@@ -94,9 +94,9 @@ The natural correlating node is the display table, so the block would be:
 
 ```turtle
 idx:nested [
-    idx:joinPath gswa:hasDisplayTable ;
+    idx:joinPath ex:hasDisplayTable ;
     idx:property [ idx:field field:dataType         ; sh:path ??? ] ;
-    idx:property [ idx:field field:dataTypeGrouping ; sh:path gswa:hasGrouping ] ;
+    idx:property [ idx:field field:dataTypeGrouping ; sh:path ex:hasGrouping ] ;
     idx:facetHierarchy ( field:dataTypeGrouping field:dataType ) ;
 ] ;
 ```

@@ -71,5 +71,3 @@ jena-benchmarks/jena-benchmarks-jmh/*.json
 # Docker image vulnerability scan reports (task scan)
 build-files/docker/scan-reports/
 
-# Local scratch
-gswa/

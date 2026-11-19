@@ -11,7 +11,7 @@ The branch exists to support identifier-heavy search workflows where users often
 
 - `BH123456`
 - `RPT-BH-1985-001`
-- `GSWA-12345-A`
+- `GEOL-12345-A`
 
 Typical interaction:
 

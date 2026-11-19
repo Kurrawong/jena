@@ -323,7 +323,7 @@ projected at all — so read the children back from the graph. Store them when t
 
 *[TestNestedJoinPathSupport](../jena-text/src/test/java/org/apache/jena/query/text/TestNestedJoinPathSupport.java), [TestCorrelatedNestedAttribution](../jena-text/src/test/java/org/apache/jena/query/text/TestCorrelatedNestedAttribution.java), [TestNestedHierarchicalFacets](../jena-text/src/test/java/org/apache/jena/query/text/TestNestedHierarchicalFacets.java),
 [TestNestedMatchProjection](../jena-text/src/test/java/org/apache/jena/query/text/TestNestedMatchProjection.java), [TestNestedSortSelector](../jena-text/src/test/java/org/apache/jena/query/text/TestNestedSortSelector.java), [TestExternalContentIndexing](../jena-text/src/test/java/org/apache/jena/query/text/TestExternalContentIndexing.java),
-[TestGswaMeasurementCsv](../jena-text/src/test/java/org/apache/jena/query/text/TestGswaMeasurementCsv.java)*
+[TestDownholeMeasurementCsv](../jena-text/src/test/java/org/apache/jena/query/text/TestDownholeMeasurementCsv.java)*
 
 ## Geometry
 

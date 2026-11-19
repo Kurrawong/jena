@@ -101,8 +101,8 @@ FROM eclipse-temurin:21-jre-ubi10-minimal AS runtime
 # No LABEL here on purpose. CI applies the full OCI label set — source,
 # revision, version, created — via docker/metadata-action, which derives them
 # from the repository and commit being built. A hardcoded source label went
-# stale and wrong when the repo moved (it still read aiworkerjohns/jena long
-# after the move); deriving it removes that failure mode.
+# stale and wrong when the repo moved (it still named the previous owner
+# long after the move); deriving it removes that failure mode.
 #
 # Careful when inspecting a LOCALLY built image: the UBI base sets its own
 # org.opencontainers.image.created and .revision, describing Red Hat's base
