@@ -31,7 +31,7 @@ jobs:
   ## Does this PR touch anything that can change build or image output?
   ##
   ## Documentation and agent config cannot. Deliberately NOT ignored: demo/**
-  ## (TestDemoDataParsing parses those files), build-files/**, Taskfile.yml, and
+  ## (TestDemoQueries runs the demo's queries), build-files/**, Taskfile.yml, and
   ## .github/** itself.
   changes:
     runs-on: ubuntu-latest

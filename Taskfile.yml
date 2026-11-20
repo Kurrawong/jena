@@ -16,9 +16,9 @@ vars:
     sh: git rev-parse --short=7 HEAD 2>/dev/null || echo unknown
   RUNTIME_IMAGE_NAME: '{{.RUNTIME_IMAGE_NAME | default "fuseki-lucene-shacl"}}'
   IMAGE_NAME: '{{.IMAGE_NAME | default "fuseki-lucene-shacl-loader"}}'
-  # The demo image: the runtime plus the mining dataset, its configuration and the
-  # browser app, all served from one process with nothing on disk. CI publishes it on
-  # every push to main, so a deployment tracking :latest redeploys itself.
+  # The demo image: the runtime plus the recipes dataset in demo/ and its configuration,
+  # served from one process with nothing on disk. CI publishes it on every push to main,
+  # so a deployment tracking :latest redeploys itself.
   DEMO_IMAGE_NAME: '{{.DEMO_IMAGE_NAME | default "fuseki-lucene-shacl-demo"}}'
   DEMO_PORT: '{{.DEMO_PORT | default "3030"}}'
   # Applied by demo-run and matched by demo-stop. A run-time label, not an image LABEL:
@@ -86,7 +86,7 @@ tasks:
       - docker buildx build --builder {{.BUILDX_BUILDER}} --platform {{.PLATFORMS}} --target loader -f build-files/docker/Dockerfile -t ghcr.io/{{.GHCR_OWNER}}/{{.IMAGE_NAME}}:{{.IMAGE_TAG}} --push .
 
   demo-build:
-    desc: Build the self-contained demo image (in-memory data and index, app included)
+    desc: Build the self-contained recipes demo image (in-memory data and index)
     cmds:
       - docker build --target demo -f build-files/docker/Dockerfile -t {{.DEMO_IMAGE_NAME}}:{{.IMAGE_TAG}} .
 

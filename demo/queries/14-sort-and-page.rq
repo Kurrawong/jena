@@ -1,0 +1,23 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+PREFIX luc:     <urn:jena:lucene:index#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX schema:  <https://schema.org/>
+PREFIX kt:      <http://example.org/kitchen/>
+
+SELECT ?rank ?name ?prep ?totalHits
+WHERE {
+    (?hit ?entity ?score ?totalHits ?rank) luc:query (
+        "default"                                 # index
+        "default"                                 # fields
+        "*"                                       # query
+        '{"op":"=","args":[{"property":"urn:jena:lucene:field#entityType"},"http://example.org/kitchen/Recipe"]}'  # filter
+        '{"field":"urn:jena:lucene:field#prepMinutes","order":"asc"}'  # sort
+        5                                         # limit
+        5                                         # offset
+    ) .
+    ?entity rdfs:label|schema:name|dcterms:title ?name .
+    ?entity kt:prepMinutes ?prep .
+}
+ORDER BY ?rank

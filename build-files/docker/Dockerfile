@@ -132,53 +132,36 @@ COPY --from=dist /build/apache-jena-dist /fuseki/apache-jena
 
 ENTRYPOINT ["/fuseki/entrypoint.sh"]
 
-# ─── fuseki-lucene-shacl-demo: the mining demo, self-contained ────────────────
+# ─── fuseki-lucene-shacl-demo: the recipes demo, self-contained ───────────────
 #
-# The runtime image plus the demo's data, configuration and browser app. No
-# volumes, no database, no separate indexing step and no second process: the
-# dataset is an in-memory ja:MemoryDataset loaded from ja:data, the Lucene index
-# is `text:directory "mem"` built at assembly time by text:buildOnStartup, and
-# Fuseki's own Jetty serves the app via --base. One port, same origin, so the app
-# needs no proxy and no CORS.
+# The runtime image plus the demo's data and configuration. No volumes, no database,
+# no separate indexing step and no second process: demo/config.ttl loads the data into
+# an in-memory ja:MemoryDataset, and text:buildOnStartup builds the in-memory Lucene
+# index, including the review children from data/reviews.csv, as the dataset is
+# assembled. Fuseki's own Jetty serves the Fuseki UI from the same port.
 #
-# Stateless by construction — every start rebuilds the index from the Turtle in
-# the image — which is what makes it safe to redeploy on every push and to run at
+# Stateless by construction: every start rebuilds the index from the files in the
+# image, which is what makes it safe to redeploy on every push and to run at
 # scale-to-zero.
 
 FROM runtime AS demo
 
-# Mirrors the repository layout under /demo, because config.ttl reaches its data
-# with <../test/data/mining.ttl>. That is a relative IRI resolved against the
-# config file's own location, not the working directory, so the two directories
-# must keep the same relationship they have in the source tree.
-COPY demo/deploy/config.ttl /demo/deploy/config.ttl
-COPY demo/test/data/mining.ttl demo/test/data/generated.ttl demo/test/data/reference.ttl /demo/test/data/
+# Mirrors the repository's demo/ directory. config.ttl reaches kitchen.ttl with the
+# IRI <data/kitchen.ttl>, resolved against the config file's location, and reaches
+# reviews.csv with the string "data/reviews.csv", resolved against the working
+# directory. WORKDIR makes the two agree.
+WORKDIR /demo
+COPY demo/config.ttl /demo/config.ttl
+COPY demo/data/ /demo/data/
 
-# One static root holding both front ends:
-#
-#   /       the Fuseki UI
-#   /demo   this fork's search app
-#
-# The UI has to be the one at the root. It builds every API URL by prefixing the
-# path it was served from — getFusekiUrl() in its bundle — so served at /fuseki it
-# would call /fuseki/$/server and /fuseki/mining/query, neither of which exists.
-# The search app has no such constraint: its asset references are relative and it
-# takes its API base from window.location.origin, so it works from any depth.
+# The Fuseki UI at the root. It builds every API URL by prefixing the path it was
+# served from, getFusekiUrl() in its bundle, so anywhere else it would call
+# /somewhere/$/server and get a 404.
 COPY --from=uiapp /ui/webapp/ /demo/static/
-COPY demo/app-static/ /demo/static/demo/
-
-# The real file in place of the symlink `task app` leaves in app-static (excluded in
-# .dockerignore). A copied symlink pointing out of the static base is one Jetty
-# refuses to follow, and the app's examples list would 404.
-COPY demo/test/tests.json /demo/static/demo/tests.json
 
 # Deny-by-default for /$/, read by Fuseki from FUSEKI_BASE. The bundled default
 # only checks the socket address, which a proxy in front of the server defeats.
 COPY demo/deploy/shiro.ini /demo/deploy/run/shiro.ini
-
-# Same-origin app configuration, replacing the checked-in one that points at the
-# local serve_app.py proxy.
-COPY demo/deploy/app-config.js /demo/static/demo/app-config.js
 
 COPY build-files/docker/demo-entrypoint.sh /demo/entrypoint.sh
 

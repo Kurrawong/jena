@@ -92,23 +92,19 @@ the written Lucene documents back.
 
 ### Existing Tests (unchanged, verifying no regressions)
 
-The remaining suite covers text search, multilingual support, graph indexing, deletion, analyzers, property lists, spatial filtering, nested identifiers, and demo mining scenarios.
+The remaining suite covers text search, multilingual support, graph indexing, deletion, analyzers, property lists, spatial filtering, nested identifiers, and a self-contained mining dataset
+(`TestMiningScenarios`).
 
-`TestDemoExamples` is the one test that uses the demo's real files rather than a fixture
-built in Java. It parses `demo/test/config.ttl` with the production assembler, loads
-`demo/test/data/*.ttl`, indexes through `ShaclBulkIndexer` (the path `task index` runs, so
-external-source shapes are covered), then runs every saved search in `demo/test/tests.json`
-as a dynamic test.
+`TestDemoQueries` is the one test that uses the demo's real files rather than a fixture
+built in Java. It assembles `demo/config.ttl` as Fuseki does, so `ja:data` loads
+`demo/data/kitchen.ttl` and `text:buildOnStartup` builds the in-memory index, including
+the review children from `demo/data/reviews.csv`. It then runs every query in
+`demo/queries/` as a dynamic test and compares its row count with
+`demo/expected-rows.tsv`, and fails if a query file is missing from that list.
 
-It asserts two things per example, and the second is the one that matters: the example
-clears its `minResults`, and a declared filter **actually changes the result set**. A
-filter that quietly does nothing passes a row-count floor, because an unfiltered query
-returns more rows rather than fewer. Several demo bugs presented exactly that way, so a
-floor alone is not enough.
-
-What it cannot reach is the browser's own pipeline: URL encoding, and the
-`parseCqlFilter`/`buildCqlFilter` round trip. `demo/testing/check-examples.mjs` covers
-those against a running server, via `task check-examples`.
+The counts are exact, so a query that should return nothing is checked as well as one
+that should return something. `demo/check.sh` runs the same comparison against a running
+server, and CI runs it against the demo image.
 
 ---
 

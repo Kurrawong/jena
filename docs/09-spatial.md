@@ -127,7 +127,8 @@ it to make bare CRS84 asserts a datum your data is not in.
 
 Clients then have to strip that prefix themselves, because no general-purpose WKT library
 understands the `<crs-iri> GEOMETRY(...)` form and the axis order depends on the CRS. The
-demo does this in `demo/app-static/wkt.js`, which is a usable reference: it strips the
+earlier mining demo did this in `demo/app-static/wkt.js`, removed since but readable with
+`git show ff15690b40:demo/app-static/wkt.js`. It is a usable reference: it strips the
 prefix, maps EPSG:4326, 4283 and 7844 to lat/lon and bare or CRS84 literals to lon/lat,
 handles every geometry type including polygon holes, and returns nothing for a projected
 CRS rather than drawing metres as degrees.

@@ -1,0 +1,11 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+PREFIX luc: <urn:jena:lucene:index#>
+PREFIX idx: <urn:jena:lucene:index#>
+
+SELECT ?field ?name ?type
+WHERE {
+    (?field idx:fieldName ?name) luc:config ("default") .
+    (?field idx:fieldType ?type) luc:config ("default") .
+}
+ORDER BY ?name

@@ -1,0 +1,29 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+PREFIX luc:     <urn:jena:lucene:index#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX schema:  <https://schema.org/>
+
+SELECT ?entity ?kind ?name ?predicate
+WHERE {
+    VALUES ?term { "Tiramisu" "Ceviche" "Ramen" "Priya" }
+    (?hit ?entity) luc:query (
+        "default"                         # index
+        '["urn:jena:lucene:field#name"]'  # fields
+        ?term                             # query
+        ""                                # filter
+        ""                                # sort
+        5                                 # limit
+        0                                 # offset
+    ) .
+    ?entity a ?kind .
+    {
+        ?entity rdfs:label ?name . BIND(rdfs:label AS ?predicate)
+    } UNION {
+        ?entity schema:name ?name . BIND(schema:name AS ?predicate)
+    } UNION {
+        ?entity dcterms:title ?name . BIND(dcterms:title AS ?predicate)
+    }
+}
+ORDER BY ?kind ?name

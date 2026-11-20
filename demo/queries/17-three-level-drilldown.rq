@@ -1,0 +1,46 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+PREFIX luc:     <urn:jena:lucene:index#>
+
+SELECT ?level ?value ?count
+WHERE {
+    {
+        BIND(1 AS ?level)
+        (?f1 ?value ?lo1 ?hi1 ?count) luc:facet (
+            "default"                         # index
+            "default"                         # fields
+            "*"                               # query
+            '["reviewer_stars_reviewMonth"]'  # facets
+            ""                                # filter
+            50                                # max values
+            0                                 # min count
+        ) .
+    }
+    UNION
+    {
+        BIND(2 AS ?level)
+        (?f2 ?value ?lo2 ?hi2 ?count) luc:facet (
+            "default"                                 # index
+            "default"                                 # fields
+            "*"                                       # query
+            '["reviewer_stars_reviewMonth"]'          # facets
+            '{"op":"=","args":[{"property":"urn:jena:lucene:field#reviewer"},"Priya"]}'  # filter
+            50                                        # max values
+            0                                         # min count
+        ) .
+    }
+    UNION
+    {
+        BIND(3 AS ?level)
+        (?f3 ?value ?lo3 ?hi3 ?count) luc:facet (
+            "default"                                 # index
+            "default"                                 # fields
+            "*"                                       # query
+            '["reviewer_stars_reviewMonth"]'          # facets
+            '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#reviewer"},"Priya"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#stars"},5]}]}'  # filter
+            50                                        # max values
+            0                                         # min count
+        ) .
+    }
+}
+ORDER BY ?level DESC(?count) ?value

@@ -1,0 +1,21 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+PREFIX luc:     <urn:jena:lucene:index#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX schema:  <https://schema.org/>
+
+SELECT ?entity ?name
+WHERE {
+    (?hit ?entity) luc:query (
+        "default"                                 # index
+        "default"                                 # fields
+        "*"                                       # query
+        '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#course"},"http://example.org/kitchen/course-main"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#contributor"},"http://example.org/kitchen/person-ada"]}]}'  # filter
+        ""                                        # sort
+        20                                        # limit
+        0                                         # offset
+    ) .
+    ?entity rdfs:label|schema:name|dcterms:title ?name .
+}
+ORDER BY ?name
