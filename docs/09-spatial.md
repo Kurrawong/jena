@@ -126,12 +126,10 @@ If you hold GDA2020 data, **keep the `<...EPSG/0/7844>` prefix** on `geo:asWKT`.
 it to make bare CRS84 asserts a datum your data is not in.
 
 Clients then have to strip that prefix themselves, because no general-purpose WKT library
-understands the `<crs-iri> GEOMETRY(...)` form and the axis order depends on the CRS. The
-earlier mining demo did this in `demo/app-static/wkt.js`, removed since but readable with
-`git show ff15690b40:demo/app-static/wkt.js`. It is a usable reference: it strips the
-prefix, maps EPSG:4326, 4283 and 7844 to lat/lon and bare or CRS84 literals to lon/lat,
-handles every geometry type including polygon holes, and returns nothing for a projected
-CRS rather than drawing metres as degrees.
+understands the `<crs-iri> GEOMETRY(...)` form and the axis order depends on the CRS. A
+client that draws these geometries has to strip the prefix, read EPSG:4326, 4283 and 7844
+as lat/lon and bare or CRS84 literals as lon/lat, handle every geometry type including
+polygon holes, and refuse a projected CRS rather than draw metres as degrees.
 
 ### Examples in data
 
