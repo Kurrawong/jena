@@ -1,0 +1,35 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+PREFIX luc:     <urn:jena:lucene:index#>
+
+SELECT ?mode ?value ?count
+WHERE {
+    {
+        BIND("sideways" AS ?mode)
+        (?f1 ?value ?lo1 ?hi1 ?count) luc:facet (
+            "default"                                 # index
+            "default"                                 # fields
+            "*"                                       # query
+            '["urn:jena:lucene:field#course"]'        # facets
+            '{"op":"=","args":[{"property":"urn:jena:lucene:field#course"},"http://example.org/kitchen/course-main"]}'  # filter
+            20                                        # max values
+            0                                         # min count
+            "sideways"                                # count mode
+        ) .
+    }
+    UNION
+    {
+        BIND("drilldown" AS ?mode)
+        (?f2 ?value ?lo2 ?hi2 ?count) luc:facet (
+            "default"                                 # index
+            "default"                                 # fields
+            "*"                                       # query
+            '["urn:jena:lucene:field#course"]'        # facets
+            '{"op":"=","args":[{"property":"urn:jena:lucene:field#course"},"http://example.org/kitchen/course-main"]}'  # filter
+            20                                        # max values
+            0                                         # min count
+            "drilldown"                               # count mode
+        ) .
+    }
+}
+ORDER BY DESC(?mode) DESC(?count) ?value

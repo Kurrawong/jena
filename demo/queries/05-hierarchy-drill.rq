@@ -1,0 +1,17 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+PREFIX luc:     <urn:jena:lucene:index#>
+
+SELECT ?field ?value ?count
+WHERE {
+    (?field ?value ?low ?high ?count) luc:facet (
+        "default"                                 # index
+        "default"                                 # fields
+        "*"                                       # query
+        '["region_country"]'                      # facets
+        '{"op":"=","args":[{"property":"urn:jena:lucene:field#region"},"http://example.org/kitchen/region-asia"]}'  # filter
+        20                                        # max values
+        0                                         # min count
+    ) .
+}
+ORDER BY DESC(?count) ?value

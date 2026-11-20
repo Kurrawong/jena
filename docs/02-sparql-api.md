@@ -146,7 +146,8 @@ where order is not a property of the payload at all.
 `?score` cannot fill that role:
 
 - A match-all query (`*`) scores **every** document `1.0`, so there is nothing to sort on.
-- Real relevance scores tie routinely — two hits at `3.6702733` in the demo dataset.
+- Real relevance scores tie routinely. In the recipes demo (`demo/`), a search for
+  `cooks` returns two reviewers, both at `0.82625973`.
 
 `?rank` is the position itself, so it is always strictly increasing and always recovers
 the order the engine returned, whether that order came from relevance or from a sort spec.

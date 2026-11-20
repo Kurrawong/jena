@@ -1,502 +1,97 @@
-# Demo: SHACL Entity-per-Document Indexing
+<!-- Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0 -->
 
-This demo shows the SHACL-based full-text indexing mode for Apache Jena Fuseki,
-using an Australian mining domain with reports, boreholes, sites, and authors.
+# Recipes demo
 
-## Prerequisites
+A small dataset and index configuration for SHACL-mode search: ten made-up recipes, six
+reviewers and a CSV of reviews, indexed by [config.ttl](config.ttl). It is small enough
+that every result and facet count can be checked by eye. The 22 queries in
+[queries/](queries/) each show one feature, and [check.sh](check.sh) checks the row count
+of every query against [expected-rows.tsv](expected-rows.tsv).
 
-- Java 21+
-- Maven 3.9+ (for building)
-- [go-task](https://taskfile.dev/) (for `task` commands)
+The published image `ghcr.io/kurrawong/fuseki-lucene-shacl-demo` serves this directory;
+see [deploy/README.md](deploy/README.md).
 
-For Docker workflows:
-- Docker Desktop
-- Root image tasks live in `../Taskfile.yml`
-- **GitHub CR**: `gh` CLI authenticated with `write:packages` scope (only if using the root GHCR push tasks)
-- **Azure CR**: `az` CLI authenticated (only if using the root ACR push tasks)
+## Run it
 
-## Quick start
-
-```bash
-# 1. Build the Fuseki server JAR (from repo root)
-task build
-
-# 2. Load the data and build the index, with the server DOWN
-task load-offline
-task index
-
-# 3. Start the server
-task serve
-
-# 4. Run all queries (in a separate terminal)
-task query
-
-# 5. Stop the server
-task stop
-```
-
-Or in one step: `task refresh` does all of the above and launches the app.
-
-**Why load and index with the server stopped?** `BoreholeShape` draws its assay
-children from `data/assays.csv` via `idx:externalSource`, which makes it
-**rebuild-only**: a live graph change cannot re-derive those children, so the change
-listener refuses to touch those documents rather than silently dropping them. Only
-`task index` (the bulk indexer) can build them, and it needs exclusive TDB2 access.
-
-`task load` (push into a running server over GSP) still works for the shapes that have
-no external source — reports and sites — but boreholes will be missing their assays
-until the next `task index`.
-
-## External assay data
-
-`test/data/assays.csv` is a small CSV of borehole assay results, keyed by **borehole
-IRI**, that is never loaded into the graph:
-
-```
-borehole,analyte,grade,units,below_detection
-http://example.org/mining/bh-bh-001,Ag,12.4,ppm,f
-http://example.org/mining/bh-bh-001,Au,0.82,ppm,f
-```
-
-Each row becomes a nested child document inside that borehole's Lucene block, so a
-single query can constrain across graph fields and assay values at once — "Queensland
-boreholes with silver above 10 ppm". All four columns land on **one** child, so they
-correlate: "Cu above 1 pct and above detection" must be satisfied by the same assay,
-not by two different ones on the same hole.
-
-`grade` is `idx:stored false` — searchable, sortable, facetable, never returned. The
-assay database stays the source of truth.
-
-`test/data/assays-delta.csv` demonstrates `idx:delta`, applied over the base at build
-time:
-
-```
-op,borehole,analyte,grade,units,below_detection
-DELETE,http://example.org/mining/bh-mia-001,Ag,44.9,ppm,f
-ADD,http://example.org/mining/bh-mia-001,Ag,51.3,ppm,f
-DELETE,http://example.org/mining/bh-pil-001,Mn,,,
-```
-
-`DELETE` matches on the columns it fills in, so the last row — with empty cells — is a
-wildcard removing *every* Mn measurement of that hole. `ADD` appends. Deletes run before
-adds, so row order in the file cannot change the outcome. `task index` reports what
-happened:
-
-```
-Delta source CSV data/assays.csv + 1 delta(s) [data/assays-delta.csv]:
-  3 rows added, 3 rows deleted, 0 deletes matched nothing
-```
-
-See [docs/03-configuration.md](../docs/03-configuration.md#external-content-csvtsv).
-
-## Self-contained demo image
-
-`deploy/` is the same demo with no moving parts: in-memory dataset, in-memory index,
-built at startup, with Fuseki serving the app itself on one port.
+With Docker:
 
 ```bash
 docker run --rm -p 3030:3030 ghcr.io/kurrawong/fuseki-lucene-shacl-demo:latest
-# /       Fuseki UI
-# /demo   the faceted search app
 ```
-
-Nothing to load, nothing to index, no volumes. It leaves out the borehole assays, which
-can only be built by the bulk indexer. See [deploy/README.md](deploy/README.md).
-
-## Quick start (Docker)
 
 ```bash
-# Build the runtime image from the repo root, then start Fuseki locally from demo/
-task -d .. runtime-build
-task docker-start
-
-# Load data and run queries (in a separate terminal)
-task load
-task query
-
-# Stop
-task docker-stop         # keep data
-task docker-clean        # wipe data volumes
+demo/check.sh http://localhost:3030
 ```
 
-To run the same `docker-compose` service using an image published to GitHub Container Registry instead of building locally:
+From a source build, with Java 21 and [Task](https://taskfile.dev), run these in `demo/`:
 
 ```bash
-# Start Fuseki from GHCR
-task docker-start GHCR=1
-
-# Stop
-task docker-stop
+task build
 ```
 
-## Data model
-
-The data is split in two, and both halves load into the same dataset:
-
-| File | Holds | Indexed by |
-|---|---|---|
-| `data/mining.ttl`, `data/generated.ttl` | Sites, boreholes, reports and authors | `instance` |
-| `data/reference.ttl` | The classes and properties those use, and the controlled terms they take values from: commodities, states, operators, statuses and roles, as SKOS concepts in one scheme each | `reference` |
-
-`reference.ttl` is maintained by hand. A term used in the instance data must be defined
-there, or it has no label; `TestDemoReferenceIndex` fails if one is missing.
-`generate.py` draws on those terms but does not write them.
-
-The hand-written instance data (`data/mining.ttl`) contains:
-
-- **6 Sites** — mines and operations across Australian states
-- **7 Boreholes** — drill holes linked to sites
-- **8 Mining Reports** — geological and production reports
-- **4 Authors** — people who authored the reports
-- **1 Multi-identifier demo report** — includes `""`, `94130`, and `DAG2011/00113216`
-
-### Relationships
-
-```
-MiningReport --ex:authoredBy--> Author --ex:name--> "name string"
-Author --ex:authored--> MiningReport
+```bash
+task
 ```
 
-Reports link to authors via `ex:authoredBy`. Authors link back via `ex:authored`.
-Author names (`ex:name`) are stored on the Author entity, not on the report.
+`task build` builds the Fuseki server jar. `task` starts Fuseki on port 3040 in the
+background and runs `check.sh`, which prints one line per query and ends with
+`22 queries, all as expected`. The SPARQL endpoint is
+`http://localhost:3040/kitchen/query`, read-only. `task stop` stops the server, and
+`task query` prints every query's results.
 
-## Index configuration
+Fuseki has to start from `demo/`. The CSV path in `config.ttl` is resolved against the
+working directory, while the Turtle path is resolved against the file.
 
-`config.ttl` declares two text indexes over the one dataset. A query names the one it
-wants as its first argument, `luc:query ('instance' ...)` or `luc:query ('reference' ...)`.
-Each index's change listener sees every write and keeps only the entities its own shapes
-target, so a new term goes to `reference` and a new report to `instance`. Both set
-`text:exposeConfig true`; the app's Configuration page shows either.
+## The dataset
 
-### The reference index
-
-One shape per kind of term, all with the same fields:
-
-| Shape | Targets | Fields |
-|-------|---------|--------|
-| ConceptShape | `skos:Concept` | termLabel, termLabelPrefix, termLabelExact, scheme, termType |
-| ClassShape | `rdfs:Class` | termLabel, termLabelPrefix, termLabelExact, termComment, termType |
-| PropertyShape | `rdf:Property` | termLabel, termLabelPrefix, termLabelExact, termComment, termType |
-
-| Field | Use |
-|-------|-----|
-| `termLabel`, `termComment` | Free-text search over labels and descriptions: "depth" or "metres" finds `ex:depth` |
-| `termLabelPrefix` | Typeahead, edge-n-grams per word: "Cop" finds Copper, "Ore" finds Iron Ore |
-| `termLabelExact` | Sort key, for listing a dropdown in label order |
-| `scheme` | Filter to one vocabulary, e.g. `ex:states` |
-| `termType` | Facet by kind: concept, class or property |
-
-A dropdown of states, in label order:
-
-```sparql
-PREFIX luc: <urn:jena:lucene:index#>
-
-SELECT ?entity WHERE {
-  (?hit ?entity ?score ?totalHits ?rank) luc:query ('reference' 'default' '*'
-    '{"op":"=","args":[{"property":"urn:jena:lucene:field#scheme"},"http://example.org/mining/states"]}'
-    '{"field":"urn:jena:lucene:field#termLabelExact","order":"asc"}' 100 0)
-} ORDER BY ?rank
-```
-
-### The instance index
-
-Three SHACL shapes control what gets indexed:
-
-| Shape | Entity type | Fields |
-|-------|------------|--------|
-| MiningReportShape | `ex:MiningReport` | title, description, commodity, state, operator, status, year, **authorName**, **authoredByUri** |
-| BoreholeShape | `ex:Borehole` | title, commodity, state, depth |
-| SiteShape | `ex:Site` | title, commodity, state, status |
-
-### Path types demonstrated
-
-**Direct paths** (most fields): `sh:path rdfs:label` indexes the value directly from the entity.
-
-**Sequence path** (`authorName`):
-```turtle
-sh:path ( ex:authoredBy ex:name )
-```
-Traverses from the report to its author, then reads the author's name. The author name
-is indexed on the report document even though it's stored on a different entity.
-
-**Inverse path** (`authoredByUri`):
-```turtle
-sh:path [ sh:inversePath ex:authored ]
-```
-Finds authors who link to this report via `ex:authored` and indexes their URIs.
-This is the reverse direction — instead of following a link from the report,
-it finds entities that link *to* the report.
-
-## Queries
-
-| File | What it tests |
-|------|--------------|
-| `01-basic-search.rq` | Full-text search for "copper" |
-| `02-filtered-search.rq` | Search with JSON filter (state=QLD) |
-| `03-facet-counts.rq` | Facet counts across commodity, state, operator |
-| `04-facet-filtered.rq` | Drill-down: facets for "gold" in WA only |
-| `05-combined.rq` | Search + facets in one query (UNION pattern) |
-| `06-sequence-path-facet.rq` | Facet counts on `authorName`, whose values come from `ex:authoredBy`/`ex:name` on a linked Author |
-| `07-filter-by-author.rq` | Filter results by `authorName` = "Dr Sarah Jones" |
-| `08-spatial-bbox.rq` | Bounding box spatial search |
-| `09-matchraw-multivalue.rq` | Multi-valued identifier search showing `?matchRaw` on dirty identifier data |
-| `10-match-field-details.rq` | Access field details like field name and weight |
-| `11-hierarchical-facets.rq` | Hierarchical facets using Lucene taxonomy |
-| `12-range-facets.rq` | Numeric range facets on `year` and `depth` (INT fields) |
-| `13-mixed-facets.rq` | Mixed flat (state) and range (year) facets in one query |
-| `14-nested-identifier-hierarchy.rq` | Nested identifier hierarchy facets (`company` / `anumber` / `mnumber`) |
-| `15-nested-identifier-prefix-search.rq` | Prefix search over nested identifier text |
-| `16-sort-by-year-desc.rq` | Sort reports by `year` descending via field-IRI sort JSON |
-| `17-sort-boreholes-by-depth-asc.rq` | Sort boreholes by `depth` ascending via field-IRI sort JSON |
-| `18-nested-identifier-company-drilldown.rq` | Drill down identifier values under `identifierType = company` |
-| `19-nested-identifier-exact-pair.rq` | Correlated exact filter on `identifierType = company` + `identifierValueExact` |
-| `20-date-range-filter.rq` | Date range filter on `idx:TemporalField` using CQL2-JSON `between` |
-| `21-match-review-note-languages.rq` | `luc:match` round-tripping language-tagged literals from stored metadata |
-| `22-match-qa-passed-boolean.rq` | `luc:match` round-tripping typed boolean literals from stored metadata |
-| `23-nested-identifier-same-child-correlated.rq` | Same-child correlated filter on nested identifier records (issue #65) |
-| `24-nested-match-assay-records.rq` | `luc:nestedMatch` projecting the external CSV assay children that matched |
-| `25-nested-match-attribution-record.rq` | `luc:nestedMatch` projecting the graph-derived attribution child that matched |
-| `26-spatial-within.rq` | `s_within` — the indexed shape lies wholly inside the query box |
-| `27-spatial-contains.rq` | `s_contains` — the indexed shape encloses the query box |
-| `28-spatial-disjoint.rq` | `s_disjoint`, and why the unlocated prospect is still not returned |
-| `29-spatial-linestring-crosses-bbox.rq` | A LineString with both endpoints outside the box, crossing it |
-| `30-spatial-polygon-with-hole.rq` | A query polygon with an interior ring; the hole excludes a match |
-| `31-spatial-dwithin.rq` | `s_dwithin` — everything within a radius, in metres |
-| `32-spatial-crs-equivalence.rq` | GDA2020 and bare CRS84 written for the same place, matching one box |
-
-### Geometry on the map
-
-`geo:asWKT` literals are parsed in the browser by `app-static/wkt.js`. GeoSPARQL allows a
-CRS IRI prefix, `<crs> POINT(...)`, which no general-purpose WKT library understands, and
-the axis order depends on that CRS, so the demo strips and normalises it itself:
-
-| CRS | Axis order |
+| | |
 |---|---|
-| bare WKT, or CRS84 | lon lat |
-| EPSG:4326 | lat lon |
-| EPSG:4283 (GDA94) | lat lon |
-| EPSG:7844 (GDA2020) | lat lon |
+| Entities | 10 recipes (`kt:Recipe`) and 6 reviewers (`kt:Reviewer`), indexed by two shapes into one index, `default` |
+| Text fields | `name`, fed by `rdfs:label`, `schema:name` and `dcterms:title` on recipes and `schema:name` on reviewers; `summary`; `codeText`, an edge n-gram field over the recipe code |
+| Keyword facets | `entityType`, `course`, `country`, `region`, `diet`, `contributor` (fed by `kt:author` and `kt:testedBy`), `code` |
+| Numeric and date fields | `prepMinutes` (INT, range facets, sort), `publishedOn` (TEMPORAL, range filter, sort) |
+| Hierarchy | `region_country`: three regions over seven countries. A recipe names its country, and the region comes from the country through the sequence path `( kt:country kt:inRegion )` |
+| Nested, from the graph | ingredient records, each an item and a weight in grams, through blank nodes on `kt:ingredient`; hierarchy `ingredient_ingredientGrams` |
+| Nested, from a CSV file | 25 reviews in [data/reviews.csv](data/reviews.csv), never loaded into the graph, joined on the recipe IRI; three-level hierarchy `reviewer_stars_reviewMonth`. Stored, so `luc:nestedMatch` can project a matching review |
+| Spatial | each country has one `geo:wktLiteral` point at its capital. `location` (LatLonField) reaches it from the recipe through `( kt:country geo:hasGeometry geo:asWKT )` |
 
-Every geometry type is drawn, holes included. A projected CRS such as EPSG:28350 is
-skipped with a console warning rather than guessed, since drawing metres as degrees would
-put the shape in the Gulf of Guinea.
+The data is in [data/kitchen.ttl](data/kitchen.ttl). Labels for the field IRIs are in the
+same file, so a client labels fields the same way it labels values.
 
-Run the parser's tests with no extra dependencies:
+## The queries
 
-```bash
-task test-wkt
-```
-
-### Checking the examples still work
-
-```bash
-task FUSEKI_PORT=3031 check-examples
-```
-
-Replays every example in `test/tests.json` and asserts three things, the last of which
-is the one that matters: the parameters survive the URL round trip byte for byte, the
-query returns at least the example's declared `minResults`, and the filter **actually
-removes something**.
-
-Several demo bugs have shared one symptom — an example that looked fine and quietly
-returned the whole corpus. A '#' in a field IRI truncating the URL at the fragment, and
-an empty base URL falling through a `||` to a hardcoded default. A check that only
-asserts the query succeeds passes in both cases, and so does a `minResults` floor,
-because an unfiltered query clears it comfortably.
-
-The filter is measured against the whole corpus rather than against the same search
-term: `q=réserves` matches one document, which is already a `MiningReport`, so an
-`entityType` filter has nothing left to remove — and that is a working example, not an
-ignored filter.
-
-### Expected results for path queries
-
-**Query 06** should return author facets showing each author wrote 2 reports:
-```
-authorName  "Dr Priya Patel"   2
-authorName  "Dr Sarah Jones"   2
-authorName  "James Williams"   2
-authorName  "Prof Wei Chen"    2
-```
-
-**Query 07** should return exactly 2 reports by Dr Sarah Jones:
-```
-report-bro-2023  "Brolga Ridge Copper Resource Estimation 2023"
-report-spx-2024  "Spinifex Dome Expansion Feasibility Study"
-```
-
-**Query 09** should return the demo report with `?matchRaw = "94130"` on every row,
-even though the entity also carries an empty identifier value:
-```
-report-identifier-demo  "94130"  ""
-report-identifier-demo  "94130"  "94130"
-report-identifier-demo  "94130"  "DAG2011/00113216"
-```
-
-**Query 12** should return year and depth buckets:
-```
-year   null  2000  1
-year   2000  2020  1
-year   2020  null  7
-depth  0     200   1
-depth  200   500   4
-depth  500   1000  2
-```
-
-**Query 13** should return state and year facets for "copper":
-```
-state  state:NSW  null  null  3
-state  state:QLD  null  null  3
-state  state:SA   null  null  3
-state  state:WA   null  null  3
-state  state:PNG  null  null  1
-year   null       2020  null  0
-year   2020       2024  null  3
-year   2024       null  null  1
-```
-
-## Server image
-
-Image build and publish tasks were moved to the repo root so the `demo/` task file stays focused on demo/test workflows.
-
-Build the runtime image from the repo root:
-
-```bash
-task -d .. runtime-build
-```
-
-Push from the repo root if needed:
-
-```bash
-task -d .. runtime-ghcr-push
-task -d .. runtime-acr-push ACR_NAME=myregistry
-```
-
-The demo Docker tasks here (`docker-start`, `docker-serve`, `docker-stop`, `docker-clean`, `loader-index`) still work; they now assume the relevant image already exists locally, or in GHCR when passed `GHCR=1`.
-
-## Loader / reindexer image
-
-A separate Docker image for offline bulk data operations: loading N-Quads/Turtle/N-Triples into TDB2 and building the SHACL Lucene index. Useful for large datasets where GSP loading is too slow (e.g. the drillhole dataset — 17.6M entities, 184M triples).
-
-The image runs two steps sequentially:
-1. `tdb2.tdbloader` — bulk loads data files into TDB2
-2. `shacltextindexer` — builds the SHACL Lucene index from the TDB2 store
-
-### Building
-
-Build the loader image from the repo root:
-
-```bash
-task -d .. loader-build
-```
-
-This produces `fuseki-lucene-shacl-loader:6.1.0-SNAPSHOT`.
-
-### Running
-
-```bash
-docker run --rm \
-  -v /path/to/config.ttl:/config/config.ttl:ro \
-  -v /path/to/data:/input:ro \
-  -v fuseki-db:/data/DB \
-  -v fuseki-lucene:/data/Lucene \
-  -e JAVA_OPTS="-Xmx8g" \
-  fuseki-lucene-shacl-loader:6.1.0-SNAPSHOT
-```
-
-| Volume mount | Purpose |
-|---|---|
-| `/config/config.ttl` | Assembler config (must reference `/data/DB` for TDB2 and `/data/Lucene` for the index) |
-| `/input` | Directory containing `.nq`, `.ttl`, or `.nt` data files |
-| `/data/DB` | TDB2 database output |
-| `/data/Lucene` | Lucene index output |
-
-| Environment variable | Default | Purpose |
+| Query | Rows | What it shows |
 |---|---|---|
-| `MODE` | `all` | `all` = load + reindex, `load` = TDB2 load only, `index` = SHACL reindex only |
-| `CONFIG` | `/config/config.ttl` | Path to assembler config inside the container |
-| `DB_DIR` | `/data/DB` | TDB2 output directory |
-| `INPUT_DIR` | `/input` | Data files directory |
-| `JAVA_OPTS` | (none) | JVM flags, e.g. `-Xmx8g` for large datasets |
+| [01-search-bm25](queries/01-search-bm25.rq) | 2 | BM25 search over the default-search fields, with `?rank` and `?totalHits` |
+| [02-facets-flat](queries/02-facets-flat.rq) | 10 | Flat facet counts for course, diet and contributor over the whole index |
+| [03-facets-filtered](queries/03-facets-filtered.rq) | 5 | The same facets with a course filter applied |
+| [04-hierarchy-top](queries/04-hierarchy-top.rq) | 3 | The top level of `region_country`: regions. The facet target is the dimension name, not a field IRI |
+| [05-hierarchy-drill](queries/05-hierarchy-drill.rq) | 3 | An `=` filter on Asia returns its countries: Japan 2, India 1, Thailand 1 |
+| [06-date-range](queries/06-date-range.rq) | 6 | `between` on a TEMPORAL field, sorted newest first |
+| [07-range-facets](queries/07-range-facets.rq) | 4 | Range buckets over `prepMinutes`; a `null` bound is open-ended |
+| [08-typeahead-ngram](queries/08-typeahead-ngram.rq) | 2 | `text_query` on the n-gram field: `2019` matches a middle segment of the code |
+| [09-fanin-contributor](queries/09-fanin-contributor.rq) | 4 | One facet fed by two predicates: each person's authored plus tested recipes |
+| [10-keyword-iri-filter](queries/10-keyword-iri-filter.rq) | 3 | Exact equality on IRI-valued keyword fields, as a facet selection sends it |
+| [11-match](queries/11-match.rq) | 2 | `luc:match`: which stored field matched each hit, and its value |
+| [12-nested-match-reviews](queries/12-nested-match-reviews.rq) | 6 | `luc:nestedMatch` projects the review that matched, from the CSV file: Noor's two 5-star reviews, on Mole Poblano (2025-07) and Tonkotsu Ramen (2024-03), three fields each. The other reviews of those recipes are not projected |
+| [13-nested-correlation](queries/13-nested-correlation.rq) | 3 | "Priya gave 5 stars" must hold on one review. Tonkotsu Ramen and Mole Poblano have a Priya review and a 5-star review, but not one 5-star review by Priya, so they are excluded |
+| [14-sort-and-page](queries/14-sort-and-page.rq) | 5 | Sorted by prep time, second page of five; `?rank` continues from 5 and `?totalHits` stays at 10 |
+| [15-nested-hierarchy-correlated](queries/15-nested-hierarchy-correlated.rq) | 2 | Drilling `reviewer_stars_reviewMonth` on Tonkotsu Ramen: Priya gave 2 and Noor gave 5, and neither is offered the other's rating |
+| [16-one-field-many-paths-many-shapes](queries/16-one-field-many-paths-many-shapes.rq) | 4 | One `name` field finds names carried by three predicates across two shapes, and reports which predicate carried each |
+| [17-three-level-drilldown](queries/17-three-level-drilldown.rq) | 13 | Three levels of one hierarchy: six reviewers, Priya's four ratings, and the three months of her 5-star reviews |
+| [18-ingredient-quantity-correlated](queries/18-ingredient-quantity-correlated.rq) | 2 | "100 g or more of chilli" must hold on one ingredient record: only Mole Poblano. `luc:nestedMatch` projects the record |
+| [19-facets-sideways-and-drilldown](queries/19-facets-sideways-and-drilldown.rq) | 4 | The course facet with Main selected: sideways counts keep all three courses, drill-down counts only Main |
+| [20-spatial-within-bbox](queries/20-spatial-within-bbox.rq) | 4 | `s_within` a box over western Europe: the French and Italian recipes |
+| [21-spatial-dwithin](queries/21-spatial-dwithin.rq) | 2 | `s_dwithin` 5,000 km of Mexico City: the Mexican recipe and the Peruvian one (Lima is about 4,200 km away) |
+| [22-config-fields](queries/22-config-fields.rq) | 18 | `luc:config`: every field's name and type, read from the index through the query endpoint |
 
-If you already have a large TDB2 store and only need to rebuild the SHACL Lucene index, use the safe `MODE=index` task below instead of the loader image's default entrypoint.
-For a safe text-only reindex using the existing loader image:
+The `region_country` hierarchy has one country per recipe, so its counts equal those of
+filtering by region and counting country. Queries 15 and 17 use the review hierarchy,
+whose levels correlate per review row, to show drilling that two flat facets cannot give.
 
-```bash
-task loader-index
-```
+## Further reading
 
-This runs the loader container with `MODE=index`, so it skips `tdb2.tdbloader` and only runs `shacltextindexer`.
-
-### Using with the server image
-
-The loader and server images share volumes, so you can bulk-load data offline then start the server:
-
-```bash
-# 1. Load data
-docker run --rm \
-  -v ./config.ttl:/config/config.ttl:ro \
-  -v ./data:/input:ro \
-  -v fuseki-db:/data/DB \
-  -v fuseki-lucene:/data/Lucene \
-  -e JAVA_OPTS="-Xmx8g" \
-  ghcr.io/kurrawong/fuseki-lucene-shacl-loader:6.1.0-SNAPSHOT
-
-# 2. Start the server with the same volumes
-docker run -d -p 3030:3030 \
-  -v ./config.ttl:/fuseki/config.ttl:ro \
-  -v fuseki-db:/fuseki/DB \
-  -v fuseki-lucene:/fuseki/Lucene \
-  ghcr.io/kurrawong/fuseki-lucene-shacl:6.1.0-SNAPSHOT
-```
-
-A `docker-compose.yml` example is provided in `loader/`.
-
-### Pushing
-
-Use the root task file for loader publishing:
-
-```bash
-task -d .. loader-ghcr-push
-task -d .. loader-acr-push ACR_NAME=<registry>
-```
-
-For safe text-only reindex from GHCR:
-
-```bash
-task loader-index GHCR=1
-```
-
-## Demo app (FastAPI + Bulma)
-
-A lightweight web UI for interactive faceted search. Built with FastAPI, Jinja2 templates, and Bulma CSS. Provides a search box, sidebar facet checkboxes with counts, and result cards with clickable facet badges.
-
-The app dynamically reads `config.ttl` to discover shapes, fields, and facetability — no hardcoded field names.
-
-```bash
-# Install dependencies (once)
-task app-setup
-
-# Start the app (Fuseki must be running)
-task app
-```
-
-Opens at `http://localhost:8000` by default. The app reads its backend base URL from `app-config.js`, which `task app` generates from `FUSEKI_PORT`, then queries `http://localhost:${FUSEKI_PORT}/mining/query` — start the server first with `task serve` or `docker compose up`, then load data with `task load`.
-
-Configure via environment variables:
-- `FUSEKI_ENDPOINT` — SPARQL endpoint URL (default: `http://localhost:3030/mining/query`)
-- `FUSEKI_CONFIG` — path to assembler config (default: `../config.ttl`)
-
-## Synthetic data generation
-
-Generate larger datasets for performance testing:
-
-```bash
-task generate -- --count 1000
-```
-
-## Cleanup
-
-```bash
-task clean
-```
+- [docs/02-sparql-api.md](../docs/02-sparql-api.md): `luc:query`, `luc:facet`,
+  `luc:match`, `luc:nestedMatch` and `luc:config`
+- [docs/03-configuration.md](../docs/03-configuration.md): the configuration vocabulary
+- [docs/09-spatial.md](../docs/09-spatial.md): spatial fields and operators

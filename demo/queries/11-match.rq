@@ -1,0 +1,22 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+PREFIX luc:     <urn:jena:lucene:index#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX schema:  <https://schema.org/>
+
+SELECT ?name ?field ?value
+WHERE {
+    (?hit ?entity ?score) luc:query (
+        "default"                # index
+        "default"                # fields
+        "chocolate OR espresso"  # query
+        ""                       # filter
+        ""                       # sort
+        10                       # limit
+        0                        # offset
+    ) .
+    (?hit ?field ?value) luc:match () .
+    ?entity rdfs:label|schema:name|dcterms:title ?name .
+}
+ORDER BY ?name ?field

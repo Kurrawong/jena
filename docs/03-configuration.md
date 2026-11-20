@@ -64,8 +64,8 @@ place when the dataset is wrapped:
   `text:directory "mem"` index to the server that needs it.
 
 `text:buildOnStartup` covers the gap between them. With it, an in-memory dataset and an
-in-memory index are a working configuration — the self-contained demo image is exactly
-that, and before this flag a `"mem"` SHACL index had no way to hold any content at all.
+in-memory index are a working configuration — the demo image, which runs
+[demo/config.ttl](../demo/config.ttl), is exactly that, and before this flag a `"mem"` SHACL index had no way to hold any content at all.
 
 The build cost is paid on every start and grows with the data, so this is for datasets
 small enough to index in the time you are willing to wait for a restart. For anything

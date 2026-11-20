@@ -1,0 +1,23 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+PREFIX luc:     <urn:jena:lucene:index#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX schema:  <https://schema.org/>
+PREFIX kt:      <http://example.org/kitchen/>
+
+SELECT ?name ?country
+WHERE {
+    (?hit ?entity) luc:query (
+        "default"                                 # index
+        "default"                                 # fields
+        "*"                                       # query
+        '{"op":"s_dwithin","args":[{"property":"urn:jena:lucene:field#location"},{"type":"Point","coordinates":[-99.13,19.43]},5000000]}'  # filter
+        ""                                        # sort
+        20                                        # limit
+        0                                         # offset
+    ) .
+    ?entity rdfs:label|schema:name|dcterms:title ?name .
+    ?entity kt:country ?country .
+}
+ORDER BY ?country ?name

@@ -1,0 +1,33 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+PREFIX luc:     <urn:jena:lucene:index#>
+
+SELECT ?reviewer ?stars ?recipes
+WHERE {
+    {
+        BIND("Priya" AS ?reviewer)
+        (?field ?stars ?low ?high ?recipes) luc:facet (
+            "default"                                 # index
+            "default"                                 # fields
+            "*"                                       # query
+            '["reviewer_stars_reviewMonth"]'          # facets
+            '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#code"},"RCP-2019-0117"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#reviewer"},"Priya"]}]}'  # filter
+            50                                        # max values
+            0                                         # min count
+        ) .
+    }
+    UNION
+    {
+        BIND("Noor" AS ?reviewer)
+        (?field ?stars ?low ?high ?recipes) luc:facet (
+            "default"                                 # index
+            "default"                                 # fields
+            "*"                                       # query
+            '["reviewer_stars_reviewMonth"]'          # facets
+            '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#code"},"RCP-2019-0117"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#reviewer"},"Noor"]}]}'  # filter
+            50                                        # max values
+            0                                         # min count
+        ) .
+    }
+}
+ORDER BY ?reviewer

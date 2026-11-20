@@ -100,9 +100,7 @@ re-shades the previous fat jar in `target/` and the freshly built module classes
 the copies already inside it: the jar's timestamp updates, its size barely moves, and the
 server runs the *old* code. It fails as behaviour that is simply absent — a config
 property parsed as if unset, a new code path never entered — with no build warning
-anywhere. `demo/Taskfile.yml`'s `build-fast` skips the clean deliberately for speed;
-reach for plain `task build` the moment something you just changed appears to have no
-effect.
+anywhere. `demo/Taskfile.yml`'s `build` task cleans for this reason.
 
 ## Running Tests
 

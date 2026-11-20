@@ -86,7 +86,6 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     , TestShaclIndexStamp.class
     , TestLucConfig.class
     , TestLucStats.class
-    , TestDemoReferenceIndex.class
     , TestShaclDocumentBuilding.class
     , TestShaclTextDocProducer.class
     , TestShaclNoPFDuringIndexing.class
@@ -190,11 +189,9 @@ import org.apache.jena.query.text.changes.TestDatasetMonitor;
     // Classic Lucene query syntax reaching the queryString argument
     , TestLuceneQuerySyntax.class
 
-    // Demo data validation
-    , TestDemoDataParsing.class
-    , TestDemoDeployConfig.class
-    , TestDemoMiningScenarios.class
-    , TestDemoExamples.class
+    // The recipes demo in demo/, and a self-contained mining dataset
+    , TestDemoQueries.class
+    , TestMiningScenarios.class
 })
 
 public class TS_Text

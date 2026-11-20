@@ -1,0 +1,22 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+PREFIX luc:     <urn:jena:lucene:index#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX schema:  <https://schema.org/>
+PREFIX kt:      <http://example.org/kitchen/>
+
+SELECT ?entity ?name ?published
+WHERE {
+    (?hit ?entity) luc:query (
+        "default"                                 # index
+        "default"                                 # fields
+        "*"                                       # query
+        '{"op":"between","args":[{"property":"urn:jena:lucene:field#publishedOn"},"2020-01-01","2022-12-31"]}'  # filter
+        '{"field":"urn:jena:lucene:field#publishedOn","order":"desc"}'  # sort
+        20                                        # limit
+        0                                         # offset
+    ) .
+    ?entity rdfs:label|schema:name|dcterms:title ?name .
+    ?entity kt:publishedOn ?published .
+}

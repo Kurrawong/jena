@@ -1,0 +1,21 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+PREFIX luc:     <urn:jena:lucene:index#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX schema:  <https://schema.org/>
+
+SELECT ?rank ?entity ?name ?score ?totalHits
+WHERE {
+    (?hit ?entity ?score ?totalHits ?rank) luc:query (
+        "default"  # index
+        "default"  # fields
+        "chilli"   # query
+        ""         # filter
+        ""         # sort
+        10         # limit
+        0          # offset
+    ) .
+    ?entity rdfs:label|schema:name|dcterms:title ?name .
+}
+ORDER BY ?rank

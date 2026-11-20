@@ -1,0 +1,286 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+##
+## The recipes demo: ten recipes and six reviewers, two shapes, one in-memory index.
+##
+## The same file runs locally (`task serve` in demo/) and in the demo image. Nothing is
+## written to disk: the dataset is a ja:MemoryDataset loaded from ja:data, and
+## text:buildOnStartup indexes it as the dataset is assembled, so every start rebuilds the
+## index from data/kitchen.ttl and data/reviews.csv.
+##
+## Two kinds of relative path, resolved differently:
+##
+##   ja:data <data/kitchen.ttl>      an IRI, resolved against this file's location
+##   idx:location "data/reviews.csv" a string, resolved against the working directory
+##
+## So Fuseki must be started from demo/. The image's demo stage sets WORKDIR /demo.
+
+PREFIX :        <#>
+PREFIX field:   <urn:jena:lucene:field#>
+PREFIX idx:     <urn:jena:lucene:index#>
+PREFIX fuseki:  <http://jena.apache.org/fuseki#>
+PREFIX ja:      <http://jena.hpl.hp.com/2005/11/Assembler#>
+PREFIX rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX geo:     <http://www.opengis.net/ont/geosparql#>
+PREFIX schema:  <https://schema.org/>
+PREFIX sh:      <http://www.w3.org/ns/shacl#>
+PREFIX text:    <http://jena.apache.org/text#>
+PREFIX kt:      <http://example.org/kitchen/>
+
+## --- Server ---
+
+[] rdf:type fuseki:Server ;
+   fuseki:services ( :service ) .
+
+## Query only. The index is rebuilt from the files on every start, so a write would not
+## survive a restart, and this configuration is served publicly.
+:service rdf:type fuseki:Service ;
+    fuseki:name "kitchen" ;
+    fuseki:endpoint [ fuseki:operation fuseki:query ; fuseki:name "query" ] ;
+    fuseki:dataset :dataset .
+
+## --- Dataset ---
+
+:dataset rdf:type text:TextDataset ;
+    text:dataset :base ;
+    text:indexes :index ;
+    text:buildOnStartup true .
+
+:base rdf:type ja:MemoryDataset ;
+    ja:data <data/kitchen.ttl> .
+
+:index rdf:type text:TextIndexShacl ;
+    text:indexId "default" ;
+    ## In memory, and the facet taxonomy with it: the taxonomy follows text:directory.
+    text:directory "mem" ;
+    text:shapes ( :RecipeShape :ReviewerShape ) ;
+    text:storeValues false ;
+    text:maxFacetHits 50000 ;
+    ## luc:config returns this index's configuration as triples through the query endpoint.
+    text:exposeConfig true .
+
+## ==========================================================================
+## Fields. Defined once, without a path; each shape occurrence below gives the path.
+## ==========================================================================
+##
+## idx:stored defaults to true and is off on most fields here. Filtering, faceting,
+## sorting and range queries read points and doc values, not the stored copy, so an
+## unstored field loses only projection through luc:match and luc:nestedMatch. The graph
+## holds the values. Stored fields are the searchable TEXT fields, so luc:match can report
+## what matched, and the ingredient and review records, so luc:nestedMatch can project
+## them.
+
+## TEXT, ranked by BM25. One field fed by three predicates on recipes (rdfs:label,
+## schema:name, dcterms:title) and one on reviewers (schema:name).
+field:name
+    idx:fieldName "name" ;
+    idx:fieldType idx:TextField ;
+    idx:stored true ;
+    idx:defaultSearch true .
+
+field:summary
+    idx:fieldName "summary" ;
+    idx:fieldType idx:TextField ;
+    idx:stored true ;
+    idx:defaultSearch true .
+
+## The class of the indexed entity, from rdf:type on both shapes.
+field:entityType
+    idx:fieldName "entityType" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true .
+
+## KEYWORD fields holding IRIs: exact equality and facet counts.
+field:course
+    idx:fieldName "course" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true .
+
+field:country
+    idx:fieldName "country" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true .
+
+## Reached by the sequence path ( kt:country kt:inRegion ): no recipe states a region.
+field:region
+    idx:fieldName "region" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true .
+
+field:diet
+    idx:fieldName "diet" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true ;
+    idx:multiValued true .
+
+## Fed by two paths, kt:author and kt:testedBy, so one facet counts both roles.
+field:contributor
+    idx:fieldName "contributor" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true ;
+    idx:multiValued true .
+
+## Edge n-grams for typeahead over the recipe code. text:tokenized true lets any segment
+## prefix-match, so "0042" reaches RCP-2019-0042. No idx:queryAnalyzer: the analyzer
+## picks its own query-side partner.
+field:codeText
+    idx:fieldName "codeText" ;
+    idx:fieldType idx:TextField ;
+    idx:stored false ;
+    idx:analyzer [ a text:EdgeNGramAnalyzer ; text:tokenized true ] .
+
+## The exact twin of codeText, for equality filters.
+field:code
+    idx:fieldName "code" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true .
+
+field:prepMinutes
+    idx:fieldName "prepMinutes" ;
+    idx:fieldType idx:IntField ;
+    idx:stored false ;
+    idx:indexed true ;
+    idx:facetable true ;
+    idx:sortable true .
+
+## idx:storeLiteralMetadata keeps the xsd:date datatype, so a projected value rebuilds as
+## a date literal.
+field:publishedOn
+    idx:fieldName "publishedOn" ;
+    idx:fieldType idx:TemporalField ;
+    idx:stored false ;
+    idx:indexed true ;
+    idx:facetable true ;
+    idx:sortable true ;
+    idx:storeLiteralMetadata true .
+
+## The point of the recipe's country, reached by the sequence path
+## ( kt:country geo:hasGeometry geo:asWKT ). See docs/09-spatial.md.
+field:location
+    idx:fieldName "location" ;
+    idx:fieldType idx:LatLonField .
+
+## --- Nested children from the graph: ingredient records ---
+
+field:ingredient
+    idx:fieldName "ingredient" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:indexed true ;
+    idx:facetable true .
+
+field:ingredientGrams
+    idx:fieldName "ingredientGrams" ;
+    idx:fieldType idx:IntField ;
+    idx:stored true ;
+    idx:indexed true ;
+    idx:facetable true ;
+    idx:sortable true .
+
+## --- Nested children from a CSV file: reviews ---
+##
+## Bound to columns of data/reviews.csv, which is never loaded into the graph. Stored, so
+## luc:nestedMatch can project the review that matched (query 12): the graph has no copy.
+
+field:reviewer
+    idx:fieldName "reviewer" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:indexed true ;
+    idx:facetable true .
+
+field:stars
+    idx:fieldName "stars" ;
+    idx:fieldType idx:IntField ;
+    idx:stored true ;
+    idx:indexed true ;
+    idx:facetable true ;
+    idx:sortable true .
+
+## A CSV cell carries no datatype, so TEMPORAL is refused here. "2025-04" as a KEYWORD
+## sorts correctly as text.
+field:reviewMonth
+    idx:fieldName "reviewMonth" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored true ;
+    idx:indexed true ;
+    idx:facetable true .
+
+## ==========================================================================
+## Shapes
+## ==========================================================================
+
+:RecipeShape
+    sh:targetClass kt:Recipe ;
+
+    sh:property [ idx:field field:name        ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:name        ; sh:path schema:name ] ;
+    sh:property [ idx:field field:name        ; sh:path dcterms:title ] ;
+
+    sh:property [ idx:field field:entityType  ; sh:path rdf:type ] ;
+    sh:property [ idx:field field:summary     ; sh:path dcterms:description ] ;
+    sh:property [ idx:field field:course      ; sh:path kt:course ] ;
+    sh:property [ idx:field field:country     ; sh:path kt:country ] ;
+    sh:property [ idx:field field:region      ; sh:path ( kt:country kt:inRegion ) ] ;
+    sh:property [ idx:field field:location    ; sh:path ( kt:country geo:hasGeometry geo:asWKT ) ] ;
+    sh:property [ idx:field field:diet        ; sh:path kt:diet ] ;
+    sh:property [ idx:field field:prepMinutes ; sh:path kt:prepMinutes ] ;
+    sh:property [ idx:field field:publishedOn ; sh:path kt:publishedOn ] ;
+
+    sh:property [ idx:field field:contributor ; sh:path kt:author ] ;
+    sh:property [ idx:field field:contributor ; sh:path kt:testedBy ] ;
+
+    ## Same path, different analysis.
+    sh:property [ idx:field field:code        ; sh:path kt:code ] ;
+    sh:property [ idx:field field:codeText    ; sh:path kt:code ] ;
+
+    ## A root-level hierarchy. Its levels are read independently from the entity and
+    ## combined, which is correct only because each recipe has one country and so one
+    ## region. Its counts therefore equal "filter by region, count country"; query 17
+    ## shows a hierarchy whose levels correlate per record.
+    idx:facetHierarchy ( field:region field:country ) ;
+
+    ## Children from the graph. Paths inside the block are relative to each ingredient
+    ## record, and its two fields correlate per record: "100g of chilli" must be one
+    ## record (query 18).
+    idx:nested [
+        idx:joinPath kt:ingredient ;
+        idx:property [ idx:field field:ingredient      ; sh:path kt:item ] ;
+        idx:property [ idx:field field:ingredientGrams ; sh:path kt:grams ] ;
+        idx:facetHierarchy ( field:ingredient field:ingredientGrams ) ;
+    ] ;
+
+    ## Children from a CSV file, joined on the recipe IRI. The three columns land on one
+    ## child, so "5 stars from Priya" must be one review (query 13). A shape with an
+    ## external source is rebuild-only; text:buildOnStartup is that rebuild.
+    idx:nested [
+        idx:nestedName "review" ;
+        idx:externalSource [
+            idx:format        idx:CsvFile ;
+            idx:location      "data/reviews.csv" ;
+            idx:subjectColumn "recipe" ;
+            idx:column [ idx:columnName "reviewer" ; idx:field field:reviewer ] ;
+            idx:column [ idx:columnName "stars"    ; idx:field field:stars ] ;
+            idx:column [ idx:columnName "month"    ; idx:field field:reviewMonth ] ;
+        ] ;
+        ## Three levels, correlated per review row. A child-scoped field has no flat
+        ## facet of its own, so this dimension is how reviewers are counted.
+        idx:facetHierarchy ( field:reviewer field:stars field:reviewMonth ) ;
+    ] .
+
+## A second target class sharing field:name, field:summary and field:entityType with
+## recipes, so one search covers both and field:entityType tells them apart.
+:ReviewerShape
+    sh:targetClass kt:Reviewer ;
+
+    sh:property [ idx:field field:name       ; sh:path schema:name ] ;
+    sh:property [ idx:field field:entityType ; sh:path rdf:type ] ;
+    sh:property [ idx:field field:summary    ; sh:path dcterms:description ] .

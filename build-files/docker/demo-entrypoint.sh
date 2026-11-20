@@ -1,7 +1,7 @@
 #!/bin/sh
 # Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
 
-# Self-contained demo: in-memory dataset, in-memory index, static app, one process.
+# Self-contained demo: in-memory dataset, in-memory index, the Fuseki UI, one process.
 # Nothing is read from or written to a volume, so a restart is a rebuild.
 
 set -e
@@ -11,7 +11,7 @@ set -e
 # it at all. Defaulting to Fuseki's own 3030 keeps `docker run -p 3030:3030` working.
 PORT="${PORT:-3030}"
 
-CONFIG="${CONFIG:-/demo/deploy/config.ttl}"
+CONFIG="${CONFIG:-/demo/config.ttl}"
 STATIC_DIR="${STATIC_DIR:-/demo/static}"
 
 # Heap. The whole dataset and index live in it, so the default (1/4 of container

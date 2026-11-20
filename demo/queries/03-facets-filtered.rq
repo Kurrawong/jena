@@ -1,0 +1,17 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+PREFIX luc:     <urn:jena:lucene:index#>
+
+SELECT ?field ?value ?count
+WHERE {
+    (?field ?value ?low ?high ?count) luc:facet (
+        "default"                                 # index
+        "default"                                 # fields
+        "*"                                       # query
+        '["urn:jena:lucene:field#contributor","urn:jena:lucene:field#diet"]'  # facets
+        '{"op":"=","args":[{"property":"urn:jena:lucene:field#course"},"http://example.org/kitchen/course-main"]}'  # filter
+        20                                        # max values
+        0                                         # min count
+    ) .
+}
+ORDER BY ?field DESC(?count) ?value
