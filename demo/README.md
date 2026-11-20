@@ -52,7 +52,7 @@ working directory, while the Turtle path is resolved against the file.
 | Numeric and date fields | `prepMinutes` (INT, range facets, sort), `publishedOn` (TEMPORAL, range filter, sort) |
 | Hierarchy | `region_country`: three regions over seven countries. A recipe names its country, and the region comes from the country through the sequence path `( kt:country kt:inRegion )` |
 | Nested, from the graph | ingredient records, each an item and a weight in grams, through blank nodes on `kt:ingredient`; hierarchy `ingredient_ingredientGrams` |
-| Nested, from a CSV file | 25 reviews in [data/reviews.csv](data/reviews.csv), never loaded into the graph, joined on the recipe IRI; three-level hierarchy `reviewer_stars_reviewMonth`. Unstored, so they filter and count but do not project |
+| Nested, from a CSV file | 25 reviews in [data/reviews.csv](data/reviews.csv), never loaded into the graph, joined on the recipe IRI; three-level hierarchy `reviewer_stars_reviewMonth`. Stored, so `luc:nestedMatch` can project a matching review |
 | Spatial | each country has one `geo:wktLiteral` point at its capital. `location` (LatLonField) reaches it from the recipe through `( kt:country geo:hasGeometry geo:asWKT )` |
 
 The data is in [data/kitchen.ttl](data/kitchen.ttl). Labels for the field IRIs are in the
@@ -73,7 +73,7 @@ same file, so a client labels fields the same way it labels values.
 | [09-fanin-contributor](queries/09-fanin-contributor.rq) | 4 | One facet fed by two predicates: each person's authored plus tested recipes |
 | [10-keyword-iri-filter](queries/10-keyword-iri-filter.rq) | 3 | Exact equality on IRI-valued keyword fields, as a facet selection sends it |
 | [11-match](queries/11-match.rq) | 2 | `luc:match`: which stored field matched each hit, and its value |
-| [12-nested-match-reviews](queries/12-nested-match-reviews.rq) | 0 | `luc:nestedMatch` on unstored review fields projects nothing, although the filter on them works |
+| [12-nested-match-reviews](queries/12-nested-match-reviews.rq) | 6 | `luc:nestedMatch` projects the review that matched, from the CSV file: Noor's two 5-star reviews, on Mole Poblano (2025-07) and Tonkotsu Ramen (2024-03), three fields each. The other reviews of those recipes are not projected |
 | [13-nested-correlation](queries/13-nested-correlation.rq) | 3 | "Priya gave 5 stars" must hold on one review. Tonkotsu Ramen and Mole Poblano have a Priya review and a 5-star review, but not one 5-star review by Priya, so they are excluded |
 | [14-sort-and-page](queries/14-sort-and-page.rq) | 5 | Sorted by prep time, second page of five; `?rank` continues from 5 and `?totalHits` stays at 10 |
 | [15-nested-hierarchy-correlated](queries/15-nested-hierarchy-correlated.rq) | 2 | Drilling `reviewer_stars_reviewMonth` on Tonkotsu Ramen: Priya gave 2 and Noor gave 5, and neither is offered the other's rating |
@@ -84,9 +84,6 @@ same file, so a client labels fields the same way it labels values.
 | [20-spatial-within-bbox](queries/20-spatial-within-bbox.rq) | 4 | `s_within` a box over western Europe: the French and Italian recipes |
 | [21-spatial-dwithin](queries/21-spatial-dwithin.rq) | 2 | `s_dwithin` 5,000 km of Mexico City: the Mexican recipe and the Peruvian one (Lima is about 4,200 km away) |
 | [22-config-fields](queries/22-config-fields.rq) | 18 | `luc:config`: every field's name and type, read from the index through the query endpoint |
-
-Query 12 returns no rows on purpose: set `idx:stored true` on the three review fields in
-`config.ttl` and it returns them.
 
 The `region_country` hierarchy has one country per recipe, so its counts equal those of
 filtering by region and counting country. Queries 15 and 17 use the review hierarchy,

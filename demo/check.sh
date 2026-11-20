@@ -33,8 +33,7 @@ while read -r name expected; do
         continue
     fi
 
-    ## -f so an HTTP error fails the query rather than counting the error page's lines;
-    ## query 12 expects zero rows, which an empty error body would otherwise satisfy.
+    ## -f so an HTTP error fails the query rather than counting the error page's lines.
     if ! result=$(curl -sf -X POST "$ENDPOINT" \
             -H "Content-Type: application/sparql-query" \
             -H "Accept: text/tab-separated-values" \

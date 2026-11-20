@@ -68,7 +68,8 @@ PREFIX kt:      <http://example.org/kitchen/>
 ## sorting and range queries read points and doc values, not the stored copy, so an
 ## unstored field loses only projection through luc:match and luc:nestedMatch. The graph
 ## holds the values. Stored fields are the searchable TEXT fields, so luc:match can report
-## what matched, and the ingredient records, so luc:nestedMatch can project them.
+## what matched, and the ingredient and review records, so luc:nestedMatch can project
+## them.
 
 ## TEXT, ranked by BM25. One field fed by three predicates on recipes (rdfs:label,
 ## schema:name, dcterms:title) and one on reviewers (schema:name).
@@ -186,21 +187,20 @@ field:ingredientGrams
 
 ## --- Nested children from a CSV file: reviews ---
 ##
-## Bound to columns of data/reviews.csv, which is never loaded into the graph. Unstored:
-## the index can find, correlate, count and sort on these values, and luc:nestedMatch has
-## nothing to project (query 12).
+## Bound to columns of data/reviews.csv, which is never loaded into the graph. Stored, so
+## luc:nestedMatch can project the review that matched (query 12): the graph has no copy.
 
 field:reviewer
     idx:fieldName "reviewer" ;
     idx:fieldType idx:KeywordField ;
-    idx:stored false ;
+    idx:stored true ;
     idx:indexed true ;
     idx:facetable true .
 
 field:stars
     idx:fieldName "stars" ;
     idx:fieldType idx:IntField ;
-    idx:stored false ;
+    idx:stored true ;
     idx:indexed true ;
     idx:facetable true ;
     idx:sortable true .
@@ -210,7 +210,7 @@ field:stars
 field:reviewMonth
     idx:fieldName "reviewMonth" ;
     idx:fieldType idx:KeywordField ;
-    idx:stored false ;
+    idx:stored true ;
     idx:indexed true ;
     idx:facetable true .
 

@@ -363,6 +363,46 @@ public class TestExternalContentIndexing {
     }
 
     /**
+     * A not-stored external value filters, and {@code luc:nestedMatch} has nothing to
+     * project for it. The stored columns of the same matching child are projected.
+     * <p>
+     * The same filter as {@link #sameChildFilterMixesEqualityAndRange()}: s1 (Au 12.4,
+     * high) and s3 (Au 5.0, medium) match on {@code measuredValue}, which is not stored.
+     */
+    @Test
+    public void notStoredExternalValueFiltersButIsNotProjected() throws IOException {
+        buildStandardIndex(SORTED_CSV, true);
+
+        String sparql =
+            "PREFIX luc: <urn:jena:lucene:index#>\n"
+            + "SELECT ?s ?field ?value WHERE {\n"
+            + "  (?hit ?s) luc:query (\"default\" \"default\" \"\" '"
+            + and(eq("measuredProperty", "Au"), cmp(">=", "measuredValue", 5.0)) + "' \"\" 100 0) .\n"
+            + "  (?hit ?record ?field ?value) luc:nestedMatch () .\n"
+            + "}";
+
+        Set<String> rows = new TreeSet<>();
+        dataset.begin(ReadWrite.READ);
+        try (QueryExecution qe = QueryExecutionFactory.create(sparql, dataset)) {
+            ResultSet rs = qe.execSelect();
+            while (rs.hasNext()) {
+                QuerySolution sol = rs.next();
+                rows.add(sol.getResource("s").getURI().substring(NS.length()) + " "
+                    + sol.getResource("field").getURI().substring(FP.length()) + " "
+                    + sol.get("value").asLiteral().getLexicalForm());
+            }
+        } finally {
+            dataset.end();
+        }
+
+        assertEquals("the matching child's stored columns, and no measuredValue",
+            new TreeSet<>(Arrays.asList(
+                "s1 measuredBand high", "s1 measuredProperty Au",
+                "s3 measuredBand medium", "s3 measuredProperty Au")),
+            rows);
+    }
+
+    /**
      * Two same-child folds AND-ed at the parent mean "the entity has some Au above X
      * <em>and</em> some Cu above Y" — not "in the same measurement". s2 satisfies it
      * across two different children.

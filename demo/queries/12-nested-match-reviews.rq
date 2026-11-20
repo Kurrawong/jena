@@ -11,7 +11,7 @@ WHERE {
         "default"                                 # index
         "default"                                 # fields
         ""                                        # query
-        '{"op":">=","args":[{"property":"urn:jena:lucene:field#stars"},5]}'  # filter
+        '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#reviewer"},"Noor"]},{"op":">=","args":[{"property":"urn:jena:lucene:field#stars"},5]}]}'  # filter
         ""                                        # sort
         20                                        # limit
         0                                         # offset

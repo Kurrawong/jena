@@ -4,8 +4,7 @@
 # TestDemoQueries in jena-text.
 #
 # Exact counts, not "more than zero". Query 13 returns three recipes and not five because
-# the same-child fold rejects two, and query 12 returns none because its fields are
-# idx:stored false; a "non-empty" check would pass while either broke.
+# the same-child fold rejects two; a "non-empty" check would pass while that broke.
 #
 # When a count changes, decide whether the demo data changed or the library did before
 # editing this file.
@@ -22,7 +21,7 @@
 09-fanin-contributor                       4
 10-keyword-iri-filter                      3
 11-match                                   2
-12-nested-match-reviews                    0
+12-nested-match-reviews                    6
 13-nested-correlation                      3
 14-sort-and-page                           5
 15-nested-hierarchy-correlated             2
