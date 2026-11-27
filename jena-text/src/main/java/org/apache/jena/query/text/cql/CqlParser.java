@@ -25,10 +25,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-import org.apache.jena.atlas.json.JSON;
 import org.apache.jena.atlas.json.JsonArray;
 import org.apache.jena.atlas.json.JsonObject;
 import org.apache.jena.atlas.json.JsonValue;
+import org.apache.jena.query.text.StrictJson;
 import org.apache.jena.query.text.TextIndexException;
 
 /**
@@ -59,7 +59,7 @@ public class CqlParser {
     private static final String DISTANCE_OP = "s_dwithin";
 
     public static CqlExpression parse(String json) {
-        JsonObject obj = JSON.parse(json);
+        JsonObject obj = StrictJson.parseObject(json);
         return parseNode(obj);
     }
 
