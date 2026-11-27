@@ -161,21 +161,6 @@ public class TestShaclIndexStamp {
         }
     }
 
-    /** {@code text:maxFacetHits} is applied at query time and changes nothing on disk. */
-    @Test
-    public void maxFacetHitsIsNotPartOfTheFingerprint() {
-        TextIndexConfig low = config(true);
-        low.setMaxFacetHits(100);
-        TextIndexConfig high = config(true);
-        high.setMaxFacetHits(50000);
-
-        ShaclTextIndexLucene indexLow = new ShaclTextIndexLucene(new ByteBuffersDirectory(), low);
-        ShaclTextIndexLucene indexHigh = new ShaclTextIndexLucene(new ByteBuffersDirectory(), high);
-
-        assertEquals(indexLow.getConfigFingerprint(), indexHigh.getConfigFingerprint(),
-            "a query-time setting must not be reported as requiring a reindex");
-    }
-
     // ---- When an index may be stamped.
 
     /**

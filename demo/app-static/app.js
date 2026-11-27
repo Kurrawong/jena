@@ -718,7 +718,6 @@ function extractConfig(store) {
     const indexNode = indexNodes[0];
 
     const storeValues = getLiteral(store, indexNode, TEXT + 'storeValues') === 'true';
-    const maxFacetHits = parseInt(getLiteral(store, indexNode, TEXT + 'maxFacetHits') || '0', 10);
 
     const shapesHead = getObject(store, indexNode, TEXT + 'shapes');
     const shapeNodes = shapesHead ? walkList(store, shapesHead) : [];
@@ -876,7 +875,6 @@ function extractConfig(store) {
     return {
         endpoint: `${FUSEKI_BASE}/${DATASET}/query`,
         storeValues,
-        maxFacetHits,
         shapes,
         facetFields,
         sortableFields,

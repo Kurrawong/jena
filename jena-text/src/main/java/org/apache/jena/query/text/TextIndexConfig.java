@@ -40,7 +40,6 @@ public class TextIndexConfig {
     boolean splitOnWhitespace = true;
     boolean autoGeneratePhraseQueries = true;
     List<String> facetFields = new ArrayList<>();
-    int maxFacetHits = 0; // 0 = unlimited
     ShaclIndexMapping shaclMapping = null;
 
     public TextIndexConfig(EntityDefinition entDef) {
@@ -156,14 +155,6 @@ public class TextIndexConfig {
      */
     public boolean isFacetField(String fieldName) {
         return facetFields.contains(fieldName);
-    }
-
-    public int getMaxFacetHits() {
-        return maxFacetHits;
-    }
-
-    public void setMaxFacetHits(int maxFacetHits) {
-        this.maxFacetHits = maxFacetHits;
     }
 
     public ShaclIndexMapping getShaclMapping() {
