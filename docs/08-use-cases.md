@@ -1,229 +1,139 @@
 # Use Cases
 
-Each feature is a building block. They can be used independently or combined to build richer search experiences. This page shows what each block does, with examples of where it applies.
-
----
-
-## Completed Features
-
-### Full-Text Search with Filters — `luc:query`
-
-Search across entity fields using Lucene query syntax. Optionally narrow results with structured JSON filters that apply field-level constraints.
-
-```mermaid
-flowchart LR
-    User(["User query:<br/>'climate change'"])
-    Filter["+ filter:<br/>publisher = Halden Institute"]
-    Query["luc:query"]
-    Results["Matching entities<br/>ranked by relevance"]
-
-    User --> Query
-    Filter -.-> Query
-    Query --> Results
-
-    style User fill:#f8f9fa,stroke:#999,color:#333
-    style Filter fill:#fff3cd,stroke:#c89a06,color:#614a00
-    style Query fill:#1a6dd4,stroke:#0d4a94,color:#fff
-    style Results fill:#d4edda,stroke:#28a745,color:#1a3d1a
-```
+Each section shows the configuration or query for one search task. The examples use a
+SHACL index selected as `"default"` and fields in the `urn:jena:lucene:field#` namespace.
+Each query needs this prefix:
 
 ```sparql
-# Simple search
-(?hit ?s ?score) luc:query ("climate change") .
-
-# Search narrowed to a publisher (CQL2-JSON filter)
-(?hit ?s ?score) luc:query ("default" "climate change"
-    '{"op":"=","args":[{"property":"urn:jena:lucene:field#publisher"},"Halden Institute"]}') .
-
-# Multiple filters (AND across fields)
-(?hit ?s ?score) luc:query ("default" "climate"
-    '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#publisher"},"Halden Institute"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Environment"]}]}') .
+PREFIX luc: <urn:jena:lucene:index#>
 ```
 
-**Where this applies:**
-- Search box in a data catalogue
-- Keyword search in a document repository
-- Filtered API endpoint for a knowledge graph
+The argument lists are described in [02-sparql-api.md](02-sparql-api.md).
 
----
+## Search with filters
 
-### Facet Counts — `luc:facet`
-
-Get value counts for one or more fields across the result set. Shows how results distribute across categories, publishers, types, etc.
-
-```mermaid
-flowchart LR
-    Query["luc:facet<br/>'climate change'<br/>fields: category, publisher"]
-    Cat["category:<br/>Environment (42)<br/>Policy (28)<br/>Science (15)"]
-    Pub["publisher:<br/>Halden Institute (31)<br/>Weather Office (22)<br/>Climate Department (12)"]
-
-    Query --> Cat
-    Query --> Pub
-
-    style Query fill:#1a6dd4,stroke:#0d4a94,color:#fff
-    style Cat fill:#d4edda,stroke:#28a745,color:#1a3d1a
-    style Pub fill:#d4edda,stroke:#28a745,color:#1a3d1a
-```
+Search the default fields for "climate change" and keep only one publisher:
 
 ```sparql
-# Counts for category and publisher, top 10 values each
-(?field ?value ?count) luc:facet ("climate change" '["urn:jena:lucene:field#category", "urn:jena:lucene:field#publisher"]' 10) .
-
-# With minCount — only values with 5+ results
-(?field ?value ?count) luc:facet ("climate change" '["urn:jena:lucene:field#category"]' 10 5) .
-```
-
-**Where this applies:**
-- Sidebar facet panels in a search UI
-- Summary statistics for a dataset collection
-- "Browse by" navigation (by theme, by organisation, by type)
-
----
-
-### Search + Facets Together — Recommended Patterns
-
-Search hits and facet counts are different result shapes. Hits are entities with scores; facets are (field, value, count) aggregations. Care is needed to avoid a cartesian product when combining them.
-
-```mermaid
-flowchart TB
-    App["Search UI"]
-    Q1["Query 1: luc:query<br/>(entity URIs + scores)"]
-    Q2["Query 2: luc:facet<br/>(field, value, count)"]
-    SE["SearchExecution<br/>(shared internally<br/>when in same query)"]
-
-    App --> Q1
-    App --> Q2
-    Q1 --> SE
-    Q2 --> SE
-
-    style App fill:#f8f9fa,stroke:#999,color:#333
-    style Q1 fill:#1a6dd4,stroke:#0d4a94,color:#fff
-    style Q2 fill:#1a6dd4,stroke:#0d4a94,color:#fff
-    style SE fill:#e8f0fe,stroke:#b8d4f8,color:#333
-```
-
-```sparql
-# Recommended: separate queries, clean result shapes
-# Query 1 — hits
-SELECT ?s ?score WHERE {
-    (?hit ?s ?score) luc:query ("climate change") .
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score) luc:query (
+    "default" "default" "climate change"
+    '{"op":"=","args":[{"property":"urn:jena:lucene:field#publisher"},"Halden Institute"]}'
+    "" 20 0) .
 }
+```
 
-# Query 2 — facets
+Combine conditions on several fields with `and`:
+
+```sparql
+(?hit ?entity ?score) luc:query (
+  "default" "default" "climate"
+  '{"op":"and","args":[{"op":"=","args":[{"property":"urn:jena:lucene:field#publisher"},"Halden Institute"]},{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Environment"]}]}'
+  "" 20 0) .
+```
+
+## Facet counts
+
+Count the top 10 categories and publishers of the hits:
+
+```sparql
 SELECT ?field ?value ?count WHERE {
-    (?field ?value ?count) luc:facet ("climate change" '["urn:jena:lucene:field#category", "urn:jena:lucene:field#publisher"]' 10) .
-}
-
-# Alternative: single query via UNION (N+M rows, no cartesian product)
-SELECT ?s ?score ?field ?value ?count WHERE {
-    { (?hit ?s ?score) luc:query ("climate change") . }
-    UNION
-    { (?field ?value ?count) luc:facet ("climate change" '["urn:jena:lucene:field#category", "urn:jena:lucene:field#publisher"]' 10) . }
+  (?field ?value ?low ?high ?count) luc:facet (
+    "default" "default" "climate change"
+    '["urn:jena:lucene:field#category", "urn:jena:lucene:field#publisher"]'
+    "" 10 0) .
 }
 ```
 
-**Where this applies:**
-- Any search page that shows results and facet counts together
-- Matches the pattern used by Elasticsearch and Solr — one request for hits, one for facets
-- UNION alternative when a single SPARQL request is required
+The last argument, `minCount`, removes values with fewer hits. With `5`, a value needs at
+least 5 hits.
 
----
+## Facets for a filtered search
 
-### Automatic Index Maintenance — Change Listener
+When a user selects `category = Environment`, put the selection in the `cqlFilter` of
+`luc:facet`:
 
-When triples are added or removed from the RDF dataset, the Lucene index updates automatically. No manual reindexing or sync jobs required.
-
-```mermaid
-flowchart LR
-    App["Application<br/>adds/removes triples"]
-    TDB["TDB2 Dataset"]
-    Listener["ShaclTextDocProducer<br/>(change listener)"]
-    Lucene["Lucene Index<br/>(entity doc rebuilt)"]
-
-    App --> TDB
-    TDB -- "triple change event" --> Listener
-    Listener -- "rebuild entity doc" --> Lucene
-
-    style App fill:#f8f9fa,stroke:#999,color:#333
-    style TDB fill:#f8f9fa,stroke:#999,color:#333
-    style Listener fill:#1a6dd4,stroke:#0d4a94,color:#fff
-    style Lucene fill:#d4edda,stroke:#28a745,color:#1a3d1a
+```sparql
+(?field ?value ?low ?high ?count) luc:facet (
+  "default" "default" "climate change"
+  '["urn:jena:lucene:field#category", "urn:jena:lucene:field#publisher"]'
+  '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Environment"]}'
+  10 0) .
 ```
 
-**Where this applies:**
-- Live data feeds — index stays current without batch jobs
-- Editorial workflows — changes are searchable immediately
-- Replaces custom ETL pipelines that sync data to a separate search engine
+The default count mode is `"sideways"`. The category facet is counted without the
+category selection, so it still lists the other categories and their counts. The
+publisher facet is counted under the full filter. To count every facet under the full
+filter, add `"drilldown"` as the eighth argument. See
+[Count modes](02-sparql-api.md#count-modes).
 
----
+## Hits and facets for one page
 
-### Entity-Per-Document Indexing — SHACL Shapes
+Hits and facet counts have different rows: hits are entities with scores, and facets are
+field, value and count. A query that joins the two patterns returns every hit combined
+with every facet row.
 
-Each entity (e.g. a Book, a Dataset, a Person) becomes a single Lucene document with all its fields. SHACL shapes define what gets indexed and how.
+Send two queries:
 
-```mermaid
-flowchart LR
-    subgraph RDF["RDF Triples"]
-        t1["ex:book1 rdf:type ex:Book"]
-        t2["ex:book1 rdfs:label 'Machine Learning'"]
-        t3["ex:book1 ex:category 'Technology'"]
-        t4["ex:book1 ex:year 2024"]
-    end
-
-    subgraph Doc["Lucene Document"]
-        d1["uri: ex:book1"]
-        d2["docType: Book"]
-        d3["title: 'Machine Learning' (TEXT)"]
-        d4["category: 'Technology' (KEYWORD)"]
-        d5["year: 2024 (INT)"]
-    end
-
-    RDF -- "SHACL shape<br/>defines mapping" --> Doc
-
-    style RDF fill:#f8f9fa,stroke:#999,color:#333
-    style Doc fill:#d4edda,stroke:#28a745,color:#1a3d1a
+```sparql
+# Hits
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score) luc:query ("default" "default" "climate change" "" "" 20 0) .
+}
 ```
 
-Field types control how each value is indexed:
-
-| Type | Searchable | Facetable | Range queries | Example |
-|------|-----------|-----------|---------------|---------|
-| TEXT | Full-text | No | No | Title, description, abstract |
-| KEYWORD | Exact match | Yes | No | Category, publisher, status |
-| INT / LONG | No | No | Yes | Year, count, size |
-| DOUBLE | No | No | Yes | Score, latitude, price |
-
-**Where this applies:**
-- Any RDF dataset where entities have typed properties
-- Replaces the need for a separate search schema — SHACL shapes serve as both data model and index definition
-
----
-
-### Inverse and Sequence Paths
-
-Index values from related entities by following RDF relationships at index time — no materialised triples needed.
-
-```mermaid
-flowchart LR
-    subgraph direct["Direct path"]
-        B1["ex:book1"] -- "rdfs:label" --> L1["'Machine Learning'"]
-    end
-
-    subgraph inverse["Inverse path"]
-        P1["ex:smith"] -- "ex:wrote" --> B2["ex:book1"]
-        B2 -. "sh:inversePath ex:wrote<br/>indexes author on book" .-> P1
-    end
-
-    subgraph sequence["Sequence path"]
-        B3["ex:book1"] -- "ex:author" --> P2["ex:smith"]
-        P2 -- "ex:name" --> N1["'Jane Smith'"]
-        B3 -. "ex:author / ex:name<br/>indexes name on book" .-> N1
-    end
-
-    style direct fill:none,stroke:#999
-    style inverse fill:none,stroke:#b8d4f8
-    style sequence fill:none,stroke:#b8d4f8
+```sparql
+# Facets
+SELECT ?field ?value ?count WHERE {
+  (?field ?value ?low ?high ?count) luc:facet (
+    "default" "default" "climate change"
+    '["urn:jena:lucene:field#category", "urn:jena:lucene:field#publisher"]'
+    "" 10 0) .
+}
 ```
+
+To send one request, put the two patterns in a `UNION`. The result has one row for each
+hit and one row for each facet value:
+
+```sparql
+SELECT ?entity ?score ?field ?value ?count WHERE {
+  { (?hit ?entity ?score) luc:query ("default" "default" "climate change" "" "" 20 0) . }
+  UNION
+  { (?field ?value ?low ?high ?count) luc:facet (
+      "default" "default" "climate change"
+      '["urn:jena:lucene:field#category", "urn:jena:lucene:field#publisher"]'
+      "" 10 0) . }
+}
+```
+
+In one query, `luc:query` and `luc:facet` with the same index, fields, query string and
+filter share one Lucene search (`SearchExecution`).
+
+## Counts by range
+
+Count hits by year in ranges. `null` makes an open-ended range:
+
+```sparql
+(?field ?value ?low ?high ?count) luc:facet (
+  "default" "default" "*"
+  '[{"field":"urn:jena:lucene:field#year","ranges":[2020,2022,2024,2026]}]'
+  "" 10 0) .
+```
+
+Each row binds `?low` and `?high` and leaves `?value` unbound. The field must be numeric or
+temporal and have `idx:facetable true`. The boundaries are set per query, so other ranges
+need no rebuild of the index.
+
+## Taxonomy facets
+
+Declare the levels of a hierarchy with `idx:facetHierarchy` on the shape. A facet can then
+go from a parent value to its children. The configuration is in
+[Vocabularies and taxonomies](10-suggested-configuration.md#vocabularies-and-taxonomies).
+
+## Values from related resources
+
+A shape can index values that are on other resources. A sequence path follows links
+forward, and an inverse path follows them backward:
 
 ```turtle
 PREFIX field: <urn:jena:lucene:field#>
@@ -238,60 +148,39 @@ field:referencedBy
 
 <#BookShape>
     sh:targetClass ex:Book ;
-    ## Sequence path — index author name on the book
+    ## Sequence path: the name of the book's author
     sh:property [ idx:field field:authorName ; sh:path ( ex:writtenBy ex:name ) ] ;
-    ## Inverse path — index who references this entity
+    ## Inverse path: the resources that reference the book
     sh:property [ idx:field field:referencedBy ; sh:path [ sh:inversePath ex:references ] ] .
 ```
 
-**Where this applies:**
-- Index an author's name directly on a book — avoids needing a materialised `ex:authorName` triple
-- Index incoming references (inverse path) — find an organisation by searching its members
-- Index labels of linked entities — a dataset's theme label, a product's manufacturer name
-- **Replaces forward chaining** for search and faceted navigation use cases (see below)
+The index follows the path when it builds the document. Other uses are the label of a
+dataset's theme, the name of a product's manufacturer, or an organisation found by the
+names of its members.
 
----
+### Paths and materialised triples
 
-### Spatial Filtering
+A path in the index configuration can give search the same values that forward chaining
+would add to the graph:
 
-Filter search results and facet counts by geographic region using CQL2-JSON spatial operators. Supports bounding box and polygon geometries via Lucene `LatLonShape`.
+| | Forward chaining | Path in the index configuration |
+|---|---|---|
+| Source graph | Gets extra triples | Stays the same |
+| After a data change | The rules must run again | The change listener rebuilds the affected documents |
+| Configuration | Code or rule files | SHACL paths in Turtle |
+| Several hops | Shortcut triples | Sequence paths |
+| Reverse links | Inverse triples | Inverse paths |
+| Facet counts | None | `luc:facet` |
 
-```sparql
-(?hit ?s ?score) luc:query ("default" "gold mine"
-    '{"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[115,-35,120,-30]}]}'
-    20)
-```
+The indexed values exist only in the Lucene index. SPARQL queries that do not use the
+index, OWL or RDFS entailment, and other systems that read the graph do not see them.
+Those uses still need materialised triples.
 
----
+## Identifier prefix search
 
-### Identifier Prefix Search and Typeahead
-
-Support identifier-heavy workflows where users know the beginning of a code but not the full value yet. Typical examples are borehole, report, specimen, or sample identifiers such as `BH123456`, `RPT-BH-1985-001`, or `GEOL-12345-A`.
-
-```mermaid
-flowchart LR
-    User["User types:<br/>BH12"]
-    PrefixField["identifier field<br/>indexed with EdgeNGram"]
-    QueryAnalyzer["queryAnalyzer:<br/>LowerCaseKeywordAnalyzer"]
-    Matches["Matches returned:<br/>BH123456<br/>BH123789<br/>BH120001"]
-
-    User --> QueryAnalyzer
-    QueryAnalyzer --> PrefixField
-    PrefixField --> Matches
-
-    style User fill:#f8f9fa,stroke:#999,color:#333
-    style PrefixField fill:#1a6dd4,stroke:#0d4a94,color:#fff
-    style QueryAnalyzer fill:#fff3cd,stroke:#c89a06,color:#614a00
-    style Matches fill:#d4edda,stroke:#28a745,color:#1a3d1a
-```
-
-The intended pattern is:
-
-- index the identifier field with an edge n-gram analyzer so prefixes are searchable
-- query that field with a non-ngram keyword-style analyzer so user input is treated as a single prefix term
-- return the canonical stored identifier value for display in the UI dropdown
-
-Example configuration:
+Users often type the start of an identifier, such as `BH12` for `BH123456`. Index the
+identifier with edge n-grams and query it with a keyword analyzer, so the input is one
+prefix term:
 
 ```turtle
 PREFIX field: <urn:jena:lucene:field#>
@@ -304,241 +193,46 @@ field:identifier
     idx:analyzer [ a text:EdgeNGramAnalyzer ] ;
     idx:queryAnalyzer [ a text:LowerCaseKeywordAnalyzer ] .
 
-## on the shape:
+## In the shape:
 ##   sh:property [ idx:field field:identifier ; sh:path ex:identifier ]
 ```
 
-Example query:
-
 ```sparql
-PREFIX luc: <urn:jena:lucene:index#>
-
-SELECT ?s ?score WHERE {
-    (?hit ?s ?score) luc:query ("urn:jena:lucene:field#identifier" "BH12") .
+SELECT ?entity ?score WHERE {
+  (?hit ?entity ?score) luc:query (
+    "default" '["urn:jena:lucene:field#identifier"]' "BH12" "" "" 10 0) .
 }
 ```
 
-This should match identifiers that begin with `BH12`, not only exact full-string matches.
+The query matches identifiers that start with `BH12`. For other n-gram options, see
+[Identifiers and codes](10-suggested-configuration.md#identifiers-and-codes).
 
-**Where this applies:**
-- Drillhole and borehole IDs where operators type a known prefix
-- Report or sample identifiers with stable institutional prefixes
-- Search UIs with an autocomplete dropdown that narrows as the user types
+## Search on a map
 
-See [Spatial Filtering](09-spatial.md) for configuration, CRS handling, and query examples.
+Filter hits by area with a spatial CQL2 operator:
 
-**Where this applies:**
-- Map-based data discovery (draw a region, see what's there)
-- Geospatial catalogues (environmental data, infrastructure, land use)
-- Location-scoped search (find datasets near a city or within a jurisdiction)
-
----
-
-### Replacing Forward Chaining
-
-Forward chaining (materialisation) pre-computes inferred triples and stores them in the graph. The SHACL index configuration achieves the same query-time outcome — fast, denormalised access to entity properties — without modifying source data.
-
-| Concern | Forward Chaining | Lucene Index Configuration |
-|---------|-----------------|---------------------------|
-| Source data modified? | Yes — extra triples added | No — source graph unchanged |
-| Staleness risk | High — must re-run pipeline on change | Low — index rebuilt from live graph |
-| Configuration | Code or rule files | Declarative TTL (SHACL paths) |
-| Multi-hop traversal | Materialised shortcut triples | Sequence paths in config |
-| Reverse traversal | Materialised inverse triples | Inverse paths in config |
-| Faceted counts | Not provided | Built-in via `luc:facet` |
-
-**Example:** Instead of materialising `ex:authorName` on every report via an ETL pipeline:
-
-```turtle
-## Forward chaining approach (modifies the graph)
-ex:report-001 ex:authorName "Dr Sarah Jones" .
-
-## Index configuration approach (graph unchanged)
-<#field-authorName>
-    idx:fieldName "authorName" .
-
-<#MiningReportShape>
-    sh:property [ idx:field <#field-authorName> ; sh:path ( ex:authoredBy ex:name ) ] .
+```sparql
+(?hit ?entity ?score) luc:query (
+  "default" "default" "gold mine"
+  '{"op":"s_intersects","args":[{"property":"urn:jena:lucene:field#location"},{"bbox":[115,-35,120,-30]}]}'
+  "" 20 0) .
 ```
 
-The indexer follows the path at index time and stores the result in the Lucene document. When the source data changes, the index updates automatically via the change listener.
+Configuration, coordinate systems and the other operators are in
+[09-spatial.md](09-spatial.md).
 
-**Scope:** This replaces forward chaining for **search and faceted navigation**. It does not replace materialisation for standard SPARQL queries without the text index, OWL/RDFS entailment, or downstream systems that read the RDF graph directly.
+## Index updates
 
----
+`text:TextDataset` passes each added or deleted triple to `ShaclTextDocProducer`. When the
+triple has a predicate that a shape indexes, or is an `rdf:type` triple, the producer
+rebuilds the documents of the affected entities from the base dataset. A SPARQL update
+through the text dataset is searchable when the update commits.
 
-## Proposed Features
+The listener sees only changes made through the text dataset. Data loaded before the
+dataset is wrapped, for example with `tdb2.tdbloader`, needs `shacltextindexer` or
+`text:buildOnStartup`. See [03-configuration.md](03-configuration.md#textbuildonstartup).
 
-### DrillSideways — Smarter Facet Counting
+## Not built
 
-Built: `luc:facet`'s default count mode. See [SPARQL API: count modes](02-sparql-api.md#count-modes)
-
-Standard faceted search UX. When a user filters by `category = Environment`, the category facet still shows counts for *all* categories — so the user can see what else is available and switch. Other facets (publisher, year) narrow as expected.
-
-```mermaid
-flowchart LR
-    subgraph current["Current: narrow counting"]
-        F1c["category:<br/>Environment (42)"]
-        F1p["publisher:<br/>Halden Institute (20)<br/>Weather Office (12)<br/>Climate Department (10)"]
-    end
-
-    subgraph drill["With DrillSideways"]
-        F2c["category:<br/>Environment (42) ✓<br/>Policy (28)<br/>Science (15)"]
-        F2p["publisher:<br/>Halden Institute (20)<br/>Weather Office (12)<br/>Climate Department (10)"]
-    end
-
-    style current fill:#f8f9fa,stroke:#999,color:#333
-    style drill fill:#e8f0fe,stroke:#b8d4f8,color:#333
-```
-
-**Where this applies:**
-- E-commerce product filtering (Amazon, eBay pattern)
-- Library catalogue browsing
-- Any UI where users iteratively refine search by selecting facets
-
----
-
-### Hierarchical Facets — Taxonomy Drill-Down
-
-Extends `luc:facet` · No breaking changes · Deferrable
-
-Navigate taxonomy trees as facets. Values become paths rather than flat strings.
-
-```mermaid
-flowchart TB
-    Root["category"]
-    Sci["Science (85)"]
-    Earth["Earth Science (42)"]
-    Clim["Climate (28)"]
-    Phys["Physics (31)"]
-    Soc["Social Science (35)"]
-
-    Root --> Sci
-    Root --> Soc
-    Sci --> Earth
-    Sci --> Phys
-    Earth --> Clim
-
-    style Root fill:#1a6dd4,stroke:#0d4a94,color:#fff
-    style Sci fill:#e8f0fe,stroke:#b8d4f8,color:#333
-    style Earth fill:#e8f0fe,stroke:#b8d4f8,color:#333
-    style Clim fill:#e8f0fe,stroke:#b8d4f8,color:#333
-    style Phys fill:#e8f0fe,stroke:#b8d4f8,color:#333
-    style Soc fill:#e8f0fe,stroke:#b8d4f8,color:#333
-```
-
-**Where this applies:**
-- Subject classification systems (ANZSRC, DDC, LCSH)
-- Product category trees (electronics > phones > smartphones)
-- Organisational hierarchies (department > division > team)
-
----
-
-### Range Facets — Numeric Buckets
-
-Integrated into `luc:facet` via range objects · Requires 5-slot facet rows
-
-Group numeric or date values into ranges and return counts per range.
-
-```mermaid
-flowchart LR
-    Query["luc:facet<br/>?field ?value ?low ?high ?count<br/>field: year<br/>ranges: 2020, 2022, 2024, 2026"]
-    R1["2020 ≤ year < 2022 (35)"]
-    R2["2022 ≤ year < 2024 (28)"]
-    R3["2024 ≤ year < 2026 (18)"]
-
-    Query --> R1
-    Query --> R2
-    Query --> R3
-
-    style Query fill:#1a6dd4,stroke:#0d4a94,color:#fff
-    style R1 fill:#e8f0fe,stroke:#b8d4f8,color:#333
-    style R2 fill:#e8f0fe,stroke:#b8d4f8,color:#333
-    style R3 fill:#e8f0fe,stroke:#b8d4f8,color:#333
-```
-
-**Where this applies:**
-- Year/date filtering (publications, events, records)
-- Price bands (products, grants, budgets)
-- Size or quantity ranges (file size, population, area)
-
-**Output model:** range rows bind explicit `?low` / `?high` bounds, while flat facet rows bind `?value`. Missing bounds on open-ended buckets are left unbound.
-
----
-
-### Result Grouping
-
-New PF `luc:group` · No breaking changes · Deferrable
-
-Group search results by a field value instead of returning a flat list.
-
-```mermaid
-flowchart LR
-    Query["luc:group<br/>'climate change'<br/>group by: publisher"]
-
-    subgraph Groups["Grouped results"]
-        G1["Halden Institute (31 results)<br/>· Coral Reef Report<br/>· Emissions Study<br/>· ..."]
-        G2["Weather Office (22 results)<br/>· Climate Data 2025<br/>· Rainfall Trends<br/>· ..."]
-        G3["Climate Department (12 results)<br/>· National Assessment<br/>· Policy Framework<br/>· ..."]
-    end
-
-    Query --> Groups
-
-    style Query fill:#1a6dd4,stroke:#0d4a94,color:#fff
-    style Groups fill:#e8f0fe,stroke:#b8d4f8,color:#333
-```
-
-**Where this applies:**
-- "Results by publisher" or "results by category" view
-- Email-style threading (group by conversation)
-- Grouped search results (like Google's site-grouped results)
-
----
-
-### Suggest / Autocomplete
-
-New PF `luc:suggest` · No breaking changes · Deferrable
-
-Type-ahead completions as the user types, backed by Lucene's suggester infrastructure.
-
-```mermaid
-flowchart LR
-    Input["User types:<br/>'clim'"]
-    Suggest["luc:suggest"]
-    S1["climate change"]
-    S2["climate modelling"]
-    S3["climatology"]
-
-    Input --> Suggest
-    Suggest --> S1
-    Suggest --> S2
-    Suggest --> S3
-
-    style Input fill:#f8f9fa,stroke:#999,color:#333
-    style Suggest fill:#1a6dd4,stroke:#0d4a94,color:#fff
-    style S1 fill:#e8f0fe,stroke:#b8d4f8,color:#333
-    style S2 fill:#e8f0fe,stroke:#b8d4f8,color:#333
-    style S3 fill:#e8f0fe,stroke:#b8d4f8,color:#333
-```
-
-**Where this applies:**
-- Search box type-ahead in any portal
-- Entity name completion in data entry forms
-- Quick navigation to known items
-
----
-
-## How They Combine
-
-These building blocks compose naturally. A single application can use any combination:
-
-| Application | Search | Facets | Filters | Paths | Spatial | DrillSideways | Ranges | Hierarchical | Grouping | Suggest |
-|-------------|--------|--------|---------|-------|---------|---------------|--------|--------------|----------|---------|
-| Data catalogue | x | x | x | x | x | x | x | | | x |
-| Geospatial portal | x | x | x | | x | | | | | |
-| Research repository | x | x | x | x | | x | x | x | | x |
-| Museum catalogue | x | x | x | x | | | x | | x | x |
-| Corporate knowledge graph | x | x | x | x | | x | | | x | x |
-| Simple search page | x | | | | | | | | | |
-
-Each "x" is a feature block added to the SPARQL query. No custom backend code — the application constructs SPARQL and sends it to Fuseki.
+Result grouping (`luc:group`) and type-ahead suggestions (`luc:suggest`) are not built.
+See [07-future-work.md](07-future-work.md).
