@@ -2,136 +2,144 @@
 
 ## Items Needing Attention
 
-### Assembler integration test with TTL file
+### Update performance at scale
 
-The `TestShaclAssembler` builds config programmatically using the Model API. There is no test that loads a real TTL file with `text:shapes`. Adding a TTL-file-based assembler test would catch config serialisation issues.
+The SHACL change listener rebuilds the whole entity document on each relevant change and
+reads all triples of the entity from the base dataset. The query path is measured at
+500,000 entities by `BenchLucQuery` (see [Testing](05-testing.md)). The update path is
+not measured. It needs tests with:
 
-### Large-scale performance validation
+- entities with 100 or more triples;
+- indexes with 100,000 or more entities;
+- frequent updates.
 
-All tests use small datasets (5-10 entities). The SHACL mode's "rebuild entire entity on any change" approach reads all triples for the entity from the base dataset. This should be validated with:
-- Entities with 100+ triples
-- Indexes with 100k+ entities
-- High-frequency update scenarios
+### Several sh:targetClass values per shape
 
-### Multiple sh:targetClass per shape
-
-The data model supports multiple `sh:targetClass` values per shape. The change listener and document builder handle this correctly. However, this pattern has limited test coverage — most tests use one class per shape.
+The data model accepts several `sh:targetClass` values per shape, and the change listener
+and document builder handle them. Most tests use one class per shape, so this case has
+little coverage. The discriminator field holds the local name of the first class only.
 
 ### Concurrent write transactions
 
-The `ShaclTextDocProducer` uses a `ThreadLocal<Boolean>` for transaction tracking (matching the pattern in `TextDocProducerTriples`). Concurrent write scenarios should be stress-tested, particularly the rebuild-on-change flow where one transaction might read partially-committed state from the base dataset.
+`ShaclTextDocProducer` tracks transactions with a `ThreadLocal<Boolean>`, as
+`TextDocProducerTriples` does. Concurrent writes need a stress test, in particular the
+rebuild on change, where one transaction can read state from the base dataset that
+another has only partly committed.
+
+### text:maxFacetHits has no effect
+
+The assembler reads `text:maxFacetHits` into `ShaclTextIndexLucene`, but no facet search
+applies it. Facet counts cover every matching document.
 
 ---
 
 ## Planned Extensions
 
-### Deferrable extensions
+Each extension can be added as an opt-in setting or a new property function. An extension
+to an existing response keeps the existing bindings.
 
-The following features are deferred. Most can be added as opt-in extensions or new PFs. Where a feature extends an existing response model, it should do so in a backward-compatible way.
+| Extension | API impact |
+|---|---|
+| [Sideways counts for hierarchies and nested fields](#sideways-counts-for-hierarchies-and-nested-fields) | None: these fields move from full-filter counts to sideways counts in the same default mode |
+| [Sideways strategy per query](#choosing-the-sideways-strategy-per-query) | None |
+| [Hierarchy enhancements](#hierarchy-enhancements) | Extensions of the `luc:facet` hierarchy model |
+| [Range facet enhancements](#range-facet-enhancements) | Extensions of `luc:facet`; no separate range property function |
+| [Result grouping](#result-grouping) | New property function `luc:group` |
+| [Suggest and autocomplete](#suggest--autocomplete) | New property function `luc:suggest` |
 
-#### Sideways counts for hierarchies and nested fields
+### Sideways counts for hierarchies and nested fields
 
-`luc:facet` counts flat `KEYWORD` and range facets sideways by default, with Lucene's
-`DrillSideways` (see [SPARQL API: count modes](02-sparql-api.md#count-modes)). Two kinds of
-field are still counted under the full filter:
+`luc:facet` counts flat `KEYWORD` facets and range facets sideways by default, with
+Lucene's `DrillSideways` (see [SPARQL API: count modes](02-sparql-api.md#count-modes)).
+Two kinds of field are still counted under the full filter:
 
-- Hierarchy dimensions and their level fields. A sideways count would need to decide which
-  levels of a selected path to leave out, and the filter's `=` clauses on levels also set
-  the drill-down path the counts are read from.
-- Fields in an `idx:nested` scope. The CQL compiler folds a filter's clauses on one scope
-  into one block-join query, so that they must match the same child record. `DrillSideways`
-  ANDs each dimension's query with the base query as a separate query, so a nested clause
-  made a dimension would be lifted to the parent on its own and could match a different
-  child from the scope's other clauses.
+- **Hierarchy dimensions and their level fields.** A sideways count must decide which
+  levels of a selected path to leave out. The filter's `=` clauses on levels also set the
+  drill-down path that the counts are read from.
+- **Fields in an `idx:nested` scope.** The CQL compiler folds the clauses on one scope
+  into one block-join query, so they must match the same child record. `DrillSideways`
+  combines each dimension's query with the base query as a separate query. A nested
+  clause made into a dimension would therefore be lifted to the parent alone, and could
+  match a different child from the other clauses of its scope.
 
-**API impact:** none. These fields would move from full-filter counts to sideways counts
-in the same default mode.
+### Choosing the sideways strategy per query
 
-#### Choosing the sideways strategy per query
-
-Sideways counts run Lucene's `DrillSideways` with an executor, which makes it run one search
-for the full filter and one per selected facet. Without an executor, `DrillSideways` runs
-one pass instead. On the benchmark index the one pass was four times faster when few
-entities matched the base query and the selections were broad (3.27 against 12.9 ms), and
-up to 2.3 times slower when many matched. Choosing between the two per query from Lucene's
-cost estimates would keep the gain without the loss. See
+Sideways counts run `DrillSideways` with an executor, so it runs one search for the full
+filter and one per selected facet. Without an executor, `DrillSideways` runs one pass.
+On the benchmark index, the one pass was four times faster when few entities matched the
+base query and the selections were broad (3.27 ms against 12.9 ms). It was up to 2.3
+times slower when many entities matched. A choice per query, from Lucene's cost
+estimates, would keep the gain and avoid the loss. See
 [2026-11-13_luc_facet_sideways_counts_design.md](2026-11-13_luc_facet_sideways_counts_design.md).
 
-**API impact:** none.
+### Hierarchy enhancements
 
-#### Hierarchy enhancements
+- Hierarchies derived from SKOS `broader` and `narrower`.
+- Hierarchy paths rendered with labels.
+- Hierarchy browsing in the UI.
 
-Hierarchical facets are already supported. Follow-on work could extend them with:
+### Range facet enhancements
 
-- SKOS broader/narrower-derived hierarchies
-- label-aware hierarchy path rendering
-- richer hierarchy browsing UIs
+Range facets use range objects in `facetFields` and the 5-slot subject
+`(?field ?value ?low ?high ?count)`. Possible additions:
 
-**API impact:** Extensions on top of the existing `luc:facet` hierarchy model.
+- automatic bucket boundaries;
+- calendar buckets for date and time values;
+- bucket labels for display;
+- range-on-range counts over source data that is already in ranges.
 
-#### Range facet enhancements
+### Result grouping
 
-Base numeric range faceting is designed to live on `luc:facet` using range objects in `facetFields` and the 5-slot subject form `(?field ?value ?low ?high ?count)`.
+Group search results by a field value, for example books by author, with Lucene's
+`GroupingSearch`. The grouping field is on the entity document.
 
-Follow-on work could extend that baseline with:
+### Suggest / Autocomplete
 
-- automatic bucket generation
-- calendar-aware bucketing for date/time values
-- label generation for UI display
-- range-on-range aggregation over pre-ranged source data
-
-**API impact:** Extensions on top of the existing `luc:facet` model rather than a separate `luc:facetRange` PF.
-
-#### Result grouping
-
-Group search results by a field value (e.g., group books by author). Lucene's `GroupingSearch` can do this efficiently. The entity-per-document model makes this straightforward since the grouping field is on the same document.
-
-**API impact:** New PF `luc:group`. No changes to existing PFs.
-
-#### Suggest / Autocomplete
-
-Add `luc:suggest` property function using Lucene's `SuggestField` for type-ahead autocomplete:
+A `luc:suggest` property function for type-ahead, with Lucene's `SuggestField`:
 
 ```sparql
 PREFIX luc: <urn:jena:lucene:index#>
 (?suggestion ?weight) luc:suggest ("mach" 10) .
 ```
 
-Would require:
-- New `SuggestField` in SHACL field types
-- Lucene `Suggester` (e.g., `AnalyzingInfixSuggester`)
-- New PF implementation
-- Index rebuild to populate suggest data structures
+It needs:
 
-**API impact:** New PF `luc:suggest`. No changes to existing PFs.
-
-#### SHACL-aware bulk reindexing
-
-The existing `jena.textindexer` CLI tool indexes all data using the triple-per-document model. A SHACL-aware variant would:
-1. Load the SHACL mapping from the assembler config
-2. For each entity matching a shape's `sh:targetClass`, build a complete entity document
-3. Bulk-index efficiently (no per-triple rebuild overhead)
-
-**API impact:** CLI tool only. No SPARQL API changes.
+1. a suggest field type in the SHACL field types;
+2. a Lucene suggester, for example `AnalyzingInfixSuggester`;
+3. the property function;
+4. an index rebuild to fill the suggest structures.
 
 ---
 
 ## Architectural Considerations
 
-### Index rebuild required when switching modes
+### Switching modes needs a reindex
 
-Switching from `text:entityMap` to `text:shapes` (or vice versa) requires a full reindex. The Lucene document structure is fundamentally different between the two modes. There is no migration path.
+`text:entityMap` and `text:shapes` write different Lucene document structures. A switch
+in either direction needs a full reindex. There is no migration.
 
-### FacetsConfig must match between index and read
+### FacetsConfig must match between writing and reading
 
-The `FacetsConfig` (which fields are multi-valued, etc.) must be consistent between index time and read time. If a field is changed from single-valued to multi-valued, existing documents will have the old structure. A reindex resolves this.
+`FacetsConfig` records which fields are multi-valued and hierarchical. It must be the same
+when documents are written and when they are read. After a field changes from
+single-valued to multi-valued, existing documents keep the old structure until a
+reindex.
 
-### Memory considerations for faceting
+### Memory for faceting
 
-`SortedSetDocValues` faceting stores all unique values in memory during facet collection. For fields with very high cardinality (e.g., URIs), this can consume significant memory. The `text:maxFacetHits` property limits the number of documents searched, which indirectly limits memory usage.
+`SortedSetDocValues` faceting keeps the unique values of a field in memory during facet
+collection. A field with very many unique values, for example IRIs, can use a large amount
+of memory.
 
 ### Thread safety
 
-`TextIndexLucene` assumes single-writer semantics (enforced by Jena's transaction system). The `IndexWriter` is volatile but not locked. The `ShaclTextDocProducer`'s `ThreadLocal<Boolean>` for transaction state follows the same pattern as `TextDocProducerTriples`.
+`TextIndexLucene` assumes one writer at a time, which Jena's transactions enforce. Its
+`IndexWriter` field is `volatile` and has no lock. `ShaclTextDocProducer` tracks
+transaction state with a `ThreadLocal<Boolean>`, as `TextDocProducerTriples` does.
 
-Read operations (queries, facets) open a new `DirectoryReader` per call, which is thread-safe and sees a consistent snapshot.
+Reads differ by index type:
+
+| Index | Reader |
+|---|---|
+| `TextIndexLucene` (classic) | Opens a new `DirectoryReader` for each query |
+| `ShaclTextIndexLucene` | Acquires an `IndexSearcher` from a `SearcherManager`, which a commit refreshes. Each searcher sees one consistent snapshot |

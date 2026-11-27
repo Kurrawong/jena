@@ -6,26 +6,29 @@ All SHACL-mode property functions use the `luc:` namespace:
 PREFIX luc: <urn:jena:lucene:index#>
 ```
 
-Classic `text:query` remains available upstream and is not covered here.
+This page does not cover the classic `text:query` property function. It remains available
+as in upstream Jena.
 
 > Note
-> The graph-scoping model described here is the target API model. Real indexing/query support for the synthetic graph field is deferred.
+> [Graph Scoping](#graph-scoping) describes the target API model. Indexing and query
+> support for its synthetic graph field is deferred.
 
 ## Overview
 
-Public API rules:
+Rules that apply to every property function:
 
-- Index selection is explicit and always the first object argument.
-- Field references are always field IRIs, never `idx:fieldName`.
-- `luc:query` returns `?hit`; per-hit match detail comes from `luc:match`, the
-  nested child records that satisfied the filter from `luc:nestedMatch`, and field
-  values from `luc:fields`.
-- `luc:query` no longer returns `?match`.
-- Parsing is fixed-position and fixed-arity, except for the optional eighth arguments of
-  `luc:query` (`after`) and `luc:facet` (`countMode`). There is no shape-based argument
-  inference.
-- Use `""` as the placeholder for an unused `cqlFilter` or `sortSpec`.
-- Highlight is reserved for later and is not part of the active supported `luc:query` signature.
+- The index selector is always the first object argument.
+- A field reference is a field IRI. A CQL filter also accepts an `idx:fieldName` (see
+  [Naming a field](#naming-a-field)).
+- `luc:query` returns `?hit`. Per-hit detail comes from three other property functions
+  that join on `?hit`: `luc:match` (which fields matched), `luc:nestedMatch` (the nested
+  child records the filter selected) and `luc:fields` (field values).
+- `luc:query` has no `?match` slot.
+- Arguments are fixed in position and number. Two optional eighth arguments are the
+  exceptions: `after` on `luc:query` and `countMode` on `luc:facet`. The type of an
+  argument never changes how the others are read.
+- Use `""` for an unused `cqlFilter` or `sortSpec`.
+- Highlighting is reserved for later and is not part of the `luc:query` signature.
 
 ## luc:query
 
@@ -39,127 +42,127 @@ Public API rules:
   luc:query (indexSelector fieldSpec queryString cqlFilter sortSpec limit offset after)
 ```
 
-Subject arity may be 1 to 6:
+The subject list has 1 to 6 elements, in this order:
 
-- `?hit`
-- `?hit ?entity`
-- `?hit ?entity ?score`
-- `?hit ?entity ?score ?totalHits`
-- `?hit ?entity ?score ?totalHits ?rank`
-- `?hit ?entity ?score ?totalHits ?rank ?cursor`, only with the eighth argument, `after`
+| Elements | Subject list |
+|---|---|
+| 1 | `(?hit)` |
+| 2 | `(?hit ?entity)` |
+| 3 | `(?hit ?entity ?score)` |
+| 4 | `(?hit ?entity ?score ?totalHits)` |
+| 5 | `(?hit ?entity ?score ?totalHits ?rank)` |
+| 6 | `(?hit ?entity ?score ?totalHits ?rank ?cursor)`. Needs the eighth argument, `after` |
 
-The entity IRI is read from the index only when the subject list has an `?entity` slot,
-as a variable or as an IRI to filter on. `(?hit)` alone reads no stored field, which
-suits a query that needs only `luc:match` or `luc:nestedMatch` rows.
+`?score`, `?totalHits`, `?rank` and `?cursor` must be variables. `?entity` may be a
+variable or an IRI to filter on.
 
-`?rank` follows `?totalHits` rather than sitting beside `?score`, where it would read more
-naturally. It was added after the earlier positions were already in use, and appending it
-was the only placement that left an existing subject list binding what it already bound.
-`?cursor` follows it for the same reason.
+`luc:query` reads the entity IRI from the index only when the subject list has an
+`?entity` element. `(?hit)` alone reads no stored field. Use it when the query needs only
+`luc:match`, `luc:nestedMatch` or `luc:fields` rows.
 
-There is no `?graph` slot. A sixth position briefly existed and never bound a value: a
-SHACL document is assembled from a union view over every graph, so an entity's indexed
-values may come from several graphs at once and there is no single source graph to bind.
-Graph provenance is modelled as a doc-level field instead — see
-[graph filtering target model](2026-04-08-graph-filtering-target-model.md) and
-[source graph indexing](2026-07-31_source_graph_indexing_design.md), both design-only.
-The sixth position is now `?cursor`, which is allowed only with the eighth argument. No
-query written for `?graph` has one, so such a query is still refused when it is built,
-rather than binding `?graph` to the rank.
-A query still naming the old slot is rejected at build time rather than silently binding
-`?graph` to a rank integer.
+There is no `?graph` element; see [Graph Scoping](#graph-scoping). An older query that
+names `?graph` as the sixth element has no eighth argument, so it fails when the query is
+built.
 
-Object arity is 7, or 8 with `after` for [cursor paging](#cursor-paging).
+The object list has 7 arguments, or 8 with `after` for [cursor paging](#cursor-paging).
 
 ### Arguments
 
 | Position | Name | Type | Required | Notes |
 |---|---|---|---|---|
-| 1 | `indexSelector` | string literal | Yes | Usually `"default"`; may also be a configured index id or index IRI |
+| 1 | `indexSelector` | string literal | Yes | Usually `"default"`. Can also be a configured index id or index IRI |
 | 2 | `fieldSpec` | string literal | Yes | `"default"` or a JSON array of field IRIs |
 | 3 | `queryString` | string literal | Yes | Lucene query string |
 | 4 | `cqlFilter` | string literal | Yes | CQL2-JSON object, or `""` |
-| 5 | `sortSpec` | string literal | Yes | JSON sort object/array, or `""` |
-| 6 | `limit` | integer literal | Yes | Page size. Negative means unlimited. `0` gives the default page of 10 |
-| 7 | `offset` | integer literal | Yes | Number of leading hits to skip. `0` = first page. Must be non-negative. `offset + limit` must fit in a signed 32-bit int. With `after`, counted from the hit after the cursor |
-| 8 | `after` | string literal | No | Cursor paging: `"*"` for the first page, or a hit's `?cursor` to continue after that hit. `""`, like leaving it out, is no cursor paging. See [Cursor paging](#cursor-paging) |
+| 5 | `sortSpec` | string literal | Yes | JSON sort object or array, or `""`. See [Sort Specs](#sort-specs) |
+| 6 | `limit` | integer literal | Yes | Page size. `0` gives the default page of 10. A negative value returns every hit from `offset` on |
+| 7 | `offset` | integer literal | Yes | Number of hits to skip. `0` is the first page. Must not be negative. `offset + limit` must fit in a signed 32-bit integer. With a cursor in `after`, counts from the hit after the cursor |
+| 8 | `after` | string literal | No | `"*"` starts cursor paging at the first hit. A hit's `?cursor` continues after that hit. `""` is the same as no eighth argument. See [Cursor paging](#cursor-paging) |
 
 ### `fieldSpec`
 
-Supported values:
+Values:
 
-- `"default"`
+- `"default"`: all fields marked for default search
 - `'["urn:jena:lucene:field#title"]'`
 - `'["urn:jena:lucene:field#title","urn:jena:lucene:field#description"]'`
 
-Unknown field IRIs fail fast.
+An unknown field IRI is a query error.
 
 ### `queryString`
 
-Parsed by Lucene's classic
+Lucene's classic
 [`QueryParser`](https://lucene.apache.org/core/10_3_1/queryparser/org/apache/lucene/queryparser/classic/package-summary.html#package.description)
-— `MultiFieldQueryParser` when `fieldSpec` names more than one field — and scored with BM25.
-The full classic syntax is available with no extra configuration: phrases, `AND`/`OR`/`NOT`,
-`+`/`-`, wildcards (`quan*`, `qu?ntum`, and **leading** wildcards such as `*tum`, which Lucene
-disables by default and this index enables), fuzzy (`learnimg~1`), proximity
-(`"machine networks"~2`), boosts (`quantum^4`), grouping and term ranges. A bare `*` is
-short-circuited to a match-all.
+parses the string. With more than one field in `fieldSpec`, `MultiFieldQueryParser` parses
+it. Hits are scored with BM25.
 
-The parser cuts the string at whitespace, then analyzes each word with each target field's
-query analyzer, so behaviour follows the field. On a `KEYWORD` field, or a `TEXT` field with a
-keyword analyzer, each word is a single term, and a value containing a space matches only if
-the space is escaped (`A\ 12`). Where an analyzer splits one word into pieces, as
-`StandardAnalyzer` splits `E45/5326` into `e45` and `5326`, the pieces must appear together and
-in order. Separate words still match any of the words. `text:splitOnWhitespace` and
-`text:autoGeneratePhraseQueries` turn this off; see
+The full classic syntax is available with no extra configuration:
+
+- phrases
+- `AND`, `OR`, `NOT`, `+` and `-`
+- wildcards: `quan*`, `qu?ntum`, and leading wildcards such as `*tum`. Lucene disables
+  leading wildcards by default; this index enables them.
+- fuzzy terms: `learnimg~1`
+- proximity: `"machine networks"~2`
+- boosts: `quantum^4`
+- grouping and term ranges
+
+A bare `*` matches all documents.
+
+The parser splits the string at whitespace. It then analyzes each word with the query
+analyzer of each target field:
+
+- On a `KEYWORD` field, or a `TEXT` field with a keyword analyzer, each word is one term.
+  A value that contains a space matches only if the space is escaped: `A\ 12`.
+- Where an analyzer splits one word into pieces, the pieces must occur together and in
+  order. `StandardAnalyzer` splits `E45/5326` into `e45` and `5326`.
+- Separate words match any of the words.
+
+`text:splitOnWhitespace` and `text:autoGeneratePhraseQueries` change this. See
 [Index Resources](03-configuration.md#index-resources).
 
-A search client that passes user input through as plain text should escape the characters the
-classic parser treats as syntax. `/` is the one that most often appears in codes: unescaped,
-`E45/5326` starts a regular expression and the search fails.
+A client that passes user input as plain text must escape the characters that the
+classic parser reads as syntax. `/` occurs often in codes. Unescaped, `E45/5326` starts a
+regular expression and the search fails.
 
-Use `cqlFilter` for structured predicates — `=`, ranges, `in`, `between`, spatial, same-child
-correlation. Field scoping belongs in `fieldSpec`: an embedded `fieldName:value` prefix in the
-query string would use internal Lucene field names and bypass the field-IRI contract.
+Put structured predicates in `cqlFilter`: `=`, ranges, `in`, `between`, spatial operators
+and same-child correlation. Put field scoping in `fieldSpec`. A `fieldName:value` prefix
+in the query string uses internal Lucene field names and bypasses field IRIs.
 
-Pinned by `TestLuceneQuerySyntax` and `TestQueryParserSettings`.
+Tests: `TestLuceneQuerySyntax`, `TestQueryParserSettings`.
 
 ### Return bindings
 
 | Variable | Type | Meaning |
 |---|---|---|
-| `?hit` | blank node | Query-scoped join key for `luc:match` and `luc:nestedMatch`. Each `luc:query` in a query labels its hits distinctly |
-| `?entity` | IRI | Matched entity |
-| `?score` | float | Lucene relevance score; for a sorted search, `1/(1+rank)` (see below) |
-| `?totalHits` | `xsd:integer` | Total matching hits across the whole result set, independent of `limit` and `offset` |
-| `?rank` | `xsd:integer` | Position in the whole result set, counting from 0. Continues across pages: `offset 5` starts at rank 5, and a page after a cursor continues from the cursor's rank |
-| `?cursor` | string literal | The hit's cursor: passed back as `after`, it continues with the hits after this one. Only with `after`; see [Cursor paging](#cursor-paging) |
+| `?hit` | blank node | Join key for `luc:match`, `luc:nestedMatch` and `luc:fields`. Each `luc:query` in a query labels its hits differently |
+| `?entity` | IRI | The matched entity |
+| `?score` | float | Lucene relevance score. For a sorted search, `1/(1+rank)`. See [`?score` under a sort spec](#score-under-a-sort-spec) |
+| `?totalHits` | `xsd:integer` | Number of matching hits in the whole result set. `limit` and `offset` do not change it |
+| `?rank` | `xsd:integer` | Position in the whole result set, from 0. Continues across pages: with `offset 5` the first hit has rank 5. After a cursor, ranks continue from the cursor's rank |
+| `?cursor` | string literal | This hit's cursor. Pass it as `after` to get the hits after this one. Only with `after`. See [Cursor paging](#cursor-paging) |
 
-`?match` is not part of `luc:query`.
+#### When to use `?rank`
 
-#### Use `?rank` for order, not `?score`
+SPARQL results arrive in order, so most queries do not need `?rank`. Use it when the
+consumer receives an unordered result, such as a `CONSTRUCT` graph.
 
-SPARQL results arrive in order, so most queries never need `?rank`. It exists for
-consumers that receive an **unordered** result set — most obviously a `CONSTRUCT` graph,
-where order is not a property of the payload at all.
+`?score` cannot restore the order:
 
-`?score` cannot fill that role:
+- A match-all query (`*`) gives every document the score `1.0`.
+- Relevance scores can tie. The demo dataset has two hits at `3.6702733`.
 
-- A match-all query (`*`) scores **every** document `1.0`, so there is nothing to sort on.
-- Real relevance scores tie routinely — two hits at `3.6702733` in the demo dataset.
-
-`?rank` is the position itself, so it is always strictly increasing and always recovers
-the order the engine returned, whether that order came from relevance or from a sort spec.
+`?rank` increases strictly and gives the order the engine returned, for relevance order
+and for a sort spec.
 
 #### `?score` under a sort spec
 
-Lucene does not score documents when a sort is applied, so a sorted search has no
-relevance to report. Rather than binding `NaN`, `?score` then carries `1/(1+rank)`: the
-first hit scores `1.0`, the second `0.5`, and so on. The value depends only on rank, so a
-hit keeps the same score when a later page re-runs the search with a larger window.
+Lucene does not score documents when a sort is applied. For a sorted search, `?score` is
+`1/(1+rank)`: the first hit has `1.0`, the second `0.5`, and so on. The value depends only
+on rank, so a hit keeps its score when a later page runs the search again with a larger
+window.
 
-Do not read a sorted search's `?score` as a relevance magnitude, and prefer `?rank` when
-what you want is order.
+A sorted search's `?score` is not a relevance value. Use `?rank` for order.
 
 ### Examples
 
@@ -170,7 +173,7 @@ Search all default-search fields:
   luc:query ("default" "default" "machine learning" "" "" 20 0) .
 ```
 
-Search a specific field IRI:
+Search one field:
 
 ```sparql
 (?hit ?entity ?score)
@@ -200,7 +203,7 @@ Search with a CQL filter:
   ) .
 ```
 
-Search with sort:
+Sort by one field:
 
 ```sparql
 (?hit ?entity ?score)
@@ -215,7 +218,7 @@ Search with sort:
   ) .
 ```
 
-Multi-sort:
+Sort by two fields:
 
 ```sparql
 (?hit ?entity ?score)
@@ -232,31 +235,37 @@ Multi-sort:
 
 ### Paging
 
-`limit` and `offset` form a page window. Fetch the second page of 10 results:
+`limit` and `offset` select a page. The second page of 10 hits:
 
 ```sparql
 (?hit ?entity ?score ?totalHits)
   luc:query ("default" "default" "learning" "" "" 10 10) .
 ```
 
-Notes:
-
-- `?totalHits` always reflects the full match count, not the page size. Use it to compute page counts.
-- Lucene fetches `offset + limit` hits internally and the PF exposes only the slice. Very deep offsets therefore cost proportionally more.
-- When `luc:query` and `luc:facet` share a search (same selector, field spec, query string, filter, sort), the cached hit list grows to the largest window seen in the query; each caller gets its own slice.
-- A negative `offset` is a query error. A negative `limit` returns every hit from `offset` on. A `limit` of `0` returns the default page of 10.
-- Ties keep Lucene's index order, which changes when an entity is re-inserted. Add the
-  [entity IRI key](#entity-iri) as the last sort key for an order that does not, or page
-  by cursor, which adds it for you.
+- `?totalHits` is the full match count. Use it to calculate the number of pages.
+- Lucene collects `offset + limit` hits and `luc:query` returns the last `limit` of them.
+  The cost grows with `offset`. For deep pages, use [cursor paging](#cursor-paging).
+- When `luc:query` and `luc:facet` share a search (see [Shared Execution](#shared-execution)),
+  the cached hit list grows to the largest window in the query. Each caller gets its own
+  page.
+- A negative `offset` is a query error. A negative `limit` returns every hit from `offset`
+  on. A `limit` of `0` returns 10 hits.
+- Hits that tie on every sort key are in Lucene's index order. That order changes when an
+  entity is re-inserted. For a stable order, add the [entity IRI key](#entity-iri) as the
+  last sort key, or use cursor paging, which adds it.
 
 ### Cursor paging
 
-A deep `offset` is costly: Lucene collects `offset + limit` hits to return `limit` of
-them. A cursor instead names a hit's place in the order, and the next page is the
-`limit` hits after it, however deep.
+A cursor marks one hit's place in the result order. `luc:query` with a cursor in `after`
+returns the hits after that place.
 
-Pass `"*"` as the eighth argument for the first page, and bind each hit's cursor in the
-sixth subject element:
+#### Walk a result set
+
+1. For the first page, pass `"*"` as `after` and bind `?cursor` as the sixth subject
+   element.
+2. For each next page, pass the last hit's `?cursor` as `after`. Keep all other arguments
+   the same.
+3. Stop at the last page (see [Find the last page](#find-the-last-page)).
 
 ```sparql
 SELECT ?entity ?rank ?cursor WHERE {
@@ -265,81 +274,85 @@ SELECT ?entity ?rank ?cursor WHERE {
 } ORDER BY ?rank
 ```
 
-For the next page, keep every other argument and pass the last hit's cursor as the eighth:
+Next page:
 
 ```sparql
   luc:query ("default" "default" "" "" '[{"field":"urn:jena:lucene:field#title"}]' 10 0
              "<the last hit's cursor>") .
 ```
 
-An empty page means the walk is over. There are two ways to know a page is the last
-without fetching the empty one after it:
+With a cursor, `offset` counts from the hit after the cursor. With `"*"`, `offset` counts
+from the first hit; use this to start at a deep page and continue by cursor.
 
-- **Compare with `?totalHits`.** Another page follows while the last hit's `?rank` plus one
-  is less than `?totalHits`. Binding `?totalHits` runs a separate count. If the index
-  changes during a walk, ranks still count from where each cursor's hit was when it was
-  read, so the comparison can be off by the entities added or removed since.
-- **Look ahead.** Ask for one hit more than a page, show the page, and continue from the
-  cursor of the last hit shown, not the extra one. Fewer hits than asked for means this is
-  the last page. This needs no count and is exact for the index as it is now.
+#### Find the last page
 
-Every hit has its own cursor so that looking ahead, and resuming a walk partway through a
-page, can continue from a hit other than the last one fetched.
+An empty page ends the walk. To stop one page earlier, use one of these methods:
 
-A sixth subject element without `after`, or with an empty one, is a query error: such a
-search's order is not total, so a cursor from it could not be continued without skipping
-or repeating hits.
+| Method | Rule | Cost and accuracy |
+|---|---|---|
+| `?totalHits` | Another page follows while the last hit's `?rank` + 1 < `?totalHits` | Runs a separate count. Can be wrong by the number of entities added or removed during the walk |
+| Look ahead | Ask for `limit` + 1 hits. Show `limit` hits and continue from the cursor of the last hit shown. Fewer hits than requested means the last page | No count. Exact for the current index |
 
-**Cost.** Over 60,000 hits of 100,000 entities, a page after a cursor in an order sorted
-on a field, or on the IRI key, cost 1–5 ms at any depth, against 11–35 ms for the same
-page by `offset` at depths of 24,000 and 59,990. In relevance order each page scores and
-compares every hit, about 10 ms for 60,000 hits at any depth, so to harvest a whole result
-set, sort it, by the IRI key if by nothing else. The IRI key makes a deep `offset` dearer
-where ties are common, as every hit tied on the earlier keys is compared by IRI: at depth
-59,990, twice the cost on a year sort and four times in relevance order, against no
-difference on a sort whose values are unique. The first pages cost the same either way.
+Each hit has its own cursor, so a walk can continue from any hit in a page.
 
-**The order is total.** Paged by cursor, `luc:query` appends the
-[entity IRI key](#entity-iri), ascending, unless `sortSpec` already sorts by it. With no
-`sortSpec`, hits order by relevance and then entity IRI. A page that starts from `"*"`
-and a page that continues from a cursor are in the same order, so start every walk from
-`"*"`. To jump to a page whose `next` link should be a cursor, pass `"*"` with an
-`offset`: `offset` then counts from the start, and the page's cursors continue the same
+#### Order
+
+With `after`, `luc:query` appends the [entity IRI key](#entity-iri), ascending, to
+`sortSpec` when `sortSpec` does not already include it. With no `sortSpec`, the order is
+relevance, then entity IRI. The key makes the order total, so a page boundary between two
+hits cannot skip or repeat a hit. Start every walk from `"*"`, so that all pages use this
 order.
 
-**Cursors.** A cursor is opaque. It is unpadded base64url (`A-Z a-z 0-9 - _`), so it can
-go in a URL query parameter unescaped, and it holds the hit's sort values, its entity IRI
-and its rank. It names values rather than a Lucene document, so it stays valid across
-commits, merges and re-inserted entities: the next page is the hits that sort after it in
-the index as it is now. It does not expire.
+#### Cursor content
 
-- A cursor is tied to the sort it was read from. Used with a different `sortSpec` it is a
-  query error, as is a string that is not a cursor `luc:query` returned. It is not tied
-  to `queryString` or `cqlFilter`.
-- `?rank`, and a sorted search's `?score`, continue from the cursor's rank. If the index
-  has changed since the cursor was read, they count from where the hit was then.
-- In relevance order over a text query, BM25 scores depend on index statistics, which a
-  commit, and even a merge, can change. A page after such a change continues from the
-  cursor's score among the new scores, so hits near the boundary can be skipped or
-  repeated. A sort on fields, or a search with no `queryString`, whose hits all score the
-  same, is not affected.
-- An entity that matches two shapes has a document for each, with the same IRI. If both
-  tie on every key and a page ends between them, the second is not returned.
-- The IRI key needs the entity IRI doc value: see [Entity IRI](#entity-iri).
+- A cursor is opaque. It is unpadded base64url (`A-Z a-z 0-9 - _`), so it can go in a URL
+  query parameter without escaping.
+- It holds the hit's sort values (the entity IRI included), its rank and a hash of the
+  sort. It holds no Lucene document ID, so it stays valid across commits, merges and
+  re-inserted entities. It does not expire.
+- It works only with the `sortSpec` it was read from. It works with any `queryString` and
+  `cqlFilter`.
+- After a cursor, `?rank` and a sorted search's `?score` continue from the cursor's rank.
+  If the index changed after the cursor was read, they count from the hit's rank at that
+  time.
 
-**Errors.** Three errors start with a fixed marker, so a client can tell them apart without
-parsing the message:
+#### Limits
 
-| Marker | Raised when |
+- Relevance order with a non-empty `queryString`: a commit or a merge can change BM25
+  scores. A page read after such a change can skip or repeat hits near the page boundary.
+  Sorted searches, and searches with an empty `queryString`, are not affected.
+- An entity that matches two shapes has one document per shape, with the same IRI. If the
+  two documents tie on every key and a page ends between them, the second is not
+  returned.
+- The cursor's rank + 1 + `offset` + `limit` must fit in a signed 32-bit integer.
+  Otherwise the error is `luc:query cursor position + offset + limit exceeds maximum`.
+
+#### Errors
+
+A sixth subject element without `after`, or with `after` set to `""`, fails when the query
+is built. The message starts `luc:query's sixth subject element, ?cursor, needs paging by
+cursor`.
+
+These errors start with a fixed marker that a client can match:
+
+| Marker | Cause |
 |---|---|
-| `[LUC_CURSOR_MALFORMED]` | `after` is not a cursor `luc:query` returned: not base64url, truncated, extended, or holding values of the wrong types |
-| `[LUC_CURSOR_OTHER_SORT]` | `after` is a cursor read from a search with a different `sortSpec`, relevance order included |
-| `[LUC_ENTITY_SORT_NEEDS_REBUILD]` | the IRI key is used, by `sortSpec` or by paging by cursor, on an index with documents older than the entity IRI doc value |
+| `[LUC_CURSOR_MALFORMED]` | `after` is not a cursor that `luc:query` returned: not base64url, truncated, extended, or holding values of the wrong types |
+| `[LUC_CURSOR_OTHER_SORT]` | `after` is a cursor from a search with a different `sortSpec`. Relevance order counts as a different sort |
+| `[LUC_ENTITY_SORT_NEEDS_REBUILD]` | The entity IRI key is used, in `sortSpec` or by cursor paging, on an index with documents older than the entity IRI doc value |
 
-The markers are part of the API and change only with notice. Other errors, an unknown sort
-field among them, carry none. Through Fuseki every `luc:query` error, these included, is an
-HTTP 500 whose `text/plain` body is the message, marker first; Fuseki gives no 4xx for an
-error raised while a query runs, so map the markers to a client error yourself.
+The markers are part of the API and change only with notice. Other errors have no marker.
+Fuseki returns every query error as HTTP 500 with a `text/plain` body that holds the
+message, marker first. A client that needs a 4xx status maps the markers itself.
+
+#### Cost
+
+Measured over 60,000 hits in an index of 100,000 entities:
+
+- Sorted on a field or on the entity IRI key: 1–5 ms per page after a cursor, at any
+  depth. The same page by `offset` at depth 24,000 or 59,990 took 11–35 ms.
+- Relevance order: about 10 ms per page after a cursor, at any depth, because each page
+  scores every hit. To read a whole result set, sort it, at least by the entity IRI key.
 
 ## luc:match
 
@@ -349,37 +362,38 @@ error raised while a query runs, so map the markers to a client error yourself.
 (?hit ?field ?value ?snippet) luc:match ()
 ```
 
-The object is always `()`. The field slot takes a variable or a field IRI; an IRI keeps
+The object is always `()`. The field element takes a variable or a field IRI. An IRI keeps
 only the matches on that field:
 
 ```sparql
 (?hit field:title ?value) luc:match () .
 ```
 
-A constant in the value slot keeps only that value. This is what happens when `?field`
-and `?value` are shared with a `luc:fields` pattern evaluated first.
+A constant in the value element keeps only that value. This happens when `?field` and
+`?value` are shared with a `luc:fields` pattern that is evaluated first.
 
 ### Purpose
 
-`luc:match` is the only per-hit match-detail API. It joins to `luc:query` through `?hit` and returns one row per matched field.
+`luc:match` is the only property function that gives per-hit match detail. It joins to
+`luc:query` through `?hit` and returns one row per matched field.
 
-Match details are computed only when a query uses `luc:match`. The first call computes
-them for every hit `luc:query` has returned, in one pass over the index, and later calls
-read them from memory. A query without `luc:match` does not compute them.
+The first `luc:match` call computes match details for every hit `luc:query` returned, in
+one pass over the index. Later calls read them from memory. A query without `luc:match`
+does not compute them.
 
 ### Return bindings
 
 | Variable | Type | Meaning |
 |---|---|---|
 | `?hit` | blank node | Join key from `luc:query` |
-| `?field` | IRI | Field IRI that matched; a variable or a field IRI to filter on |
+| `?field` | IRI | The field IRI that matched. A variable, or a field IRI to filter on |
 | `?value` | IRI or literal | The field value the query matched. Unbound for a field with `idx:stored false` |
-| `?snippet` | literal | Reserved for later highlighting support |
+| `?snippet` | literal | Reserved for highlighting |
 
-On a multi-valued field, `?value` is the first value the query matches. A field read
-from doc values (see [03-configuration.md](03-configuration.md#where-values-are-kept))
-lists its values in byte order, so when no single value matches, for example a phrase
-spanning values, the first value in byte order is returned.
+On a multi-valued field, `?value` is the first value the query matches. A field read from
+doc values (see [03-configuration.md](03-configuration.md#where-values-are-kept)) lists its
+values in byte order. When no single value matches, for example for a phrase across two
+values, `?value` is the first value in byte order.
 
 ### Example
 
@@ -399,45 +413,44 @@ SELECT ?entity ?score ?field ?value WHERE {
 (?hit ?record ?field ?value) luc:nestedMatch ()
 ```
 
-The object is always `()`. The field slot takes a variable or a field IRI; an IRI keeps
+The object is always `()`. The field element takes a variable or a field IRI. An IRI keeps
 only that field's values.
 
 ### Purpose
 
-`luc:nestedMatch` projects the `idx:nested` child documents that satisfied the CQL
-filter. Where `luc:match` answers "which fields of the *text query* matched on the
-entity", this answers "which child records did the *filter* select, and what do they
-contain". It joins to `luc:query` through `?hit`, exactly as `luc:match` does.
+`luc:nestedMatch` returns the `idx:nested` child documents that satisfied the CQL filter.
+`luc:match` reports which fields matched the text query. `luc:nestedMatch` reports which
+child records the filter selected and what they contain. It joins to `luc:query` through
+`?hit`.
 
-Only fields declared `idx:stored true` inside the nested block are projected; an
-indexed-but-unstored field can be filtered on but has nothing to return.
+It returns only fields declared `idx:stored true` inside the nested block. A field that is
+indexed but not stored can be filtered on, but returns no value.
 
 ### Return bindings
 
 | Variable | Type | Meaning |
 |---|---|---|
 | `?hit` | blank node | Join key from `luc:query` |
-| `?record` | blank node | Grouping key — one per matching child document |
-| `?field` | IRI | Field IRI within the child; a variable or a field IRI to filter on |
+| `?record` | blank node | Grouping key, one per matching child document |
+| `?field` | IRI | Field IRI within the child. A variable, or a field IRI to filter on |
 | `?value` | IRI or literal | Field value |
 
-`?record` is the point of the API. When a filter selects two children of the same
-entity, a flat stream of `(?field ?value)` rows cannot say which value belongs with
-which key; grouping by `?record` keeps each child's fields together.
+When a filter selects two children of one entity, `?record` shows which values belong to
+which child.
 
 ### Example
 
-Given a `prov:qualifiedAttribution` nested block, "reports where Sarah Jones was the
-Principal Investigator", returning the attribution that matched:
+Reports where Sarah Jones was the Principal Investigator, with the matching attribution
+from a `prov:qualifiedAttribution` nested block:
 
 ```sparql
 SELECT ?entity ?record ?field ?value WHERE {
   (?hit ?entity)
     luc:query ("default" "default" ""
-      '{"op":"and","args":[
+      '''{"op":"and","args":[
          {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionRole"},"Principal Investigator"]},
          {"op":"=","args":[{"property":"urn:jena:lucene:field#attributionAgentExact"},"Dr Sarah Jones"]}
-       ]}'
+       ]}'''
       "" 10 0) .
   (?hit ?record ?field ?value) luc:nestedMatch () .
 }
@@ -445,23 +458,17 @@ SELECT ?entity ?record ?field ?value WHERE {
 
 ### Behaviour and limits
 
-- A filter with **no** nested clause projects nothing. Nothing selected a child, so
-  there is no "the child that matched" to report — returning every child of every
-  scope would be a different feature.
-- A **negated** nested clause (`{"op":"not",...}`) projects nothing for that clause.
-  It describes children that must *not* match, which are not why the entity surfaced.
-- Projection does not depend on how a clause is written. `=` and `in` over the same
-  value, and a clause on a field that is an `idx:facetHierarchy` level versus one that
-  isn't, all project the same records. This required a compiler change: a lone `=` on
-  the *first level* of a hierarchy used to compile to a taxonomy `DrillDownQuery` on the
-  parent, which selects the same entities but carries no child query. Nested-scoped
-  fields now stay on the block-join path at every level. Root-scoped hierarchy fields
-  keep the drill-down — they have no children to lose.
-- At most 100 child records per hit are projected. Exceeding that is logged, not
-  silently trimmed.
-- The projection is computed on the first `luc:nestedMatch` call, for every hit
-  `luc:query` has returned: one block-restricted child query per hit, against the index
-  state `luc:query` searched. A query without `luc:nestedMatch` does not compute it.
+- A filter with no nested clause returns no rows.
+- A negated nested clause (`{"op":"not",...}`) returns no rows for that clause.
+- The rows do not depend on how a clause is written. `=` and `in` on the same value return
+  the same records. A clause on an `idx:facetHierarchy` level returns the same records as a
+  clause on any other field: a nested-scoped hierarchy field compiles to a block join at
+  every level. A root-scoped hierarchy field compiles to a taxonomy drill-down.
+- At most 100 child records per hit are returned. For a hit with more, the first 100 are
+  returned and a warning is logged.
+- The first `luc:nestedMatch` call computes the records for every hit `luc:query`
+  returned: one child query per hit, against the index state that `luc:query` searched. A
+  query without `luc:nestedMatch` does not compute them.
 
 ## luc:fields
 
@@ -475,16 +482,17 @@ The object is always `()`.
 
 ### Purpose
 
-`luc:fields` returns field values for each hit from the Lucene index, with no join to
-the graph. It suits queries that need one or two values for many hits, such as an
-identifier for every hit of a large search. It joins to `luc:query` through `?hit`.
+`luc:fields` returns field values for each hit from the Lucene index, with no join to the
+graph. Use it to get one or two values for many hits, such as an identifier for every hit
+of a large search. It joins to `luc:query` through `?hit`.
 
-It behaves like a triple pattern with `?hit` as subject: one row per value. A variable
-in the field slot ranges over every returnable root field; a field IRI selects one field.
-One pattern per field gives one column per field.
+It acts like a triple pattern with `?hit` as subject, with one row per value. A variable in
+the field element ranges over every returnable root field. A field IRI selects one field.
+Use one pattern per field to get one column per field.
 
-A returnable root field has `idx:stored true` and an occurrence on the shape itself, not
-only inside an `idx:nested` block. `LATLON` fields are not returned.
+A returnable root field has `idx:stored true` and an occurrence on the shape itself. A
+field that occurs only inside an `idx:nested` block is not returnable. `LATLON` fields are
+not returned.
 
 ### Return bindings
 
@@ -494,9 +502,9 @@ only inside an `idx:nested` block. `LATLON` fields are not returned.
 | `?field` | IRI | A variable, or the field IRI to return |
 | `?value` | IRI or literal | One value. A constant keeps only that value |
 
-Values are the terms `luc:match` returns for the same field. A multi-valued field gives
-one row per value. A field read from doc values gives each distinct value once, in byte
-order; one read from stored fields gives values in indexing order.
+The values are the terms `luc:match` returns for the same field. A multi-valued field
+gives one row per value. A field read from doc values gives each distinct value once, in
+byte order. A field read from stored fields gives values in indexing order.
 
 ### Example
 
@@ -512,35 +520,35 @@ SELECT ?id WHERE {
 }
 ```
 
-Binding only `?hit` means `luc:query` reads no entity IRI. When `field:collarId` is a
-sortable `KEYWORD`, its value is read from its doc value and the query reads no stored
-field.
+With only `?hit` bound, `luc:query` reads no entity IRI. When `field:collarId` is a
+sortable `KEYWORD` field, `luc:fields` reads it from its doc value, and the query reads no
+stored field.
 
 ### With luc:match
 
-Both join on `?hit`, so a hit's rows are every combination of its `luc:match` rows and
-its `luc:fields` rows. Use different variable names. With `(?hit ?field ?value)` in
-both, the patterns also join on `?field` and `?value` and keep only the pairs both
-produce.
+`luc:fields` and `luc:match` both join on `?hit`, so each hit gives every combination of
+its `luc:match` rows and its `luc:fields` rows. Use different variable names in the two
+patterns. If both use `(?hit ?field ?value)`, they also join on `?field` and `?value` and
+keep only the pairs that both produce.
 
 ### Errors
 
-Each raises a query error naming the field:
+Each of these is a query error that names the field:
 
-- a field IRI that is not configured in any index of the dataset; in a query over two
-  indexes, a field of one gives no rows for the hits of the other
+- a field IRI not configured in any index of the dataset. In a query over two indexes, a
+  field of one index gives no rows for the hits of the other.
 - a field with `idx:stored false`
-- a field that occurs only inside an `idx:nested` block; `luc:nestedMatch` returns those
+- a field that occurs only inside an `idx:nested` block. Use `luc:nestedMatch` for those.
 - a read after the index was refreshed under the search (see [Shared Execution](#shared-execution))
 
-They are raised on the first call, because the index is known only once `luc:query`
-has run.
+The errors are raised on the first call, because the index is known only after
+`luc:query` has run.
 
 ### Reads
 
-The first call for a field reads it for every hit `luc:query` has returned, in one pass
-in Lucene doc-ID order, and caches the values; later calls are lookups. With `?hit`
-unbound, it reads every hit `luc:query` cached. The cache holds one entry per value.
+The first call for a field reads it for every hit `luc:query` returned, in one pass in
+Lucene doc-ID order, and caches the values. Later calls are lookups. With `?hit` unbound,
+it reads every hit `luc:query` cached. The cache holds one entry per value.
 
 ## luc:facet
 
@@ -554,33 +562,34 @@ unbound, it reads every hit `luc:query` cached. The cache holds one entry per va
   luc:facet (indexSelector fieldSpec queryString facetFields cqlFilter maxValues minCount countMode)
 ```
 
-The active supported subject form is the 5-slot form above.
-Flat facets use the same 5-slot form. On flat facet rows, `?value` is bound and `?low` / `?high` are left unbound.
+The subject list is always five variables. Flat facet rows bind `?value` and leave `?low`
+and `?high` unbound. Range facet rows bind `?low` and `?high`; an open end of a range is
+unbound.
 
-Object arity is 7, or 8 with `countMode`.
+The object list has 7 arguments, or 8 with `countMode`.
 
 ### Arguments
 
 | Position | Name | Type | Required | Notes |
 |---|---|---|---|---|
 | 1 | `indexSelector` | string literal | Yes | Usually `"default"` |
-| 2 | `fieldSpec` | string literal | Yes | `"default"` or JSON array of field IRIs for search scoping |
+| 2 | `fieldSpec` | string literal | Yes | `"default"` or a JSON array of field IRIs for the search |
 | 3 | `queryString` | string literal | Yes | Lucene query string |
-| 4 | `facetFields` | string literal | Yes | JSON array of field IRIs and/or range facet objects |
+| 4 | `facetFields` | string literal | Yes | JSON array of field IRIs and range facet objects |
 | 5 | `cqlFilter` | string literal | Yes | CQL2-JSON object, or `""` |
-| 6 | `maxValues` | integer literal | Yes | `0` means all values |
-| 7 | `minCount` | integer literal | Yes | Minimum count threshold |
-| 8 | `countMode` | string literal | No | `"sideways"` (the default) or `"drilldown"`. `""`, like leaving it out, is `"sideways"`. See [Count modes](#count-modes) |
+| 6 | `maxValues` | integer literal | Yes | Maximum values per field. `0` means all values |
+| 7 | `minCount` | integer literal | Yes | Minimum count for a value to be returned |
+| 8 | `countMode` | string literal | No | `"sideways"` (default) or `"drilldown"`. `""` is the same as no eighth argument. See [Count modes](#count-modes) |
 
 ### `facetFields`
 
-Flat facet targets use field IRIs:
+A flat facet is a field IRI:
 
 ```json
 ["urn:jena:lucene:field#category","urn:jena:lucene:field#author"]
 ```
 
-Range facets use objects:
+A range facet is an object:
 
 ```json
 [
@@ -588,34 +597,35 @@ Range facets use objects:
 ]
 ```
 
-Mixed flat + range requests are allowed in the same array.
+One array can hold both flat and range facets.
 
-Wildcard:
-
-- `"*"` expands to all flat and hierarchical facetable fields
-- it does not expand numeric range facets
+`"*"` expands to all flat and hierarchical facetable fields. It does not expand to numeric
+range facets.
 
 ### Count modes
 
-`luc:facet` counts in one of two modes, named as in Lucene's `DrillSideways`:
+`luc:facet` counts in one of two modes. The names come from Lucene's `DrillSideways`.
 
 | `countMode` | A field the filter selects on | Every other field |
 |---|---|---|
-| `"sideways"`, the default | counted with its own selection left out of the filter | counted under the full filter |
-| `"drilldown"` | counted under the full filter | counted under the full filter |
+| `"sideways"`, the default | Counted under the filter without that field's own clauses | Counted under the full filter |
+| `"drilldown"` | Counted under the full filter | Counted under the full filter |
 
-Sideways counts are what a search form shows. With commodity `cu` or `au` selected, the
-commodity facet still shows how many records each commodity would give under the other
-filters, so the user can add or switch values, while document type is counted under the
-full filter. Drill-down counts describe the current results: for a selected field they
-contain only the selected values, and they add up to what `luc:query` returns. Use
-`"drilldown"` for charts and summaries of the result set.
+Use `"sideways"` for a search form. With commodity `cu` or `au` selected, the commodity
+facet shows how many records each commodity gives under the other filters, so the user
+can add or change values. Document type is counted under the full filter.
 
-For a field that the filter does not select on, the two modes give the same counts. In
-sideways mode a selected field's counts do not add up to `luc:query`'s `?totalHits`. The
-rows do not say which mode a field was counted in; the rules below decide it from the
-filter alone. To show both kinds of count for a field, add a second `luc:facet` with
-`"drilldown"` to the same query. The two calls are computed separately.
+Use `"drilldown"` for charts and summaries of the result set. A selected field's
+drill-down counts contain only the selected values, and their sum equals what `luc:query`
+returns.
+
+- For a field that the filter does not select on, the two modes give the same counts.
+- In sideways mode, a selected field's counts do not add up to `luc:query`'s `?totalHits`.
+- The rows do not show the mode a field was counted in. The rules in
+  [Which fields are counted sideways](#which-fields-are-counted-sideways) decide it from the
+  filter alone.
+- To show both kinds of count for a field, add a second `luc:facet` with `"drilldown"` to
+  the same query. The two calls are computed separately.
 
 ```sparql
 (?field ?value ?low ?high ?count)
@@ -624,53 +634,54 @@ filter alone. To show both kinds of count for a field, add a second `luc:facet` 
     "default"
     "copper"
     '["urn:jena:lucene:field#commodity", "urn:jena:lucene:field#documentType"]'
-    '{"op":"and","args":[
+    '''{"op":"and","args":[
        {"op":"in","args":[{"property":"urn:jena:lucene:field#commodity"},["cu","au"]]},
-       {"op":"between","args":[{"property":"urn:jena:lucene:field#year"},1980,1995]}]}'
+       {"op":"between","args":[{"property":"urn:jena:lucene:field#year"},1980,1995]}]}'''
     50
     1
   ) .
 ```
 
-Here commodity is counted under the text query and the year range only, and document type
-under the text query, the year range and the commodity selection. The counts equal those
-of one `"drilldown"` call per selected field with that field's clauses removed from the
-filter by the client.
+In this example, commodity is counted under the text query and the year range. Document
+type is counted under the text query, the year range and the commodity selection. The
+counts are equal to one `"drilldown"` call per selected field, with that field's clauses
+removed from the filter by the client.
 
 #### Which fields are counted sideways
 
-A requested field is counted sideways, as a **dimension**, when all of the following hold:
+A requested field is counted sideways, as a **dimension**, when all of these conditions
+are true:
 
-- The filter's top-level clauses include at least one clause on the field. The top-level
-  clauses are the arguments of a top-level `and`, or the filter itself when it is a single
-  clause.
-- Each of those clauses is `=` or `in` on a facetable `KEYWORD` field. For a field requested
-  as a range facet, `between`, `<`, `<=`, `>` and `>=` also qualify, so a year range facet
-  is counted without the year range clause. An `or` whose branches all qualify and name
-  the same field also qualifies, such as several selected year buckets.
-- The field is not named anywhere else in the filter, such as in an `or` with another
-  field, or in a `not`.
-- The field is not in an `idx:nested` scope and is not a level of an `idx:facetHierarchy`.
-- The CQL compiler turns those clauses into one Lucene query in full. An `or` with an
-  empty `or` among its branches does not qualify, because the compiler pushes an `or` only
-  when it can push every branch.
+- At least one top-level clause of the filter is on the field. The top-level clauses are
+  the arguments of a top-level `and`, or the filter itself when it is a single clause.
+- Each of those clauses is `=` or `in` on a facetable `KEYWORD` field. For a field
+  requested as a range facet, `between`, `<`, `<=`, `>` and `>=` also qualify, so a year
+  range facet is counted without the year range clause. An `or` whose branches all qualify
+  and name the same field also qualifies, such as several selected year buckets.
+- The field occurs nowhere else in the filter, for example in an `or` with another field
+  or in a `not`.
+- The field is not in an `idx:nested` scope and is not a level of an
+  `idx:facetHierarchy`.
+- The CQL compiler turns those clauses into one Lucene query in full. An `or` that
+  contains an empty `or` does not qualify, because the compiler pushes an `or` only when it
+  can push every branch.
 
-Several clauses on one field form one dimension and are left out together. Every other
-clause stays in the base filter, which applies to all counts: text and spatial clauses,
-`like`, `<>`, `not`, an `or` across fields, `entityIri`, and clauses on fields that were not
-requested.
+Several clauses on one field form one dimension and are left out together. All other
+clauses stay in the base filter, which applies to all counts: text and spatial clauses,
+`like`, `<>`, `not`, an `or` across fields, `entityIri`, and clauses on fields that were
+not requested.
 
 A requested field that is not a dimension is counted under the full filter, as in
 `"drilldown"` mode. This includes a field in an `or` with another field, hierarchy
-dimensions (with the drill-down path the filter gives them, as in `"drilldown"` mode) and
-fields in an `idx:nested` scope. Such a field is counted, not rejected, so one fixed query
-text works for every state of a form.
+dimensions (with the drill-down path the filter gives them) and fields in an `idx:nested`
+scope. These fields are counted, so one fixed query text works for every state of a
+form.
 
-`luc:query` in the same SPARQL query is unaffected by the count mode: its hits and
-`?totalHits` are those of the full filter.
+The count mode does not change `luc:query` in the same SPARQL query. Its hits and
+`?totalHits` use the full filter.
 
-The sideways counts are computed with Lucene's `DrillSideways`, which runs one search for
-the full filter and one per dimension. See
+Sideways counts use Lucene's `DrillSideways`, which runs one search for the full filter and
+one search per dimension. See
 [2026-11-13_luc_facet_sideways_counts_design.md](2026-11-13_luc_facet_sideways_counts_design.md)
 for the design and measurements.
 
@@ -731,14 +742,14 @@ Range facets:
 
 ### Purpose
 
-Returns the selected index's configuration as triples, so a client can find out which
-fields exist and what each supports without a copy of the configuration file. The index
-must set [`text:exposeConfig true`](03-configuration.md#textexposeconfig); otherwise the
-call is a query error.
+`luc:config` returns the selected index's configuration as triples. A client can use it to
+find the fields and what each field supports, without a copy of the configuration file.
+The index must set [`text:exposeConfig true`](03-configuration.md#textexposeconfig).
+Otherwise the call is a query error.
 
-What is returned is the configuration as written: every triple reachable from the index
-resource, without following `rdf:type`. A setting left at its default is absent, not
-written out. The defaults are in the tables of [03-configuration.md](03-configuration.md).
+The result is every triple reachable from the index resource in the configuration file,
+without following `rdf:type`. Only settings written in the file are returned. The defaults
+are in the tables of [03-configuration.md](03-configuration.md).
 
 ### Arguments
 
@@ -746,11 +757,11 @@ written out. The defaults are in the tables of [03-configuration.md](03-configur
 |---|---|
 | `indexSelector` | The index, as for `luc:query` |
 
-### Subject slots
+### Subject elements
 
 Each of `?s`, `?p` and `?o` is a variable or a constant. The call matches like one triple
-pattern over the configuration, so a constant restricts the result. Blank nodes are
-stable across calls in one query, so several calls join through them.
+pattern over the configuration, so a constant restricts the result. Blank nodes are the
+same in every call within one query, so several calls can join through them.
 
 ### Examples
 
@@ -774,7 +785,7 @@ SELECT ?field ?type WHERE {
 }
 ```
 
-The path feeding each field of one shape:
+The path of each field of one shape:
 
 ```sparql
 PREFIX luc: <urn:jena:lucene:index#>
@@ -790,13 +801,14 @@ SELECT ?field ?path WHERE {
 
 ### Limits
 
-- A SPARQL property path in the query is evaluated against the dataset, not against
-  `luc:config`'s output, so `rdf:rest*/rdf:first` cannot walk a list such as a sequence
-  `sh:path`. Use one `luc:config` call per list cell, or `CONSTRUCT` the configuration and
-  query the result.
-- Errors: an index without `text:exposeConfig true`, an unknown selector, and a selector
-  that is not a literal are query errors. A subject that is not three slots, or an object
-  that is not one selector, is a query build error.
+- A SPARQL property path in the query runs against the dataset, and `luc:config`'s output
+  is not part of the dataset. So `rdf:rest*/rdf:first` cannot walk a list such as a
+  sequence `sh:path`. Use one `luc:config` call per list cell, or `CONSTRUCT` the
+  configuration and query the result.
+- Query errors: an index without `text:exposeConfig true`, an unknown selector, and a
+  selector that is not a literal.
+- Query build errors: a subject that is not three elements, and an object that is not one
+  selector.
 
 ## luc:stats
 
@@ -808,9 +820,10 @@ SELECT ?field ?path WHERE {
 
 ### Purpose
 
-Returns figures about the selected index's Lucene contents as triples: how many entities
-and documents it holds, its size, and per field how many documents, distinct terms,
-tokens or points it has. No setting enables or disables it.
+`luc:stats` returns figures about the selected index's Lucene contents as triples: the
+number of entities and documents, the index size, and for each field the number of
+documents, distinct terms, tokens or points. It is always available; no setting controls
+it.
 
 ### Arguments
 
@@ -818,16 +831,17 @@ tokens or points it has. No setting enables or disables it.
 |---|---|
 | `indexSelector` | The index, as for `luc:query` |
 
-### Subject slots
+### Subject elements
 
-As for [`luc:config`](#lucconfig): each of `?s`, `?p` and `?o` is a variable or a
-constant, and the call matches like one triple pattern.
+As for [`luc:config`](#lucconfig): each of `?s`, `?p` and `?o` is a variable or a constant,
+and the call matches like one triple pattern.
 
 ### Returned triples
 
-The subjects are the nodes `luc:config` uses, so the two join. Index-level figures have
-the index resource as subject: the URI or blank node the configuration file declares the
-index with. Field figures have the field IRI. Every value is an `xsd:long`.
+The subjects are the nodes `luc:config` uses, so the two join. Index figures have the
+index resource as subject: the URI or blank node that declares the index in the
+configuration file. Field figures have the field IRI as subject. Every value is an
+`xsd:long`.
 
 | Subject | Predicate | Value |
 |---|---|---|
@@ -835,15 +849,15 @@ index with. Field figures have the field IRI. Every value is an `xsd:long`.
 | index | `luc:documentCount` | Live Lucene documents, including the child documents of `idx:nested` blocks |
 | index | `luc:deletedDocumentCount` | Deleted documents not yet merged away |
 | index | `luc:segmentCount` | Lucene segments |
-| index | `luc:sizeInBytes` | Size of the main index's segment files; the taxonomy index is not included |
+| index | `luc:sizeInBytes` | Size of the main index's segment files. The taxonomy index is not included |
 | `TextField`, `KeywordField` | `luc:documentCount` | Documents with at least one term in the field |
 | `TextField`, `KeywordField` | `luc:termCount` | Distinct terms. For a keyword field, distinct values |
 | `TextField`, `KeywordField` | `luc:tokenCount` | Terms indexed, counting repeats |
 | `IntField`, `LongField`, `DoubleField`, `TemporalField`, `LatLonField` | `luc:documentCount` | Documents with at least one value in the field |
-| the same | `luc:pointCount` | Points indexed. A `LatLonField` line or polygon is indexed as several triangles, each counted |
+| the same | `luc:pointCount` | Points indexed. A `LatLonField` line or polygon is indexed as several triangles, and each triangle counts |
 
-A field with no indexed values reports `0`. A field declared with `idx:indexed false` has
-no terms or points, so it reports `0` too.
+A field with no indexed values reports `0`. A field declared `idx:indexed false` has no
+terms or points, so it also reports `0`.
 
 ### Examples
 
@@ -855,7 +869,7 @@ PREFIX luc: <urn:jena:lucene:index#>
 CONSTRUCT { ?s ?p ?o } WHERE { (?s ?p ?o) luc:stats ("default") }
 ```
 
-Distinct values of each keyword field, joining with `luc:config`, which needs
+Distinct values of each keyword field, joined with `luc:config`, which needs
 [`text:exposeConfig true`](03-configuration.md#textexposeconfig):
 
 ```sparql
@@ -870,23 +884,24 @@ SELECT ?field ?values WHERE {
 
 ### Limits
 
-- Field figures come from Lucene's index statistics, which include documents that are
-  deleted but not yet merged away. After updates and deletes they can exceed what a
+- Field figures come from Lucene's index statistics, which include deleted documents that
+  are not yet merged away. After updates and deletes, the figures can be higher than what a
   query finds, until segment merging removes the deleted documents.
-  `luc:deletedDocumentCount` says how many there are.
+  `luc:deletedDocumentCount` gives the number of such documents.
 - A field inside an `idx:nested` block is held on child documents, so its
-  `luc:documentCount` counts child records, not entities.
+  `luc:documentCount` counts child records.
 - The figures come from the searcher `luc:query` uses, so they include every committed
   update. They are cached until the next commit. With more than one segment,
-  `luc:termCount` is counted by reading every term of every text and keyword field, so on
-  a large index the first call after a commit takes longer than the calls after it.
-- Errors: an unknown selector and a selector that is not a literal are query errors. A
-  subject that is not three slots, or an object that is not one selector, is a query
-  build error.
+  `luc:termCount` reads every term of every text and keyword field. On a large index, the
+  first call after a commit takes longer than later calls.
+- Query errors: an unknown selector, and a selector that is not a literal.
+- Query build errors: a subject that is not three elements, and an object that is not one
+  selector.
 
 ## CQL2-JSON Filters
 
-The `property` entry is always a field IRI.
+The `property` entry is a field IRI or an `idx:fieldName` (see
+[Naming a field](#naming-a-field)).
 
 Exact match:
 
@@ -914,33 +929,47 @@ Spatial:
 
 ### `text_query` — analyzer-aware text matching
 
-`=` is exact-term equality and does not apply an analyzer. For analyzer-mediated text matching (edge-ngram typeahead, lowercased keyword, standard tokenisation, stemming, etc.) use `text_query`:
+`=` compares exact terms and applies no analyzer. For text matching through an analyzer,
+such as edge-n-gram typeahead, a lowercased keyword, standard tokenisation or stemming,
+use `text_query`:
 
 ```json
 {"op":"text_query","args":[{"property":"urn:jena:lucene:field#title"},"gold mine"]}
 ```
 
-The supplied text is tokenised through the field's query analyzer, then its index analyzer, then the index-wide one — so a `TEXT` field that configures no analyzer at all is still searched with the default (`StandardAnalyzer`) rather than by raw term:
+The text is tokenised with the first analyzer found in this order: the field's query
+analyzer, the field's index analyzer, the index-wide analyzer. A `TEXT` field that
+configures no analyzer is searched with `StandardAnalyzer`.
 
-- single token → `TermQuery`
-- multiple tokens → `PhraseQuery` (positional)
-- empty token stream (e.g. all-stopword input) → matches nothing rather than everything
+| Tokens | Lucene query |
+|---|---|
+| one | `TermQuery` |
+| more than one | `PhraseQuery` (positional) |
+| none, for example input of only stopwords | matches nothing |
 
-What a field will and will not match follows from its analyzer, and a mismatch shows up as an empty result rather than an error — see [03-configuration.md → Choosing an Analyzer for a TEXT Field](03-configuration.md#choosing-an-analyzer-for-a-text-field). In particular, an edge-n-gram field only matches mid-value words when it declares `text:tokenized true`.
+The field's analyzer decides what the field matches. A mismatch gives an empty result and
+no error. See
+[03-configuration.md → Choosing an Analyzer for a TEXT Field](03-configuration.md#choosing-an-analyzer-for-a-text-field).
+An edge-n-gram field matches words in the middle of a value only when it declares
+`text:tokenized true`.
 
-When to choose which:
+Which operator to use:
 
 | Operator | Use for |
 |---|---|
-| `=` | `KEYWORD`, numeric, temporal exact equality; root-level entity-type pivots |
-| `text_query` | analyzer-backed `TEXT` fields — typeahead, full-text search, edge-ngram |
-| `like` | wildcard pattern matching (`%`, `_`) on KEYWORD/TEXT fields |
+| `=` | Exact equality on `KEYWORD`, numeric and temporal fields; root-level entity-type pivots |
+| `text_query` | `TEXT` fields with an analyzer: typeahead, full-text search, edge-n-gram |
+| `like` | Wildcard patterns (`%`, `_`) on `KEYWORD` and `TEXT` fields |
 
 ### Nested same-child filters
 
-For `idx:nested` child records (qualified identifiers, prov:qualifiedAttribution, location assessments, etc.) clauses that reference fields in the same nested scope and live in the same CQL subtree are folded into one block-join: a parent surfaces only when ONE child satisfies ALL the in-scope clauses.
+Use these for `idx:nested` child records, such as qualified identifiers,
+`prov:qualifiedAttribution` records and location assessments. Clauses on fields in the
+same nested scope, in the same CQL subtree, fold into one block join. A parent matches
+only when one child satisfies all of those clauses.
 
-**Qualified identifier — both clauses are KEYWORD** (`schema:identifier` with `propertyID` + `value`):
+**Qualified identifier, two `KEYWORD` clauses** (`schema:identifier` with `propertyID` and
+`value`):
 
 ```json
 {
@@ -952,9 +981,11 @@ For `idx:nested` child records (qualified identifiers, prov:qualifiedAttribution
 }
 ```
 
-Returns only entities whose ONE identifier record has propertyID="company" AND value="Bellbird" — no cross-child matching where one identifier supplies the type and a different identifier supplies the value.
+This returns only entities with one identifier record that has `propertyID="company"` and
+`value="Bellbird"`. An entity where one identifier has the type and another has the value
+does not match.
 
-**Identifier with text/typeahead** (KEYWORD type + edge-ngram value):
+**Identifier with typeahead** (`KEYWORD` type and edge-n-gram value):
 
 ```json
 {
@@ -966,9 +997,12 @@ Returns only entities whose ONE identifier record has propertyID="company" AND v
 }
 ```
 
-Same-child guarantee: a borehole surfaces only when ONE identifier record has propertyID="anumber" AND its value matches the "A-94" n-gram. The text analyzer normalises "A-94" through whatever the field configures (e.g. `LowerCaseKeywordAnalyzer` → "a-94"), so case-insensitive typeahead works regardless of input case.
+A borehole matches only when one identifier record has `propertyID="anumber"` and a value
+that matches the `A-94` n-gram. The field's analyzer normalises `A-94`; with
+`LowerCaseKeywordAnalyzer` it becomes `a-94`, so the typeahead ignores the case of the
+input.
 
-**Qualified attribution** (`prov:qualifiedAttribution` with `hadRole` + `agent`):
+**Qualified attribution** (`prov:qualifiedAttribution` with `hadRole` and `agent`):
 
 ```json
 {
@@ -980,95 +1014,79 @@ Same-child guarantee: a borehole surfaces only when ONE identifier record has pr
 }
 ```
 
-A report surfaces only when ONE qualified-attribution record has hadRole="Principal Investigator" AND an agent matching "Sarah Jones" — not where the role is on one attribution and the name is on another.
+A report matches only when one attribution record has
+`hadRole="Principal Investigator"` and an agent that matches `Sarah Jones`. A report with
+the role on one attribution and the name on another does not match.
 
-`attributionAgentText` here is a plain `TEXT` field with no analyzer override, so the input is tokenised the same way the index was and `"Sarah Jones"` matches `"Dr Sarah Jones"` as a phrase. Reaching for an n-gram twin instead is a common mistake — see [03-configuration.md → Names want BM25, not n-grams](03-configuration.md#names-want-bm25-not-n-grams).
+`attributionAgentText` is a `TEXT` field with no analyzer override. The input is tokenised
+the same way as the index, so `"Sarah Jones"` matches `"Dr Sarah Jones"` as a phrase. Do
+not use an n-gram twin field for names. See
+[03-configuration.md → Person names](03-configuration.md#person-names).
 
-**Boundary worth knowing:** the same-child fold operates within one CQL filter subtree. If the type clause sits in `cqlFilter` and the text clause sits in `queryString` (the separate text input on `luc:query`), they are not in the same CqlAnd and the fold cannot apply — each lifts independently. For same-child correctness, put both clauses in `cqlFilter` (using `=` and `text_query` as shown above).
+The fold applies within one CQL subtree. A clause in `queryString` and a clause in
+`cqlFilter` are in different subtrees and do not fold. For same-child matching, put both
+clauses in `cqlFilter`, with `=` and `text_query` as shown above.
 
 ### Naming a field
 
-A filter may name a field by its canonical IRI or by its `idx:fieldName`. Both spellings
-work, and both work for `luc:facet` too.
+A filter can name a field by its IRI or by its `idx:fieldName`. Both forms work in
+`luc:query` and `luc:facet`.
 
-A name that resolves to **nothing** raises `TextIndexException`, as does filtering on a
-field that exists but is not indexed. Neither is silently ignored.
+A name that resolves to no field raises `TextIndexException`. A filter on a field that
+exists but is not indexed also raises it.
 
-That matters more than it sounds. An ignored clause is not applied anywhere, so the query
-answers with **more** rows than were asked for, and nothing in the result says so. A typo
-in a field name used to return the whole dataset. Inside an `or` it was worse: the fold
-abandons the whole disjunction when one branch cannot be pushed, so a single bad name
-dropped every other branch as well.
+In `luc:facet`, a facet spec that matches no field and no hierarchy dimension raises an
+error.
 
-The same rule applies to `luc:facet`: a spec matching no field and no hierarchy dimension
-raises rather than returning an empty bucket list, which was indistinguishable from a real
-field with no values.
+### Clauses that raise an error
 
-### A filter is applied, or the query is refused
+The CQL compiler applies every clause of a filter, or refuses the query with a message
+that names the clause. Inside an `or`, one clause that cannot be applied refuses the whole
+query. These clauses raise an error:
 
-The rule is not limited to names that resolve to nothing. **Any** clause the compiler
-cannot turn into a Lucene query raises:
-
-| Clause | Why it cannot be pushed |
+| Clause | Reason |
 |---|---|
-| `text_query` or `like` on a numeric, temporal or spatial field | no defined meaning |
-| a range operator on a `KEYWORD` field | no ordering to compare against |
-| any operator other than `=` and `<>` on `entityIri` | only those two are defined for it |
-| a property naming no field, or a field that is not indexed | nothing to filter on |
-
-All of these used to become a *residual*, and nothing evaluates residuals: every caller
-logs and discards them. The distinction between "no such field" and "this operator does
-not suit that field" never reached the caller, who saw the same thing either way, a filter
-that was ignored and a result set larger than it should be.
-
-Inside an `or` it was worse again. One unpushable branch made the whole disjunction a
-residual, so **every** branch was dropped and the query returned rows matching none of
-them.
-
-There is now one rule across the compiler: a filter is applied in full, or the query is
-refused with a message naming the clause.
+| `text_query` or `like` on a numeric, temporal or spatial field | No defined meaning |
+| A range operator on a `KEYWORD` field | No order to compare against |
+| An operator other than `=` and `<>` on `entityIri` | Only `=` and `<>` are defined for `entityIri` |
+| A property that names no field, or a field that is not indexed | Nothing to filter on |
 
 ## Graph Scoping
 
-Target model:
+This section describes the target model. It is not implemented. Design:
+[graph filtering target model](2026-04-08-graph-filtering-target-model.md) and
+[source graph indexing](2026-07-31_source_graph_indexing_design.md).
 
-- graph scoping is a normal doc-level filter, not a dedicated `?graph` result slot
-- the public filter target is a reserved synthetic field IRI
-- the recommended reserved field is `urn:jena:lucene:field#sourceGraph`
-- it is intended to be a multi-valued KEYWORD field populated with every graph touched while indexing the entity document
+An entity's document is built from a union of all graphs, so its values can come from
+several graphs. There is no single graph to bind per hit.
 
-Example target filter:
+- Graph scoping is a document-level CQL filter. `luc:query` has no `?graph` result
+  element.
+- The filter target is a reserved synthetic field IRI,
+  `urn:jena:lucene:field#sourceGraph`.
+- The field is a multi-valued `KEYWORD` field that holds every graph read while indexing
+  the entity's document.
+
+Example filter:
 
 ```json
 {"op":"=","args":[{"property":"urn:jena:lucene:field#sourceGraph"},"http://example.org/graph/A"]}
 ```
 
-This means:
+Consequences:
 
-- query-time graph restriction behaves like any other CQL field filter
-- property-function signatures stay simple
-- graph provenance is doc-level, not per-match
+- A graph restriction works like any other CQL field filter.
+- The property function signatures do not change.
+- Graph provenance applies to the whole document. It is not recorded per match.
 
-Related deferred design:
+Deferred design:
 
-- an index-time option may later restrict indexing to a configured graph set
-- when such restriction is used, `sourceGraph` naturally reflects only those indexed graphs
+- An index-time option may restrict indexing to a configured set of graphs. With that
+  option, `sourceGraph` holds only the indexed graphs.
 
 ## Sort Specs
 
-Sort fields are field IRIs, not Lucene field names.
-
-A sort the index cannot carry out is a query error rather than a key that silently orders
-nothing:
-
-- an unknown field IRI, including a misspelled [entity IRI key](#entity-iri)
-- a field without sort doc values: a `KEYWORD` field needs `idx:sortable`; a numeric or
-  temporal field needs `idx:sortable` or `idx:facetable`, which write the same doc values
-- a `TEXT` or `LatLon` field
-- a field that occurs only inside `idx:nested` blocks, without a [selector](#nested-sort-selector)
-
-A search that fails, for any of these reasons or because its `queryString` does not
-parse, raises an error rather than returning zero hits.
+A sort field is a field IRI. A Lucene field name is not accepted.
 
 Single sort:
 
@@ -1085,8 +1103,29 @@ Multi-sort:
 ]
 ```
 
-Any sort object may also carry `"missing": "first" | "last"` to place entities that have no
-value for the sort field. Omit it to keep Lucene's own default placement.
+| Key | Values | Default |
+|---|---|---|
+| `field` | Field IRI, or the [entity IRI key](#entity-iri) | Required |
+| `order` | `"asc"` or `"desc"` | `"asc"` |
+| `missing` | `"first"` or `"last"`: where entities with no value for the field go | Lucene's placement for a flat sort; `"last"` with a `selector` |
+| `selector` | See [Nested Sort Selector](#nested-sort-selector) | None |
+
+Any other key is an error. The message lists the expected keys. A sort spec that uses the
+key `filter` gets a message that names `selector`.
+
+### Sort errors
+
+A sort that the index cannot carry out is a query error:
+
+- an unknown field IRI, including a misspelled [entity IRI key](#entity-iri)
+- a field without sort doc values. A `KEYWORD` field needs `idx:sortable`. A numeric or
+  temporal field needs `idx:sortable` or `idx:facetable`, which write the same doc values.
+- a `TEXT` or `LatLon` field
+- a field that occurs only inside `idx:nested` blocks, without a
+  [selector](#nested-sort-selector)
+
+A search that fails for one of these reasons, or because its `queryString` does not
+parse, raises an error.
 
 ### Entity IRI
 
@@ -1099,24 +1138,31 @@ The reserved key `urn:jena:lucene:index#entity` sorts by entity IRI:
 ]
 ```
 
-As the last key it breaks ties in an order that does not depend on when documents were
-written. Without it, hits that tie on every key keep Lucene's index order, which changes
-when an entity is updated or re-inserted. It works like any other key too: `"desc"`,
+As the last key, it gives hits that tie on all other keys an order that does not change
+when an entity is updated or re-inserted. It also works as any other key: with `"desc"`,
 alone, or first.
 
-IRIs compare by code point: the bytes of their UTF-8 form, in order. Jena's own
-`ORDER BY STR(?entity)` also compares by code point (since apache/jena GH-4300), so the key
-and `ORDER BY` give the same order, including for characters beyond U+FFFF. `missing` has no effect, since every entity has an IRI, and a `selector` is an error.
+- IRIs compare by code point, which is the byte order of their UTF-8 form. Jena's
+  `ORDER BY STR(?entity)` also compares by code point (since apache/jena GH-4300), so the
+  key and `ORDER BY` give the same order, including for characters beyond U+FFFF.
+- `missing` has no effect, because every entity has an IRI.
+- A `selector` is an error.
 
-The key reads the entity IRI doc value, which indexes have written since 2026-10-12
-(`d6f0091`, #195). An index holding any document written before then has no value to sort
-that document by, so sorting by the key, or paging by cursor, raises an error asking for
-the index to be rebuilt.
+The key reads the entity IRI doc value. Indexes have written this doc value since
+2026-10-12 (`d6f0091`, #195). If an index holds any document written before then, a sort
+by the key or a `luc:query` that pages by cursor raises `[LUC_ENTITY_SORT_NEEDS_REBUILD]`.
+Rebuild the index to fix it.
+
+The key adds cost to a deep `offset` when many hits tie on the earlier keys, because each
+tied hit is compared by IRI. At depth 59,990 the cost doubled on a year sort and was four
+times higher in relevance order. A sort with unique values, and the first pages of any
+sort, cost the same with or without the key.
 
 ### Nested Sort Selector
 
-To order by a value drawn from one specific nested child record — "sort by the identifier
-value *where* `identifierType = companyID`" — add a `selector` to the sort object:
+To sort by a value from one specific nested child record, add a `selector` to the sort
+object. For example, to sort by the identifier value where `identifierType` is
+`companyID`:
 
 ```json
 {
@@ -1129,52 +1175,39 @@ value *where* `identifierType = companyID`" — add a `selector` to the sort obj
 
 | Key | Meaning |
 |-----|---------|
-| `field` | the child value field to sort on; must be `idx:sortable` |
-| `selector.field` | the co-located discriminator on the same child document |
-| `selector.eq` | the value that discriminator must equal |
-| `order` | `asc` (default) / `desc`, as for a flat sort |
-| `missing` | `first` \| `last` — placement of entities with no matching child. Default `last` |
+| `field` | The child field to sort on. Must be `idx:sortable` |
+| `selector.field` | The discriminator field on the same child document |
+| `selector.eq` | The value the discriminator must equal: a string, number or boolean |
+| `order` | `asc` (default) or `desc`, as for a flat sort |
+| `missing` | `first` or `last`: where entities with no matching child go. Default `last` |
 
-The nested scope is inferred from `field`; it is not part of the wire format.
+The nested scope comes from `field`. It is not part of the sort spec.
 
-The `selector` **chooses a sort key; it does not restrict the result set**. It picks which
-child supplies the key and never removes entities: those with no matching child keep their
-place in the results and are positioned by `missing`. To also restrict *which* entities
-appear, state that independently in `cqlFilter` — the two compose.
+- The `selector` chooses which child supplies the sort key. It removes no entities. An
+  entity with no matching child stays in the results and is placed by `missing`.
+- To restrict which entities appear, add a clause to `cqlFilter`. A filter clause and a
+  selector can be used together.
+- When an entity has several matching children, the key is the minimum (ascending) or the
+  maximum (descending). With one record per type, the minimum and maximum are equal.
+- Both fields must be in the same `idx:nested` block, so that they are on one child
+  document.
+- A `selector` on a field that is not nested is an error:
+  `Sort selector requires a nested field`.
+- Lucene sorts before `limit` and `offset` select the page, so pages over a
+  selector-ordered result set are correct across page boundaries.
 
-> **Renamed from `filter`.** This key was called `filter` in earlier commits. It is not
-> accepted as an alias — a sort spec carrying `filter` (or any other unrecognised key) is
-> rejected with an error naming `selector`, rather than being silently ignored and
-> returning plausible-looking rows in the wrong order.
+#### Why a sort needs its own selector
 
-When an entity has several matching children the parent key collapses MIN (ascending) /
-MAX (descending). The normal one-record-per-type case makes MIN = MAX.
+`cqlFilter` chooses which documents are returned. A sort reads its key from the doc values
+of a document that is already chosen. A filter on the discriminator therefore does not
+change the sort key.
 
-#### Why select and filter separately?
+A flat sort on a field that occurs only in nested blocks finds no key on any parent, so it
+is an error, whatever `cqlFilter` contains. Where a field also occurs on the parent, a
+flat sort uses all the entity's values: an entity with companyID `C-200` and govID `A-000`
+sorts on `A-000`. With a `selector`, the key comes from the selected child only.
 
-Because the two act on different things. `cqlFilter` decides *which documents*
-come back; a sort reads its key from doc-values on a document that has already been
-picked. Filtering on the discriminator therefore does nothing at all to the sort key.
-
-Concretely: nested values live on the child documents, not the parent, so a plain
-`{"field":"urn:jena:lucene:field#identifierValue"}` sort finds no key on any parent, and
-is refused as an error — whatever `cqlFilter` says. And even where a value *is* flattened onto
-the parent, the sort collapses the entity's whole bag: an entity whose companyID is
-`C-200` but whose govID is `A-000` sorts on `A-000`. The filter chose the entity; the
-sort key still came from the wrong record.
-
-The sort's `selector` is what keeps the child identity long enough to say "take the
-value from *this* child". The same split exists elsewhere: Elasticsearch's nested sort
-takes its own `nested.filter` independent of the query, and in SQL the discriminator
-belongs in the `LEFT JOIN ... ON` clause — move it to `WHERE` and the outer join
-collapses, dropping the very rows you wanted to keep.
-
-The selector is nested-only. A flat multivalued field is a decorrelated bag with no
-surviving per-value discriminator, so a `selector` on a root-scoped field is an error
-(`Sort selector requires a nested field`). Both fields must belong to the *same*
-`idx:nested` block — that is what puts them on one child document.
-
-Data-modelling requirements (no extra index configuration):
+Data model for the example above. No other index configuration is needed:
 
 ```turtle
 :sampleShape idx:nested [
@@ -1194,33 +1227,35 @@ field:identifierValue
     idx:sortable true .
 ```
 
-Because the sort happens inside Lucene, it is applied before `limit`/`offset` cut the
-page — pagination over a selector-ordered result set stays correct across page boundaries.
-
 ## Shared Execution
 
-`luc:query`, `luc:facet`, `luc:match`, `luc:nestedMatch` and `luc:fields` share a
-single Lucene execution when these match:
+`luc:query`, `luc:facet`, `luc:match`, `luc:nestedMatch` and `luc:fields` share one Lucene
+search when these match:
 
-- resolved index identity
+- resolved index
 - search field spec
 - query string
 - CQL filter
 - sort spec
 
-Facet-specific parameters such as requested facet fields, `maxValues`, and `minCount` are applied after the shared search step.
+`luc:facet` applies its own parameters, such as facet fields, `maxValues` and `minCount`,
+after the shared search.
 
-A `luc:query` paged by cursor is a search of its own, keyed also by its `after` argument;
-`luc:facet` does not share it.
+A `luc:query` that pages by cursor runs its own search. Its key also includes the `after`
+argument, so `luc:facet` does not share it.
 
-`luc:match`, `luc:nestedMatch` and `luc:fields` find their search through `?hit`: each search in a
-query labels its hits with its own prefix, so a query with two `luc:query` patterns over
-different searches joins each `?hit` to the right one.
+`luc:match`, `luc:nestedMatch` and `luc:fields` find their search through `?hit`. Each
+search in a query labels its hits with its own prefix. In a query with two `luc:query`
+patterns over different searches, each `?hit` joins to the right search.
 
-Entity IRIs, match details, child records and field values are read after the search, and only when
-the query asks for them. They are read against the index state the search used: the
-search holds its Lucene searcher until `luc:query`'s results are consumed or the query
-is closed or cancelled. If a read happens after that, or a later `luc:query` over the
-same search needs more hits than were fetched, and the index has been committed in the
-meantime, the query fails with an error asking for it to be re-run, rather than return
-values from a different index state.
+Entity IRIs, match details, child records and field values are read after the search,
+and only when the query asks for them. They are read against the index state that the
+search used. The search holds its Lucene searcher until `luc:query`'s results are consumed
+or the query is closed or cancelled.
+
+The query fails with an error that asks for it to be run again when both of these are
+true:
+
+- A read happens after the searcher is released, or a later `luc:query` over the same
+  search needs more hits than were fetched.
+- The index was committed after the search.

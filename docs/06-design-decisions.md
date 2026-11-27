@@ -1,170 +1,237 @@
 # Design Decisions
 
-## Phase History
+Each section gives a decision, its reason, and its consequence.
 
-| Phase | Date | Summary |
-|-------|------|---------|
-| 1 | Jan 2026 | Initial native faceting exploration |
-| 1.5 | Feb 2026 | Enhancements: minCount, configurable maxFacetHits, getAllChildren |
-| 2 (API) | Feb 2026 | API redesign after review: split PFs, JSON filters, shared execution |
-| 2 (SHACL) | Feb 2026 | Entity-per-document model: SHACL shapes, typed fields, change listener |
-| 2 (Additive) | Feb 2026 | Backward compatibility: revert upstream changes, use `luc:` namespace for new PFs |
+## Decision: Keep upstream code paths, add SHACL code beside them
 
----
+**Problem:** An early version changed upstream Jena files (`TextQueryPF`, core methods of
+`TextIndexLucene`, the PF registrations in `TextQuery`). Each change is a possible
+conflict when the fork merges `apache/jena`.
 
-## Decision: Purely additive changes (no upstream modifications)
-
-**Problem:** The initial implementation modified upstream Jena files (`TextQueryPF`, `TextIndexLucene` core methods, `TextQuery` PF registrations). This makes merging with upstream Apache Jena difficult and creates maintenance burden.
-
-**Decision:** All changes must be purely additive. No existing upstream code paths are modified.
+**Decision:** New behaviour goes into new classes. Changes to upstream classes are kept
+small: registrations, hooks for the subclass, and the few changes listed below.
 
 **Implementation:**
-- `TextQueryPF` reverted to upstream — `text:query` has no filter support
-- `TextIndexLucene` core methods (`doc()`, `addDocument()`, `updateDocument()`) reverted
-- New `ShaclTextQueryPF` class implements `luc:query` with filter support
-- New `TextFacetPF` class implements `luc:facet`
-- Facet infrastructure (`FacetsConfig`, `SortedSetDocValues`) only initialised in SHACL mode
-- PFs registered under `urn:jena:lucene:index#` namespace, not `http://jena.apache.org/text#`
 
-**Rationale:** Clean separation means our fork can pull upstream changes without merge conflicts. Classic mode is byte-for-byte identical to upstream. New features are clearly isolated.
+- `TextQueryPF` is the upstream version. `text:query` has no filter support.
+- `ShaclTextQueryPF` implements `luc:query`, and `TextFacetPF` implements `luc:facet`.
+- `ShaclTextIndexLucene` extends `TextIndexLucene` and holds all facet infrastructure
+  (`FacetsConfig`, sorted-set doc values, the taxonomy).
+- The new property functions are registered under `urn:jena:lucene:index#`. `text:`
+  (`http://jena.apache.org/text#`) keeps the upstream property functions.
 
----
-
-## Decision: `luc:` namespace for new property functions
-
-**Problem:** After making changes additive, the new PFs need a namespace. Options: `text:` (conflict with upstream), `idx:` (config namespace), `luc:` (already used for config vocab).
-
-**Decision:** Use `urn:jena:lucene:index#` (prefix `luc:`) for both config vocabulary (`idx:fieldName`, `idx:facetable`, etc.) and property function URIs (`luc:query`, `luc:facet`).
-
-**Rationale:** The `luc:` prefix is already established in SHACL config. Using it for PFs makes SHACL-mode SPARQL queries self-consistent. The `text:` prefix stays for classic mode, `luc:` for SHACL mode.
+**Consequence:** Upstream merges touch few fork lines. The changes to upstream classes
+are listed in
+[Architecture: Upstream classes changed by the fork](04-architecture.md#upstream-classes-changed-by-the-fork).
+One of them changes classic mode: `TextIndexLucene.parseQuery` treats the query string
+`*` as match-all, also for `text:query`.
 
 ---
 
-## Decision: Split PFs instead of combined query+facets
+## Decision: One namespace for configuration and property functions
 
-**Problem:** Phase 1 had `text:queryWithFacets` which returned both hits and facet counts in a single PF. This caused a cartesian product in SPARQL bindings — every hit was crossed with every facet value, creating N*M rows.
+**Problem:** The new property functions need a namespace. `text:` belongs to upstream.
 
-**Decision:** Two independent PFs that share execution when parameters match.
+**Decision:** Use `urn:jena:lucene:index#` for both the configuration vocabulary and the
+property functions. Configuration examples bind it to the prefix `idx:`
+(`idx:fieldName`, `idx:facetable`); SPARQL examples bind it to `luc:` (`luc:query`,
+`luc:facet`). Field IRIs use `urn:jena:lucene:field#`.
 
-- `luc:query` — returns hits (one row per match)
-- `luc:facet` — returns facet counts (one row per value)
-
-**Rationale:** SPARQL property functions return flat bindings. Hits and facets have different cardinalities and different output shapes. Keeping them separate is semantically clean and avoids the binding explosion. Shared execution via `SearchExecution` ensures efficiency (one Lucene query, not two).
+**Reason:** SHACL-mode configuration and queries use one vocabulary. `text:` stays with
+classic mode.
 
 ---
 
-## Decision: Separate queries for hits and facets (not combined BGP)
+## Decision: Separate property functions for hits and facets
 
-**Problem:** Splitting `luc:query` and `luc:facet` into separate PFs solved the Phase 1 binding explosion, but placing both PFs in the same basic graph pattern still produces a cartesian product. They share no variables, so SPARQL cross-joins the results: N hits × M facet values = N×M rows.
+**Problem:** An early combined property function, `text:queryWithFacets`, returned hits
+and facet counts in one binding stream. Each hit was joined with each facet value, so N
+hits and M values gave N×M rows.
+
+**Decision:** Two property functions:
+
+- `luc:query` returns hits, one row per hit.
+- `luc:facet` returns facet counts, one row per value.
+
+When their search parameters match, they share one `SearchExecution`.
+
+**Reason:** A SPARQL property function returns flat bindings. Hits and facet counts have
+different cardinalities and different row shapes.
+
+**Consequence:** The hit search runs once. Facet counts run their own facet search on
+first request, and `SearchExecution` caches them per facet request. See
+[Architecture: Shared Execution Flow](04-architecture.md#shared-execution-flow).
+
+---
+
+## Decision: Separate queries for hits and facets
+
+**Problem:** `luc:query` and `luc:facet` in one basic graph pattern share no variables, so
+SPARQL joins every hit with every facet value: N×M rows.
 
 **Alternatives evaluated:**
 
-1. **Handle-based API** (`luc:search` creates a handle, `luc:hit` and `luc:facet` read from it) — evaluated Feb 2026. The shared handle variable `?r` is a constant (same value in every row), so it doesn't prevent the cross join. Nested blank node patterns (`[ luc:entity ?s ; luc:score ?score ]`) are not implementable with Jena's PF mechanism — PFs bind subject/object variables, they don't produce virtual triples for downstream pattern matching. Adds ceremony (three PFs instead of two) without solving the problem.
+| Alternative | Result |
+|---|---|
+| Handle-based API: `luc:search` creates a handle, `luc:hit` and `luc:facet` read from it | The handle variable `?r` has the same value in every row, so the cross join stays. Nested blank-node patterns such as `[ luc:entity ?s ; luc:score ?score ]` cannot be implemented with Jena property functions, which bind subject and object variables and produce no triples for later patterns. Needs three property functions |
+| Each property function in its own `OPTIONAL` | `OPTIONAL` is a left outer join. Each row of the first is extended by all M rows of the second: N×M |
+| `CONSTRUCT` output | The output graph removes duplicates, but evaluation still computes N×M bindings. The client reads a graph |
 
-2. **OPTIONAL wrapping** (each PF in its own OPTIONAL block) — OPTIONAL is a left outer join, not a partition. Each input row from the first OPTIONAL is extended by all M matches from the second, still producing N×M.
+**Decision:** Recommend separate SPARQL queries. Document `UNION` for a single request.
+Document the combined pattern with a warning about the cross product.
 
-3. **CONSTRUCT output** — deduplicates the output graph, but the intermediate evaluation still computes N×M bindings. Also changes the consumer model from tabular results to graph traversal.
-
-**Decision:** Recommend separate SPARQL queries as the primary pattern. Document UNION as an alternative for single-request scenarios. The combined BGP pattern is documented with a cartesian product warning.
-
-**Rationale:** The cartesian product is a SPARQL join semantics issue, not a PF design issue — no PF restructuring can avoid it when two unrelated binding streams are joined in the same BGP. Separate queries match the pattern used by Elasticsearch, Solr, and other search engines: one request for results, one for facets. The UNION pattern (N+M rows, sparse columns) works when a single SPARQL request is required. The `SearchExecution` keyed caching ensures both PFs share a single Lucene execution when they appear in the same query, regardless of query structure.
+**Reason:** The cross product comes from SPARQL join semantics, so no property function
+design removes it when two unrelated binding streams meet in one pattern. Elasticsearch,
+Solr and other search engines also use one request for results and one for facets.
+`UNION` gives N+M rows with sparse columns. `SearchExecution` shares the search between
+the two property functions in any query structure where their parameters match.
 
 ---
 
-## Decision: JSON syntax for filters and facet field lists
+## Decision: JSON for filters and facet field lists
 
-**Problem:** How to pass structured filter criteria (`category=Technology AND author=Smith`) in a SPARQL property function argument list.
+**Problem:** A property function argument list needs to carry structured filter criteria,
+for example `category = Technology AND author = Smith`.
 
 **Alternatives considered:**
-1. RDF lists of pairs — verbose, hard to construct dynamically
-2. Custom string DSL — requires new parser, unfamiliar
-3. JSON — widely understood, easy to construct in application code
 
-**Decision:** JSON object for filters, JSON array for facet field lists.
+| Alternative | Drawback |
+|---|---|
+| RDF lists of pairs | Verbose; hard to build in application code |
+| A custom string language | Needs a new parser; unfamiliar to clients |
+| JSON | — |
 
-For the public SPARQL/API contract, field references are always IRIs. The internal Lucene field name from `idx:fieldName` is not exposed to users. The only plain strings that remain in the external syntax are the Lucene query string itself and the special `"default"` fieldSpec shorthand.
+**Decision:** A CQL2-JSON object for filters and a JSON array for facet field lists, each
+in a string literal at a fixed argument position. The public contract names fields by
+IRI. The Lucene field name from `idx:fieldName` is internal. The only other plain strings
+are the Lucene query string and the `"default"` shorthand for the index and the field
+spec.
 
 ```sparql
-(?hit ?s ?sc) luc:query ("default" "learning"
-    '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}') .
-(?f ?v ?c) luc:facet ("default" "learning"
-    '["urn:jena:lucene:field#category", "urn:jena:lucene:field#author"]') .
+(?hit ?entity ?score) luc:query ("default" "default" "learning"
+    '{"op":"=","args":[{"property":"urn:jena:lucene:field#category"},"Technology"]}'
+    "" 20 0) .
+(?field ?value ?low ?high ?count) luc:facet ("default" "default" "learning"
+    '["urn:jena:lucene:field#category", "urn:jena:lucene:field#author"]'
+    "" 10 0) .
 ```
 
-**Rationale:** JSON is the lingua franca of web APIs. Application code generating SPARQL queries can construct filter JSON from UI state (e.g., selected facet checkboxes) trivially. The `{` and `[` prefixes make reliable detection in the argument list straightforward. Using field IRIs in these structures keeps the external API stable even if internal Lucene field names change.
+**Reason:** Web applications build JSON from UI state, for example the selected facet
+checkboxes. Field IRIs keep the public API stable when internal Lucene field names change.
 
 ---
 
-## Decision: Entity-per-document via SHACL shapes (not extending entityMap)
+## Decision: Entity-per-document through SHACL shapes
 
-**Problem:** The triple-per-document model causes:
-- Facet values on different docs from text values → requires URI-join
-- Overcounting risk when same entity has multiple triples
-- Cannot use Lucene's `DrillSideways`, which counts facet values on the document that matched the query; with one triple per document, the facet values are on other documents. The entity-per-document index can, and `luc:facet` uses it for [sideways counts](02-sparql-api.md#count-modes)
-- No numeric field types
+**Problem:** The triple-per-document model has these limits:
+
+- Facet values are on other documents than text values, so a facet count needs a join
+  on the entity IRI.
+- An entity with several triples can be counted more than once.
+- Lucene's `DrillSideways` counts facet values on the document that matched the query.
+  With one triple per document, the facet values are on other documents. The
+  entity-per-document index supports it, and `luc:facet` uses it for
+  [sideways counts](02-sparql-api.md#count-modes).
+- There are no numeric field types.
 
 **Alternatives considered:**
-1. Extend `text:entityMap` with field type annotations — would add complexity to an already complex config format
-2. New custom config vocabulary — no established standard
-3. SHACL NodeShape/PropertyShape — maps naturally to "entity with typed fields"
 
-**Decision:** Use SHACL vocabulary (`sh:targetClass`, `sh:path`, `sh:alternativePath`) with extension properties in the `idx:` namespace. Read the configuration with the Jena RDF API, reusing jena-shacl's vocabulary, path parser and constraint evaluation. The index never runs validation or produces a validation report.
+| Alternative | Drawback |
+|---|---|
+| Field type annotations on `text:entityMap` | Adds to a config format that is already complex |
+| A new custom vocabulary | No existing standard |
+| SHACL node shapes and property shapes | — |
 
-**Rationale:**
-- SHACL shapes map directly to the concept of "an entity type with typed properties"
-- `sh:targetClass` is exactly how you say "these are Book entities"
-- `sh:path` / `sh:alternativePath` naturally express "index these predicates"
-- Extension properties (`idx:fieldType`, `idx:facetable`, etc.) are clean additions
-- The index reads configuration and filters values; it does not validate data. It
-  reuses jena-shacl for the parts that are the same in both: the `sh:` vocabulary,
-  `ShaclPaths.parsePath`, and the constraint components. A field occurrence's value
-  constraints and a `sh:node` step's filter are jena-shacl node shapes, and the index
-  asks only whether one node conforms to one shape
+**Decision:** Use the SHACL vocabulary (`sh:targetClass`, `sh:path`,
+`sh:alternativePath`) with extension properties in the `idx:` namespace. Read the
+configuration with the Jena RDF API, and reuse jena-shacl's vocabulary, path parser and
+constraint evaluation. The index runs no validation and produces no validation report.
+
+**Reason:**
+
+- A SHACL shape describes an entity type with typed properties.
+- `sh:targetClass` states which class the entities have, for example `ex:Book`.
+- `sh:path` and `sh:alternativePath` state which predicates to index.
+- Extension properties (`idx:fieldType`, `idx:facetable` and others) add the index
+  settings.
+- The index reads configuration and filters values. It reuses jena-shacl where the two
+  tasks are the same: the `sh:` vocabulary, `ShaclPaths.parsePath`, and the constraint
+  components. A field occurrence's value constraints and a `sh:node` step's filter are
+  jena-shacl node shapes, and the index asks only whether one node conforms to one shape
   ([2026-10-12_shacl_node_occurrence_filters_design.md](2026-10-12_shacl_node_occurrence_filters_design.md)).
-  The `idx:` settings stay in the index's own mapping; jena-shacl never sees them.
+  The `idx:` settings stay in the index's own mapping; jena-shacl does not read them.
 
 ---
 
-## Decision: Coexist with entityMap, don't replace it
+## Decision: Keep entityMap beside shapes
 
-**Decision:** `text:shapes` and `text:entityMap` are mutually exclusive per index, but the code for both is present. No existing code was removed.
+**Decision:** The code for `text:entityMap` and `text:shapes` is present together. One
+index uses one of the two: `text:TextIndexLucene` with `text:entityMap`, or
+`text:TextIndexShacl` with `text:shapes`.
 
-**Rationale:** Existing deployments use `text:entityMap`. Forcing migration would be disruptive. Users can adopt SHACL mode for new deployments or when they need faceting/numeric fields, while existing setups continue to work unchanged.
-
----
-
-## Decision: Rebuild entire entity document on any change
-
-**Problem:** When a triple changes for an entity in SHACL mode, should we update just the affected field or rebuild the whole document?
-
-**Decision:** Full rebuild — read all triples for the entity, construct complete Entity, replace the Lucene document.
-
-**Rationale:** Lucene documents are immutable. Updating a single field requires deleting and re-adding the entire document anyway. Reading all triples for one entity from TDB is fast (typically <10 triples). The simplicity of "always rebuild" avoids complex partial-update logic and ensures consistency.
+**Reason:** Existing deployments use `text:entityMap`. They continue to work unchanged.
+New deployments, and deployments that need facets or numeric fields, can use SHACL mode.
 
 ---
 
-## Decision: Discriminator field for multi-shape indexes
+## Decision: Rebuild the whole entity document on any change
 
-**Problem:** When multiple shapes target different classes (Book, Article) in the same index, how to distinguish their documents.
+**Problem:** When a triple of an entity changes, the index can update the affected field
+or rebuild the whole document.
 
-**Decision:** A `docType` StringField containing the local name of the first `sh:targetClass` (e.g., "Book", "Article").
+**Decision:** Rebuild. Read all triples of the entity, build the complete `Entity`, and
+replace the document block.
 
-**Rationale:** Simple, human-readable, sufficient for MVP. The composite delete query uses `(uri + docType)` to target the right document when rebuilding.
+**Reason:** Lucene has no partial update of an indexed document: a change to one field
+deletes and adds the whole document. With nested fields, the parent and its children are
+one block, which is deleted and added as a unit. A full rebuild needs no partial-update
+logic, and each document always matches the current graph.
+
+**Consequence:** The cost of a change grows with the number of triples and child records
+of the entity. A profile with an `idx:externalSource` cannot be rebuilt from the graph,
+so the change listener skips it and `ShaclBulkIndexer` rebuilds it.
 
 ---
 
-## Decision: TermInSetQuery for filtered facets
+## Decision: Discriminator field for indexes with several shapes
 
-**Problem:** Filtered faceting with structured filters requires matching entity URIs against a set of candidates. The original approach used `BooleanQuery` with one clause per URI, which exceeds Lucene's 1024 clause limit (`TooManyClauses`) with large result sets.
+**Problem:** When several shapes target different classes (for example `Book` and
+`Article`) in one index, the index must tell their documents apart.
 
-**Decision:** Use `TermInSetQuery`, which handles arbitrary numbers of terms efficiently using sorted byte arrays.
+**Decision:** A `StringField` holds the local name of the first `sh:targetClass` of the
+shape, for example `Book`. The field name is `docType` by default and is set with
+`idx:discriminatorField`.
+
+**Reason:** The value is short and readable. The delete query of a rebuild matches the
+entity IRI and the discriminator, so it removes the document block of one shape only.
 
 ---
 
-## Decision: maxFacetHits as assembler property (not per-query)
+## Decision: TermInSetQuery for many values on one field
 
-**Problem:** Facet collection requires searching for matching documents. How many documents should the search consider?
+**Problem:** A `BooleanQuery` with one clause per value fails with `TooManyClauses` when
+the clause count exceeds Lucene's limit (1024 by default). Filters can carry many values,
+for example an `in` list of entity IRIs.
 
-**Decision:** Configurable via `text:maxFacetHits` assembler property (SHACL mode only). 0 means unlimited (`Integer.MAX_VALUE`).
+**Decision:** Compile a set of values on one field to one `TermInSetQuery`. This applies
+to `in` on a field, to `in` on the entity IRI, and to several values for one field in a
+facet filter.
 
-**Rationale:** This is an operational tuning knob, not a query semantics control. Setting it per-index via the assembler is appropriate. Applications that need per-query control can use the Java API directly.
+**Reason:** `TermInSetQuery` takes any number of terms as one query, from sorted byte
+arrays.
+
+---
+
+## Decision: maxFacetHits as an assembler property
+
+**Problem:** Facet collection searches for matching documents. A limit on that search
+bounds its cost.
+
+**Decision:** `text:maxFacetHits` is a property of a `text:TextIndexShacl` index. `0`, the
+default, means unlimited (`Integer.MAX_VALUE`).
+
+**Reason:** The limit is an operational setting. It is set per index in the assembler,
+and it is not part of the query.
+
+**Consequence:** The assembler reads the property into `ShaclTextIndexLucene`, but no
+facet search applies it at present. Facet counts cover every matching document.
