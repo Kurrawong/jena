@@ -150,7 +150,7 @@ consumer receives an unordered result, such as a `CONSTRUCT` graph.
 `?score` cannot restore the order:
 
 - A match-all query (`*`) gives every document the score `1.0`.
-- Relevance scores can tie. The demo dataset has two hits at `3.6702733`.
+- Relevance scores can tie: two documents that match the query terms equally get the same score.
 
 `?rank` increases strictly and gives the order the engine returned, for relevance order
 and for a sort spec.

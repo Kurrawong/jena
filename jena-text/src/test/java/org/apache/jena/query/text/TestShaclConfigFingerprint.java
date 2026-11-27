@@ -175,9 +175,8 @@ public class TestShaclConfigFingerprint {
     /**
      * The location of the configuration file must not change the fingerprint.
      * <p>
-     * This is not hypothetical: the {@code @prefix : <#>} idiom, which
-     * {@code demo/app-static/config.ttl} uses, resolves shape names against the
-     * configuration file's own URI. The same shape is
+     * This is not hypothetical: the common {@code @prefix : <#>} idiom resolves shape
+     * names against the configuration file's own URI. The same shape is
      * {@code file:///build/config.ttl#ReportShape} on an indexing machine and
      * {@code file:///srv/config.ttl#ReportShape} on a serving one. An end-to-end run
      * caught this reporting a MISMATCH purely because the directory had changed —

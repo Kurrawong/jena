@@ -1,0 +1,46 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+## Data for TestReferenceIndex: two sites, and the terms they use.
+
+PREFIX rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX skos:    <http://www.w3.org/2004/02/skos/core#>
+PREFIX ex:      <http://example.org/ref/>
+PREFIX commodity: <http://example.org/ref/commodity/>
+PREFIX state:   <http://example.org/ref/state/>
+
+## --- instance data
+
+ex:site-brolga-ridge a ex:Site ;
+    rdfs:label "Brolga Ridge Copper Mine" ;
+    ex:commodity commodity:Copper .
+
+ex:site-emu-flat a ex:Site ;
+    rdfs:label "Emu Flat Gold and Copper Project" ;
+    ex:commodity commodity:Gold , commodity:Copper .
+
+## --- reference data
+
+ex:Site a rdfs:Class ;
+    rdfs:label "Site" ;
+    rdfs:comment "A place where material is extracted or explored for." .
+
+ex:commodity a rdf:Property ;
+    rdfs:label "commodity" ;
+    rdfs:comment "A material produced or sought at a site." .
+
+ex:depth a rdf:Property ;
+    rdfs:label "depth" ;
+    rdfs:comment "Depth below the surface, in metres." .
+
+ex:commodities a skos:ConceptScheme ; rdfs:label "Commodities" .
+ex:states a skos:ConceptScheme ; rdfs:label "States" .
+
+commodity:Copper a skos:Concept ; skos:inScheme ex:commodities ; rdfs:label "Copper" .
+commodity:Gold   a skos:Concept ; skos:inScheme ex:commodities ; rdfs:label "Gold" .
+commodity:Coal   a skos:Concept ; skos:inScheme ex:commodities ; rdfs:label "Coal" .
+
+state:WA  a skos:Concept ; skos:inScheme ex:states ; rdfs:label "Western Australia" .
+state:QLD a skos:Concept ; skos:inScheme ex:states ; rdfs:label "Queensland" .
+state:NSW a skos:Concept ; skos:inScheme ex:states ; rdfs:label "New South Wales" .
+state:VIC a skos:Concept ; skos:inScheme ex:states ; rdfs:label "Victoria" .

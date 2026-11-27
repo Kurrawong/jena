@@ -106,27 +106,11 @@ the written Lucene documents.
 | `TestShaclNodeOccurrenceFilters` | Steps: a filtered identifier value as a sortable root field; two kept values and the single-valued warning; filters with `sh:in`, an inner `sh:minCount`, a constraint on the shape, and a `sh:node` member without a field; a step inside a step; a step inside `idx:nested` feeding the child; an occurrence's own constraint leaving the choice of node to the step; the change listener following a filter predicate, a field value and an `rdf:type`; the fingerprint following a filter; the bulk indexer and the change listener writing the same documents |
 | `TestShaclOccurrenceValueConstraints` | Each accepted per-value constraint filtering values; each set constraint, and `sh:sparql` on an occurrence and in a filter, rejected with the constraint named; repeating paths rejected; `sh:class` admitting a subclass instance; the fingerprint following a value constraint; value checks reading no data prefixes |
 
-### Upstream and demo tests
+### Upstream tests
 
 The other classes in `TS_Text` cover text search, multilingual support, graph indexing,
-deletion, analyzers, property lists, spatial filtering, nested identifiers and the demo
-mining scenarios.
-
-`TestDemoExamples` uses the demo's own files:
-
-1. It parses `demo/test/config.ttl` with the production assembler.
-2. It loads `demo/test/data/*.ttl`.
-3. It indexes through `ShaclBulkIndexer`, the path that `task index` runs, so shapes
-   with an external source are covered.
-4. It runs every saved search in `demo/test/tests.json` as a dynamic test.
-
-Each example must return at least its `minResults`, and each declared filter must change
-the result set. The second check finds a filter that has no effect: such a filter passes
-a row-count minimum, because an unfiltered query returns more rows.
-
-`TestDemoExamples` does not cover the browser's URL encoding or the
-`parseCqlFilter`/`buildCqlFilter` round trip. `demo/testing/check-examples.mjs` covers
-those against a running server, through `task check-examples`.
+deletion, analyzers, property lists, spatial filtering, nested identifiers, and several
+entity types sharing one index (`TestMultiEntityTypeScenarios`).
 
 ---
 
@@ -206,7 +190,8 @@ listener, and `parentDoc`, `childDocs` and `renderAll` read the written document
 - Entity lifecycle: create, update (add a field), delete (remove the type).
 - Data in named graphs (`TestShaclStepChangeTracking`).
 - Assembler config parsing, valid and invalid, from the Model API and from Turtle
-  (`ShaclTurtleFixture`, and `TestDemoExamples` with `demo/test/config.ttl`).
+  (`ShaclTurtleFixture`, and `TestReferenceIndex` with
+  `src/test/resources/reference-index/config.ttl`).
 - Shared execution between property functions.
 - Facet counts with filters, `minCount` and `maxValues`.
 - Sort by field IRI through `luc:query`.

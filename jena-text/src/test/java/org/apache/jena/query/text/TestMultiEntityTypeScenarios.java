@@ -46,14 +46,14 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Integration tests modelled on the demo mining dataset.
+ * Integration tests over three entity types sharing one index.
  * Covers multiple entity types (Report, Borehole, Site), multi-valued keyword
  * fields, sequence paths (authorName), facet wildcard, CQL filters, and
  * combined query+facet SPARQL patterns.
  */
-public class TestDemoMiningScenarios {
+public class TestMultiEntityTypeScenarios {
 
-    private static final String EX = "http://example.org/mining/";
+    private static final String EX = "http://example.org/survey/";
     private static final String FP = "urn:jena:lucene:field#";
 
     // Predicates
@@ -68,7 +68,7 @@ public class TestDemoMiningScenarios {
     private static final Node DEPTH = NodeFactory.createURI(EX + "depth");
 
     // Classes
-    private static final Node REPORT_CLASS = NodeFactory.createURI(EX + "MiningReport");
+    private static final Node REPORT_CLASS = NodeFactory.createURI(EX + "Report");
     private static final Node BOREHOLE_CLASS = NodeFactory.createURI(EX + "Borehole");
     private static final Node SITE_CLASS = NodeFactory.createURI(EX + "Site");
 
@@ -127,7 +127,7 @@ public class TestDemoMiningScenarios {
             occurrence(authoredByUri, authoredByUriPath, Collections.singleton(AUTHORED)));
 
         IndexProfile reportProfile = new IndexProfile(
-            NodeFactory.createURI(EX + "MiningReportShape"),
+            NodeFactory.createURI(EX + "ReportShape"),
             Collections.singleton(REPORT_CLASS),
             "uri", "docType",
             Arrays.asList(entityType, title, commodity, state, operator, status, authorName, authoredByUri),
@@ -185,10 +185,10 @@ public class TestDemoMiningScenarios {
 
         dataset = TextDatasetFactory.create(baseDs, textIndex, true, producer);
 
-        loadDemoData();
+        loadData();
     }
 
-    private void loadDemoData() {
+    private void loadData() {
         dataset.begin(ReadWrite.WRITE);
         try {
             Model m = dataset.getDefaultModel();
@@ -322,7 +322,7 @@ public class TestDemoMiningScenarios {
                            String stateId, String operatorId, String statusId,
                            String authorId) {
         Resource report = ResourceFactory.createResource(EX + id);
-        m.add(report, RDF.type, ResourceFactory.createResource(EX + "MiningReport"));
+        m.add(report, RDF.type, ResourceFactory.createResource(EX + "Report"));
         m.add(report, RDFS.label, label);
         for (String c : commodities) {
             m.add(report, ResourceFactory.createProperty(EX + "commodity"),
@@ -451,10 +451,8 @@ public class TestDemoMiningScenarios {
         String filter = "{\"op\":\"=\",\"args\":[{\"property\":\"" + FP + "state\"},\"" + EX + "state/QLD\"]}";
         Set<String> results = lucQuery("copper", filter, 50);
         for (String uri : results) {
-            // All results should be QLD entities that mention copper. Named by their
-            // current slugs: the WA entities were renamed with the rest of the demo
-            // data, and this assertion went on passing because nothing could match
-            // "boddington" or "pilbara" any more.
+            // All results should be QLD entities that mention copper. The slugs must
+            // match entities loadData() creates, or this assertion passes vacuously.
             for (String wa : List.of("wattle-downs", "redgum", "bh-wat-", "report-wat-")) {
                 assertFalse("No WA results, but got " + uri, uri.contains(wa));
             }
@@ -755,7 +753,7 @@ public class TestDemoMiningScenarios {
         Map<String, Long> counts = facetCountMap(sparql);
         assertEquals("Should have 6 Sites", Long.valueOf(6), counts.get(EX + "Site"));
         assertEquals("Should have 5 Boreholes", Long.valueOf(5), counts.get(EX + "Borehole"));
-        assertEquals("Should have 8 MiningReports", Long.valueOf(8), counts.get(EX + "MiningReport"));
+        assertEquals("Should have 8 Reports", Long.valueOf(8), counts.get(EX + "Report"));
     }
 
     // ================================================================

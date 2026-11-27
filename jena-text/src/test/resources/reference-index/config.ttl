@@ -1,0 +1,118 @@
+## Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+## Two SHACL indexes over one in-memory dataset, read by TestReferenceIndex.
+## "instance" indexes ex:Site entities; "reference" indexes the SKOS concepts,
+## classes and properties those entities use. Paths are relative to this file.
+
+PREFIX field:   <urn:jena:lucene:field#>
+PREFIX rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX ja:      <http://jena.hpl.hp.com/2005/11/Assembler#>
+PREFIX text:    <http://jena.apache.org/text#>
+PREFIX idx:     <urn:jena:lucene:index#>
+PREFIX sh:      <http://www.w3.org/ns/shacl#>
+PREFIX skos:    <http://www.w3.org/2004/02/skos/core#>
+PREFIX ex:      <http://example.org/ref/>
+PREFIX :        <http://example.org/ref/config#>
+
+:text_dataset rdf:type text:TextDataset ;
+    text:dataset :base_dataset ;
+    text:indexes ( :instanceIndex :referenceIndex ) ;
+    text:buildOnStartup true .
+
+:base_dataset rdf:type ja:MemoryDataset ;
+    ja:data <data.ttl> .
+
+:instanceIndex rdf:type text:TextIndexShacl ;
+    text:indexId "instance" ;
+    text:directory "mem" ;
+    text:shapes ( :SiteShape ) ;
+    text:storeValues false ;
+    text:exposeConfig true .
+
+:referenceIndex rdf:type text:TextIndexShacl ;
+    text:indexId "reference" ;
+    text:directory "mem" ;
+    text:shapes ( :ConceptShape :ClassShape :PropertyShape ) ;
+    text:storeValues false ;
+    text:exposeConfig true .
+
+## --- instance index
+
+field:title
+    idx:fieldName "title" ;
+    idx:fieldType idx:TextField ;
+    idx:stored true ;
+    idx:defaultSearch true .
+
+field:commodity
+    idx:fieldName "commodity" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true ;
+    idx:multiValued true .
+
+:SiteShape
+    sh:targetClass ex:Site ;
+    sh:property [ idx:field field:title ;     sh:path rdfs:label ] ;
+    sh:property [ idx:field field:commodity ; sh:path ex:commodity ] .
+
+## --- reference index
+
+field:termLabel
+    idx:fieldName "termLabel" ;
+    idx:fieldType idx:TextField ;
+    idx:defaultSearch true .
+
+field:termLabelPrefix
+    idx:fieldName "termLabelPrefix" ;
+    idx:fieldType idx:TextField ;
+    idx:stored false ;
+    idx:analyzer [ a text:EdgeNGramAnalyzer ; text:tokenized true ] .
+
+field:termLabelExact
+    idx:fieldName "termLabelExact" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:sortable true .
+
+field:termComment
+    idx:fieldName "termComment" ;
+    idx:fieldType idx:TextField ;
+    idx:defaultSearch true .
+
+field:scheme
+    idx:fieldName "scheme" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true .
+
+field:termType
+    idx:fieldName "termType" ;
+    idx:fieldType idx:KeywordField ;
+    idx:stored false ;
+    idx:facetable true .
+
+:ConceptShape
+    sh:targetClass skos:Concept ;
+    sh:property [ idx:field field:termLabel ;       sh:path rdfs:label ] ;
+    sh:property [ idx:field field:termLabelPrefix ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:termLabelExact ;  sh:path rdfs:label ] ;
+    sh:property [ idx:field field:scheme ;          sh:path skos:inScheme ] ;
+    sh:property [ idx:field field:termType ;        sh:path rdf:type ] .
+
+:ClassShape
+    sh:targetClass rdfs:Class ;
+    sh:property [ idx:field field:termLabel ;       sh:path rdfs:label ] ;
+    sh:property [ idx:field field:termLabelPrefix ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:termLabelExact ;  sh:path rdfs:label ] ;
+    sh:property [ idx:field field:termComment ;     sh:path rdfs:comment ] ;
+    sh:property [ idx:field field:termType ;        sh:path rdf:type ] .
+
+:PropertyShape
+    sh:targetClass rdf:Property ;
+    sh:property [ idx:field field:termLabel ;       sh:path rdfs:label ] ;
+    sh:property [ idx:field field:termLabelPrefix ; sh:path rdfs:label ] ;
+    sh:property [ idx:field field:termLabelExact ;  sh:path rdfs:label ] ;
+    sh:property [ idx:field field:termComment ;     sh:path rdfs:comment ] ;
+    sh:property [ idx:field field:termType ;        sh:path rdf:type ] .

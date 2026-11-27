@@ -111,9 +111,9 @@ axes itself.
 
 Keep the `<...EPSG/0/7844>` prefix on GDA2020 data. Bare WKT states CRS84, which is a
 different datum. A client that draws such a literal must remove the prefix and pick the
-axis order from the CRS. `demo/app-static/wkt.js` does this: it reads EPSG:4326, 4283 and
-7844 as lat/lon and bare or CRS84 WKT as lon/lat, handles every geometry type with holes,
-and returns nothing for a projected CRS.
+axis order from the CRS: EPSG:4326, 4283 and 7844 as lat/lon, bare or CRS84 WKT as
+lon/lat. It must handle every geometry type, including polygon holes, and refuse a
+projected CRS rather than draw metres as degrees.
 
 ### Antimeridian
 
