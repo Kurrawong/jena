@@ -176,7 +176,7 @@ Key dependency chain: `jena-base` → `jena-core` → `jena-arq` → `jena-tdb2`
 
 **SHACL mode** (new): Entity-per-document. Config via `text:shapes` (SHACL). SPARQL via `luc:query` + `luc:facet`. Supports typed fields (TEXT, KEYWORD, INT, LONG, DOUBLE), range queries, and faceted navigation.
 
-All new code is additive — upstream code paths are unmodified.
+Most new code is in new classes. The fork also changes some upstream classes, such as `TextIndexLucene`, `TextIndexConfig`, `Entity`, `EntityDefinition` and `DatasetGraphText`; `docs/04-architecture.md` (Upstream classes changed by the fork) lists them. One change reaches classic mode: `TextIndexLucene.parseQuery` returns match-all for `*`.
 
 **Backward compatibility policy**: The classic `text:query` mode (upstream) must remain untouched. Within SHACL mode (`luc:query` / `luc:facet`), **no backward compatibility is required**. Breaking changes are expected as the query syntax and implementation are refined. Do not maintain multiple syntaxes or support previous commit-era formats — only the target model matters. Once stable, backward compatibility will be considered for release.
 
