@@ -26,11 +26,6 @@ little coverage. The discriminator field holds the local name of the first class
 rebuild on change, where one transaction can read state from the base dataset that
 another has only partly committed.
 
-### text:maxFacetHits has no effect
-
-The assembler reads `text:maxFacetHits` into `ShaclTextIndexLucene`, but no facet search
-applies it. Facet counts cover every matching document.
-
 ---
 
 ## Planned Extensions
