@@ -136,7 +136,6 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     private final ShaclIndexMapping shaclMapping;
     private final List<String> facetFields;
     private final FacetsConfig facetsConfig;
-    private final int maxFacetHits;
     /** Query parser settings from {@code text:splitOnWhitespace} and {@code text:autoGeneratePhraseQueries}. */
     private final boolean splitOnWhitespace;
     private final boolean autoGeneratePhraseQueries;
@@ -318,7 +317,6 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
     public ShaclTextIndexLucene(Directory directory, Directory taxoDirectory, TextIndexConfig config) {
         super(directory, config);
         this.shaclMapping = config.getShaclMapping();
-        this.maxFacetHits = config.getMaxFacetHits();
         this.splitOnWhitespace = config.isSplitOnWhitespace();
         this.autoGeneratePhraseQueries = config.isAutoGeneratePhraseQueries();
 
@@ -2270,10 +2268,6 @@ public class ShaclTextIndexLucene extends TextIndexLucene {
 
     public List<String> getFacetFields() {
         return Collections.unmodifiableList(facetFields);
-    }
-
-    private int facetSearchLimit() {
-        return maxFacetHits > 0 ? maxFacetHits : Integer.MAX_VALUE;
     }
 
     public Map<String, List<FacetValue>> getFacetCounts(List<String> facetFieldsToQuery, int maxValues) {

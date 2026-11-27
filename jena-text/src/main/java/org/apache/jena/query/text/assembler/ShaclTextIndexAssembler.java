@@ -63,8 +63,7 @@ import org.apache.lucene.store.*;
  *                                                 # &lt;text:directory&gt;_taxonomy, or to
  *                                                 # memory for a "mem" index
  *     text:shapes ( :Shape1 :Shape2 ) ;
- *     text:storeValues true ;
- *     text:maxFacetHits 50000 .
+ *     text:storeValues true .
  * </pre>
  * <p>
  * Requires {@code text:shapes} — use {@code text:TextIndexLucene} with
@@ -135,15 +134,6 @@ public class ShaclTextIndexAssembler extends AssemblerBase {
             config.setValueStored(storeValues);
             config.setShaclMapping(shaclMapping);
             config.setFacetFields(shaclMapping.getFacetFieldNames());
-
-            // Optional maxFacetHits
-            Statement maxFacetHitsStatement = root.getProperty(pMaxFacetHits);
-            if (maxFacetHitsStatement != null) {
-                RDFNode mfhNode = maxFacetHitsStatement.getObject();
-                if (!mfhNode.isLiteral())
-                    throw new TextIndexException("text:maxFacetHits property must be an int : " + mfhNode);
-                config.setMaxFacetHits(mfhNode.asLiteral().getInt());
-            }
 
             boolean splitOnWhitespace = booleanSetting(root, pSplitOnWhitespace, "text:splitOnWhitespace", true);
             boolean autoGeneratePhraseQueries =

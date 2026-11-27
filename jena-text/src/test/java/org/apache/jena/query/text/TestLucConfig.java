@@ -129,7 +129,7 @@ public class TestLucConfig {
             + "ex:index rdf:type text:TextIndexShacl ;\n"
             + "    text:directory \"mem\" ;\n"
             + "    text:storeValues true ;\n"
-            + "    text:maxFacetHits 500 ;\n"
+            + "    text:splitOnWhitespace true ;\n"
             + "    text:analyzer [ rdf:type text:StandardAnalyzer ; text:stopWords ( \"the\" \"a\" ) ] ;\n"
             + "    text:shapes ( ex:ThingShape )"
             + indexProperties + " .\n";
@@ -244,7 +244,7 @@ public class TestLucConfig {
 
         assertTrue(has(g, index, TEXT + "directory", NodeFactory.createLiteralString("mem")));
         assertTrue(g.contains(index, uri(TEXT + "storeValues"), Node.ANY));
-        assertTrue(g.contains(index, uri(TEXT + "maxFacetHits"), Node.ANY));
+        assertTrue(g.contains(index, uri(TEXT + "splitOnWhitespace"), Node.ANY));
         assertTrue(g.contains(index, uri(TEXT + "exposeConfig"), Node.ANY));
         assertTrue(has(g, index, "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
             uri(TEXT + "TextIndexShacl")));

@@ -88,8 +88,7 @@ dataset identity stamp, because it repeats on every start.
 <#index> a text:TextIndexShacl ;
     text:indexId "default" ;
     text:directory "mem" ;
-    text:shapes ( <#BookShape> <#ArticleShape> ) ;
-    text:maxFacetHits 50000 .
+    text:shapes ( <#BookShape> <#ArticleShape> ) .
 ```
 
 The SHACL index class is `text:TextIndexShacl`, and it requires `text:shapes`.
@@ -103,7 +102,6 @@ and uses `text:entityMap`.
 | `text:shapes` | yes | — | RDF list of SHACL shapes, one document profile each. An empty list is an error |
 | `text:taxonomyDirectory` | no | see [Taxonomy directory](#taxonomy-directory) | Storage for hierarchical facet ordinals. Same value forms as `text:directory` |
 | `text:storeValues` | no | `false` | Does not change what SHACL documents store: `idx:stored` sets that per field. The value is part of the index's configuration fingerprint |
-| `text:maxFacetHits` | no | `0` (unlimited) | Read and validated, but not applied: facet counts cover every matching document. See [07-future-work.md](07-future-work.md#textmaxfacethits-has-no-effect) |
 | `text:analyzer` | no | `StandardAnalyzer` | Index-wide default analyzer |
 | `text:queryAnalyzer` | no | per field | Index-wide query analyzer. When set, it replaces every per-field query analyzer, and a warning is logged if any field has its own |
 | `text:splitOnWhitespace` | no | `true` | Split the query string at whitespace before each field's analyzer runs. With `false`, a keyword-analyzed field receives the whole string as one term, spaces included |

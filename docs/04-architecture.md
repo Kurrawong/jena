@@ -42,7 +42,7 @@ Consequences of one document per entity:
 | `TextIndexLucene` | Builds a per-field query analyzer from `idx:queryAnalyzer`. `parseQuery` returns `MatchAllDocsQuery` for the query string `*`; this also applies to `text:query`. `MAX_N` and `parseQuery` are `protected` for the subclass |
 | `EntityDefinition` | Holds the per-field query analyzer |
 | `Entity` | `addValue()` collects several values for one field. Holds nested child records (`Entity.NestedRecord`) |
-| `TextIndexConfig` | Holds the SHACL mapping, facet fields, `maxFacetHits`, `splitOnWhitespace` and `autoGeneratePhraseQueries`; `isShaclMode()` |
+| `TextIndexConfig` | Holds the SHACL mapping, facet fields, `splitOnWhitespace` and `autoGeneratePhraseQueries`; `isShaclMode()` |
 | `DatasetGraphText` | Commits and rolls back every index in a `TextIndexRegistry`. Index 0 keeps the upstream TDB2 component ID |
 | `TextDatasetFactory` | Puts a `TextIndexRegistry` in the dataset context |
 | `assembler.TextDatasetAssembler` | For a `ShaclTextIndexLucene`, creates a `ShaclTextDocProducer` and checks the index stamp (`checkOrCompletePairing`). Supports `text:indexes` and `text:buildOnStartup` |
@@ -492,9 +492,6 @@ more memory during facet collection.
 4. Reindex after changing `idx:facetable`, `idx:sortable` or `idx:multiValued` on a field.
    Doc values are written at index time. At startup the server logs a warning when the
    index on disk was built from a different configuration (`ShaclConfigFingerprint`).
-
-The assembler reads `text:maxFacetHits` (default `0`, unlimited) into the index, but no
-facet search applies it. Facet counts cover every matching document.
 
 ### Entity rebuild cost
 

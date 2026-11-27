@@ -59,9 +59,6 @@ import org.apache.lucene.analysis.Analyzer;
  * mapping and are excluded explicitly — a CSV path is a pointer to data, not a
  * description of index shape.
  * <p>
- * <b>Query-time settings.</b> {@code text:maxFacetHits} changes nothing on disk, so a
- * change to it must not be reported as requiring a reindex.
- * <p>
  * <b>Analyzer parameters.</b> {@link FieldDef} stores {@link Analyzer} instances, not the
  * RDF that configured them, so only the analyzer's class name is hashed. A changed
  * stopword list on the same analyzer class hashes identically. This is a known and

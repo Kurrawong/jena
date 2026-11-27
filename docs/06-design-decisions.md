@@ -222,16 +222,26 @@ arrays.
 
 ---
 
-## Decision: maxFacetHits as an assembler property
+## Decision: Count every matching document
 
-**Problem:** Facet collection searches for matching documents. A limit on that search
-bounds its cost.
+**Problem:** The cost of a facet count grows with the number of documents the query
+matches. An earlier `text:maxFacetHits` index property was meant to cap the documents a
+facet count reads. The assembler read it, but no facet search applied it.
 
-**Decision:** `text:maxFacetHits` is a property of a `text:TextIndexShacl` index. `0`, the
-default, means unlimited (`Integer.MAX_VALUE`).
+**Decision:** `luc:facet` counts every document the query matches. `text:maxFacetHits`
+was removed. The assembler ignores it, as it ignores any property it does not read.
 
-**Reason:** The limit is an operational setting. It is set per index in the assembler,
-and it is not part of the query.
+**Reason:** A cap counts a subset of the matches, taken in index order. Three things
+follow from that:
 
-**Consequence:** The assembler reads the property into `ShaclTextIndexLucene`, but no
-facet search applies it at present. Facet counts cover every matching document.
+- The counts no longer add up to the `?totalHits` that `luc:query` returns for the same
+  query, which counts every match.
+- In the default [sideways count mode](02-sparql-api.md#count-modes) each field is
+  counted over its own set of documents. A cap would apply to each set separately, so
+  the counts of different fields would come from different subsets, and a value's count
+  would no longer be the number of hits its selection gives.
+- It would not bound memory. `SortedSetDocValuesFacetCounts` keeps one counter per
+  unique value of the field, whatever the number of documents read.
+
+**Consequence:** Counting time grows with the number of matching documents. Use
+`maxValues` and `minCount` to limit what is returned; neither reduces the documents read.

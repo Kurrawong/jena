@@ -56,7 +56,6 @@ public class TextVocab
     public static final Property pStoreValues       = Vocab.property(NS, "storeValues") ;
     public static final Property pIgnoreIndexErrors       = Vocab.property(NS, "ignoreIndexErrors") ;
     public static final Property pFacetFields      = Vocab.property(NS, "facetFields") ;
-    public static final Property pMaxFacetHits    = Vocab.property(NS, "maxFacetHits") ;
     /** Let {@code luc:config} return this index's configuration. Off by default: anything
      *  in the configuration, file paths included, becomes readable by anyone who can query. */
     public static final Property pExposeConfig    = Vocab.property(NS, "exposeConfig") ;

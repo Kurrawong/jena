@@ -70,7 +70,6 @@ PREFIX schema:  <https://schema.org/>
     text:directory "mem" ;
     text:shapes ( :MiningReportShape :BoreholeShape :SiteShape ) ;
     text:storeValues false ;
-    text:maxFacetHits 50000 ;
     ## The demo app reads its fields and facets from this index with luc:config.
     ## Everything reachable from :instanceIndex becomes readable through the query endpoint.
     text:exposeConfig true .

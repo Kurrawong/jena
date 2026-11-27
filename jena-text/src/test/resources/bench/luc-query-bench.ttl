@@ -26,8 +26,7 @@ PREFIX bench:   <http://example.org/bench/>
 :index rdf:type text:TextIndexShacl ;
     text:directory <@@LUCENE@@> ;
     text:shapes ( :RecordShape ) ;
-    text:storeValues false ;
-    text:maxFacetHits 50000 .
+    text:storeValues false .
 
 ## --- Fields ---
 
