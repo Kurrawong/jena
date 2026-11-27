@@ -29,7 +29,6 @@ import java.util.function.Function;
 
 import org.apache.jena.atlas.io.IndentedLineBuffer;
 import org.apache.jena.atlas.iterator.Iter;
-import org.apache.jena.atlas.json.JSON;
 import org.apache.jena.atlas.json.JsonArray;
 import org.apache.jena.atlas.logging.Log;
 import org.apache.jena.datatypes.xsd.XSDDatatype;
@@ -368,7 +367,7 @@ public class ShaclTextQueryPF extends PropertyFunctionBase {
         if (!fieldSpec.startsWith("[")) {
             throw new QueryExecException("luc:query fieldSpec must be \"default\" or a JSON array of field IRIs");
         }
-        JsonArray arr = JSON.parseAny(fieldSpec).getAsArray();
+        JsonArray arr = StrictJson.parseAny(fieldSpec).getAsArray();
         for (int i = 0; i < arr.size(); i++) {
             searchFields.add(arr.get(i).getAsString().value());
         }

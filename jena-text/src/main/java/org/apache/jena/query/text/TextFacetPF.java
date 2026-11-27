@@ -25,7 +25,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.jena.atlas.json.JSON;
 import org.apache.jena.atlas.json.JsonArray;
 import org.apache.jena.atlas.json.JsonObject;
 import org.apache.jena.atlas.json.JsonValue;
@@ -267,7 +266,7 @@ public class TextFacetPF extends PropertyFunctionBase {
         if (!fieldSpec.startsWith("[")) {
             throw new QueryExecException("luc:facet fieldSpec must be \"default\" or a JSON array of field IRIs");
         }
-        JsonArray arr = JSON.parseAny(fieldSpec).getAsArray();
+        JsonArray arr = StrictJson.parseAny(fieldSpec).getAsArray();
         for (int i = 0; i < arr.size(); i++) {
             searchFields.add(arr.get(i).getAsString().value());
         }
@@ -299,7 +298,7 @@ public class TextFacetPF extends PropertyFunctionBase {
     }
 
     private void parseFacetRequestArray(String json, List<String> facetFields, List<FacetRequest.RangeFacetSpec> rangeFields) {
-        JsonValue value = JSON.parseAny(json);
+        JsonValue value = StrictJson.parseAny(json);
         if (!value.isArray()) {
             throw new QueryExecException("luc:facet facetFields must be a JSON array");
         }

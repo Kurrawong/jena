@@ -241,6 +241,80 @@ public class TestCqlParser {
         CqlParser.parse("{\"op\":\"text_query\",\"args\":[{\"property\":\"name\"}]}");
     }
 
+    // A caller that builds the filter from a template, such as a stored SPARQL
+    // query that wraps a client's filter in an "and" with a fixed clause, relies
+    // on the parser reading the whole string as one object with no repeated
+    // keys. These tests pin that down.
+
+    private static final String GUARD =
+        "{\"op\":\"=\",\"args\":[{\"property\":\"confidential\"},\"false\"]}";
+
+    private static String guardFirst(String client) {
+        return "{\"op\":\"and\",\"args\":[" + GUARD + "," + client + "]}";
+    }
+
+    private static String guardLast(String client) {
+        return "{\"op\":\"and\",\"args\":[" + client + "," + GUARD + "]}";
+    }
+
+    @Test
+    public void testWrappedFilterKeepsGuard() {
+        CqlExpression expr = CqlParser.parse(guardFirst(
+            "{\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"WA\"]}"));
+        assertInstanceOf(CqlExpression.CqlAnd.class, expr);
+        CqlExpression.CqlAnd and = (CqlExpression.CqlAnd) expr;
+        assertEquals(2, and.args().size());
+        assertEquals("confidential", ((CqlExpression.CqlComparison) and.args().get(0)).property());
+    }
+
+    @Test
+    public void testWhitespaceAfterObjectAccepted() {
+        CqlExpression expr = CqlParser.parse(
+            "  {\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"WA\"]}  \n");
+        assertInstanceOf(CqlExpression.CqlComparison.class, expr);
+    }
+
+    @Test(expected = TextIndexException.class)
+    public void testTrailingContentRejected() {
+        CqlParser.parse("{\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"WA\"]} {\"op\":\"or\"}");
+    }
+
+    @Test(expected = TextIndexException.class)
+    public void testRepeatedKeyRejected() {
+        CqlParser.parse("{\"op\":\"and\",\"args\":[],\"op\":\"or\"}");
+    }
+
+    @Test(expected = TextIndexException.class)
+    public void testRepeatedKeyInNestedObjectRejected() {
+        CqlParser.parse("{\"op\":\"not\",\"args\":[{\"op\":\"=\",\"op\":\"<>\",\"args\":[{\"property\":\"a\"},\"1\"]}]}");
+    }
+
+    /** The client's text closes the "and" early, leaving the guard as trailing content. */
+    @Test(expected = TextIndexException.class)
+    public void testInjectionDroppingGuardRejected() {
+        CqlParser.parse(guardLast(
+            "{\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"WA\"]}]} {\"x\":["));
+    }
+
+    /** As above, with a comment hiding the guard so that nothing follows the object. */
+    @Test(expected = TextIndexException.class)
+    public void testInjectionCommentingOutGuardRejected() {
+        CqlParser.parse(guardLast(
+            "{\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"WA\"]}]} //"));
+    }
+
+    @Test(expected = TextIndexException.class)
+    public void testCommentRejected() {
+        CqlParser.parse("{\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"WA\"]} /* note */");
+    }
+
+    /** The client's text closes "args" and repeats "op", turning the "and" into an "or". */
+    @Test(expected = TextIndexException.class)
+    public void testInjectionReplacingOperatorRejected() {
+        CqlParser.parse(guardFirst(
+            "{\"op\":\"=\",\"args\":[{\"property\":\"state\"},\"WA\"]}],\"op\":\"or\",\"x\":["));
+    }
+
     private static void assertInstanceOf(Class<?> expected, Object actual) {
         assertTrue("Expected " + expected.getSimpleName() + " but got " + actual.getClass().getSimpleName(),
             expected.isInstance(actual));

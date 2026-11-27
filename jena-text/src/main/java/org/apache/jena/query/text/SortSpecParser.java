@@ -25,7 +25,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import org.apache.jena.atlas.json.JSON;
 import org.apache.jena.atlas.json.JsonArray;
 import org.apache.jena.atlas.json.JsonObject;
 import org.apache.jena.atlas.json.JsonValue;
@@ -57,7 +56,7 @@ public class SortSpecParser {
     private static final List<String> KEYS = List.of("field", "order", "selector", "missing");
 
     public static List<SortSpec> parse(String json) {
-        JsonValue val = JSON.parseAny(json);
+        JsonValue val = StrictJson.parseAny(json);
         if (val.isArray()) {
             return parseArray(val.getAsArray());
         } else if (val.isObject()) {
