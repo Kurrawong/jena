@@ -28,16 +28,22 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.jena.assembler.Assembler;
 import org.apache.jena.graph.Node;
 import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.query.Dataset;
+import org.apache.jena.query.QueryExecution;
+import org.apache.jena.query.QueryExecutionFactory;
 import org.apache.jena.query.ReadWrite;
 import org.apache.jena.query.text.DatasetGraphText;
+import org.apache.jena.query.text.FacetValue;
+import org.apache.jena.query.text.ShaclTextIndexLucene;
 import org.apache.jena.query.text.TextHit;
 import org.apache.jena.query.text.TextIndex;
 import org.apache.jena.rdf.model.Model;
@@ -214,5 +220,48 @@ public class TestBuildOnStartupAssembler {
         dataset = assemble("    ; text:buildOnStartup true\n", "    text:indexes ( ex:index ) ;\n");
         assertEquals(Set.of(NS + "thing1", NS + "thing2"), titleSearch(dataset, "widget"),
             "text:indexes should honour text:buildOnStartup too");
+    }
+
+    /**
+     * Facet counts need the taxonomy, which follows {@code text:directory "mem"} into
+     * memory. A startup build that wrote documents but no taxonomy would pass the
+     * searches above and count nothing here.
+     */
+    @Test
+    public void startupBuildProducesFacetCounts() throws IOException {
+        dataset = assemble("    ; text:buildOnStartup true\n", "    text:index ex:index ;\n");
+        ShaclTextIndexLucene index = (ShaclTextIndexLucene) indexOf(dataset);
+
+        Map<String, Long> counts = new HashMap<>();
+        for (FacetValue fv : index.getFacetCounts(List.of("kind"), 10).get("kind")) {
+            counts.put(fv.getValue(), fv.getCount());
+        }
+        assertEquals(Map.of("red", 1L, "blue", 1L), counts);
+    }
+
+    /**
+     * The same counts through {@code luc:facet}. The index API call above says nothing
+     * about the property function's argument list.
+     */
+    @Test
+    public void startupBuildProducesFacetCountsThroughSparql() throws IOException {
+        dataset = assemble("    ; text:buildOnStartup true\n", "    text:index ex:index ;\n");
+
+        String sparql = "PREFIX luc: <urn:jena:lucene:index#>\n"
+            + "SELECT ?value ?count WHERE {\n"
+            + "  (?field ?value ?low ?high ?count) luc:facet (\n"
+            + "    \"default\" \"default\" \"*\"\n"
+            + "    '[\"urn:jena:lucene:field#kind\"]'\n"
+            + "    \"\" 10 0)\n"
+            + "}";
+        Map<String, Integer> counts = new HashMap<>();
+        dataset.begin(ReadWrite.READ);
+        try (QueryExecution qexec = QueryExecutionFactory.create(sparql, dataset)) {
+            qexec.execSelect().forEachRemaining(qs ->
+                counts.put(qs.getLiteral("value").getString(), qs.getLiteral("count").getInt()));
+        } finally {
+            dataset.end();
+        }
+        assertEquals(Map.of("red", 1, "blue", 1), counts);
     }
 }

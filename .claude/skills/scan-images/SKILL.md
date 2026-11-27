@@ -53,9 +53,9 @@ task scan SCAN_SEVERITY=CRITICAL,HIGH,MEDIUM # widen severity
   (`task loader-build` / `task runtime-build`).
 
 > **Scan the *right* image.** A scan only describes the exact local tag you point it at, and
-> `demo/` consumes the same `fuseki-lucene-shacl` / `fuseki-lucene-shacl-loader` tags it can
-> also pull from GHCR — so a stale or pulled image can be scanned in place of the one your
-> working tree would build. For an accurate scan of current source, rebuild from the root
+> the same `fuseki-lucene-shacl` / `fuseki-lucene-shacl-loader` tags can also be pulled from
+> GHCR — so a stale or pulled image can be scanned in place of the one your working tree
+> would build. For an accurate scan of current source, rebuild from the root
 > Taskfile first (`task runtime-build` / `task loader-build`) and confirm `Metadata.OS` in the
 > JSON report reads `redhat` (the UBI base).
 

@@ -22,11 +22,8 @@
 package org.apache.jena.query.text;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.net.URL;
 import java.util.*;
 
 import org.apache.jena.assembler.Assembler;
@@ -45,21 +42,21 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * The mining demo's two indexes over one dataset: {@code reference} for the classes,
- * properties and controlled terms in {@code demo/test/data/reference.ttl}, and
- * {@code instance} for the sites, boreholes and reports.
+ * Two indexes over one dataset: {@code reference} for the classes, properties and
+ * controlled terms in {@code reference-index/data.ttl}, and {@code instance} for the
+ * sites that use them.
  * <p>
- * Assembled from {@code demo/deploy/config.ttl} as the demo image does. Each test is a
- * question a search panel asks of one index or the other.
+ * Assembled from {@code reference-index/config.ttl} on the test classpath. Each test is
+ * a question a search panel asks of one index or the other.
  */
-public class TestDemoReferenceIndex {
+public class TestReferenceIndex {
 
     static {
         JenaSystem.init();
         TextAssembler.init();
     }
 
-    private static final String EX = "http://example.org/mining/";
+    private static final String EX = "http://example.org/ref/";
     private static final String FIELD = "urn:jena:lucene:field#";
     private static final String PREFIXES =
         "PREFIX luc: <urn:jena:lucene:index#>\n"
@@ -79,28 +76,15 @@ public class TestDemoReferenceIndex {
 
     // ---- set-up
 
-    private static Path demoDir() {
-        Path dir = Paths.get("").toAbsolutePath();
-        while (dir != null) {
-            Path candidate = dir.resolve("demo");
-            if (Files.isDirectory(candidate.resolve("deploy"))) {
-                return candidate;
-            }
-            dir = dir.getParent();
-        }
-        return null;
+    /** A file under {@code reference-index/} on the test classpath. */
+    private static String resource(String name) {
+        URL url = TestReferenceIndex.class.getClassLoader().getResource("reference-index/" + name);
+        assertNotNull(url, "reference-index/" + name + " not on the test classpath");
+        return url.toString();
     }
 
-    private static Path demoFile(String relative) {
-        Path demo = demoDir();
-        assumeTrue(demo != null, "demo/ not found from the working directory");
-        Path file = demo.resolve(relative);
-        assumeTrue(Files.exists(file), relative + " not found");
-        return file;
-    }
-
-    private static Dataset assembleDeployed() {
-        Model spec = AssemblerUtils.readAssemblerFile(demoFile("deploy/config.ttl").toString());
+    private static Dataset assemble() {
+        Model spec = AssemblerUtils.readAssemblerFile(resource("config.ttl"));
         Resource root = GraphUtils.findRootByType(spec, TextVocab.textDataset);
         return (Dataset) Assembler.general().open(root);
     }
@@ -133,8 +117,8 @@ public class TestDemoReferenceIndex {
         return "'" + s.replace("\\", "\\\\").replace("'", "\\'") + "'";
     }
 
-    private static Model load(String relative) {
-        return RDFDataMgr.loadModel(demoFile(relative).toString());
+    private static Model loadData() {
+        return RDFDataMgr.loadModel(resource("data.ttl"));
     }
 
     // ---- the reference index
@@ -142,7 +126,7 @@ public class TestDemoReferenceIndex {
     /** Typeahead: the first letters of a term's label find it. */
     @Test
     public void typeaheadFindsATermFromItsFirstLetters() {
-        dataset = assembleDeployed();
+        dataset = assemble();
         List<String> hits = search("reference", "[\"" + FIELD + "termLabelPrefix\"]", "Cop", "", "");
         assertTrue(hits.contains(EX + "commodity/Copper"), "Cop should suggest Copper: " + hits);
     }
@@ -150,39 +134,39 @@ public class TestDemoReferenceIndex {
     /** Dropdown: every term in one scheme, in label order. */
     @Test
     public void aSchemeListsItsTermsInLabelOrder() {
-        dataset = assembleDeployed();
+        dataset = assemble();
         String filter = "{\"op\":\"=\",\"args\":[{\"property\":\"" + FIELD + "scheme\"},\"" + EX + "states\"]}";
         String sort = "{\"field\":\"" + FIELD + "termLabelExact\",\"order\":\"asc\"}";
         List<String> hits = search("reference", "default", "*", filter, sort);
 
-        Model reference = load("test/data/reference.ttl");
+        Model reference = loadData();
         Resource states = reference.createResource(EX + "states");
         List<Resource> expected = new ArrayList<>(
             reference.listSubjectsWithProperty(SKOS.inScheme, states).toList());
         expected.sort(Comparator.comparing(r -> r.getProperty(RDFS.label).getString()));
         List<String> expectedIris = expected.stream().map(Resource::getURI).toList();
 
-        assertFalse(expectedIris.isEmpty(), "reference.ttl defines no states");
+        assertFalse(expectedIris.isEmpty(), "data.ttl defines no states");
         assertEquals(expectedIris, hits);
     }
 
     /** A property is found by the words that describe it, not only its name. */
     @Test
     public void aPropertyIsFoundByItsDescription() {
-        dataset = assembleDeployed();
+        dataset = assemble();
         assertTrue(search("reference", "metres").contains(EX + "depth"));
     }
 
     @Test
     public void aPropertyIsFoundByItsName() {
-        dataset = assembleDeployed();
+        dataset = assemble();
         assertTrue(search("reference", "commodity").contains(EX + "commodity"));
     }
 
     /** What kind of term each hit is: a concept, a class or a property. */
     @Test
     public void termsFacetByKind() {
-        dataset = assembleDeployed();
+        dataset = assemble();
         String q = PREFIXES
             + "SELECT ?value ?count WHERE {\n"
             + "  (?field ?value ?low ?high ?count) luc:facet ('reference' 'default' '*' "
@@ -197,7 +181,7 @@ public class TestDemoReferenceIndex {
             dataset.end();
         }
 
-        Model reference = load("test/data/reference.ttl");
+        Model reference = loadData();
         for (Resource kind : List.of(SKOS.Concept, RDFS.Class, RDF.Property)) {
             int defined = reference.listSubjectsWithProperty(RDF.type, kind).toList().size();
             assertEquals(defined, counts.getOrDefault(kind.getURI(), 0), "count for " + kind);
@@ -208,7 +192,7 @@ public class TestDemoReferenceIndex {
 
     @Test
     public void theInstanceIndexHoldsNoReferenceData() {
-        dataset = assembleDeployed();
+        dataset = assemble();
         List<String> hits = search("instance", "Copper");
         assertFalse(hits.isEmpty(), "instance data mentions copper");
         assertFalse(hits.contains(EX + "commodity/Copper"));
@@ -217,14 +201,14 @@ public class TestDemoReferenceIndex {
 
     @Test
     public void theReferenceIndexHoldsNoInstanceData() {
-        dataset = assembleDeployed();
+        dataset = assemble();
         assertFalse(search("reference", "Brolga").contains(EX + "site-brolga-ridge"));
     }
 
     /** One dataset, two change listeners: a new term goes to the reference index only. */
     @Test
     public void aTermAddedLiveIsIndexedAsReference() {
-        dataset = assembleDeployed();
+        dataset = assemble();
         dataset.begin(ReadWrite.WRITE);
         try {
             Model m = dataset.getDefaultModel();
@@ -242,53 +226,11 @@ public class TestDemoReferenceIndex {
         assertFalse(search("instance", "Nickel").contains(EX + "commodity/Nickel"));
     }
 
-    // ---- the data itself
-
-    /**
-     * reference.ttl is maintained by hand, and generate.py no longer writes terms. A term
-     * used in the instance data and missing here would have no label and no entry in
-     * the reference index.
-     */
-    @Test
-    public void everyTermTheInstanceDataUsesIsDefined() {
-        Model reference = load("test/data/reference.ttl");
-        Model instance = ModelFactory.createDefaultModel();
-        instance.add(load("test/data/mining.ttl"));
-        instance.add(load("test/data/generated.ttl"));
-
-        List<Property> termProperties = List.of(
-            instance.createProperty(EX + "commodity"),
-            instance.createProperty(EX + "state"),
-            instance.createProperty(EX + "operator"),
-            instance.createProperty(EX + "status"),
-            instance.createProperty("http://www.w3.org/ns/prov#hadRole"));
-        Set<String> missing = new TreeSet<>();
-        for (Property p : termProperties) {
-            instance.listObjectsOfProperty(p).forEachRemaining(term -> {
-                Resource r = reference.createResource(term.asResource().getURI());
-                if (!reference.contains(r, RDF.type, SKOS.Concept) || !r.hasProperty(RDFS.label)) {
-                    missing.add(term.toString());
-                }
-            });
-        }
-        assertEquals(Set.of(), missing, "terms used in the instance data but not defined in reference.ttl");
-    }
-
-    @Test
-    public void theInstanceDataDefinesNoTerms() {
-        Model instance = ModelFactory.createDefaultModel();
-        instance.add(load("test/data/mining.ttl"));
-        instance.add(load("test/data/generated.ttl"));
-        for (Resource kind : List.of(SKOS.Concept, SKOS.ConceptScheme, RDFS.Class, RDF.Property)) {
-            assertFalse(instance.contains(null, RDF.type, kind), "instance data defines a " + kind);
-        }
-    }
-
     // ---- configuration
 
     @Test
     public void bothIndexesExposeTheirConfiguration() {
-        dataset = assembleDeployed();
+        dataset = assemble();
         for (String index : List.of("instance", "reference")) {
             String q = "PREFIX luc: <urn:jena:lucene:index#>\n"
                 + "CONSTRUCT { ?s ?p ?o } WHERE { (?s ?p ?o) luc:config (" + quote(index) + ") }";
